@@ -1,0 +1,16 @@
+build/
+cmake-build-*/
+.idea/
+.vscode/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.log
+*.tmp
+*.bak
+*.out
+*.bin
+*.cxrec
+bench-output/
+recordings/
