@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+exec "$APP_DIR/run.sh" build "$@"

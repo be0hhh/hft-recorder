@@ -1,0 +1,88 @@
+#pragma once
+
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+#include <cstdint>
+#include <atomic>
+#include <mutex>
+
+#include "core/capture/ChannelJsonWriter.hpp"
+#include "core/capture/SessionManifest.hpp"
+#include "core/common/Status.hpp"
+
+namespace cxet {
+namespace composite {
+struct OrderBookSnapshot;
+}  // namespace composite
+}  // namespace cxet
+
+namespace hftrec::capture {
+
+struct CaptureConfig {
+    std::string exchange{"binance"};
+    std::string market{"futures_usd"};
+    std::vector<std::string> symbols{};
+    std::filesystem::path outputDir{"./recordings"};
+    std::int64_t durationSec{1800};
+    std::int64_t snapshotIntervalSec{60};
+};
+
+class CaptureCoordinator {
+  public:
+    CaptureCoordinator();
+    ~CaptureCoordinator();
+
+    Status ensureSession(const CaptureConfig& config) noexcept;
+    Status startTrades(const CaptureConfig& config) noexcept;
+    Status stopTrades() noexcept;
+    Status startBookTicker(const CaptureConfig& config) noexcept;
+    Status stopBookTicker() noexcept;
+    Status startOrderbook(const CaptureConfig& config) noexcept;
+    Status stopOrderbook() noexcept;
+    Status finalizeSession() noexcept;
+
+    const SessionManifest& manifest() const noexcept { return manifest_; }
+    SessionManifest manifestCopy() const;
+    std::filesystem::path sessionDirCopy() const;
+    const std::filesystem::path& sessionDir() const noexcept { return sessionDir_; }
+    bool tradesRunning() const noexcept { return tradesRunning_.load(std::memory_order_acquire); }
+    bool bookTickerRunning() const noexcept { return bookTickerRunning_.load(std::memory_order_acquire); }
+    bool orderbookRunning() const noexcept { return orderbookRunning_.load(std::memory_order_acquire); }
+    std::uint64_t tradesCount() const noexcept { return tradesCount_.load(std::memory_order_relaxed); }
+    std::uint64_t bookTickerCount() const noexcept { return bookTickerCount_.load(std::memory_order_relaxed); }
+    std::uint64_t depthCount() const noexcept { return depthCount_.load(std::memory_order_relaxed); }
+    std::string lastError() const;
+
+  private:
+    void resetSessionState() noexcept;
+    bool sessionOpen() const noexcept;
+    Status writeSnapshotFile(const cxet::composite::OrderBookSnapshot& snapshot,
+                             std::uint64_t snapshotIndex) noexcept;
+
+    SessionManifest manifest_{};
+    std::filesystem::path sessionDir_{};
+    ChannelJsonWriter tradesWriter_{};
+    ChannelJsonWriter bookTickerWriter_{};
+    ChannelJsonWriter depthWriter_{};
+    CaptureConfig config_{};
+    std::atomic<bool> tradesRunning_{false};
+    std::atomic<bool> bookTickerRunning_{false};
+    std::atomic<bool> orderbookRunning_{false};
+    std::atomic<bool> tradesStop_{false};
+    std::atomic<bool> bookTickerStop_{false};
+    std::atomic<bool> orderbookStop_{false};
+    std::atomic<std::uint64_t> tradesCount_{0};
+    std::atomic<std::uint64_t> bookTickerCount_{0};
+    std::atomic<std::uint64_t> depthCount_{0};
+    std::atomic<std::uint64_t> snapshotCount_{0};
+    mutable std::mutex stateMutex_{};
+    std::thread tradesThread_{};
+    std::thread bookTickerThread_{};
+    std::thread orderbookThread_{};
+    std::string lastError_{};
+};
+
+}  // namespace hftrec::capture

@@ -1,0 +1,27 @@
+#include <QGuiApplication>
+#include <QQmlApplicationEngine>
+#include <QUrl>
+
+#include "gui/models/SessionListModel.hpp"
+#include "gui/viewmodels/AppViewModel.hpp"
+#include "gui/viewmodels/CaptureViewModel.hpp"
+
+int main(int argc, char* argv[]) {
+    QGuiApplication app(argc, argv);
+
+    qmlRegisterType<hftrec::gui::SessionListModel>("HftRecorder", 1, 0, "SessionListModel");
+    qmlRegisterType<hftrec::gui::AppViewModel>("HftRecorder", 1, 0, "AppViewModel");
+    qmlRegisterType<hftrec::gui::CaptureViewModel>("HftRecorder", 1, 0, "CaptureViewModel");
+
+    QQmlApplicationEngine engine;
+    engine.addImportPath(QStringLiteral("qrc:/"));
+    QObject::connect(
+        &engine,
+        &QQmlApplicationEngine::objectCreationFailed,
+        &app,
+        []() { QCoreApplication::exit(-1); },
+        Qt::QueuedConnection);
+    engine.load(QUrl(QStringLiteral("qrc:/HftRecorder/qml/Main.qml")));
+
+    return app.exec();
+}
