@@ -176,3 +176,33 @@ The output of this research should probably be:
 - one winner for replay
 
 and possibly different winners per stream type.
+
+---
+
+## Concrete custom-codec variants (implementation targets)
+
+The research catalog above stays exploratory. For the first implementation
+pass, these are the seven `codec_id` values enumerated in
+[FILE_FORMAT.md](FILE_FORMAT.md). Every one of them is a candidate that must
+be built and benchmarked; the eventual "winner" per stream emerges from the
+bench matrix, not from this document.
+
+| # | `codec_id` | Label | Description | Expected ratio (vs VARINT) | Expected decode | Best for (hypothesis) |
+|---|-----------|-------|-------------|----------------------------|-----------------|----------------------|
+| 1 | `0x01` | `VARINT` | Delta + ZigZag + LEB128 VarInt. No entropy coder. | 1.00× (baseline) | very fast (~2 GB/s) | Live recording; baseline for all bench comparisons |
+| 2 | `0x02` | `AC_BIN16_CTX0` | Binary AC, 16-bit prob precision, single global context | ~1.3× | ~180 MB/s | Proof-of-concept AC layer; not expected to be a winner |
+| 3 | `0x03` | `AC_BIN16_CTX8` | `AC_BIN16` + 8-bit context = low byte of last emitted payload byte (256 models) | ~1.7× | ~200 MB/s | Archive profile — `aggTrade`, `bookTicker` |
+| 4 | `0x04` | `AC_BIN16_CTX12` | 12-bit context = field_id(4) \| bit_position(4) \| recent_byte_high(4) (4096 models, fits L1) | ~1.8× | ~180 MB/s | Archive profile — `orderbook_delta` (more field variety) |
+| 5 | `0x05` | `AC_BIN32_CTX8` | Same as `AC_BIN16_CTX8` but 32-bit prob precision (needs `__uint128_t` multiply) | ~1.8× | ~130 MB/s | Ratio ceiling reference; not expected to beat CTX12 meaningfully |
+| 6 | `0x06` | `RANGE_CTX8` | Subbotin range coder (64-bit Low / 32-bit Range), 8-bit context | ~1.7× | ~250 MB/s | Live profile — fast encode, reasonable ratio |
+| 7 | `0x07` | `RANS_CTX8` | rANS order-1, 8-bit context, quasi-adaptive rebuild at every 512-event block. AVX2 4-way interleaved decode. | ~1.7× | ~700 MB/s (scalar) / ~1430 MB/s (AVX2) | Replay profile — archive stays in this format for fast backtest load |
+
+See:
+- [ARITHMETIC_CODING.md](ARITHMETIC_CODING.md) for the AC / range-coder theory and the Subbotin & rANS pseudocode.
+- [DELTA_ENCODING.md](DELTA_ENCODING.md) for the per-field input the codecs receive.
+- [BENCHMARK_PLAN.md](BENCHMARK_PLAN.md) for the 7 × 4 stream measurement grid that decides which hypothesis survives.
+
+All seven codecs share the same delta-encoding front-end; only the entropy
+stage differs. This keeps the implementation cost manageable and means a
+single captured `.cxrec` file (in `VARINT` format) is enough to re-bench every
+codec offline — no re-capture needed when tuning.

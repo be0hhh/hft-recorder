@@ -65,29 +65,51 @@ passing to the arithmetic coder bit-by-bit.
 
 ---
 
-### Stream: depth@100ms (`OrderBookDelta`)
+### Stream: depth@0ms (`OrderBookDelta`, raw diff book updates)
 
-State: `{last_updateId, last_ts, bid_levels{}, ask_levels{}}`
+State carried between events: `{last_updateId, last_ts, bid_levels{}, ask_levels{}}`
+where `bid_levels` and `ask_levels` are price→qty maps maintained by the encoder
+to compute price deltas relative to the nearest existing level (sorted order).
 
-The level maps are maintained by the encoder to compute price deltas relative to
-the nearest existing level (sorted order).
+Binance fapi emits depth diffs as fast as the book changes (typically
+10–20 events per second per symbol, no artificial 100 ms throttling).
 
 | Field | Encoding | Typical range | Notes |
 |-------|----------|--------------|-------|
-| `delta_updateId` | ZigZag VarInt | 1–3 | Usually 1 per 100 ms message |
-| `delta_ts` | ZigZag VarInt | 95 000 000–105 000 000 ns | Near-constant; fits in ~27 bits raw, ~4 bits delta from 100ms nominal |
-| `bid_count` | uint8 raw | 0–20 | Number of bid level changes |
+| `delta_updateId` | ZigZag VarInt | 1–3 | Usually 1 per diff message; gap → GAP_MARKER block, state reset |
+| `delta_ts` | ZigZag VarInt | 0–200 000 000 ns | Large variance — raw diff, not throttled |
+| `bid_count` | uint8 raw | 0–20 | Number of bid level changes in this event |
 | `ask_count` | uint8 raw | 0–20 | |
 | `bid[i].delta_price` | ZigZag VarInt vs nearest | ±1–±20 ticks | Sorted, delta from previous level |
-| `bid[i].qty` | VarInt raw | varies | 0 = level removed |
+| `bid[i].qty` | VarInt raw | varies | `qty = 0` means "delete level" (Binance semantics) |
 | `ask[i].delta_price` | ZigZag VarInt | ±1–±20 ticks | |
-| `ask[i].qty` | VarInt raw | varies | |
+| `ask[i].qty` | VarInt raw | varies | `qty = 0` = delete |
+
+#### Block-start absolute values
+
+The **first event in each block** (and the first event after a `CODER_RESET`
+block) writes **absolute** values for `updateId`, `ts`, and every level's
+`price` and `qty` — not deltas. Subsequent events in the same block use
+the delta forms from the table above.
+
+```
+on block_start or coder_reset:
+    state = {last_updateId: 0, last_ts: 0, bid_levels: {}, ask_levels: {}}
+    write absolute updateId, ts, per-level (price, qty)
+on subsequent event in same block:
+    write delta_updateId, delta_ts, per-level (delta_price, qty)
+```
+
+This rule ensures every block is a self-contained random-access unit — a
+decoder can begin at any `CODER_RESET` or block boundary without carrying
+state from earlier in the file.
 
 #### Level price delta scheme
 
-Bid levels are sorted descending; ask levels ascending. Within a batch,
-price deltas are computed relative to the **previous level in the same batch**
-(first level: delta from last batch's first level).
+Bid levels are sorted descending; ask levels ascending. Within an event,
+price deltas are computed relative to the **previous level in the same event**
+(first level: delta from the previous event's top level in the same side, or
+absolute on block start).
 
 ```
 batch_bids = sort(incoming_bids, descending)
@@ -96,6 +118,20 @@ delta_price[i] = zigzag(batch_bids[i].price - batch_bids[i-1].price)  // i > 0
 ```
 
 This keeps deltas small even when multiple levels change simultaneously.
+
+#### GAP_MARKER (level deletion)
+
+Binance uses `qty = 0` on a diff level to mean "remove this level from the
+book". The encoder treats this as a natural gap marker: when a level that
+existed in `state.bid_levels` is absent from the current event, the encoder
+emits a record with `delta_price` relative to that stale level and `qty = 0`.
+The decoder recognizes `qty == 0` as the deletion signal and removes the
+level from its reconstructed book.
+
+> Rationale (WHY): `qty == 0` is the exchange-native delete encoding; reusing
+> it as our GAP_MARKER costs zero extra bits and stays byte-for-byte identical
+> to the upstream semantics, so round-trip against captured raw payloads is
+> trivially auditable.
 
 ---
 
@@ -121,7 +157,7 @@ are 0 in ~60% of events (only quantity changed), giving the AC model very low en
 
 Snapshot is encoded as a single block. No delta encoding relative to previous events
 (it's a one-shot full state dump). Prices within the snapshot are delta-encoded
-**relative to the previous level** (sorted order), same as depth@100ms batch:
+**relative to the previous level** (sorted order), same as the `depth@0ms` per-event scheme:
 
 ```
 bids sorted descending:
@@ -133,18 +169,41 @@ This compresses well because order book levels are closely spaced.
 
 ---
 
-### Stream: fundingRate (`FundingRate`)
+### Stream: fundingRate
 
-| Field | Encoding | Typical range | Notes |
-|-------|----------|--------------|-------|
-| `delta_ts` | ZigZag VarInt | ~3 000 000 000 ns (3 s) | Near-constant interval |
-| `markPrice` | VarInt raw | 8–9 digits (×1e8) | Not delta'd — infrequent, no benefit |
-| `indexPrice` | VarInt raw | same | |
-| `fundingRate` | ZigZag VarInt | ±0–±100 000 (±0.001) | Small signed value |
-| `nextFundingTime` | VarInt raw | 8-byte absolute ts | Rare change; encoded raw |
+Excluded from MVP. `stream_type` range `0x05..0xFF` is reserved in the file
+format; if added later, follow the same per-field delta template used above.
 
-Funding rate events are so infrequent (~1 every 3 seconds) that compression
-gains are minimal — simplicity is preferred over optimization here.
+---
+
+## Context Byte Synchronization
+
+The arithmetic-coder context (see [ARITHMETIC_CODING.md](ARITHMETIC_CODING.md))
+for `CTX8` / `CTX12` depends in part on a "recent byte" of the output payload.
+For encoder and decoder to compute the same context, both must maintain an
+identical `last_payload_byte` state automaton:
+
+```
+initial state on block_start / coder_reset:
+    last_payload_byte = 0x00
+
+encoder: after emitting each full VarInt byte of the delta-encoded stream:
+    last_payload_byte = that byte
+
+decoder: after reconstructing each full VarInt byte:
+    last_payload_byte = that byte
+```
+
+The context is taken from `last_payload_byte`, **not** from the raw `int64`
+delta values — this keeps the context synchronous even when the underlying
+numeric deltas overflow intermediate integer types, and avoids the decoder
+needing to reconstruct the arithmetic-decoded integer before it knows the
+next context.
+
+> Rationale (WHY): fixing the context to an already-emitted output byte makes
+> encoder/decoder sync trivial. If context depended on the still-being-decoded
+> integer, the decoder would need to speculatively buffer bits before it knew
+> which probability to use — a classic chicken-and-egg problem.
 
 ---
 
@@ -175,8 +234,8 @@ and the field type to predict each incoming bit.
 | aggTrade | delta_price | ±3 ticks | ±30 ticks | 4 bits ZZ |
 | aggTrade | delta_ts | 2 ms | 20 ms | 21 bits |
 | aggTrade | delta_id | 1 | 3 | 2 bits ZZ |
-| depth@100ms | delta_ts | ~100 ms ±2 ms | ±10 ms | 4 bits from nominal |
-| depth@100ms | level delta_price | ±5 ticks | ±50 ticks | 5 bits ZZ |
+| depth@0ms | delta_ts | 50 ms | 200 ms | 26 bits |
+| depth@0ms | level delta_price | ±5 ticks | ±50 ticks | 5 bits ZZ |
 | bookTicker | delta_bidPrice | 0 ticks | ±3 ticks | 1 bit ZZ |
 | bookTicker | delta_ts | 0.2 ms | 2 ms | 18 bits |
 

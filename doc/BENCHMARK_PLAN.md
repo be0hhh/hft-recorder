@@ -231,3 +231,69 @@ Do this first for:
 - `bookTicker`
 
 Then expand to orderbook.
+
+---
+
+## Custom-codec implementation grid (7 × 4)
+
+The seven concrete codec variants defined in
+[CODEC_VARIANTS.md](CODEC_VARIANTS.md) are benchmarked against all four MVP
+stream families. That gives a **7 × 4 = 28-cell** measurement grid.
+
+### Measurement unit: one block
+
+The offline bench tool (`hft-recorder-bench`) consumes a captured `.cxrec`
+file (VARINT baseline), decodes each block to recover the raw event stream,
+and then re-encodes each block through every codec. Metrics are recorded
+**per block**, not per file — this gives per-block p50/p95/p99 distributions
+rather than a single summary number.
+
+Per-block metrics:
+
+| Metric | Unit | Source |
+|--------|------|--------|
+| `encode_ns` | nanoseconds | `RDTSC` wrapped around the encode call, converted via `TscCalibration` |
+| `decode_ns` | nanoseconds | same, around decode |
+| `bytes_in` | bytes | block's uncompressed delta-encoded payload size |
+| `bytes_out` | bytes | `compressed_size` from block header |
+| `ratio` | — | `bytes_in / bytes_out` |
+| `encode_mb_s` | MB/s | `bytes_in / (encode_ns * 1e-9) / 2^20` |
+| `decode_mb_s` | MB/s | `bytes_in / (decode_ns * 1e-9) / 2^20` |
+| `roundtrip_ok` | bool | `decoded == original` byte-for-byte — gate on every block |
+
+### Metric export
+
+Each bench run pushes a gauge vector to a Prometheus Pushgateway:
+
+```
+hft_recorder_bench_ratio{codec, stream, quantile}          = double
+hft_recorder_bench_encode_mb_s{codec, stream, quantile}    = double
+hft_recorder_bench_decode_mb_s{codec, stream, quantile}    = double
+hft_recorder_bench_peak_bytes{codec, stream}               = uint64
+```
+
+`quantile` ∈ `{p50, p95, p99}`. `codec` ∈ the 7 labels. `stream` ∈ `{aggTrade,
+depth0ms, bookTicker, snapshot}`.
+
+A Grafana dashboard (shipped alongside the app in `grafana/dashboards/`)
+reads these gauges directly and renders:
+
+- ratio bar chart per stream, grouped by codec (tallest bar = best ratio)
+- decode MB/s bar chart per stream (tallest = best replay speed)
+- encode MB/s bar chart per stream (tallest = most live-capable)
+- a summary table that highlights the best codec per stream per profile
+  (archive / live / replay) — the "per-stream winners" required by
+  `RESEARCH_PROGRAM.md`.
+
+### Grid execution order
+
+Run the grid in this order — stop and fix if any earlier cell fails
+roundtrip:
+
+1. VARINT × {aggTrade, depth0ms, bookTicker, snapshot} (sanity — must match source byte-for-byte)
+2. AC_BIN16_CTX0 × all streams (AC layer validation)
+3. AC_BIN16_CTX8 × all streams (context layer validation)
+4. AC_BIN16_CTX12 × all streams
+5. AC_BIN32_CTX8 × all streams (precision upgrade)
+6. RANGE_CTX8 × all streams (Subbotin carry validation)
+7. RANS_CTX8 × all streams (rebuild + SIMD decode validation)

@@ -121,13 +121,19 @@ prob1_fixed16(c) = ((count1[c] + 1) * 65536) / (count0[c] + count1[c] + 2)
 after encoding/decoding bit b in context c:
     if b == 1: count1[c]++
     else:      count0[c]++
-    if (count0[c] + count1[c]) > MAX_COUNT:
-        count0[c] >>= 1      // halve to forget old data
-        count1[c] >>= 1
+    if (count0[c] + count1[c]) >= MAX_COUNT:
+        count0[c] = (count0[c] + 1) >> 1   // round-up halving
+        count1[c] = (count1[c] + 1) >> 1
 ```
 
-`MAX_COUNT = 4096` is a reasonable default (tunable per stream type).
-Halving preserves the ratio while adapting to distribution shifts (e.g. after a news event).
+`MAX_COUNT = 4096` — LZMA tradition; small enough that the probability model
+tracks non-stationary tick statistics (news events, regime changes) but large
+enough that single-bit noise doesn't perturb `prob1` from event to event.
+
+The `+1` before shift is important: plain `>> 1` on a count of `1` yields `0`,
+which breaks the Laplace `(count1 + 1) / (total + 2)` smoothing invariant.
+Round-up halving preserves a non-zero tail while still approximately halving
+the sum.
 
 ### Laplace Smoothing
 
@@ -227,6 +233,69 @@ and is emitted as the next output byte when normalization runs. No special carry
 buffering is needed. This is simpler than the pure AC carry-byte approach and
 is the recommended implementation base for RANGE_CTX8 and AC_BIN16_CTX8.
 
+#### Byte-by-byte carry-propagation algorithm
+
+Using the Subbotin state shape (`Low` = 64-bit, `Range` = 32-bit), the emit loop
+during renormalization is:
+
+```
+// constants
+TOP_VALUE   = 1 << 32           // Range stays in [TOP_VALUE >> 8, TOP_VALUE)
+CARRY_VALUE = 1 << 32           // Low overflow threshold, equals TOP_VALUE by design
+
+// emit state (persists across renorm calls within the block):
+// uint64 Low
+// uint32 Range
+// uint8  buffered_byte        // last committed high byte of Low
+// uint32 buffered_count       // number of 0xFF bytes delayed pending carry
+// bool   first_byte_emitted   // suppresses the very first buffered byte
+
+renormalize_emit(out):
+    while Range < TOP_VALUE >> 8:            // Range shrunk below 2^24
+        high = uint8(Low >> 32)              // candidate byte to emit
+        if high < 0xFF:
+            flush(out, buffered_byte, buffered_count, carry=0)
+            buffered_byte  = high
+            buffered_count = 0
+        elif high > 0xFF:                    // carry propagated into bit 32+
+            flush(out, buffered_byte, buffered_count, carry=1)
+            buffered_byte  = high & 0xFF     // = 0x00 after carry
+            buffered_count = 0
+        else:                                // high == 0xFF: defer, may still carry
+            buffered_count += 1
+        Low   = (Low << 8) & ((1ULL << 40) - 1)   // shift out emitted byte
+        Range = Range << 8
+
+flush(out, byte, count, carry):
+    if !first_byte_emitted:
+        first_byte_emitted = true
+        // drop the initial uninitialized byte
+    else:
+        out.put(byte + carry)                // carry adds 1 to the buffered byte
+    fill = carry ? 0x00 : 0xFF               // carry → flushed 0xFFs become 0x00
+    for _ in 0..count:
+        out.put(fill)
+```
+
+Why the 64-bit `Low` works: the high byte of `Low` only carries into bits 32+
+when the 32-bit `Range` is narrower than the pending carry chain. Because
+`Low` has 32 reserve bits above the emit-point (bit 32), any cascade of
+`0xFF` bytes shorter than 2^32 bytes is safely buffered. In practice the
+cascade is at most a few bytes, so `buffered_count` is a small `uint32`.
+
+On block flush, any remaining `buffered_count` 0xFFs are emitted as zero
+or `0xFF` based on the final value of bit 32 of `Low`:
+
+```
+flush_block(out):
+    final_carry = (Low >> 32) != 0
+    flush(out, buffered_byte, buffered_count, carry=final_carry ? 1 : 0)
+    // emit enough tail bytes of Low to ensure any value in [Low, Low+Range) is
+    // representable by the bytes already emitted plus the tail:
+    for i in 0..4:
+        out.put(uint8(Low >> (24 - 8*i)))
+```
+
 ---
 
 ## rANS (Asymmetric Numeral Systems)
@@ -293,6 +362,59 @@ update — expensive. The practical solution for RANS_CTX8:
 
 This sacrifices some ratio vs fully adaptive AC but maintains rANS decode speed.
 The ratio loss is small for stationary tick data (< 5% vs per-symbol adaptive).
+
+#### Quasi-adaptive rebuild pseudocode
+
+```
+// Parameters (tunable; defaults justified in the WHY notes below)
+constexpr uint32_t M            = 1u << 14   // total frequency sum (= 16384)
+constexpr uint32_t CTX_SIZE     = 1u << 8    // 256 for CTX8, 4096 for CTX12
+constexpr uint32_t MAX_COUNT    = 4096       // halving threshold (LZMA tradition)
+
+// Per-context running counts (populated as bits are encoded/decoded)
+uint16_t count0[CTX_SIZE]
+uint16_t count1[CTX_SIZE]
+
+// Per-context frequencies and CDF, rebuilt at every block boundary and reset.
+uint16_t freq[CTX_SIZE][2]
+uint16_t cdf [CTX_SIZE][3]   // cdf[c][0]=0, cdf[c][1]=freq0, cdf[c][2]=M
+uint32_t rcp [CTX_SIZE][2]   // rcp[c][s] = floor((1<<31) / freq[c][s]) for SIMD decode
+
+rebuild_cdf():
+    for c in 0 .. CTX_SIZE - 1:
+        uint32_t c0 = count0[c] + 1      // Laplace +1 — never zero
+        uint32_t c1 = count1[c] + 1
+        uint32_t total = c0 + c1
+        // Scale (c0, c1) so their sum is exactly M.
+        uint32_t f0 = max(1u, (c0 * M) / total)
+        uint32_t f1 = M - f0              // exact complement preserves invariant
+        if f1 == 0:
+            f1 = 1
+            f0 = M - 1
+        freq[c][0] = uint16_t(f0)
+        freq[c][1] = uint16_t(f1)
+        cdf [c][0] = 0
+        cdf [c][1] = uint16_t(f0)
+        cdf [c][2] = uint16_t(M)
+        rcp [c][0] = (1u << 31) / f0
+        rcp [c][1] = (1u << 31) / f1
+
+// Called after rebuild_cdf() on each block-end hook; also on CODER_RESET.
+```
+
+Why `M = 2^14 = 16384`: keeps `cumFreq` in 14 bits (fits in `uint16_t` with
+margin), which is the sweet spot for rANS state renormalization — each decode
+step consumes at most 14 entropy bits and the state stays in `[2^16, 2^32)`.
+Larger `M` means finer probability precision but longer renorm loops and a
+larger reciprocal table.
+
+The scaling by `M/total` introduces rounding error ≤ 1/M per context — small
+enough that compression ratio loss vs. a floating-point probability model is
+≤ 0.1% on empirical tick data.
+
+The reciprocal table `rcp[c][s]` enables the SIMD decode path: division by
+`freq[c][s]` is replaced by a multiply-high by `rcp[c][s]`, which parallelises
+cleanly under AVX2.
 
 ### Comparison: AC vs rANS for tick data
 
@@ -366,7 +488,7 @@ init_decoder(bitstream):
 | Stream | VarInt bytes/event | AC-CTX8 bytes/event | Ratio |
 |--------|-------------------|---------------------|-------|
 | aggTrade | ~20 | ~12–14 | 1.4–1.7× |
-| depth@100ms per level | ~8 | ~4–6 | 1.4–2.0× |
+| depth@0ms per level | ~8 | ~4–6 | 1.4–2.0× |
 | bookTicker | ~18 | ~8–10 | 1.8–2.2× |
 
 These are estimates based on Shannon entropy analysis of ETHUSDT tick data.

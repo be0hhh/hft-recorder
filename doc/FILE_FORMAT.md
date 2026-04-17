@@ -48,13 +48,16 @@ All multi-byte integers are **little-endian**.
 | 32 | 8 | `int64` | `start_ts` | File start timestamp (nanoseconds since epoch) |
 | 40 | 8 | `uint64` | `event_count_total` | Total events written (updated on close) |
 | 48 | 8 | `uint64` | `block_count_total` | Total blocks written (updated on close) |
-| 56 | 8 | `uint64` | `_reserved2` | Must be zero |
+| 56 | 4 | `uint32` | `_reserved2` | Must be zero |
+| 60 | 4 | `uint32` | `header_crc32c` | CRC-32C of bytes 0..59 of this header |
 
 Total: 64 bytes.
 
 > Note: `event_count_total` and `block_count_total` are written as zero on open and
 > patched by `pwrite` on close. A file truncated mid-write will show zeros — the
-> reader must handle this gracefully.
+> reader must handle this gracefully. The `header_crc32c` is computed **after**
+> the close-time patch and written in the same `pwrite` transaction as the
+> `event_count_total` / `block_count_total` update.
 
 ---
 
@@ -84,15 +87,63 @@ use the same codec).
 
 ---
 
+## Block Flush Policy
+
+A recorder thread flushes the current block whenever **any** of the following
+thresholds is reached (whichever fires first):
+
+| Threshold | Value | Why this value |
+|-----------|-------|----------------|
+| `event_count` | `512` events | Matches the rANS quasi-adaptive rebuild boundary — the block boundary doubles as the model rebuild boundary, avoiding sub-block model drift. |
+| `elapsed_wall_time` | `1` second | Caps write latency for slow streams (e.g. funding-style low-frequency data): at most 1 s between a live event and it being durable on disk. |
+| `uncompressed_payload_bytes` | `256` KB | Caps per-block RAM (encoder working set fits in L2). Also caps the data lost on unclean shutdown. |
+
+A block is additionally forced on:
+- `SIGTERM` / `SIGINT` (graceful shutdown path)
+- file rotation boundary (see "File Rotation" below)
+- `GAP_MARKER` emission (see block_type table)
+
+---
+
+## CODER_RESET and Error Recovery
+
+Every `1024` blocks, and on file rotation, the recorder emits a dedicated
+`CODER_RESET` block (`block_type = 0x04`, `compressed_size = 0`, `event_count = 0`).
+This block has no payload; the reader drains its adaptive model state on seeing it:
+
+- Binary AC / range coder: all `count0[c]`, `count1[c]` → reset to the Laplace prior (0,0).
+- rANS: `count0[c]`, `count1[c]` → prior; `rebuild_cdf()` runs with the prior distribution.
+- Delta encoder: `last_price`, `last_ts`, `last_id`, level maps → cleared (the **next** data block is required to start with absolute values, same as block-start semantics in [DELTA_ENCODING.md](DELTA_ENCODING.md)).
+
+This serves two purposes:
+1. **Random-access replay** — a reader that wants to seek into the file forwards to the nearest `CODER_RESET` and starts decoding from there without needing the preceding block chain.
+2. **Recovery after corruption** — on CRC mismatch, the reader skips data blocks until the next `CODER_RESET` and resumes, losing at most one reset window.
+
+---
+
+## Bitstream End and Block Payload Padding
+
+The AC/rANS bitstream inside a data block is not byte-aligned during encode.
+On block flush the encoder:
+1. Flushes the final interval (emits `ceil(log2(1 / (R − L)))` bits derived from `L`).
+2. Pads the last byte with zero bits up to a byte boundary.
+3. Writes the resulting byte count into `compressed_size` in the block header.
+
+The decoder uses `event_count` from the block header as the stop condition — it
+decodes exactly that many events and ignores any trailing padding bits in the
+final byte.
+
+---
+
 ## stream_type Codes
 
 | Value | Name | Description |
 |-------|------|-------------|
 | `0x01` | `AGG_TRADE` | `aggTrade` stream — `TradePublic` events |
-| `0x02` | `DEPTH_UPDATE` | `depth@100ms` incremental book updates |
+| `0x02` | `DEPTH_UPDATE` | `depth@0ms` raw diff book updates (one event per exchange emit, ~10–20 ev/s/symbol) |
 | `0x03` | `BOOK_TICKER` | `bookTicker` best bid/ask events |
-| `0x04` | `DEPTH_SNAPSHOT` | Full order book REST snapshot |
-| `0x05` | `FUNDING_RATE` | Funding rate / mark price events |
+| `0x04` | `DEPTH_SNAPSHOT` | Full order book REST snapshot (periodic, 60 s) |
+| `0x05`–`0xFF` | _reserved_ | Reserved for future use (e.g. funding/mark — excluded from MVP) |
 
 ---
 
