@@ -7,6 +7,33 @@ import HftRecorder 1.0
 Pane {
     id: root
 
+    property color windowColor: "#161616"
+    property color panelColor: "#2c2c2f"
+    property color panelAltColor: "#3c3c3c"
+    property color borderColor: "#3c3d3f"
+    property color textColor: "#f5f5f5"
+    property color mutedTextColor: "#b6b6b6"
+    property color accentBuyColor: "#24c2cb"
+    property color accentSellColor: "#da2536"
+
+    component DarkButton: Button {
+        id: control
+        background: Rectangle {
+            radius: 8
+            color: control.enabled ? root.panelAltColor : "#232326"
+            border.color: control.enabled ? root.borderColor : "#313136"
+            border.width: 1
+        }
+        contentItem: Text {
+            text: control.text
+            color: control.enabled ? root.textColor : root.mutedTextColor
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+    }
+
+    background: Rectangle { color: root.windowColor }
+
     CaptureViewModel {
         id: captureVm
     }
@@ -14,9 +41,7 @@ Pane {
     FolderDialog {
         id: folderDialog
         title: "Choose parent directory for session folders"
-        onAccepted: {
-            captureVm.setOutputDirectory(selectedFolder.toString().replace("file:///", ""))
-        }
+        onAccepted: captureVm.setOutputDirectory(selectedFolder.toString().replace("file:///", ""))
     }
 
     ScrollView {
@@ -31,18 +56,19 @@ Pane {
                 text: "Live Capture"
                 font.pixelSize: 26
                 font.bold: true
+                color: root.textColor
             }
 
             Label {
                 text: "Binance FAPI / ETHUSDT / canonical normalized JSON corpus"
-                color: "#666666"
+                color: root.mutedTextColor
             }
 
             Rectangle {
                 Layout.fillWidth: true
                 radius: 12
-                color: "#f5f7fb"
-                border.color: "#d8deea"
+                color: root.panelColor
+                border.color: root.borderColor
                 border.width: 1
                 implicitHeight: infoColumn.implicitHeight + 24
 
@@ -52,7 +78,7 @@ Pane {
                     anchors.margins: 12
                     spacing: 10
 
-                    Label { text: "Parent Directory" ; font.bold: true }
+                    Label { text: "Parent Directory"; font.bold: true; color: root.textColor }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -62,25 +88,34 @@ Pane {
                             Layout.fillWidth: true
                             text: captureVm.outputDirectory
                             readOnly: true
+                            color: root.textColor
+                            selectedTextColor: root.textColor
+                            selectionColor: root.accentBuyColor
+                            background: Rectangle {
+                                radius: 8
+                                color: root.panelAltColor
+                                border.color: root.borderColor
+                                border.width: 1
+                            }
                         }
 
-                        Button {
+                        DarkButton {
                             text: "Choose Folder"
                             onClicked: folderDialog.open()
                         }
                     }
 
-                    Label { text: "Session ID: " + (captureVm.sessionId === "" ? "<not started>" : captureVm.sessionId) }
-                    Label { text: "Session Path: " + (captureVm.sessionPath === "" ? "<not created>" : captureVm.sessionPath) }
-                    Label { text: "Status: " + captureVm.statusText; wrapMode: Text.WordWrap }
+                    Label { text: "Session ID: " + (captureVm.sessionId === "" ? "<not started>" : captureVm.sessionId); color: root.textColor }
+                    Label { text: "Session Path: " + (captureVm.sessionPath === "" ? "<not created>" : captureVm.sessionPath); color: root.textColor }
+                    Label { text: "Status: " + captureVm.statusText; wrapMode: Text.WordWrap; color: root.mutedTextColor }
                 }
             }
 
             Rectangle {
                 Layout.fillWidth: true
                 radius: 12
-                color: "#fffaf1"
-                border.color: "#ead8a7"
+                color: root.panelColor
+                border.color: root.borderColor
                 border.width: 1
                 implicitHeight: controlsColumn.implicitHeight + 24
 
@@ -93,6 +128,7 @@ Pane {
                     Label {
                         text: "Capture Controls"
                         font.bold: true
+                        color: root.textColor
                     }
 
                     RowLayout {
@@ -100,41 +136,51 @@ Pane {
                         spacing: 10
 
                         Button {
+                            id: tradesButton
                             text: captureVm.tradesRunning ? "Stop Trades" : "Start Trades"
                             onClicked: {
-                                if (captureVm.tradesRunning) {
+                                if (captureVm.tradesRunning)
                                     captureVm.stopTrades()
-                                } else {
+                                else
                                     captureVm.startTrades()
-                                }
+                            }
+                            background: Rectangle {
+                                radius: 8
+                                color: captureVm.tradesRunning ? root.accentSellColor : root.accentBuyColor
+                                border.color: captureVm.tradesRunning ? root.accentSellColor : root.accentBuyColor
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: tradesButton.text
+                                color: "#101314"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
                         }
 
-                        Button {
+                        DarkButton {
                             text: captureVm.bookTickerRunning ? "Stop BookTicker" : "Start BookTicker"
                             onClicked: {
-                                if (captureVm.bookTickerRunning) {
+                                if (captureVm.bookTickerRunning)
                                     captureVm.stopBookTicker()
-                                } else {
+                                else
                                     captureVm.startBookTicker()
-                                }
                             }
                         }
 
-                        Button {
+                        DarkButton {
                             text: captureVm.orderbookRunning ? "Stop Orderbook" : "Start Orderbook"
                             onClicked: {
-                                if (captureVm.orderbookRunning) {
+                                if (captureVm.orderbookRunning)
                                     captureVm.stopOrderbook()
-                                } else {
+                                else
                                     captureVm.startOrderbook()
-                                }
                             }
                         }
 
                         Item { Layout.fillWidth: true }
 
-                        Button {
+                        DarkButton {
                             text: "Finalize Session"
                             onClicked: captureVm.finalizeSession()
                         }
@@ -142,75 +188,8 @@ Pane {
 
                     Label {
                         text: "Orderbook button contract: first REST snapshot, then WS deltas into depth.jsonl."
-                        color: "#755d1d"
+                        color: root.mutedTextColor
                         wrapMode: Text.WordWrap
-                    }
-                }
-            }
-
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 3
-                columnSpacing: 12
-                rowSpacing: 12
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 12
-                    color: "#eef7ff"
-                    border.color: "#bfd8ef"
-                    border.width: 1
-                    implicitHeight: tradesColumn.implicitHeight + 24
-
-                    ColumnLayout {
-                        id: tradesColumn
-                        anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 8
-
-                        Label { text: "Trades"; font.bold: true }
-                        Label { text: "State: " + (captureVm.tradesRunning ? "running" : "idle") }
-                        Label { text: "Events: " + captureVm.tradesCount }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 12
-                    color: "#eefcf3"
-                    border.color: "#c6e7d3"
-                    border.width: 1
-                    implicitHeight: l1Column.implicitHeight + 24
-
-                    ColumnLayout {
-                        id: l1Column
-                        anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 8
-
-                        Label { text: "BookTicker / L1"; font.bold: true }
-                        Label { text: "State: " + (captureVm.bookTickerRunning ? "running" : "idle") }
-                        Label { text: "Events: " + captureVm.bookTickerCount }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 12
-                    color: "#fff2f2"
-                    border.color: "#ecc3c3"
-                    border.width: 1
-                    implicitHeight: depthColumn.implicitHeight + 24
-
-                    ColumnLayout {
-                        id: depthColumn
-                        anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 8
-
-                        Label { text: "Orderbook Deltas"; font.bold: true }
-                        Label { text: "State: " + (captureVm.orderbookRunning ? "running" : "idle") }
-                        Label { text: "Events: " + captureVm.depthCount }
                     }
                 }
             }

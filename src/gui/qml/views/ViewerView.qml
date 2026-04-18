@@ -7,163 +7,482 @@ Pane {
     id: root
     padding: 0
 
-    background: Rectangle { color: "#0E0E12" }
+    property color windowColor: "#161616"
+    property color chromeColor: "#202024"
+    property color panelColor: "#2c2c2f"
+    property color panelAltColor: "#35353a"
+    property color borderColor: "#49494f"
+    property color textColor: "#f5f5f5"
+    property color mutedTextColor: "#aaaaaf"
+    property color accentBuyColor: "#24c2cb"
+    property color chartColor: "#202022"
+    property color scaleColor: "#26262b"
+    property int priceTickCount: 6
+    property int timeTickCount: 5
+    property string selectedSessionId: ""
+    property bool showTradesLayer: true
+    property bool showOrderbookLayer: false
+    property bool showBookTickerLayer: false
+    property bool plotDragging: false
+    property bool priceScaleDragging: false
+    property bool timeScaleDragging: false
+
+    function syncChannelView() {
+        if (selectedSessionId === "") {
+            chart.resetSession()
+            return
+        }
+        chart.loadSession("./recordings/" + selectedSessionId)
+    }
+
+    function ensureSessionSelection() {
+        if (sessionPicker.count <= 0) {
+            selectedSessionId = ""
+            chart.resetSession()
+            return
+        }
+
+        var desiredIndex = sessionPicker.find(selectedSessionId)
+        if (desiredIndex < 0)
+            desiredIndex = Math.max(0, sessionPicker.currentIndex)
+        if (desiredIndex < 0)
+            desiredIndex = 0
+
+        sessionPicker.currentIndex = desiredIndex
+        var nextSessionId = sessionPicker.textAt(desiredIndex)
+        if (nextSessionId === "")
+            nextSessionId = sessionPicker.currentText
+
+        if (selectedSessionId !== nextSessionId) {
+            selectedSessionId = nextSessionId
+            syncChannelView()
+        } else if (chart.loaded !== true) {
+            syncChannelView()
+        }
+    }
+
+    component ChromeButton: Button {
+        id: control
+        background: Rectangle {
+            radius: 7
+            color: control.down ? root.panelAltColor : root.panelColor
+            border.color: root.borderColor
+            border.width: 1
+        }
+        contentItem: Text {
+            text: control.text
+            color: root.textColor
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            font.pixelSize: 13
+        }
+    }
+
+    component ChannelButton: Button {
+        id: control
+        property bool active: false
+        property bool pending: false
+        background: Rectangle {
+            radius: 7
+            color: control.active ? root.panelAltColor : root.panelColor
+            border.color: control.active ? root.accentBuyColor : root.borderColor
+            border.width: 1
+        }
+        contentItem: Text {
+            text: control.pending ? control.text + " Soon" : control.text
+            color: control.active ? root.textColor : root.mutedTextColor
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            font.pixelSize: 13
+            font.bold: control.active
+        }
+    }
+
+    background: Rectangle { color: root.windowColor }
 
     SessionListModel { id: sessionsModel; Component.onCompleted: reload() }
-    ChartController   { id: chart }
+    ChartController { id: chart }
+    Component.onCompleted: Qt.callLater(root.ensureSessionSelection)
+
+    Connections {
+        target: sessionsModel
+        function onModelReset() {
+            Qt.callLater(root.ensureSessionSelection)
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
-        // Row 1: session dropdown + open-whole-session.
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 42
-            spacing: 8
-
-            Label {
-                text: "Session:"
-                color: "#D4D4D4"
-                Layout.leftMargin: 12
-            }
-            ComboBox {
-                id: sessionPicker
-                Layout.fillWidth: true
-                model: sessionsModel
-                textRole: "sessionId"
-                onActivated: {
-                    if (currentIndex < 0) return
-                    chart.loadSession("./recordings/" + currentText)
-                }
-            }
-            Button {
-                text: "Reload"
-                onClicked: sessionsModel.reload()
-            }
-            Button {
-                text: "Open"
-                onClicked: {
-                    if (sessionPicker.currentIndex < 0) return
-                    chart.loadSession("./recordings/" + sessionPicker.currentText)
-                }
-            }
-            Item { Layout.preferredWidth: 12 }
-        }
-
-        // Row 2: manual path entry for individual channels.
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 38
-            spacing: 6
-
-            Label {
-                text: "Path:"
-                color: "#D4D4D4"
-                Layout.leftMargin: 12
-            }
-            TextField {
-                id: pathField
-                Layout.fillWidth: true
-                placeholderText: "e.g. ./recordings/<sid>/trades.jsonl  (or snapshot_000.json / bookticker.jsonl / depth.jsonl)"
-                selectByMouse: true
-            }
-            Button { text: "+ Snapshot";   onClicked: chart.addSnapshotFile(pathField.text)   }
-            Button { text: "+ Trades";     onClicked: chart.addTradesFile(pathField.text)     }
-            Button { text: "+ BookTicker"; onClicked: chart.addBookTickerFile(pathField.text) }
-            Button { text: "+ Depth";      onClicked: chart.addDepthFile(pathField.text)      }
-            Button { text: "Reset";        onClicked: chart.resetSession() }
-            Button { text: "Finalize";     onClicked: chart.finalizeFiles() }
-            Item { Layout.preferredWidth: 12 }
-        }
-
-        // Row 3: zoom / navigation.
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 32
-            spacing: 6
-
-            Label {
-                text: "View:"
-                color: "#D4D4D4"
-                Layout.leftMargin: 12
-            }
-            Button { text: "Fit"; onClicked: chart.autoFit() }
-            Button { text: "|<";  onClicked: chart.jumpToStart() }
-            Button { text: ">|";  onClicked: chart.jumpToEnd() }
-            Button { text: "−T";  onClicked: chart.zoomTime(0.5) }
-            Button { text: "+T";  onClicked: chart.zoomTime(2.0) }
-            Button { text: "−P";  onClicked: chart.zoomPrice(0.5) }
-            Button { text: "+P";  onClicked: chart.zoomPrice(2.0) }
-            Item { Layout.fillWidth: true }
-            Label {
-                color: "#808090"
-                text: "drag = pan, wheel = zoom time, Ctrl+wheel = zoom price"
-            }
-            Item { Layout.preferredWidth: 12 }
-        }
-
-        // Status line.
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 22
-            color: "#151521"
-            Label {
+            Layout.preferredHeight: 50
+            color: root.chromeColor
+            border.color: root.borderColor
+            border.width: 1
+
+            RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 12
-                verticalAlignment: Text.AlignVCenter
-                color: "#A0A0B0"
-                text: chart.statusText +
-                      (chart.loaded
-                        ? "  |  events=" + (chart.tradeCount + chart.depthCount) +
-                          "  viewport ts: " + chart.tsMin + "..." + chart.tsMax +
-                          "  price: " + (chart.priceMinE8 / 1e8).toFixed(4) +
-                          "..." + (chart.priceMaxE8 / 1e8).toFixed(4)
-                        : "")
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 10
+
+                Label {
+                    text: "Session:"
+                    color: root.textColor
+                    font.pixelSize: 14
+                }
+
+                ComboBox {
+                    id: sessionPicker
+                    Layout.fillWidth: true
+                    model: sessionsModel
+                    textRole: "sessionId"
+
+                    background: Rectangle {
+                        radius: 7
+                        color: root.panelColor
+                        border.color: root.borderColor
+                        border.width: 1
+                    }
+
+                    contentItem: Text {
+                        leftPadding: 12
+                        rightPadding: 12
+                        text: sessionPicker.displayText
+                        color: root.textColor
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                        font.pixelSize: 13
+                    }
+
+                    indicator: Canvas {
+                        x: sessionPicker.width - width - 10
+                        y: (sessionPicker.height - height) / 2
+                        width: 12
+                        height: 8
+                        contextType: "2d"
+                        onPaint: {
+                            context.reset()
+                            context.fillStyle = root.mutedTextColor
+                            context.beginPath()
+                            context.moveTo(0, 0)
+                            context.lineTo(width, 0)
+                            context.lineTo(width / 2, height)
+                            context.closePath()
+                            context.fill()
+                        }
+                    }
+
+                    delegate: ItemDelegate {
+                        id: delegateControl
+                        required property int index
+                        required property string sessionId
+                        width: sessionPicker.width
+                        text: sessionId
+                        highlighted: sessionPicker.highlightedIndex === index
+                        background: Rectangle {
+                            color: delegateControl.highlighted ? root.panelAltColor : root.panelColor
+                        }
+                        contentItem: Text {
+                            text: delegateControl.text
+                            color: root.textColor
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                            font.pixelSize: 13
+                        }
+                    }
+
+                    popup: Popup {
+                        y: sessionPicker.height + 4
+                        width: sessionPicker.width
+                        padding: 4
+                        background: Rectangle {
+                            radius: 7
+                            color: root.panelColor
+                            border.color: root.borderColor
+                            border.width: 1
+                        }
+                        contentItem: ListView {
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: sessionPicker.popup.visible ? sessionPicker.delegateModel : null
+                            currentIndex: sessionPicker.highlightedIndex
+                        }
+                    }
+
+                    onActivated: {
+                        if (currentIndex < 0)
+                            return
+                        selectedSessionId = currentText
+                        syncChannelView()
+                    }
+
+                    onCountChanged: Qt.callLater(root.ensureSessionSelection)
+                }
+
+                ChromeButton {
+                    text: "Reload"
+                    onClicked: {
+                        sessionsModel.reload()
+                        Qt.callLater(root.ensureSessionSelection)
+                    }
+                }
             }
         }
 
-        // Chart area.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 48
+            color: root.chromeColor
+            border.color: root.borderColor
+            border.width: 1
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 8
+
+                ChannelButton {
+                    text: "Trades"
+                    active: root.showTradesLayer
+                    onClicked: {
+                        root.showTradesLayer = !root.showTradesLayer
+                        if (root.showTradesLayer && !chart.loaded && root.selectedSessionId !== "")
+                            root.syncChannelView()
+                    }
+                }
+
+                ChannelButton {
+                    text: "Orderbook"
+                    pending: true
+                    active: root.showOrderbookLayer
+                    onClicked: {
+                        root.showOrderbookLayer = !root.showOrderbookLayer
+                    }
+                }
+
+                ChannelButton {
+                    text: "BookTicker"
+                    pending: true
+                    active: root.showBookTickerLayer
+                    onClicked: {
+                        root.showBookTickerLayer = !root.showBookTickerLayer
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+        }
+
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            ChartItem {
-                id: chartItem
+            Rectangle {
                 anchors.fill: parent
-                controller: chart
+                color: root.chartColor
+            }
+
+            Item {
+                id: plotFrame
+                anchors.fill: parent
+                anchors.rightMargin: 88
+                anchors.bottomMargin: 38
+
+                ChartItem {
+                    id: chartItem
+                    anchors.fill: parent
+                    controller: chart
+                    tradesVisible: root.showTradesLayer
+                }
 
                 MouseArea {
                     anchors.fill: parent
                     property real lastX: 0
                     property real lastY: 0
-                    property bool dragging: false
                     acceptedButtons: Qt.LeftButton
+                    hoverEnabled: true
+                    preventStealing: true
 
                     onPressed: function(mouse) {
+                        root.plotDragging = true
                         lastX = mouse.x
                         lastY = mouse.y
-                        dragging = true
+                        chartItem.clearHover()
                     }
-                    onReleased: dragging = false
+
                     onPositionChanged: function(mouse) {
-                        if (!dragging) return
-                        var dx = mouse.x - lastX
-                        var dy = mouse.y - lastY
-                        lastX = mouse.x
-                        lastY = mouse.y
-                        if (chartItem.width > 0)
-                            chart.panTime(-dx / chartItem.width)
-                        if (chartItem.height > 0)
-                            chart.panPrice(dy / chartItem.height)
+                        if (mouse.buttons & Qt.LeftButton) {
+                            var dx = mouse.x - lastX
+                            var dy = mouse.y - lastY
+                            lastX = mouse.x
+                            lastY = mouse.y
+                            chart.panTime(-dx / Math.max(1, width))
+                            chart.panPrice(dy / Math.max(1, height))
+                            return
+                        }
+                        if (root.priceScaleDragging || root.timeScaleDragging)
+                            return
+                        if (!root.showTradesLayer)
+                            return
+                        chartItem.setHoverPoint(mouse.x, mouse.y)
                     }
+
+                    onReleased: root.plotDragging = false
+                    onCanceled: root.plotDragging = false
+                    onExited: chartItem.clearHover()
+
                     onWheel: function(wheel) {
-                        var factor = wheel.angleDelta.y > 0 ? 1.25 : 0.8
-                        if (wheel.modifiers & Qt.ControlModifier)
-                            chart.zoomPrice(factor)
-                        else
-                            chart.zoomTime(factor)
+                        chartItem.clearHover()
+                        var factor = wheel.angleDelta.y > 0 ? 1.18 : 0.84
+                        chart.zoomTime(factor)
+                        chart.zoomPrice(factor)
+                        wheel.accepted = true
                     }
+                }
+            }
+
+            Rectangle {
+                id: priceScale
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.bottom: timeScale.top
+                width: 88
+                color: root.scaleColor
+                border.color: root.borderColor
+                border.width: 1
+
+                Repeater {
+                    model: root.priceTickCount
+                    delegate: Item {
+                        required property int index
+                        property real tickRatio: index / Math.max(1, root.priceTickCount - 1)
+                        width: priceScale.width
+                        height: 20
+                        y: (priceScale.height - height) * tickRatio
+
+                        Label {
+                            anchors.right: parent.right
+                            anchors.rightMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: {
+                                let _ = chart.priceMinE8 + chart.priceMaxE8
+                                return chart.formatPriceAt(parent.tickRatio)
+                            }
+                            color: root.mutedTextColor
+                            font.pixelSize: 12
+                        }
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    property real lastY: 0
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    cursorShape: Qt.SizeVerCursor
+                    preventStealing: true
+
+                    onPressed: function(mouse) {
+                        root.priceScaleDragging = true
+                        lastY = mouse.y
+                        chartItem.clearHover()
+                    }
+
+                    onPositionChanged: function(mouse) {
+                        if (!(mouse.buttons & Qt.LeftButton) && !(mouse.buttons & Qt.RightButton))
+                            return
+                        var dy = mouse.y - lastY
+                        lastY = mouse.y
+                        chart.zoomPrice(Math.exp(-dy * 0.012))
+                    }
+
+                    onReleased: root.priceScaleDragging = false
+                    onCanceled: root.priceScaleDragging = false
+                }
+            }
+
+            Rectangle {
+                id: timeScale
+                anchors.left: parent.left
+                anchors.right: priceScale.left
+                anchors.bottom: parent.bottom
+                height: 38
+                color: root.scaleColor
+                border.color: root.borderColor
+                border.width: 1
+
+                Repeater {
+                    model: root.timeTickCount
+                    delegate: Item {
+                        required property int index
+                        property real tickRatio: index / Math.max(1, root.timeTickCount - 1)
+                        width: 70
+                        height: timeScale.height
+                        x: (timeScale.width - width) * tickRatio
+
+                        Label {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: {
+                                let _ = chart.tsMin + chart.tsMax
+                                return chart.formatTimeAt(parent.tickRatio)
+                            }
+                            color: root.mutedTextColor
+                            font.pixelSize: 12
+                        }
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    property real lastX: 0
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    cursorShape: Qt.SizeHorCursor
+                    preventStealing: true
+
+                    onPressed: function(mouse) {
+                        root.timeScaleDragging = true
+                        lastX = mouse.x
+                        chartItem.clearHover()
+                    }
+
+                    onPositionChanged: function(mouse) {
+                        if (!(mouse.buttons & Qt.LeftButton) && !(mouse.buttons & Qt.RightButton))
+                            return
+                        var dx = mouse.x - lastX
+                        lastX = mouse.x
+                        chart.zoomTime(Math.exp(dx * 0.012))
+                    }
+
+                    onReleased: root.timeScaleDragging = false
+                    onCanceled: root.timeScaleDragging = false
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.leftMargin: 16
+                anchors.topMargin: 14
+                radius: 8
+                color: "#2b2b31"
+                border.color: root.borderColor
+                border.width: 1
+                visible: root.showOrderbookLayer || root.showBookTickerLayer || !root.showTradesLayer
+                implicitWidth: layerStatusText.implicitWidth + 20
+                implicitHeight: layerStatusText.implicitHeight + 12
+
+                Label {
+                    id: layerStatusText
+                    anchors.centerIn: parent
+                    text: !root.showTradesLayer
+                          ? "Trades hidden"
+                          : "Orderbook / BookTicker soon"
+                    color: root.mutedTextColor
+                    font.pixelSize: 12
                 }
             }
         }

@@ -2,25 +2,21 @@
 
 #include <QObject>
 #include <QString>
-#include <memory>
 
 #include "core/replay/SessionReplay.hpp"
 
 namespace hftrec::gui::viewer {
 
-// Controller that owns a SessionReplay and exposes the current viewport
-// (time + price bounds) to QML. ChartItem renders whatever the controller
-// points at — one ChartItem → one ChartController → one session on disk.
 class ChartController : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString sessionDir READ sessionDir NOTIFY sessionChanged)
-    Q_PROPERTY(bool    loaded      READ loaded     NOTIFY sessionChanged)
-    Q_PROPERTY(QString statusText  READ statusText NOTIFY statusChanged)
+    Q_PROPERTY(bool loaded READ loaded NOTIFY sessionChanged)
+    Q_PROPERTY(QString statusText READ statusText NOTIFY statusChanged)
 
     Q_PROPERTY(qint64 firstTsNs READ firstTsNs NOTIFY sessionChanged)
-    Q_PROPERTY(qint64 lastTsNs  READ lastTsNs  NOTIFY sessionChanged)
-    Q_PROPERTY(qint64 tsMin     READ tsMin     NOTIFY viewportChanged)
-    Q_PROPERTY(qint64 tsMax     READ tsMax     NOTIFY viewportChanged)
+    Q_PROPERTY(qint64 lastTsNs READ lastTsNs NOTIFY sessionChanged)
+    Q_PROPERTY(qint64 tsMin READ tsMin NOTIFY viewportChanged)
+    Q_PROPERTY(qint64 tsMax READ tsMax NOTIFY viewportChanged)
     Q_PROPERTY(qint64 priceMinE8 READ priceMinE8 NOTIFY viewportChanged)
     Q_PROPERTY(qint64 priceMaxE8 READ priceMaxE8 NOTIFY viewportChanged)
 
@@ -31,13 +27,13 @@ class ChartController : public QObject {
     explicit ChartController(QObject* parent = nullptr);
 
     QString sessionDir() const { return sessionDir_; }
-    bool    loaded()      const { return loaded_; }
-    QString statusText()  const { return statusText_; }
+    bool loaded() const { return loaded_; }
+    QString statusText() const { return statusText_; }
 
     qint64 firstTsNs() const { return replay_.firstTsNs(); }
-    qint64 lastTsNs()  const { return replay_.lastTsNs(); }
-    qint64 tsMin()     const { return tsMin_; }
-    qint64 tsMax()     const { return tsMax_; }
+    qint64 lastTsNs() const { return replay_.lastTsNs(); }
+    qint64 tsMin() const { return tsMin_; }
+    qint64 tsMax() const { return tsMax_; }
     qint64 priceMinE8() const { return priceMinE8_; }
     qint64 priceMaxE8() const { return priceMaxE8_; }
 
@@ -46,10 +42,6 @@ class ChartController : public QObject {
 
     Q_INVOKABLE bool loadSession(const QString& dir);
 
-    // Build a composite session by picking individual JSONL files. Call
-    // resetSession() first (optional, loadSession does it), then any of the
-    // addXxx() calls (each may include a leading "file:///" URL), then
-    // finalizeFiles() to sort events and refresh the viewport.
     Q_INVOKABLE void resetSession();
     Q_INVOKABLE bool addTradesFile(const QString& path);
     Q_INVOKABLE bool addBookTickerFile(const QString& path);
@@ -59,16 +51,19 @@ class ChartController : public QObject {
 
     Q_INVOKABLE void setViewport(qint64 tsMin, qint64 tsMax,
                                  qint64 priceMinE8, qint64 priceMaxE8);
-    Q_INVOKABLE void panTime(double fraction);   // fraction of current window
+    Q_INVOKABLE void panTime(double fraction);
     Q_INVOKABLE void panPrice(double fraction);
-    Q_INVOKABLE void zoomTime(double factor);    // >1 zoom in
+    Q_INVOKABLE void zoomTime(double factor);
     Q_INVOKABLE void zoomPrice(double factor);
     Q_INVOKABLE void autoFit();
     Q_INVOKABLE void jumpToStart();
     Q_INVOKABLE void jumpToEnd();
+    Q_INVOKABLE QString formatPriceAt(double ratio) const;
+    Q_INVOKABLE QString formatTimeAt(double ratio) const;
+    Q_INVOKABLE QString formatPriceScaleLabel(int index, int tickCount) const;
+    Q_INVOKABLE QString formatTimeScaleLabel(int index, int tickCount) const;
 
-    // Not Q_INVOKABLE — accessed by ChartItem via C++ pointer.
-    hftrec::replay::SessionReplay&       replay()       noexcept { return replay_; }
+    hftrec::replay::SessionReplay& replay() noexcept { return replay_; }
     const hftrec::replay::SessionReplay& replay() const noexcept { return replay_; }
 
   signals:
@@ -82,7 +77,7 @@ class ChartController : public QObject {
     hftrec::replay::SessionReplay replay_{};
     QString sessionDir_{};
     QString statusText_{"No session loaded"};
-    bool    loaded_{false};
+    bool loaded_{false};
 
     qint64 tsMin_{0};
     qint64 tsMax_{0};

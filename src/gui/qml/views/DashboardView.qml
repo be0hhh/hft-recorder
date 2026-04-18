@@ -2,11 +2,20 @@ import QtQuick
 import QtQuick.Controls
 
 Pane {
+    QtObject {
+        id: palette
+        readonly property color window: "#161616"
+        readonly property color text: "#f5f5f5"
+        readonly property color muted: "#b6b6b6"
+    }
+
+    background: Rectangle { color: palette.window }
+
     Column {
         spacing: 12
         anchors.fill: parent
         anchors.margins: 16
-        Label { text: "Dashboard" }
-        Label { text: "Ranking cards, ratio bars, and speed-vs-ratio charts will live here." }
+        Label { text: "Dashboard"; color: palette.text }
+        Label { text: "Ranking cards, ratio bars, and speed-vs-ratio charts will live here."; color: palette.muted }
     }
 }

@@ -1,5 +1,6 @@
 #include "gui/viewer/ChartController.hpp"
 
+#include <QDateTime>
 #include <algorithm>
 #include <filesystem>
 
@@ -7,11 +8,88 @@ namespace hftrec::gui::viewer {
 
 namespace {
 
+constexpr std::int64_t kOneCentE8 = 1000000ll;
+constexpr std::int64_t kOneMsNs = 1000000ll;
+
+std::int64_t ceilToStep(std::int64_t value, std::int64_t step) {
+    if (step <= 0) return value;
+    if (value >= 0) return ((value + step - 1) / step) * step;
+    return (value / step) * step;
+}
+
+std::int64_t floorToStep(std::int64_t value, std::int64_t step) {
+    if (step <= 0) return value;
+    if (value >= 0) return (value / step) * step;
+    return ((value - step + 1) / step) * step;
+}
+
+std::int64_t nicePriceStepE8(std::int64_t spanE8, int tickCount) {
+    const auto safeTicks = std::max(2, tickCount);
+    std::int64_t rawStep = spanE8 / static_cast<std::int64_t>(safeTicks - 1);
+    rawStep = std::max(rawStep, kOneCentE8);
+
+    std::int64_t magnitude = 1;
+    while (magnitude <= rawStep / 10) magnitude *= 10;
+
+    for (;;) {
+        const std::int64_t candidates[] = {magnitude, magnitude * 2, magnitude * 5, magnitude * 10};
+        for (const auto candidate : candidates) {
+            if (candidate >= rawStep) return candidate;
+        }
+        magnitude *= 10;
+    }
+}
+
+std::int64_t niceTimeStepNs(std::int64_t spanNs, int tickCount) {
+    static constexpr std::int64_t kCandidates[] = {
+        100ll * kOneMsNs,
+        200ll * kOneMsNs,
+        500ll * kOneMsNs,
+        1000ll * kOneMsNs,
+        2000ll * kOneMsNs,
+        5000ll * kOneMsNs,
+        10000ll * kOneMsNs,
+        15000ll * kOneMsNs,
+        30000ll * kOneMsNs,
+        60000ll * kOneMsNs,
+        120000ll * kOneMsNs,
+        300000ll * kOneMsNs,
+    };
+
+    const auto safeTicks = std::max(2, tickCount);
+    const std::int64_t rawStep = std::max<std::int64_t>(spanNs / static_cast<std::int64_t>(safeTicks - 1),
+                                                        100ll * kOneMsNs);
+    for (const auto candidate : kCandidates) {
+        if (candidate >= rawStep) return candidate;
+    }
+    return kCandidates[std::size(kCandidates) - 1];
+}
+
 std::string stripFileUrl(const QString& path) {
     QString p = path;
     if (p.startsWith(QStringLiteral("file:///"))) p.remove(0, 8);
     else if (p.startsWith(QStringLiteral("file://"))) p.remove(0, 7);
     return p.toStdString();
+}
+
+QString formatScaledE8(std::int64_t value) {
+    const bool negative = value < 0;
+    const std::uint64_t absValue = negative
+        ? static_cast<std::uint64_t>(-(value + 1)) + 1u
+        : static_cast<std::uint64_t>(value);
+    const std::uint64_t integerPart = absValue / 100000000ull;
+    const std::uint64_t fractionPart = absValue % 100000000ull;
+    return QStringLiteral("%1%2.%3")
+        .arg(negative ? QStringLiteral("-") : QString{})
+        .arg(integerPart)
+        .arg(fractionPart, 8, 10, QLatin1Char('0'));
+}
+
+QString formatShortTimeNs(std::int64_t tsNs) {
+    const qint64 ms = static_cast<qint64>(tsNs / 1000000ll);
+    const auto dt = QDateTime::fromMSecsSinceEpoch(ms, Qt::UTC);
+    if (!dt.isValid()) return QString::number(tsNs);
+    return dt.toString(QStringLiteral("HH:mm:ss.zzz"));
 }
 
 }  // namespace
@@ -23,7 +101,7 @@ void ChartController::resetSession() {
     loaded_ = false;
     sessionDir_.clear();
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
-    statusText_ = QStringLiteral("Empty — add files and press Finalize");
+    statusText_ = QStringLiteral("Choose a session.");
     emit sessionChanged();
     emit statusChanged();
     emit viewportChanged();
@@ -31,10 +109,11 @@ void ChartController::resetSession() {
 
 bool ChartController::addTradesFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
-        statusText_ = QStringLiteral("No path — type a trades.jsonl path into the Path field first");
+        statusText_ = QStringLiteral("No path. Enter a trades.jsonl path first.");
         emit statusChanged();
         return false;
     }
+
     const auto st = replay_.addTradesFile(stripFileUrl(path));
     if (!isOk(st)) {
         statusText_ = QStringLiteral("trades load failed: %1")
@@ -42,6 +121,7 @@ bool ChartController::addTradesFile(const QString& path) {
         emit statusChanged();
         return false;
     }
+
     statusText_ = QStringLiteral("+ trades (now %1 rows)").arg(replay_.trades().size());
     emit statusChanged();
     return true;
@@ -49,10 +129,11 @@ bool ChartController::addTradesFile(const QString& path) {
 
 bool ChartController::addBookTickerFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
-        statusText_ = QStringLiteral("No path — type a bookticker.jsonl path into the Path field first");
+        statusText_ = QStringLiteral("No path. Enter a bookticker.jsonl path first.");
         emit statusChanged();
         return false;
     }
+
     const auto st = replay_.addBookTickerFile(stripFileUrl(path));
     if (!isOk(st)) {
         statusText_ = QStringLiteral("bookticker load failed: %1")
@@ -60,6 +141,7 @@ bool ChartController::addBookTickerFile(const QString& path) {
         emit statusChanged();
         return false;
     }
+
     statusText_ = QStringLiteral("+ bookticker (now %1 rows)").arg(replay_.bookTickers().size());
     emit statusChanged();
     return true;
@@ -67,10 +149,11 @@ bool ChartController::addBookTickerFile(const QString& path) {
 
 bool ChartController::addDepthFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
-        statusText_ = QStringLiteral("No path — type a depth.jsonl path into the Path field first");
+        statusText_ = QStringLiteral("No path. Enter a depth.jsonl path first.");
         emit statusChanged();
         return false;
     }
+
     const auto st = replay_.addDepthFile(stripFileUrl(path));
     if (!isOk(st)) {
         statusText_ = QStringLiteral("depth load failed: %1")
@@ -78,6 +161,7 @@ bool ChartController::addDepthFile(const QString& path) {
         emit statusChanged();
         return false;
     }
+
     statusText_ = QStringLiteral("+ depth (now %1 rows)").arg(replay_.depths().size());
     emit statusChanged();
     return true;
@@ -85,10 +169,11 @@ bool ChartController::addDepthFile(const QString& path) {
 
 bool ChartController::addSnapshotFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
-        statusText_ = QStringLiteral("No path — type a snapshot_*.json path into the Path field first");
+        statusText_ = QStringLiteral("No path. Enter a snapshot_*.json path first.");
         emit statusChanged();
         return false;
     }
+
     const auto st = replay_.addSnapshotFile(stripFileUrl(path));
     if (!isOk(st)) {
         statusText_ = QStringLiteral("snapshot load failed: %1")
@@ -96,9 +181,8 @@ bool ChartController::addSnapshotFile(const QString& path) {
         emit statusChanged();
         return false;
     }
-    statusText_ = QStringLiteral("+ snapshot (bids=%1 asks=%2)")
-                      .arg(replay_.book().bids().size())
-                      .arg(replay_.book().asks().size());
+
+    statusText_ = QStringLiteral("+ snapshot");
     emit statusChanged();
     return true;
 }
@@ -107,13 +191,8 @@ void ChartController::finalizeFiles() {
     replay_.finalize();
     loaded_ = (replay_.events().size() > 0) || (replay_.book().bids().size() + replay_.book().asks().size() > 0);
     if (loaded_) computeInitialViewport_();
-    statusText_ = QStringLiteral("Finalized. events=%1 trades=%2 depth=%3 bookticker=%4 bids=%5 asks=%6")
-                      .arg(replay_.events().size())
-                      .arg(replay_.trades().size())
-                      .arg(replay_.depths().size())
-                      .arg(replay_.bookTickers().size())
-                      .arg(replay_.book().bids().size())
-                      .arg(replay_.book().asks().size());
+
+    statusText_ = QStringLiteral("Finalized.");
     emit sessionChanged();
     emit statusChanged();
     emit viewportChanged();
@@ -123,19 +202,20 @@ bool ChartController::loadSession(const QString& dir) {
     sessionDir_ = dir;
     loaded_ = false;
     replay_ = hftrec::replay::SessionReplay{};
+
     const auto path = std::filesystem::path(stripFileUrl(dir));
-    const auto st = replay_.open(path);
+    const auto st = replay_.addTradesFile(path / "trades.jsonl");
     if (!isOk(st)) {
-        statusText_ = QStringLiteral("Failed to load: %1").arg(QString::fromUtf8(statusToString(st).data()));
+        statusText_ = QStringLiteral("Failed to load trades: %1")
+                          .arg(QString::fromUtf8(statusToString(st).data()));
         emit sessionChanged();
         emit statusChanged();
         return false;
     }
+
+    replay_.finalize();
     loaded_ = true;
-    statusText_ = QStringLiteral("Loaded %1 (trades=%2 depth=%3)")
-                      .arg(sessionDir_)
-                      .arg(replay_.trades().size())
-                      .arg(replay_.depths().size());
+    statusText_ = QStringLiteral("Loaded %1 trades").arg(replay_.trades().size());
     computeInitialViewport_();
     emit sessionChanged();
     emit statusChanged();
@@ -144,34 +224,26 @@ bool ChartController::loadSession(const QString& dir) {
 }
 
 void ChartController::computeInitialViewport_() {
-    // Time: full session span.
     tsMin_ = replay_.firstTsNs();
     tsMax_ = replay_.lastTsNs();
     if (tsMax_ == tsMin_) tsMax_ = tsMin_ + 1;
 
-    // Price: centre around best bid/ask and widen to include any trade price
-    // that falls in the session.
-    const auto& book = replay_.book();
     std::int64_t pMin = 0;
     std::int64_t pMax = 0;
-    if (!book.bids().empty() && !book.asks().empty()) {
-        const std::int64_t bb = book.bestBidPrice();
-        const std::int64_t aa = book.bestAskPrice();
-        pMin = bb;
-        pMax = aa;
-    } else if (!replay_.trades().empty()) {
+    if (!replay_.trades().empty()) {
         pMin = replay_.trades().front().priceE8;
         pMax = pMin;
     } else {
         pMin = 0;
         pMax = 1;
     }
-    for (const auto& t : replay_.trades()) {
-        pMin = std::min(pMin, t.priceE8);
-        pMax = std::max(pMax, t.priceE8);
+
+    for (const auto& trade : replay_.trades()) {
+        pMin = std::min(pMin, trade.priceE8);
+        pMax = std::max(pMax, trade.priceE8);
     }
+
     if (pMax <= pMin) pMax = pMin + 1;
-    // 10 % padding on both ends.
     const std::int64_t pad = (pMax - pMin) / 10 + 1;
     priceMinE8_ = pMin - pad;
     priceMaxE8_ = pMax + pad;
@@ -206,7 +278,7 @@ void ChartController::panPrice(double fraction) {
 void ChartController::zoomTime(double factor) {
     if (factor <= 0.0) return;
     const qint64 centre = (tsMin_ + tsMax_) / 2;
-    const qint64 halfW  = static_cast<qint64>(static_cast<double>(tsMax_ - tsMin_) / (2.0 * factor));
+    const qint64 halfW = static_cast<qint64>(static_cast<double>(tsMax_ - tsMin_) / (2.0 * factor));
     tsMin_ = centre - halfW;
     tsMax_ = centre + halfW;
     if (tsMax_ <= tsMin_) tsMax_ = tsMin_ + 1;
@@ -216,7 +288,7 @@ void ChartController::zoomTime(double factor) {
 void ChartController::zoomPrice(double factor) {
     if (factor <= 0.0) return;
     const qint64 centre = (priceMinE8_ + priceMaxE8_) / 2;
-    const qint64 halfH  = static_cast<qint64>(static_cast<double>(priceMaxE8_ - priceMinE8_) / (2.0 * factor));
+    const qint64 halfH = static_cast<qint64>(static_cast<double>(priceMaxE8_ - priceMinE8_) / (2.0 * factor));
     priceMinE8_ = centre - halfH;
     priceMaxE8_ = centre + halfH;
     if (priceMaxE8_ <= priceMinE8_) priceMaxE8_ = priceMinE8_ + 1;
@@ -225,8 +297,6 @@ void ChartController::zoomPrice(double factor) {
 
 void ChartController::autoFit() {
     if (!loaded_) return;
-    // Reset book cursor and recompute bounds.
-    replay_.seek(replay_.firstTsNs());
     computeInitialViewport_();
     emit viewportChanged();
 }
@@ -243,6 +313,38 @@ void ChartController::jumpToEnd() {
     tsMax_ = replay_.lastTsNs();
     tsMin_ = tsMax_ - w;
     emit viewportChanged();
+}
+
+QString ChartController::formatPriceAt(double ratio) const {
+    if (ratio < 0.0) ratio = 0.0;
+    if (ratio > 1.0) ratio = 1.0;
+    const auto span = priceMaxE8_ - priceMinE8_;
+    const auto value = priceMaxE8_ - static_cast<qint64>(static_cast<double>(span) * ratio);
+    return formatScaledE8(value);
+}
+
+QString ChartController::formatTimeAt(double ratio) const {
+    if (ratio < 0.0) ratio = 0.0;
+    if (ratio > 1.0) ratio = 1.0;
+    const auto span = tsMax_ - tsMin_;
+    const auto value = tsMin_ + static_cast<qint64>(static_cast<double>(span) * ratio);
+    return formatShortTimeNs(value);
+}
+
+QString ChartController::formatPriceScaleLabel(int index, int tickCount) const {
+    const auto safeTicks = std::max(2, tickCount);
+    const auto step = nicePriceStepE8(std::max<std::int64_t>(priceMaxE8_ - priceMinE8_, 1), safeTicks);
+    const auto top = ceilToStep(priceMaxE8_, step);
+    const auto value = top - static_cast<std::int64_t>(index) * step;
+    return formatScaledE8(value);
+}
+
+QString ChartController::formatTimeScaleLabel(int index, int tickCount) const {
+    const auto safeTicks = std::max(2, tickCount);
+    const auto step = niceTimeStepNs(std::max<std::int64_t>(tsMax_ - tsMin_, 1), safeTicks);
+    const auto start = floorToStep(tsMin_, step);
+    const auto value = start + static_cast<std::int64_t>(index) * step;
+    return formatShortTimeNs(value);
 }
 
 }  // namespace hftrec::gui::viewer

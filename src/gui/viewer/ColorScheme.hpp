@@ -7,13 +7,23 @@
 
 namespace hftrec::gui::viewer {
 
-inline QColor bgColor()             { return QColor(0x0E, 0x0E, 0x12); }
-inline QColor gridColor()           { return QColor(0x1F, 0x1F, 0x28); }
-inline QColor axisTextColor()       { return QColor(0xD4, 0xD4, 0xD4); }
-inline QColor bidColor()            { return QColor(0x12, 0xC7, 0x7A); }
-inline QColor askColor()            { return QColor(0xEF, 0x44, 0x44); }
-inline QColor tradeBuyColor()       { return QColor(0x00, 0xFF, 0x66); }
-inline QColor tradeSellColor()      { return QColor(0xFF, 0x40, 0x20); }
-inline QColor tradeConnectorColor() { return QColor(0xAA, 0xAA, 0xAA, 0x70); }
+inline QColor windowColor()         { return QColor(0x16, 0x16, 0x16); }
+inline QColor panelColor()          { return QColor(0x2C, 0x2C, 0x2F); }
+inline QColor panelAltColor()       { return QColor(0x3C, 0x3C, 0x3C); }
+inline QColor borderColor()         { return QColor(0x3C, 0x3D, 0x3F); }
+inline QColor bgColor()             { return windowColor(); }
+inline QColor gridColor()           { return QColor(0x30, 0x30, 0x34); }
+inline QColor axisTextColor()       { return QColor(0xF5, 0xF5, 0xF5); }
+inline QColor mutedTextColor()      { return QColor(0xB6, 0xB6, 0xB6); }
+inline QColor bidColor()            { return QColor(0x24, 0xC2, 0xCB); }
+inline QColor askColor()            { return QColor(0xDA, 0x25, 0x36); }
+inline QColor tradeBuyColor()       { return QColor(0x24, 0xC2, 0xCB); }
+inline QColor tradeSellColor()      { return QColor(0xDA, 0x25, 0x36); }
+inline QColor tradeConnectorColor() { return QColor(0x70, 0x80, 0x90, 0x50); }
+inline QColor tradeOutlineColor()   { return QColor(0x0A, 0x0A, 0x0A, 0xC0); }
+inline QColor tooltipBackColor()    { return QColor(0x10, 0x10, 0x12, 0xEB); }
+inline QColor tooltipBorderColor()  { return QColor(0x50, 0x50, 0x56, 0xFF); }
+inline QColor haloBuyColor()        { return QColor(0x24, 0xC2, 0xCB, 0x60); }
+inline QColor haloSellColor()       { return QColor(0xDA, 0x25, 0x36, 0x60); }
 
 }  // namespace hftrec::gui::viewer

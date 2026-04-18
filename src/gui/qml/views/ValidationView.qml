@@ -2,11 +2,20 @@ import QtQuick
 import QtQuick.Controls
 
 Pane {
+    QtObject {
+        id: palette
+        readonly property color window: "#161616"
+        readonly property color text: "#f5f5f5"
+        readonly property color muted: "#b6b6b6"
+    }
+
+    background: Rectangle { color: palette.window }
+
     Column {
         spacing: 12
         anchors.fill: parent
         anchors.margins: 16
-        Label { text: "Validation" }
-        Label { text: "Raw vs decoded overlays, mismatch counters, and replay charts live here." }
+        Label { text: "Validation"; color: palette.text }
+        Label { text: "Raw vs decoded overlays, mismatch counters, and replay charts live here."; color: palette.muted }
     }
 }
