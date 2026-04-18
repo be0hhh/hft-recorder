@@ -47,6 +47,7 @@ ApplicationWindow {
 
             TabButton { text: "Capture" }
             TabButton { text: "Sessions" }
+            TabButton { text: "Viewer" }
             TabButton { text: "Validation" }
             TabButton { text: "Lab" }
             TabButton { text: "Dashboard" }
@@ -59,6 +60,7 @@ ApplicationWindow {
 
             CaptureView { Layout.fillWidth: true; Layout.fillHeight: true }
             SessionsView { Layout.fillWidth: true; Layout.fillHeight: true }
+            ViewerView { Layout.fillWidth: true; Layout.fillHeight: true }
             ValidationView { Layout.fillWidth: true; Layout.fillHeight: true }
             LabView { Layout.fillWidth: true; Layout.fillHeight: true }
             DashboardView { Layout.fillWidth: true; Layout.fillHeight: true }

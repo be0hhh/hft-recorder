@@ -19,6 +19,9 @@ add_library(hftrec_core STATIC
     lab/LabRunner.cpp
     lab/RankingEngine.cpp
     metrics/Metrics.cpp
+    replay/JsonLineParser.cpp
+    replay/BookState.cpp
+    replay/SessionReplay.cpp
     validation/ValidationRunner.cpp
 )
 

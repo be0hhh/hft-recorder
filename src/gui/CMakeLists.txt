@@ -8,6 +8,8 @@ qt_add_executable(hft-recorder-gui
     models/SessionListModel.cpp
     viewmodels/AppViewModel.cpp
     viewmodels/CaptureViewModel.cpp
+    viewer/ChartController.cpp
+    viewer/ChartItem.cpp
 )
 
 target_include_directories(hft-recorder-gui
@@ -26,6 +28,7 @@ qt_add_qml_module(hft-recorder-gui
         qml/views/ValidationView.qml
         qml/views/LabView.qml
         qml/views/DashboardView.qml
+        qml/views/ViewerView.qml
 )
 
 target_link_libraries(hft-recorder-gui

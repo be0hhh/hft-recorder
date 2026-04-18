@@ -1,27 +1,23 @@
 #include "variants/orderbook/var01_raw_updates_cpp/decode.hpp"
 
-// ─── Implementation guide ───────────────────────────────────────────────────
-//
-// Goal: parse the raw OrderBookDeltaEvent byte stream back into events.
-//
-// Steps:
-//   1. Read UpdateHeader at the current offset, then price_count LevelEntry pairs.
-//   2. Advance offset; repeat until in_len bytes consumed.
-//   3. out_written = bytes emitted into the caller's event buffer. If in_len
-//      runs out mid-event → Status::CorruptData.
-//
-// Reference: doc/DELTA_ENCODING.md §OrderBook.
-// ────────────────────────────────────────────────────────────────────────────
+#include <cstring>
+
+// Identity codec decode — mirrors encode: copies `in` to `out` unchanged.
 
 namespace hftrec::variants::orderbook_var01 {
 
-Status decodeBlock(const std::uint8_t*,
-                   std::size_t,
-                   std::uint8_t*,
-                   std::size_t,
+Status decodeBlock(const std::uint8_t* in,
+                   std::size_t in_len,
+                   std::uint8_t* out,
+                   std::size_t out_cap,
                    std::size_t& out_written) noexcept {
     out_written = 0;
-    return Status::Unimplemented;
+    if (in == nullptr && in_len != 0) return Status::InvalidArgument;
+    if (out == nullptr && in_len != 0) return Status::InvalidArgument;
+    if (in_len > out_cap) return Status::OutOfRange;
+    if (in_len != 0) std::memcpy(out, in, in_len);
+    out_written = in_len;
+    return Status::Ok;
 }
 
 }  // namespace hftrec::variants::orderbook_var01

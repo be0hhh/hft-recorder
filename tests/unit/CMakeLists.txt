@@ -2,6 +2,11 @@ include(GoogleTest)
 
 add_executable(hftrec_unit_tests
     test_smoke.cpp
+    test_capture_serializers.cpp
+    test_identity_codec.cpp
+    test_json_line_parser.cpp
+    test_book_state.cpp
+    test_session_replay.cpp
 )
 
 target_include_directories(hftrec_unit_tests
@@ -13,6 +18,7 @@ target_include_directories(hftrec_unit_tests
 target_link_libraries(hftrec_unit_tests
     PRIVATE
         hftrec_core
+        hftrec_variant_orderbook_var01
         GTest::gtest
         GTest::gtest_main
 )
