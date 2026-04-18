@@ -20,6 +20,9 @@ class ChartController : public QObject {
     Q_PROPERTY(qint64 priceMinE8 READ priceMinE8 NOTIFY viewportChanged)
     Q_PROPERTY(qint64 priceMaxE8 READ priceMaxE8 NOTIFY viewportChanged)
 
+    Q_PROPERTY(bool hasTrades READ hasTrades NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasBookTicker READ hasBookTicker NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasOrderbook READ hasOrderbook NOTIFY sessionChanged)
     Q_PROPERTY(int tradeCount READ tradeCount NOTIFY sessionChanged)
     Q_PROPERTY(int depthCount READ depthCount NOTIFY sessionChanged)
 
@@ -36,6 +39,11 @@ class ChartController : public QObject {
     qint64 tsMax() const { return tsMax_; }
     qint64 priceMinE8() const { return priceMinE8_; }
     qint64 priceMaxE8() const { return priceMaxE8_; }
+    bool hasTrades() const noexcept { return !replay_.trades().empty(); }
+    bool hasBookTicker() const noexcept { return !replay_.bookTickers().empty(); }
+    bool hasOrderbook() const noexcept {
+        return !replay_.depths().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
+    }
 
     int tradeCount() const { return static_cast<int>(replay_.trades().size()); }
     int depthCount() const { return static_cast<int>(replay_.depths().size()); }
@@ -63,6 +71,10 @@ class ChartController : public QObject {
     Q_INVOKABLE QString formatPriceScaleLabel(int index, int tickCount) const;
     Q_INVOKABLE QString formatTimeScaleLabel(int index, int tickCount) const;
 
+    void syncReplayCursorToViewport();
+    std::int64_t viewportCursorTs() const noexcept;
+    const hftrec::replay::BookTickerRow* currentBookTicker() const noexcept;
+
     hftrec::replay::SessionReplay& replay() noexcept { return replay_; }
     const hftrec::replay::SessionReplay& replay() const noexcept { return replay_; }
 
@@ -83,6 +95,7 @@ class ChartController : public QObject {
     qint64 tsMax_{0};
     qint64 priceMinE8_{0};
     qint64 priceMaxE8_{0};
+    std::int64_t currentBookTickerIndex_{-1};
 };
 
 }  // namespace hftrec::gui::viewer

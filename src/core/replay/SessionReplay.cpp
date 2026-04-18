@@ -96,9 +96,7 @@ void SessionReplay::finalize() noexcept {
     }
     std::stable_sort(events_.begin(), events_.end(),
                      [](const Event& a, const Event& b) noexcept {
-                         if (a.tsNs != b.tsNs) return a.tsNs < b.tsNs;
-                         return static_cast<std::uint8_t>(a.kind) <
-                                static_cast<std::uint8_t>(b.kind);
+                         return a.tsNs < b.tsNs;
                      });
     cursor_ = 0;
     if (!events_.empty()) {

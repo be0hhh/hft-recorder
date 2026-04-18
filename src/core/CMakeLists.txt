@@ -16,6 +16,7 @@ add_library(hftrec_core STATIC
     block/BlockHeader.cpp
     block/BlockWriter.cpp
     block/BlockReader.cpp
+    lab/BookFrameSampler.cpp
     lab/LabRunner.cpp
     lab/RankingEngine.cpp
     metrics/Metrics.cpp

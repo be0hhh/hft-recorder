@@ -101,6 +101,7 @@ void ChartController::resetSession() {
     loaded_ = false;
     sessionDir_.clear();
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
+    currentBookTickerIndex_ = -1;
     statusText_ = QStringLiteral("Choose a session.");
     emit sessionChanged();
     emit statusChanged();
@@ -191,6 +192,7 @@ void ChartController::finalizeFiles() {
     replay_.finalize();
     loaded_ = (replay_.events().size() > 0) || (replay_.book().bids().size() + replay_.book().asks().size() > 0);
     if (loaded_) computeInitialViewport_();
+    currentBookTickerIndex_ = -1;
 
     statusText_ = QStringLiteral("Finalized.");
     emit sessionChanged();
@@ -204,18 +206,21 @@ bool ChartController::loadSession(const QString& dir) {
     replay_ = hftrec::replay::SessionReplay{};
 
     const auto path = std::filesystem::path(stripFileUrl(dir));
-    const auto st = replay_.addTradesFile(path / "trades.jsonl");
+    const auto st = replay_.open(path);
     if (!isOk(st)) {
-        statusText_ = QStringLiteral("Failed to load trades: %1")
+        statusText_ = QStringLiteral("Failed to load session: %1")
                           .arg(QString::fromUtf8(statusToString(st).data()));
         emit sessionChanged();
         emit statusChanged();
         return false;
     }
 
-    replay_.finalize();
-    loaded_ = true;
-    statusText_ = QStringLiteral("Loaded %1 trades").arg(replay_.trades().size());
+    loaded_ = !replay_.events().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
+    currentBookTickerIndex_ = -1;
+    statusText_ = QStringLiteral("Loaded trades=%1 depth=%2 bookticker=%3")
+                      .arg(replay_.trades().size())
+                      .arg(replay_.depths().size())
+                      .arg(replay_.bookTickers().size());
     computeInitialViewport_();
     emit sessionChanged();
     emit statusChanged();
@@ -233,6 +238,12 @@ void ChartController::computeInitialViewport_() {
     if (!replay_.trades().empty()) {
         pMin = replay_.trades().front().priceE8;
         pMax = pMin;
+    } else if (!replay_.book().bids().empty() || !replay_.book().asks().empty()) {
+        pMin = replay_.book().bids().empty() ? replay_.book().bestAskPrice() : replay_.book().bestBidPrice();
+        pMax = replay_.book().asks().empty() ? replay_.book().bestBidPrice() : replay_.book().bestAskPrice();
+    } else if (!replay_.bookTickers().empty()) {
+        pMin = replay_.bookTickers().front().bidPriceE8;
+        pMax = replay_.bookTickers().front().askPriceE8;
     } else {
         pMin = 0;
         pMax = 1;
@@ -241,6 +252,18 @@ void ChartController::computeInitialViewport_() {
     for (const auto& trade : replay_.trades()) {
         pMin = std::min(pMin, trade.priceE8);
         pMax = std::max(pMax, trade.priceE8);
+    }
+    for (const auto& ticker : replay_.bookTickers()) {
+        if (ticker.bidPriceE8 != 0) pMin = std::min(pMin, ticker.bidPriceE8);
+        if (ticker.askPriceE8 != 0) pMax = std::max(pMax, ticker.askPriceE8);
+    }
+    for (const auto& [price, _] : replay_.book().bids()) {
+        pMin = std::min(pMin, price);
+        pMax = std::max(pMax, price);
+    }
+    for (const auto& [price, _] : replay_.book().asks()) {
+        pMin = std::min(pMin, price);
+        pMax = std::max(pMax, price);
     }
 
     if (pMax <= pMin) pMax = pMin + 1;
@@ -256,6 +279,7 @@ void ChartController::setViewport(qint64 tsMin, qint64 tsMax,
     tsMax_ = tsMax;
     priceMinE8_ = priceMinE8;
     priceMaxE8_ = priceMaxE8;
+    currentBookTickerIndex_ = -1;
     emit viewportChanged();
 }
 
@@ -264,6 +288,7 @@ void ChartController::panTime(double fraction) {
     const qint64 dt = static_cast<qint64>(static_cast<double>(w) * fraction);
     tsMin_ += dt;
     tsMax_ += dt;
+    currentBookTickerIndex_ = -1;
     emit viewportChanged();
 }
 
@@ -282,6 +307,7 @@ void ChartController::zoomTime(double factor) {
     tsMin_ = centre - halfW;
     tsMax_ = centre + halfW;
     if (tsMax_ <= tsMin_) tsMax_ = tsMin_ + 1;
+    currentBookTickerIndex_ = -1;
     emit viewportChanged();
 }
 
@@ -298,6 +324,7 @@ void ChartController::zoomPrice(double factor) {
 void ChartController::autoFit() {
     if (!loaded_) return;
     computeInitialViewport_();
+    currentBookTickerIndex_ = -1;
     emit viewportChanged();
 }
 
@@ -305,6 +332,7 @@ void ChartController::jumpToStart() {
     const qint64 w = tsMax_ - tsMin_;
     tsMin_ = replay_.firstTsNs();
     tsMax_ = tsMin_ + w;
+    currentBookTickerIndex_ = -1;
     emit viewportChanged();
 }
 
@@ -312,6 +340,7 @@ void ChartController::jumpToEnd() {
     const qint64 w = tsMax_ - tsMin_;
     tsMax_ = replay_.lastTsNs();
     tsMin_ = tsMax_ - w;
+    currentBookTickerIndex_ = -1;
     emit viewportChanged();
 }
 
@@ -345,6 +374,34 @@ QString ChartController::formatTimeScaleLabel(int index, int tickCount) const {
     const auto start = floorToStep(tsMin_, step);
     const auto value = start + static_cast<std::int64_t>(index) * step;
     return formatShortTimeNs(value);
+}
+
+std::int64_t ChartController::viewportCursorTs() const noexcept {
+    return (tsMin_ + tsMax_) / 2;
+}
+
+void ChartController::syncReplayCursorToViewport() {
+    if (!loaded_) {
+        currentBookTickerIndex_ = -1;
+        return;
+    }
+
+    const auto cursorTs = viewportCursorTs();
+    replay_.seek(cursorTs);
+    currentBookTickerIndex_ = -1;
+
+    const auto& tickers = replay_.bookTickers();
+    for (std::size_t i = 0; i < tickers.size(); ++i) {
+        if (tickers[i].tsNs > cursorTs) break;
+        currentBookTickerIndex_ = static_cast<std::int64_t>(i);
+    }
+}
+
+const hftrec::replay::BookTickerRow* ChartController::currentBookTicker() const noexcept {
+    if (currentBookTickerIndex_ < 0) return nullptr;
+    const auto index = static_cast<std::size_t>(currentBookTickerIndex_);
+    if (index >= replay_.bookTickers().size()) return nullptr;
+    return &replay_.bookTickers()[index];
 }
 
 }  // namespace hftrec::gui::viewer

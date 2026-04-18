@@ -60,6 +60,9 @@ _install_cxet_if_missing() {
 
 _write_start_launcher() {
     mkdir -p "$APP/build"
+    # Under WSLg the default Mesa ZINK OpenGL path fails ("failed to choose
+    # pdev"), so we pin the Qt scene graph to software. Real GPU acceleration
+    # needs a scene-graph rewrite (QSGGeometryNode) — tracked as future V.10.
     cat > "$APP/build/start" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -73,6 +76,8 @@ export QT_QUICK_BACKEND=software
 exec "$APP_DIR/build/bin/hft-recorder-gui" "$@"
 EOF
     chmod +x "$APP/build/start"
+    # Clean up the stray GPU fallback launcher if a previous build left it.
+    rm -f "$APP/build/start-software"
 }
 
 _install_cxet_if_missing

@@ -23,6 +23,11 @@ Pane {
     property bool showTradesLayer: true
     property bool showOrderbookLayer: false
     property bool showBookTickerLayer: false
+    property bool effectiveBookTickerLayer: showBookTickerLayer || showOrderbookLayer
+    property real tradeAmountScale: 0.45
+    property real bookOpacityGain: 0.55
+    property real bookRenderDetail: 0.7
+    property bool interactiveMode: false
     property bool plotDragging: false
     property bool priceScaleDragging: false
     property bool timeScaleDragging: false
@@ -33,6 +38,10 @@ Pane {
             return
         }
         chart.loadSession("./recordings/" + selectedSessionId)
+    }
+
+    function anyHoverableLayerVisible() {
+        return root.showTradesLayer || root.effectiveBookTickerLayer || root.showOrderbookLayer
     }
 
     function ensureSessionSelection() {
@@ -81,7 +90,6 @@ Pane {
     component ChannelButton: Button {
         id: control
         property bool active: false
-        property bool pending: false
         background: Rectangle {
             radius: 7
             color: control.active ? root.panelAltColor : root.panelColor
@@ -89,7 +97,7 @@ Pane {
             border.width: 1
         }
         contentItem: Text {
-            text: control.pending ? control.text + " Soon" : control.text
+            text: control.text
             color: control.active ? root.textColor : root.mutedTextColor
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
@@ -102,6 +110,12 @@ Pane {
 
     SessionListModel { id: sessionsModel; Component.onCompleted: reload() }
     ChartController { id: chart }
+    Timer {
+        id: interactiveModeTimer
+        interval: 120
+        repeat: false
+        onTriggered: root.interactiveMode = false
+    }
     Component.onCompleted: Qt.callLater(root.ensureSessionSelection)
 
     Connections {
@@ -109,6 +123,15 @@ Pane {
         function onModelReset() {
             Qt.callLater(root.ensureSessionSelection)
         }
+    }
+
+    function startInteractiveMode() {
+        root.interactiveMode = true
+        interactiveModeTimer.restart()
+    }
+
+    function stopInteractiveModeSoon() {
+        interactiveModeTimer.restart()
     }
 
     ColumnLayout {
@@ -257,8 +280,8 @@ Pane {
 
                 ChannelButton {
                     text: "Orderbook"
-                    pending: true
                     active: root.showOrderbookLayer
+                    enabled: chart.hasOrderbook
                     onClicked: {
                         root.showOrderbookLayer = !root.showOrderbookLayer
                     }
@@ -266,11 +289,85 @@ Pane {
 
                 ChannelButton {
                     text: "BookTicker"
-                    pending: true
-                    active: root.showBookTickerLayer
+                    active: root.effectiveBookTickerLayer
+                    enabled: chart.hasBookTicker
                     onClicked: {
                         root.showBookTickerLayer = !root.showBookTickerLayer
                     }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Label {
+                    text: "Trades Size"
+                    color: root.mutedTextColor
+                    font.pixelSize: 12
+                }
+
+                Slider {
+                    id: tradeSizeSlider
+                    Layout.preferredWidth: 120
+                    from: 0.0
+                    to: 1.0
+                    value: root.tradeAmountScale
+                    onMoved: root.tradeAmountScale = value
+                    onValueChanged: root.tradeAmountScale = value
+                }
+
+                Label {
+                    text: Math.round(root.tradeAmountScale * 100) + "%"
+                    color: root.textColor
+                    font.pixelSize: 12
+                    Layout.preferredWidth: 34
+                    horizontalAlignment: Text.AlignRight
+                }
+
+                Label {
+                    text: "Book Density"
+                    color: root.mutedTextColor
+                    font.pixelSize: 12
+                }
+
+                Slider {
+                    id: bookDensitySlider
+                    Layout.preferredWidth: 120
+                    from: 0.0
+                    to: 1.0
+                    value: root.bookOpacityGain
+                    onMoved: root.bookOpacityGain = value
+                    onValueChanged: root.bookOpacityGain = value
+                }
+
+                Label {
+                    text: Math.round(root.bookOpacityGain * 100) + "%"
+                    color: root.textColor
+                    font.pixelSize: 12
+                    Layout.preferredWidth: 34
+                    horizontalAlignment: Text.AlignRight
+                }
+
+                Label {
+                    text: "Book Detail"
+                    color: root.mutedTextColor
+                    font.pixelSize: 12
+                }
+
+                Slider {
+                    id: bookDetailSlider
+                    Layout.preferredWidth: 120
+                    from: 0.0
+                    to: 1.0
+                    value: root.bookRenderDetail
+                    onMoved: root.bookRenderDetail = value
+                    onValueChanged: root.bookRenderDetail = value
+                }
+
+                Label {
+                    text: Math.round(root.bookRenderDetail * 100) + "%"
+                    color: root.textColor
+                    font.pixelSize: 12
+                    Layout.preferredWidth: 34
+                    horizontalAlignment: Text.AlignRight
                 }
 
                 Item { Layout.fillWidth: true }
@@ -297,17 +394,28 @@ Pane {
                     anchors.fill: parent
                     controller: chart
                     tradesVisible: root.showTradesLayer
+                    orderbookVisible: root.showOrderbookLayer
+                    bookTickerVisible: root.effectiveBookTickerLayer
+                    tradeAmountScale: root.tradeAmountScale
+                    bookOpacityGain: root.bookOpacityGain
+                    bookRenderDetail: root.bookRenderDetail
+                    interactiveMode: root.interactiveMode
                 }
 
                 MouseArea {
                     anchors.fill: parent
                     property real lastX: 0
                     property real lastY: 0
-                    acceptedButtons: Qt.LeftButton
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
                     hoverEnabled: true
                     preventStealing: true
 
                     onPressed: function(mouse) {
+                        if (mouse.button === Qt.RightButton) {
+                            chartItem.activateContextPoint(mouse.x, mouse.y)
+                            return
+                        }
+                        root.startInteractiveMode()
                         root.plotDragging = true
                         lastX = mouse.x
                         lastY = mouse.y
@@ -326,20 +434,28 @@ Pane {
                         }
                         if (root.priceScaleDragging || root.timeScaleDragging)
                             return
-                        if (!root.showTradesLayer)
+                        if (!root.anyHoverableLayerVisible())
                             return
                         chartItem.setHoverPoint(mouse.x, mouse.y)
                     }
 
-                    onReleased: root.plotDragging = false
-                    onCanceled: root.plotDragging = false
+                    onReleased: {
+                        root.plotDragging = false
+                        root.stopInteractiveModeSoon()
+                    }
+                    onCanceled: {
+                        root.plotDragging = false
+                        root.stopInteractiveModeSoon()
+                    }
                     onExited: chartItem.clearHover()
 
                     onWheel: function(wheel) {
+                        root.startInteractiveMode()
                         chartItem.clearHover()
                         var factor = wheel.angleDelta.y > 0 ? 1.18 : 0.84
                         chart.zoomTime(factor)
                         chart.zoomPrice(factor)
+                        root.stopInteractiveModeSoon()
                         wheel.accepted = true
                     }
                 }
@@ -386,6 +502,7 @@ Pane {
                     preventStealing: true
 
                     onPressed: function(mouse) {
+                        root.startInteractiveMode()
                         root.priceScaleDragging = true
                         lastY = mouse.y
                         chartItem.clearHover()
@@ -399,8 +516,14 @@ Pane {
                         chart.zoomPrice(Math.exp(-dy * 0.012))
                     }
 
-                    onReleased: root.priceScaleDragging = false
-                    onCanceled: root.priceScaleDragging = false
+                    onReleased: {
+                        root.priceScaleDragging = false
+                        root.stopInteractiveModeSoon()
+                    }
+                    onCanceled: {
+                        root.priceScaleDragging = false
+                        root.stopInteractiveModeSoon()
+                    }
                 }
             }
 
@@ -444,6 +567,7 @@ Pane {
                     preventStealing: true
 
                     onPressed: function(mouse) {
+                        root.startInteractiveMode()
                         root.timeScaleDragging = true
                         lastX = mouse.x
                         chartItem.clearHover()
@@ -457,8 +581,14 @@ Pane {
                         chart.zoomTime(Math.exp(dx * 0.012))
                     }
 
-                    onReleased: root.timeScaleDragging = false
-                    onCanceled: root.timeScaleDragging = false
+                    onReleased: {
+                        root.timeScaleDragging = false
+                        root.stopInteractiveModeSoon()
+                    }
+                    onCanceled: {
+                        root.timeScaleDragging = false
+                        root.stopInteractiveModeSoon()
+                    }
                 }
             }
 
@@ -480,7 +610,9 @@ Pane {
                     anchors.centerIn: parent
                     text: !root.showTradesLayer
                           ? "Trades hidden"
-                          : "Orderbook / BookTicker soon"
+                          : root.showOrderbookLayer
+                            ? "Orderbook + BookTicker"
+                            : "BookTicker mode"
                     color: root.mutedTextColor
                     font.pixelSize: 12
                 }
