@@ -2,6 +2,8 @@
 
 #include <sstream>
 
+#include "core/common/JsonString.hpp"
+
 namespace hftrec::capture {
 
 namespace {
@@ -10,7 +12,7 @@ void appendStringArray(std::ostringstream& out, const std::vector<std::string>& 
     out << '[';
     for (std::size_t i = 0; i < values.size(); ++i) {
         if (i != 0) out << ',';
-        out << '"' << values[i] << '"';
+        out << json::quote(values[i]);
     }
     out << ']';
 }
@@ -24,13 +26,13 @@ const char* boolToString(bool value) noexcept {
 std::string renderManifestJson(const SessionManifest& manifest) {
     std::ostringstream out;
     out << "{\n";
-    out << "  \"session_id\": \"" << manifest.sessionId << "\",\n";
-    out << "  \"exchange\": \"" << manifest.exchange << "\",\n";
-    out << "  \"market\": \"" << manifest.market << "\",\n";
+    out << "  \"session_id\": " << json::quote(manifest.sessionId) << ",\n";
+    out << "  \"exchange\": " << json::quote(manifest.exchange) << ",\n";
+    out << "  \"market\": " << json::quote(manifest.market) << ",\n";
     out << "  \"symbols\": ";
     appendStringArray(out, manifest.symbols);
     out << ",\n";
-    out << "  \"selected_parent_dir\": \"" << manifest.selectedParentDir << "\",\n";
+    out << "  \"selected_parent_dir\": " << json::quote(manifest.selectedParentDir) << ",\n";
     out << "  \"started_at_ns\": " << manifest.startedAtNs << ",\n";
     out << "  \"ended_at_ns\": " << manifest.endedAtNs << ",\n";
     out << "  \"target_duration_sec\": " << manifest.targetDurationSec << ",\n";
@@ -47,7 +49,7 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "    \"depth\": " << manifest.depthCount << ",\n";
     out << "    \"snapshot\": " << manifest.snapshotCount << "\n";
     out << "  },\n";
-    out << "  \"warning_summary\": \"" << manifest.warningSummary << "\"\n";
+    out << "  \"warning_summary\": " << json::quote(manifest.warningSummary) << "\n";
     out << "}\n";
     return out.str();
 }

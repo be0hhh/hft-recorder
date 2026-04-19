@@ -3,6 +3,7 @@
 #include <sstream>
 #include <array>
 
+#include "core/common/JsonString.hpp"
 #include "primitives/composite/BookTickerData.hpp"
 #include "primitives/composite/OrderBookSnapshot.hpp"
 #include "primitives/composite/Trade.hpp"
@@ -45,19 +46,19 @@ std::string renderTradeJsonLine(const std::string& sessionId,
                                 const cxet::composite::TradePublic& trade,
                                 std::uint64_t eventIndex) {
     std::ostringstream out;
-    out << "{\"session_id\":\"" << sessionId
-        << "\",\"channel\":\"trades\""
-        << ",\"exchange\":\"" << exchange
-        << "\",\"market\":\"" << market
-        << "\",\"symbol\":\"" << trade.symbol.data
-        << "\",\"event_index\":" << eventIndex
+    out << "{\"session_id\":" << json::quote(sessionId)
+        << ",\"channel\":\"trades\""
+        << ",\"exchange\":" << json::quote(exchange)
+        << ",\"market\":" << json::quote(market)
+        << ",\"symbol\":" << json::quote(trade.symbol.data)
+        << ",\"event_index\":" << eventIndex
         << ",\"event_time_ns\":" << static_cast<std::uint64_t>(trade.ts.raw)
         << ",\"trade_time_ns\":" << static_cast<std::uint64_t>(trade.ts.raw)
         << ",\"trade_id\":" << static_cast<std::uint64_t>(trade.id.raw)
         << ",\"price_i64\":" << static_cast<std::int64_t>(trade.price.raw)
         << ",\"qty_i64\":" << static_cast<std::int64_t>(trade.amount.raw)
-        << ",\"side\":\"" << sideToString(trade.side)
-        << "\",\"is_aggregated\":true"
+        << ",\"side\":" << json::quote(sideToString(trade.side))
+        << ",\"is_aggregated\":true"
         << ",\"is_buyer_maker\":" << triStateToString(trade.isBuyerMaker)
         << "}";
     return out.str();
@@ -69,12 +70,12 @@ std::string renderBookTickerJsonLine(const std::string& sessionId,
                                      const cxet::composite::BookTickerData& bookTicker,
                                      std::uint64_t eventIndex) {
     std::ostringstream out;
-    out << "{\"session_id\":\"" << sessionId
-        << "\",\"channel\":\"bookticker\""
-        << ",\"exchange\":\"" << exchange
-        << "\",\"market\":\"" << market
-        << "\",\"symbol\":\"" << bookTicker.symbol.data
-        << "\",\"event_index\":" << eventIndex
+    out << "{\"session_id\":" << json::quote(sessionId)
+        << ",\"channel\":\"bookticker\""
+        << ",\"exchange\":" << json::quote(exchange)
+        << ",\"market\":" << json::quote(market)
+        << ",\"symbol\":" << json::quote(bookTicker.symbol.data)
+        << ",\"event_index\":" << eventIndex
         << ",\"event_time_ns\":" << static_cast<std::uint64_t>(bookTicker.ts.raw)
         << ",\"update_id\":0"
         << ",\"best_bid_price_i64\":" << static_cast<std::int64_t>(bookTicker.bidPrice.raw)
@@ -91,12 +92,12 @@ std::string renderDepthJsonLine(const std::string& sessionId,
                                 const cxet::composite::OrderBookSnapshot& delta,
                                 std::uint64_t eventIndex) {
     std::ostringstream out;
-    out << "{\"session_id\":\"" << sessionId
-        << "\",\"channel\":\"depth\""
-        << ",\"exchange\":\"" << exchange
-        << "\",\"market\":\"" << market
-        << "\",\"symbol\":\"" << delta.symbol.data
-        << "\",\"event_index\":" << eventIndex
+    out << "{\"session_id\":" << json::quote(sessionId)
+        << ",\"channel\":\"depth\""
+        << ",\"exchange\":" << json::quote(exchange)
+        << ",\"market\":" << json::quote(market)
+        << ",\"symbol\":" << json::quote(delta.symbol.data)
+        << ",\"event_index\":" << eventIndex
         << ",\"event_time_ns\":" << static_cast<std::uint64_t>(delta.ts.raw)
         << ",\"first_update_id\":" << static_cast<std::uint64_t>(delta.firstUpdateId.raw)
         << ",\"final_update_id\":" << static_cast<std::uint64_t>(delta.updateId.raw)
@@ -115,11 +116,11 @@ std::string renderSnapshotJson(const std::string& sessionId,
                                std::uint64_t snapshotIndex) {
     std::ostringstream out;
     out << "{\n"
-        << "  \"session_id\": \"" << sessionId << "\",\n"
+        << "  \"session_id\": " << json::quote(sessionId) << ",\n"
         << "  \"channel\": \"snapshot\",\n"
-        << "  \"exchange\": \"" << exchange << "\",\n"
-        << "  \"market\": \"" << market << "\",\n"
-        << "  \"symbol\": \"" << snapshot.symbol.data << "\",\n"
+        << "  \"exchange\": " << json::quote(exchange) << ",\n"
+        << "  \"market\": " << json::quote(market) << ",\n"
+        << "  \"symbol\": " << json::quote(snapshot.symbol.data) << ",\n"
         << "  \"snapshot_index\": " << snapshotIndex << ",\n"
         << "  \"snapshot_time_ns\": " << static_cast<std::uint64_t>(snapshot.ts.raw) << ",\n"
         << "  \"bids\": ";

@@ -69,8 +69,8 @@ struct RenderSnapshot {
     bool  interactiveMode{false};
     bool  overlayOnly{false};
     qreal tradeAmountScale{0.45};
-    qreal bookOpacityGain{0.55};
-    qreal bookRenderDetail{0.7};
+    qreal bookOpacityGain{15000.0};
+    qreal bookRenderDetail{5000.0};
 
     // Book-history frames (empty if neither orderbook nor bookticker is visible).
     std::vector<BookSegment> bookSegments;
@@ -90,8 +90,8 @@ struct SnapshotInputs {
     bool  interactiveMode{false};
     bool  overlayOnly{false};
     qreal tradeAmountScale{0.45};
-    qreal bookOpacityGain{0.55};
-    qreal bookRenderDetail{0.7};
+    qreal bookOpacityGain{15000.0};
+    qreal bookRenderDetail{5000.0};
 };
 
 }  // namespace hftrec::gui::viewer

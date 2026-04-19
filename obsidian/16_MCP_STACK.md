@@ -12,6 +12,15 @@ Chosen MCP stack:
 - `Context7 MCP` = current vendor/library docs
 - `GitHub MCP` = repo/PR review context only if that workflow matters
 
+Session reality rule:
+
+- these MCPs are desired roles, not guaranteed availability in every session
+- fallback order is:
+  1. Obsidian
+  2. nested `doc/`
+  3. code
+  4. MCPs only if present and useful
+
 Recommended priority:
 
 1. `Qdrant MCP`
@@ -50,3 +59,4 @@ Recorder rule:
 - use `Linear MCP` for task state
 - use `Qdrant MCP` for filtered semantic recall
 - use `Context7 MCP` only for external dependencies
+- if an MCP is missing, do not block on it; keep moving with local notes and code

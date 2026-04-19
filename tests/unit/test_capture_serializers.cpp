@@ -170,6 +170,23 @@ TEST(SessionHelpers, ManifestRoundTripShape) {
     EXPECT_TRUE(contains(doc, "\"depth\": 7"));
 }
 
+TEST(SessionHelpers, ManifestEscapesStrings) {
+    SessionManifest m{};
+    m.sessionId = "s\"1";
+    m.exchange = "binance";
+    m.market = "futures_usd";
+    m.symbols = {"BTC\"USDT", "ETH\\USDT"};
+    m.selectedParentDir = "C:\\recordings\\\"demo\"";
+    m.warningSummary = "quote=\" backslash=\\ newline=\n";
+
+    const auto doc = renderManifestJson(m);
+    EXPECT_TRUE(contains(doc, "\"session_id\": \"s\\\"1\""));
+    EXPECT_TRUE(contains(doc, "\"BTC\\\"USDT\""));
+    EXPECT_TRUE(contains(doc, "\"ETH\\\\USDT\""));
+    EXPECT_TRUE(contains(doc, "\"selected_parent_dir\": \"C:\\\\recordings\\\\\\\"demo\\\"\""));
+    EXPECT_TRUE(contains(doc, "\"warning_summary\": \"quote=\\\" backslash=\\\\ newline=\\n\""));
+}
+
 TEST(SessionHelpers, MakeSessionIdShape) {
     const auto id = makeSessionId("binance", "futures_usd", "BTCUSDT", 1'713'168'000LL);
     EXPECT_EQ(id, std::string{"1713168000_binance_futures_usd_BTCUSDT"});

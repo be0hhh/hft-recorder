@@ -92,8 +92,8 @@ class ChartItem : public QQuickPaintedItem {
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};
     qreal tradeAmountScale_{0.45};
-    qreal bookOpacityGain_{0.55};
-    qreal bookRenderDetail_{0.7};
+    qreal bookOpacityGain_{15000.0};
+    qreal bookRenderDetail_{5000.0};
     bool interactiveMode_{false};
     bool overlayOnly_{false};
 

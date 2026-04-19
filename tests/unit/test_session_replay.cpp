@@ -107,4 +107,46 @@ TEST(SessionReplay, MissingDirectoryReturnsError) {
               Status::InvalidArgument);
 }
 
+TEST(SessionReplay, KeepsDepthOnGapSequenceButReportsWarning) {
+    const auto dir = makeTmpDir();
+
+    writeFile(dir / "snapshot_000.json",
+              "{\n"
+              "  \"session_id\": \"t\",\n"
+              "  \"channel\": \"snapshot\",\n"
+              "  \"exchange\": \"b\",\n"
+              "  \"market\": \"m\",\n"
+              "  \"symbol\": \"X\",\n"
+              "  \"snapshot_index\": 0,\n"
+              "  \"snapshot_time_ns\": 1000,\n"
+              "  \"bids\": [{\"price_i64\":30000,\"qty_i64\":5}],\n"
+              "  \"asks\": [{\"price_i64\":30100,\"qty_i64\":4}]\n"
+              "}\n");
+
+    writeFile(dir / "depth.jsonl",
+              "{\"session_id\":\"t\",\"channel\":\"depth\",\"exchange\":\"b\",\"market\":\"m\",\"symbol\":\"X\","
+              "\"event_index\":1,\"event_time_ns\":2000,\"first_update_id\":1,\"final_update_id\":2,"
+              "\"bids\":[{\"price_i64\":30000,\"qty_i64\":7}],\"asks\":[]}\n"
+              "{\"session_id\":\"t\",\"channel\":\"depth\",\"exchange\":\"b\",\"market\":\"m\",\"symbol\":\"X\","
+              "\"event_index\":2,\"event_time_ns\":3000,\"first_update_id\":5,\"final_update_id\":5,"
+              "\"bids\":[],\"asks\":[{\"price_i64\":30100,\"qty_i64\":0}]}\n");
+
+    writeFile(dir / "trades.jsonl",
+              "{\"session_id\":\"t\",\"channel\":\"trades\",\"exchange\":\"b\",\"market\":\"m\",\"symbol\":\"X\","
+              "\"event_index\":1,\"event_time_ns\":2500,\"trade_time_ns\":2500,\"trade_id\":1,"
+              "\"price_i64\":30050,\"qty_i64\":1,\"side\":\"buy\",\"is_aggregated\":true,\"is_buyer_maker\":false}\n");
+
+    SessionReplay replay{};
+    EXPECT_EQ(replay.open(dir), Status::Ok);
+    EXPECT_EQ(replay.depths().size(), 2u);
+    EXPECT_EQ(replay.trades().size(), 1u);
+    EXPECT_NE(std::string{replay.errorDetail()}.find("continuity warning"), std::string::npos);
+
+    replay.seek(3000);
+    EXPECT_EQ(replay.book().asks().count(30100), 0u);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 }  // namespace

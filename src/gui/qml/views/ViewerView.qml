@@ -6,6 +6,8 @@ import HftRecorder 1.0
 Pane {
     id: root
     padding: 0
+    focus: true
+    required property AppViewModel appVm
 
     property color windowColor: "#161616"
     property color chromeColor: "#202024"
@@ -24,9 +26,6 @@ Pane {
     property bool showOrderbookLayer: false
     property bool showBookTickerLayer: false
     property bool effectiveBookTickerLayer: showBookTickerLayer || showOrderbookLayer
-    property real tradeAmountScale: 0.45
-    property real bookOpacityGain: 0.55
-    property real bookRenderDetail: 0.7
     property bool interactiveMode: false
     // Kept for backwards compatibility with existing QML references; the
     // scene-graph `ChartItem` always runs on the GPU now (Qt RHI composites
@@ -35,8 +34,89 @@ Pane {
     property bool plotDragging: false
     property bool priceScaleDragging: false
     property bool timeScaleDragging: false
+    property bool rangeSelectionActive: false
+    property bool selectionCommitted: false
+    property real selectionStartX: 0
+    property real selectionStartY: 0
+    property real selectionEndX: 0
+    property real selectionEndY: 0
+
+    function clearSelectionVisual() {
+        root.rangeSelectionActive = false
+        root.selectionCommitted = false
+        root.selectionStartX = 0
+        root.selectionStartY = 0
+        root.selectionEndX = 0
+        root.selectionEndY = 0
+    }
+
+    function usdSliderToValue(sliderValue) {
+        const clamped = Math.max(0.0, Math.min(1.0, sliderValue))
+        const minUsd = 100.0
+        const maxUsd = 100000.0
+        return minUsd + (maxUsd - minUsd) * clamped
+    }
+
+    function usdValueToSlider(usdValue) {
+        const minUsd = 100.0
+        const maxUsd = 100000.0
+        const clamped = Math.max(minUsd, Math.min(maxUsd, usdValue))
+        return (clamped - minUsd) / (maxUsd - minUsd)
+    }
+
+    function formatUsdShort(usdValue) {
+        if (usdValue >= 1000)
+            return "$" + (usdValue / 1000).toFixed(usdValue >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k"
+        if (usdValue >= 100)
+            return "$" + Math.round(usdValue)
+        if (usdValue >= 10)
+            return "$" + usdValue.toFixed(1).replace(/\.0$/, "")
+        return "$" + usdValue.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")
+    }
+
+    function selectionLeft() {
+        return Math.min(root.selectionStartX, root.selectionEndX)
+    }
+
+    function selectionTop() {
+        return Math.min(root.selectionStartY, root.selectionEndY)
+    }
+
+    function selectionWidth() {
+        return Math.abs(root.selectionEndX - root.selectionStartX)
+    }
+
+    function selectionHeight() {
+        return Math.abs(root.selectionEndY - root.selectionStartY)
+    }
+
+    function beginSelection(x, y) {
+        root.rangeSelectionActive = true
+        root.selectionCommitted = false
+        root.selectionStartX = x
+        root.selectionStartY = y
+        root.selectionEndX = x
+        root.selectionEndY = y
+    }
+
+    function updateSelection(x, y) {
+        root.selectionEndX = Math.max(0, Math.min(plotFrame.width, x))
+        root.selectionEndY = Math.max(0, Math.min(plotFrame.height, y))
+    }
+
+    function commitSelection() {
+        root.rangeSelectionActive = false
+        root.selectionCommitted = chart.commitSelectionRect(
+            plotFrame.width, plotFrame.height,
+            root.selectionStartX, root.selectionStartY,
+            root.selectionEndX, root.selectionEndY)
+        if (!root.selectionCommitted)
+            root.clearSelectionVisual()
+    }
 
     function syncChannelView() {
+        root.clearSelectionVisual()
+        chart.clearSelection()
         if (selectedSessionId === "") {
             chart.resetSession()
             return
@@ -140,6 +220,11 @@ Pane {
 
     function stopInteractiveModeSoon() {
         interactiveModeTimer.restart()
+    }
+
+    Keys.onEscapePressed: {
+        root.clearSelectionVisual()
+        chart.clearSelection()
     }
 
     ColumnLayout {
@@ -317,13 +402,12 @@ Pane {
                     Layout.preferredWidth: 120
                     from: 0.0
                     to: 1.0
-                    value: root.tradeAmountScale
-                    onMoved: root.tradeAmountScale = value
-                    onValueChanged: root.tradeAmountScale = value
+                    value: root.appVm.tradeAmountScale
+                    onMoved: root.appVm.tradeAmountScale = value
                 }
 
                 Label {
-                    text: Math.round(root.tradeAmountScale * 100) + "%"
+                    text: Math.round(root.appVm.tradeAmountScale * 100) + "%"
                     color: root.textColor
                     font.pixelSize: 12
                     Layout.preferredWidth: 34
@@ -331,7 +415,7 @@ Pane {
                 }
 
                 Label {
-                    text: "Book Density"
+                    text: "Full Bright @"
                     color: root.mutedTextColor
                     font.pixelSize: 12
                 }
@@ -341,21 +425,20 @@ Pane {
                     Layout.preferredWidth: 120
                     from: 0.0
                     to: 1.0
-                    value: root.bookOpacityGain
-                    onMoved: root.bookOpacityGain = value
-                    onValueChanged: root.bookOpacityGain = value
+                    value: root.usdValueToSlider(root.appVm.bookBrightnessUsdRef)
+                    onMoved: root.appVm.bookBrightnessUsdRef = root.usdSliderToValue(value)
                 }
 
                 Label {
-                    text: Math.round(root.bookOpacityGain * 100) + "%"
+                    text: root.formatUsdShort(root.appVm.bookBrightnessUsdRef)
                     color: root.textColor
                     font.pixelSize: 12
-                    Layout.preferredWidth: 34
+                    Layout.preferredWidth: 58
                     horizontalAlignment: Text.AlignRight
                 }
 
                 Label {
-                    text: "Book Detail"
+                    text: "Min Visible"
                     color: root.mutedTextColor
                     font.pixelSize: 12
                 }
@@ -365,16 +448,15 @@ Pane {
                     Layout.preferredWidth: 120
                     from: 0.0
                     to: 1.0
-                    value: root.bookRenderDetail
-                    onMoved: root.bookRenderDetail = value
-                    onValueChanged: root.bookRenderDetail = value
+                    value: root.usdValueToSlider(root.appVm.bookMinVisibleUsd)
+                    onMoved: root.appVm.bookMinVisibleUsd = root.usdSliderToValue(value)
                 }
 
                 Label {
-                    text: Math.round(root.bookRenderDetail * 100) + "%"
+                    text: root.formatUsdShort(root.appVm.bookMinVisibleUsd)
                     color: root.textColor
                     font.pixelSize: 12
-                    Layout.preferredWidth: 34
+                    Layout.preferredWidth: 58
                     horizontalAlignment: Text.AlignRight
                 }
 
@@ -404,9 +486,9 @@ Pane {
                     tradesVisible: root.showTradesLayer
                     orderbookVisible: root.showOrderbookLayer
                     bookTickerVisible: root.effectiveBookTickerLayer
-                    tradeAmountScale: root.tradeAmountScale
-                    bookOpacityGain: root.bookOpacityGain
-                    bookRenderDetail: root.bookRenderDetail
+                    tradeAmountScale: root.appVm.tradeAmountScale
+                    bookOpacityGain: root.appVm.bookBrightnessUsdRef
+                    bookRenderDetail: root.appVm.bookMinVisibleUsd
                     interactiveMode: root.interactiveMode
                 }
 
@@ -423,6 +505,12 @@ Pane {
                             root.activeInteractionItem().activateContextPoint(mouse.x, mouse.y)
                             return
                         }
+                        if ((mouse.modifiers & Qt.ShiftModifier) && mouse.button === Qt.LeftButton) {
+                            root.startInteractiveMode()
+                            root.beginSelection(mouse.x, mouse.y)
+                            root.activeInteractionItem().clearHover()
+                            return
+                        }
                         root.startInteractiveMode()
                         root.plotDragging = true
                         lastX = mouse.x
@@ -431,6 +519,10 @@ Pane {
                     }
 
                     onPositionChanged: function(mouse) {
+                        if (root.rangeSelectionActive) {
+                            root.updateSelection(mouse.x, mouse.y)
+                            return
+                        }
                         if (mouse.buttons & Qt.LeftButton) {
                             var dx = mouse.x - lastX
                             var dy = mouse.y - lastY
@@ -448,14 +540,24 @@ Pane {
                     }
 
                     onReleased: {
+                        if (root.rangeSelectionActive) {
+                            root.commitSelection()
+                            root.stopInteractiveModeSoon()
+                            return
+                        }
                         root.plotDragging = false
                         root.stopInteractiveModeSoon()
                     }
                     onCanceled: {
+                        if (root.rangeSelectionActive)
+                            root.clearSelectionVisual()
                         root.plotDragging = false
                         root.stopInteractiveModeSoon()
                     }
-                    onExited: root.activeInteractionItem().clearHover()
+                    onExited: {
+                        if (!root.rangeSelectionActive)
+                            root.activeInteractionItem().clearHover()
+                    }
 
                     onWheel: function(wheel) {
                         root.startInteractiveMode()
@@ -465,6 +567,56 @@ Pane {
                         chart.zoomPrice(factor)
                         root.stopInteractiveModeSoon()
                         wheel.accepted = true
+                    }
+                }
+
+                Rectangle {
+                    visible: root.rangeSelectionActive || root.selectionCommitted
+                    x: root.selectionLeft()
+                    y: root.selectionTop()
+                    width: root.selectionWidth()
+                    height: root.selectionHeight()
+                    color: "#2448c8d3"
+                    border.color: root.accentBuyColor
+                    border.width: 1
+                }
+
+                Rectangle {
+                    id: selectionSummaryCard
+                    visible: root.selectionCommitted && chart.selectionActive && chart.selectionSummaryText !== ""
+                    radius: 8
+                    color: "#f014161a"
+                    border.color: root.accentBuyColor
+                    border.width: 1
+                    width: Math.min(Math.max(340, plotFrame.width * 0.34), 460)
+                    x: {
+                        const desiredRight = root.selectionLeft() + root.selectionWidth() + 12
+                        const fallbackLeft = root.selectionLeft() - width - 12
+                        if (desiredRight + width <= plotFrame.width - 8)
+                            return desiredRight
+                        if (fallbackLeft >= 8)
+                            return fallbackLeft
+                        return Math.max(8, plotFrame.width - width - 8)
+                    }
+                    y: {
+                        const desiredTop = root.selectionTop()
+                        const maxY = plotFrame.height - height - 8
+                        return Math.max(8, Math.min(desiredTop, maxY))
+                    }
+                    height: summaryText.implicitHeight + 18
+
+                    Text {
+                        id: summaryText
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        text: chart.selectionSummaryText
+                        color: root.textColor
+                        font.pixelSize: 12
+                        font.family: "Consolas"
+                        wrapMode: Text.Wrap
+                        lineHeight: 1.18
+                        lineHeightMode: Text.ProportionalHeight
+                        textFormat: Text.PlainText
                     }
                 }
             }

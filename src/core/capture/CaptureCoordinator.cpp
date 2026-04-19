@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <string_view>
 #include <thread>
 
 #include "api/dispatch/BuildDispatch.hpp"
@@ -24,6 +25,9 @@ namespace hftrec::capture {
 namespace {
 
 using namespace std::chrono_literals;
+
+constexpr std::string_view kSupportedExchange = "binance";
+constexpr std::string_view kSupportedMarket = "futures_usd";
 
 std::once_flag gBuildDispatchOnce;
 
@@ -91,6 +95,30 @@ void sleepIfIdle() noexcept {
     std::this_thread::sleep_for(100us);
 }
 
+Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError) {
+    if (config.symbols.empty()) {
+        lastError = "capture config must contain exactly one symbol";
+        return Status::InvalidArgument;
+    }
+    if (config.symbols.size() != 1u) {
+        lastError = "current capture path supports exactly one symbol per coordinator";
+        return Status::InvalidArgument;
+    }
+    if (config.exchange != kSupportedExchange) {
+        lastError = "current capture path supports exchange=binance only";
+        return Status::InvalidArgument;
+    }
+    if (config.market != kSupportedMarket) {
+        lastError = "current capture path supports market=futures_usd only";
+        return Status::InvalidArgument;
+    }
+    if (config.outputDir.empty()) {
+        lastError = "capture output directory must not be empty";
+        return Status::InvalidArgument;
+    }
+    return Status::Ok;
+}
+
 }  // namespace
 
 CaptureCoordinator::CaptureCoordinator() = default;
@@ -105,9 +133,8 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
         return Status::Ok;
     }
 
-    if (config.symbols.empty()) {
-        lastError_ = "capture config must contain at least one symbol";
-        return Status::InvalidArgument;
+    if (const auto validateStatus = validateSupportedConfig(config, lastError_); !isOk(validateStatus)) {
+        return validateStatus;
     }
 
     config_ = config;

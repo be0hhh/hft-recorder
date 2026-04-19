@@ -18,6 +18,10 @@ ApplicationWindow {
     property color mutedTextColor: "#b6b6b6"
     property color accentBuyColor: "#24c2cb"
 
+    AppViewModel {
+        id: appVm
+    }
+
     component DarkTabButton: TabButton {
         id: control
         background: Rectangle {
@@ -81,7 +85,11 @@ ApplicationWindow {
             currentIndex: tabBar.currentIndex
 
             CaptureView { Layout.fillWidth: true; Layout.fillHeight: true }
-            ViewerView { Layout.fillWidth: true; Layout.fillHeight: true }
+            ViewerView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                appVm: appVm
+            }
         }
     }
 }

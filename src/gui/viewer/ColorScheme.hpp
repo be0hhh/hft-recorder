@@ -15,12 +15,10 @@ inline QColor bgColor()             { return windowColor(); }
 inline QColor gridColor()           { return QColor(0x30, 0x30, 0x34); }
 inline QColor axisTextColor()       { return QColor(0xF5, 0xF5, 0xF5); }
 inline QColor mutedTextColor()      { return QColor(0xB6, 0xB6, 0xB6); }
-// Orderbook (стакан) uses the green / pink-red palette — brighter, easier to read.
-inline QColor bidColor()            { return QColor(0x22, 0xC5, 0x5E); }  // emerald-500
-inline QColor askColor()            { return QColor(0xFB, 0x71, 0x85); }  // rose-400
-// Trades (покупки/продажи) keep the original cyan / dark-red palette.
-inline QColor tradeBuyColor()       { return QColor(0x24, 0xC8, 0xD3); }
-inline QColor tradeSellColor()      { return QColor(0xFF, 0x4B, 0x57); }
+inline QColor bidColor()            { return QColor(0x15, 0x63, 0xBD); }  
+inline QColor askColor()            { return QColor(0xAD, 0x18, 0x20); }  
+inline QColor tradeBuyColor()       { return QColor(0x22, 0xC5, 0x5E); }  // зелёный #22C55E
+inline QColor tradeSellColor()      { return QColor(0xA8, 0x55, 0xF0); }  // фиолетовый #ac4dff
 inline QColor tradeConnectorColor() { return QColor(0x70, 0x80, 0x90, 0x50); }
 inline QColor tradeOutlineColor()   { return QColor(0x0A, 0x0A, 0x0A, 0xC0); }
 inline QColor tooltipBackColor()    { return QColor(0x10, 0x10, 0x12, 0xEB); }

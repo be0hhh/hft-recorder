@@ -44,6 +44,16 @@ Practical recommendation:
 - use `Qdrant` for compressed facts and semantic recall
 - if doc-grounding is added later, use it only for third-party APIs
 
+Desired tooling vs session reality:
+
+- `Linear`, `Qdrant`, `Context7`, and similar tooling are desired helpers, not guaranteed session truth
+- the safe fallback order is:
+  1. Obsidian curated notes
+  2. nested `doc/`
+  3. code
+  4. external tooling only if actually available in the session
+- do not spend early time assuming connectors exist just because the stack note names them
+
 Token discipline:
 
 - stable instructions first

@@ -12,6 +12,8 @@
 
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("hftrec"));
+    QCoreApplication::setApplicationName(QStringLiteral("hft-recorder"));
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
     qmlRegisterType<hftrec::gui::SessionListModel>("HftRecorder", 1, 0, "SessionListModel");

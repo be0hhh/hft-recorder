@@ -4,20 +4,29 @@ This vault is a fast map for agents.
 
 Read in this order:
 
-1. [[01_RUNTIME_GRAPH]]
-2. [[03_CAPTURE]]
-3. [[04_REPLAY_VALIDATION]]
-4. [[05_GUI_VIEWER]]
-5. [[06_LAB_VARIANTS]]
-6. [[07_BUILD_TEST_BOUNDARIES]]
-7. [[02_FILE_ROLES]]
-8. [[09_AGENT_STACK]]
-9. [[10_TASKS]]
-10. [[13_DECISIONS]]
-11. [[14_GOTCHAS]]
-12. [[15_VECTOR_RETRIEVAL]]
-13. [[16_MCP_STACK]]
-14. [[08_GRAPHIFY_LAYER]]
+1. [[START_HERE_TRUTH_ORDER]]
+2. [[CURRENT_REALITY_STATUS]]
+3. [[HISTORICAL_VS_ACTIVE]]
+4. [[SAFE_WORK_RULES]]
+5. [[01_RUNTIME_GRAPH]]
+6. [[03_CAPTURE]]
+7. [[04_REPLAY_VALIDATION]]
+8. [[05_GUI_VIEWER]]
+9. [[17_VIEWER_BASELINE_2026_04]]
+10. [[CAPTURE_SEMANTICS_AND_SCHEMA_BRIDGE]]
+11. [[REVIEW_BACKLOG]]
+12. [[OBSERVABILITY_PLAN]]
+13. [[06_LAB_VARIANTS]]
+14. [[07_BUILD_TEST_BOUNDARIES]]
+15. [[BUILD_RUN_TEST_MATRIX]]
+16. [[02_FILE_ROLES]]
+17. [[09_AGENT_STACK]]
+18. [[10_TASKS]]
+19. [[13_DECISIONS]]
+20. [[14_GOTCHAS]]
+21. [[15_VECTOR_RETRIEVAL]]
+22. [[16_MCP_STACK]]
+23. [[08_GRAPHIFY_LAYER]]
 
 Core idea:
 
@@ -35,6 +44,7 @@ Current reality worth remembering:
 - Lab/ranking path exists but is still mostly baseline/scaffold quality.
 - `CxetCaptureBridge` is present but currently returns `Status::Unimplemented`.
 - `StreamRecorder` and several codec/variant areas are transitional or placeholder-level.
+- Docs about metrics, block format, and some CLI paths can overstate implementation maturity.
 
 Canonical docs outside this vault:
 

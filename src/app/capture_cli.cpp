@@ -13,6 +13,7 @@ namespace {
 void printUsage() {
     std::puts("Usage:");
     std::puts("  hft-recorder capture <trades|bookticker|orderbook> [seconds] [output_dir]");
+    std::puts("  Current scope: Binance FAPI, one symbol per run, canonical JSON corpus output.");
     std::puts("");
     std::puts("Examples:");
     std::puts("  hft-recorder capture bookticker 10 ./recordings");
@@ -75,7 +76,7 @@ int runCapture(int argc, char** argv) {
         return 1;
     }
 
-    std::printf("capture started: channel=%s symbol=ETHUSDT duration=%llds dir=%s\n",
+    std::printf("capture started: channel=%s exchange=binance market=futures_usd symbol=ETHUSDT duration=%llds dir=%s\n",
                 channel.c_str(),
                 static_cast<long long>(config.durationSec),
                 config.outputDir.string().c_str());

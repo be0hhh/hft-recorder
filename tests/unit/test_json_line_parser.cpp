@@ -157,4 +157,35 @@ TEST(JsonLineParser, MissingFieldReturnsCorrupt) {
     EXPECT_EQ(parseTradeLine(bad, row), Status::CorruptData);
 }
 
+TEST(JsonLineParser, TradeLineHandlesEscapedStringsAndUnknownFields) {
+    const std::string line =
+        "{"
+        "\"session_id\":\"sess\\\"-1\","
+        "\"channel\":\"trades\","
+        "\"meta\":{\"ignored\":true,\"nested\":[1,2,{\"x\":\"y\"}]},"
+        "\"event_time_ns\":123,"
+        "\"trade_id\":456,"
+        "\"price_i64\":789,"
+        "\"qty_i64\":11,"
+        "\"event_index\":5,"
+        "\"side\":\"buy\""
+        "}";
+
+    TradeRow row{};
+    ASSERT_EQ(parseTradeLine(line, row), Status::Ok);
+    EXPECT_EQ(row.tsNs, 123);
+    EXPECT_EQ(row.id, 456);
+    EXPECT_EQ(row.priceE8, 789);
+    EXPECT_EQ(row.qtyE8, 11);
+    EXPECT_EQ(row.eventIndex, 5);
+    EXPECT_EQ(row.sideBuy, 1u);
+}
+
+TEST(JsonLineParser, CorruptJsonReturnsCorrupt) {
+    const std::string line =
+        "{\"event_time_ns\":123,\"trade_id\":1,\"price_i64\":2,\"qty_i64\":3,\"event_index\":4,\"side\":\"buy}";
+    TradeRow row{};
+    EXPECT_EQ(parseTradeLine(line, row), Status::CorruptData);
+}
+
 }  // namespace

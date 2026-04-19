@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/common/Status.hpp"
@@ -40,6 +42,8 @@ class SessionReplay {
     Status addDepthFile(const std::filesystem::path& path) noexcept;
     Status addSnapshotFile(const std::filesystem::path& path) noexcept;
     void   finalize() noexcept;
+    Status status() const noexcept { return status_; }
+    std::string_view errorDetail() const noexcept { return errorDetail_; }
 
     const std::vector<TradeRow>&      trades()      const noexcept { return trades_;      }
     const std::vector<BookTickerRow>& bookTickers() const noexcept { return bookTickers_; }
@@ -64,6 +68,9 @@ class SessionReplay {
   private:
     void rewindToSnapshot_();
     void applyEvent_(const Event& ev);
+    bool validateDepthSequence_(std::string& warningDetail) noexcept;
+    void rebuildEvents_() noexcept;
+    void setError_(Status status, std::string detail) noexcept;
 
     std::vector<TradeRow>      trades_{};
     std::vector<BookTickerRow> bookTickers_{};
@@ -75,6 +82,8 @@ class SessionReplay {
     std::size_t      cursor_{0};
     std::int64_t     firstTsNs_{0};
     std::int64_t     lastTsNs_{0};
+    Status           status_{Status::Ok};
+    std::string      errorDetail_{};
 };
 
 }  // namespace hftrec::replay

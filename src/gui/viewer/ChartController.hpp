@@ -27,6 +27,8 @@ class ChartController : public QObject {
     Q_PROPERTY(bool gpuRendererAvailable READ gpuRendererAvailable CONSTANT)
     Q_PROPERTY(int tradeCount READ tradeCount NOTIFY sessionChanged)
     Q_PROPERTY(int depthCount READ depthCount NOTIFY sessionChanged)
+    Q_PROPERTY(bool selectionActive READ selectionActive NOTIFY selectionChanged)
+    Q_PROPERTY(QString selectionSummaryText READ selectionSummaryText NOTIFY selectionChanged)
 
   public:
     explicit ChartController(QObject* parent = nullptr);
@@ -50,6 +52,8 @@ class ChartController : public QObject {
 
     int tradeCount() const { return static_cast<int>(replay_.trades().size()); }
     int depthCount() const { return static_cast<int>(replay_.depths().size()); }
+    bool selectionActive() const noexcept { return selectionActive_; }
+    QString selectionSummaryText() const { return selectionSummaryText_; }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
 
@@ -73,6 +77,9 @@ class ChartController : public QObject {
     Q_INVOKABLE QString formatTimeAt(double ratio) const;
     Q_INVOKABLE QString formatPriceScaleLabel(int index, int tickCount) const;
     Q_INVOKABLE QString formatTimeScaleLabel(int index, int tickCount) const;
+    Q_INVOKABLE bool commitSelectionRect(qreal plotWidthPx, qreal plotHeightPx,
+                                         qreal x0, qreal y0, qreal x1, qreal y1);
+    Q_INVOKABLE void clearSelection();
 
     void syncReplayCursorToViewport();
     std::int64_t viewportCursorTs() const noexcept;
@@ -90,9 +97,57 @@ class ChartController : public QObject {
     void sessionChanged();
     void viewportChanged();
     void statusChanged();
+    void selectionChanged();
 
   private:
+    struct SelectionRange {
+        bool valid{false};
+        std::int64_t timeStartNs{0};
+        std::int64_t timeEndNs{0};
+        std::int64_t priceMinE8{0};
+        std::int64_t priceMaxE8{0};
+    };
+
+    struct SelectionSummary {
+        std::int64_t durationUs{0};
+        std::int64_t tradeCount{0};
+        std::int64_t buyQtyE8{0};
+        std::int64_t sellQtyE8{0};
+        std::int64_t buyNotionalE8{0};
+        std::int64_t sellNotionalE8{0};
+        std::int64_t bookTickerCount{0};
+        std::int64_t depthEventCount{0};
+        std::int64_t bidLevelUpdates{0};
+        std::int64_t askLevelUpdates{0};
+        std::int64_t bidRemovals{0};
+        std::int64_t askRemovals{0};
+        std::int64_t bidQtyUpdatedE8{0};
+        std::int64_t askQtyUpdatedE8{0};
+        bool hasMovePct{false};
+        std::int64_t movePctE8{0};
+        bool hasBookStart{false};
+        std::int64_t bestBidStartE8{0};
+        std::int64_t bestAskStartE8{0};
+        std::int64_t spreadStartE8{0};
+        bool hasBookEnd{false};
+        std::int64_t bestBidEndE8{0};
+        std::int64_t bestAskEndE8{0};
+        std::int64_t spreadEndE8{0};
+        bool hasSpreadMin{false};
+        std::int64_t spreadMinE8{0};
+        bool hasSpreadMax{false};
+        std::int64_t spreadMaxE8{0};
+        bool hasBestBidMax{false};
+        std::int64_t bestBidMaxE8{0};
+        bool hasBestAskMin{false};
+        std::int64_t bestAskMinE8{0};
+    };
+
     void computeInitialViewport_();
+    SelectionRange selectionFromRect_(qreal plotWidthPx, qreal plotHeightPx,
+                                      qreal x0, qreal y0, qreal x1, qreal y1) const noexcept;
+    SelectionSummary buildSelectionSummary_(const SelectionRange& range);
+    QString formatSelectionSummary_(const SelectionRange& range, const SelectionSummary& summary) const;
 
     hftrec::replay::SessionReplay replay_{};
     QString sessionDir_{};
@@ -105,6 +160,8 @@ class ChartController : public QObject {
     qint64 priceMaxE8_{0};
     std::int64_t currentBookTickerIndex_{-1};
     bool gpuRendererAvailable_{true};
+    bool selectionActive_{false};
+    QString selectionSummaryText_{};
 };
 
 }  // namespace hftrec::gui::viewer

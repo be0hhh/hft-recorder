@@ -2,17 +2,22 @@
 
 #include <QDateTime>
 #include <QByteArray>
+#include <QStringList>
 #include <algorithm>
 #include <filesystem>
+#include <limits>
+#include <string>
+#include <sstream>
 
 #include "gui/viewer/detail/BookMath.hpp"
+#include "gui/viewer/detail/Formatters.hpp"
 
 namespace hftrec::gui::viewer {
 
 namespace {
 
-constexpr std::int64_t kOneCentE8 = 1000000ll;
 constexpr std::int64_t kOneMsNs = 1000000ll;
+constexpr std::size_t kViewportBookLevelsPerSide = 24;
 
 std::int64_t ceilToStep(std::int64_t value, std::int64_t step) {
     if (step <= 0) return value;
@@ -29,10 +34,12 @@ std::int64_t floorToStep(std::int64_t value, std::int64_t step) {
 std::int64_t nicePriceStepE8(std::int64_t spanE8, int tickCount) {
     const auto safeTicks = std::max(2, tickCount);
     std::int64_t rawStep = spanE8 / static_cast<std::int64_t>(safeTicks - 1);
-    rawStep = std::max(rawStep, kOneCentE8);
+    rawStep = std::max<std::int64_t>(rawStep, 1);
 
     std::int64_t magnitude = 1;
-    while (magnitude <= rawStep / 10) magnitude *= 10;
+    while (magnitude <= rawStep / 10 && magnitude <= (std::numeric_limits<std::int64_t>::max() / 10)) {
+        magnitude *= 10;
+    }
 
     for (;;) {
         const std::int64_t candidates[] = {magnitude, magnitude * 2, magnitude * 5, magnitude * 10};
@@ -75,6 +82,33 @@ std::string stripFileUrl(const QString& path) {
     return p.toStdString();
 }
 
+void absorbPrice(std::int64_t price, bool& hasPrice, std::int64_t& pMin, std::int64_t& pMax) {
+    if (price <= 0) return;
+    if (!hasPrice) {
+        pMin = price;
+        pMax = price;
+        hasPrice = true;
+        return;
+    }
+    pMin = std::min(pMin, price);
+    pMax = std::max(pMax, price);
+}
+
+template <typename MapT>
+void absorbBookLevels(const MapT& levels,
+                      std::size_t maxLevels,
+                      bool& hasPrice,
+                      std::int64_t& pMin,
+                      std::int64_t& pMax) {
+    std::size_t seen = 0;
+    for (const auto& [price, qty] : levels) {
+        if (seen >= maxLevels) break;
+        if (qty <= 0) continue;
+        absorbPrice(price, hasPrice, pMin, pMax);
+        ++seen;
+    }
+}
+
 QString formatScaledE8(std::int64_t value) {
     const bool negative = value < 0;
     const std::uint64_t absValue = negative
@@ -107,6 +141,55 @@ bool envForcesSoftwareRenderer() {
         || xcbIntegration == QStringLiteral("none");
 }
 
+std::int64_t clampPriceToBand(const std::int64_t price, const std::int64_t lo, const std::int64_t hi) {
+    return std::max(lo, std::min(hi, price));
+}
+
+template <typename BidMapT>
+bool findBestBidInBand(const BidMapT& bids,
+                       std::int64_t priceMinE8,
+                       std::int64_t priceMaxE8,
+                       std::int64_t& outPriceE8) {
+    for (const auto& [price, qty] : bids) {
+        if (qty <= 0) continue;
+        if (price < priceMinE8) break;
+        if (price > priceMaxE8) continue;
+        outPriceE8 = price;
+        return true;
+    }
+    return false;
+}
+
+template <typename AskMapT>
+bool findBestAskInBand(const AskMapT& asks,
+                       std::int64_t priceMinE8,
+                       std::int64_t priceMaxE8,
+                       std::int64_t& outPriceE8) {
+    for (const auto& [price, qty] : asks) {
+        if (qty <= 0) continue;
+        if (price > priceMaxE8) break;
+        if (price < priceMinE8) continue;
+        outPriceE8 = price;
+        return true;
+    }
+    return false;
+}
+
+QString formatPctE8(std::int64_t pctE8) {
+    return detail::formatTrimmedE8(pctE8) + QStringLiteral("%");
+}
+
+std::int64_t percentScaledE8(std::int64_t firstPriceE8, std::int64_t lastPriceE8) {
+    if (firstPriceE8 <= 0) return 0;
+
+    constexpr std::int64_t kPercentScaleE8 = 10000000000ll;  // 100 * 1e8
+    const std::int64_t diff = lastPriceE8 - firstPriceE8;
+    const std::int64_t whole = diff / firstPriceE8;
+    const std::int64_t rem = diff % firstPriceE8;
+
+    return whole * kPercentScaleE8 + (rem * kPercentScaleE8) / firstPriceE8;
+}
+
 }  // namespace
 
 ChartController::ChartController(QObject* parent) : QObject(parent) {
@@ -119,10 +202,13 @@ void ChartController::resetSession() {
     sessionDir_.clear();
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
+    selectionActive_ = false;
+    selectionSummaryText_.clear();
     statusText_ = QStringLiteral("Choose a session.");
     emit sessionChanged();
     emit statusChanged();
     emit viewportChanged();
+    emit selectionChanged();
 }
 
 bool ChartController::addTradesFile(const QString& path) {
@@ -206,7 +292,20 @@ bool ChartController::addSnapshotFile(const QString& path) {
 }
 
 void ChartController::finalizeFiles() {
+    clearSelection();
     replay_.finalize();
+    if (!isOk(replay_.status())) {
+        loaded_ = false;
+        currentBookTickerIndex_ = -1;
+        statusText_ = replay_.errorDetail().empty()
+            ? QStringLiteral("Finalize failed: %1").arg(QString::fromUtf8(statusToString(replay_.status()).data()))
+            : QStringLiteral("Finalize failed: %1")
+                  .arg(QString::fromStdString(std::string{replay_.errorDetail()}));
+        emit sessionChanged();
+        emit statusChanged();
+        emit viewportChanged();
+        return;
+    }
     loaded_ = (replay_.events().size() > 0) || (replay_.book().bids().size() + replay_.book().asks().size() > 0);
     if (loaded_) computeInitialViewport_();
     currentBookTickerIndex_ = -1;
@@ -221,12 +320,16 @@ bool ChartController::loadSession(const QString& dir) {
     sessionDir_ = dir;
     loaded_ = false;
     replay_ = hftrec::replay::SessionReplay{};
+    clearSelection();
 
     const auto path = std::filesystem::path(stripFileUrl(dir));
     const auto st = replay_.open(path);
     if (!isOk(st)) {
-        statusText_ = QStringLiteral("Failed to load session: %1")
-                          .arg(QString::fromUtf8(statusToString(st).data()));
+        statusText_ = replay_.errorDetail().empty()
+            ? QStringLiteral("Failed to load session: %1")
+                  .arg(QString::fromUtf8(statusToString(st).data()))
+            : QStringLiteral("Failed to load session: %1")
+                  .arg(QString::fromStdString(std::string{replay_.errorDetail()}));
         emit sessionChanged();
         emit statusChanged();
         return false;
@@ -238,6 +341,9 @@ bool ChartController::loadSession(const QString& dir) {
                       .arg(replay_.trades().size())
                       .arg(replay_.depths().size())
                       .arg(replay_.bookTickers().size());
+    if (!replay_.errorDetail().empty()) {
+        statusText_ += QStringLiteral(" | %1").arg(QString::fromStdString(std::string{replay_.errorDetail()}));
+    }
     computeInitialViewport_();
     emit sessionChanged();
     emit statusChanged();
@@ -252,41 +358,32 @@ void ChartController::computeInitialViewport_() {
 
     std::int64_t pMin = 0;
     std::int64_t pMax = 0;
-    if (!replay_.trades().empty()) {
-        pMin = replay_.trades().front().priceE8;
-        pMax = pMin;
-    } else if (!replay_.book().bids().empty() || !replay_.book().asks().empty()) {
-        pMin = replay_.book().bids().empty() ? replay_.book().bestAskPrice() : replay_.book().bestBidPrice();
-        pMax = replay_.book().asks().empty() ? replay_.book().bestBidPrice() : replay_.book().bestAskPrice();
-    } else if (!replay_.bookTickers().empty()) {
-        pMin = replay_.bookTickers().front().bidPriceE8;
-        pMax = replay_.bookTickers().front().askPriceE8;
-    } else {
+    bool hasPrice = false;
+
+    for (const auto& trade : replay_.trades()) {
+        absorbPrice(trade.priceE8, hasPrice, pMin, pMax);
+    }
+    for (const auto& ticker : replay_.bookTickers()) {
+        absorbPrice(ticker.bidPriceE8, hasPrice, pMin, pMax);
+        absorbPrice(ticker.askPriceE8, hasPrice, pMin, pMax);
+    }
+
+    // Use only the near-touch envelope from the current book. Full-depth scans
+    // drag the initial viewport towards far-away passive levels and make
+    // cheap instruments look incorrectly scaled.
+    absorbBookLevels(replay_.book().bids(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
+    absorbBookLevels(replay_.book().asks(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
+
+    if (!hasPrice) {
         pMin = 0;
         pMax = 1;
     }
 
-    for (const auto& trade : replay_.trades()) {
-        pMin = std::min(pMin, trade.priceE8);
-        pMax = std::max(pMax, trade.priceE8);
-    }
-    for (const auto& ticker : replay_.bookTickers()) {
-        if (ticker.bidPriceE8 != 0) pMin = std::min(pMin, ticker.bidPriceE8);
-        if (ticker.askPriceE8 != 0) pMax = std::max(pMax, ticker.askPriceE8);
-    }
-    for (const auto& [price, _] : replay_.book().bids()) {
-        pMin = std::min(pMin, price);
-        pMax = std::max(pMax, price);
-    }
-    for (const auto& [price, _] : replay_.book().asks()) {
-        pMin = std::min(pMin, price);
-        pMax = std::max(pMax, price);
-    }
-
     if (pMax <= pMin) pMax = pMin + 1;
     const std::int64_t pad = (pMax - pMin) / 10 + 1;
-    priceMinE8_ = pMin - pad;
+    priceMinE8_ = std::max<std::int64_t>(0, pMin - pad);
     priceMaxE8_ = pMax + pad;
+    if (priceMaxE8_ <= priceMinE8_) priceMaxE8_ = priceMinE8_ + 1;
 }
 
 void ChartController::setViewport(qint64 tsMin, qint64 tsMax,
@@ -393,6 +490,28 @@ QString ChartController::formatTimeScaleLabel(int index, int tickCount) const {
     return formatShortTimeNs(value);
 }
 
+bool ChartController::commitSelectionRect(qreal plotWidthPx, qreal plotHeightPx,
+                                          qreal x0, qreal y0, qreal x1, qreal y1) {
+    const auto range = selectionFromRect_(plotWidthPx, plotHeightPx, x0, y0, x1, y1);
+    if (!range.valid) {
+        clearSelection();
+        return false;
+    }
+
+    const auto summary = buildSelectionSummary_(range);
+    selectionSummaryText_ = formatSelectionSummary_(range, summary);
+    selectionActive_ = !selectionSummaryText_.isEmpty();
+    emit selectionChanged();
+    return selectionActive_;
+}
+
+void ChartController::clearSelection() {
+    if (!selectionActive_ && selectionSummaryText_.isEmpty()) return;
+    selectionActive_ = false;
+    selectionSummaryText_.clear();
+    emit selectionChanged();
+}
+
 std::int64_t ChartController::viewportCursorTs() const noexcept {
     return (tsMin_ + tsMax_) / 2;
 }
@@ -419,6 +538,201 @@ const hftrec::replay::BookTickerRow* ChartController::currentBookTicker() const 
     const auto index = static_cast<std::size_t>(currentBookTickerIndex_);
     if (index >= replay_.bookTickers().size()) return nullptr;
     return &replay_.bookTickers()[index];
+}
+
+ChartController::SelectionRange ChartController::selectionFromRect_(qreal plotWidthPx, qreal plotHeightPx,
+                                                                    qreal x0, qreal y0,
+                                                                    qreal x1, qreal y1) const noexcept {
+    SelectionRange range{};
+    if (!loaded_ || plotWidthPx <= 1.0 || plotHeightPx <= 1.0) return range;
+
+    const qreal left = std::clamp(std::min(x0, x1), 0.0, plotWidthPx);
+    const qreal right = std::clamp(std::max(x0, x1), 0.0, plotWidthPx);
+    const qreal top = std::clamp(std::min(y0, y1), 0.0, plotHeightPx);
+    const qreal bottom = std::clamp(std::max(y0, y1), 0.0, plotHeightPx);
+    if ((right - left) < 2.0 || (bottom - top) < 2.0) return range;
+
+    const qreal timeSpan = static_cast<qreal>(std::max<qint64>(1, tsMax_ - tsMin_));
+    const qreal priceSpan = static_cast<qreal>(std::max<qint64>(1, priceMaxE8_ - priceMinE8_));
+
+    range.timeStartNs = tsMin_ + static_cast<qint64>((left / plotWidthPx) * timeSpan);
+    range.timeEndNs = tsMin_ + static_cast<qint64>((right / plotWidthPx) * timeSpan);
+    range.priceMaxE8 = priceMaxE8_ - static_cast<qint64>((top / plotHeightPx) * priceSpan);
+    range.priceMinE8 = priceMaxE8_ - static_cast<qint64>((bottom / plotHeightPx) * priceSpan);
+
+    if (range.timeEndNs <= range.timeStartNs || range.priceMaxE8 <= range.priceMinE8) return SelectionRange{};
+    range.priceMinE8 = clampPriceToBand(range.priceMinE8, 0, priceMaxE8_);
+    range.priceMaxE8 = clampPriceToBand(range.priceMaxE8, range.priceMinE8 + 1, std::numeric_limits<std::int64_t>::max());
+    range.valid = true;
+    return range;
+}
+
+ChartController::SelectionSummary ChartController::buildSelectionSummary_(const SelectionRange& range) {
+    SelectionSummary summary{};
+    if (!range.valid || !loaded_) return summary;
+
+    summary.durationUs = std::max<std::int64_t>(0, (range.timeEndNs - range.timeStartNs) / 1000);
+
+    bool firstTradeCaptured = false;
+    std::int64_t firstTradePriceE8 = 0;
+    std::int64_t lastTradePriceE8 = 0;
+
+    for (const auto& trade : replay_.trades()) {
+        if (trade.tsNs < range.timeStartNs) continue;
+        if (trade.tsNs > range.timeEndNs) break;
+        if (trade.priceE8 < range.priceMinE8 || trade.priceE8 > range.priceMaxE8) continue;
+
+        ++summary.tradeCount;
+        const auto notionalE8 = detail::multiplyScaledE8(trade.qtyE8, trade.priceE8);
+        if (trade.sideBuy != 0) {
+            summary.buyQtyE8 += trade.qtyE8;
+            summary.buyNotionalE8 += notionalE8;
+        } else {
+            summary.sellQtyE8 += trade.qtyE8;
+            summary.sellNotionalE8 += notionalE8;
+        }
+
+        if (!firstTradeCaptured) {
+            firstTradeCaptured = true;
+            firstTradePriceE8 = trade.priceE8;
+        }
+        lastTradePriceE8 = trade.priceE8;
+    }
+
+    if (firstTradeCaptured && summary.tradeCount >= 2 && firstTradePriceE8 > 0) {
+        summary.hasMovePct = true;
+        summary.movePctE8 = percentScaledE8(firstTradePriceE8, lastTradePriceE8);
+    }
+
+    for (const auto& ticker : replay_.bookTickers()) {
+        if (ticker.tsNs < range.timeStartNs) continue;
+        if (ticker.tsNs > range.timeEndNs) break;
+        const bool bidInBand = ticker.bidPriceE8 >= range.priceMinE8 && ticker.bidPriceE8 <= range.priceMaxE8;
+        const bool askInBand = ticker.askPriceE8 >= range.priceMinE8 && ticker.askPriceE8 <= range.priceMaxE8;
+        if (!bidInBand && !askInBand) continue;
+        ++summary.bookTickerCount;
+    }
+
+    for (const auto& depth : replay_.depths()) {
+        if (depth.tsNs < range.timeStartNs) continue;
+        if (depth.tsNs > range.timeEndNs) break;
+        bool rowMatched = false;
+
+        for (const auto& level : depth.bids) {
+            if (level.priceE8 < range.priceMinE8 || level.priceE8 > range.priceMaxE8) continue;
+            rowMatched = true;
+            ++summary.bidLevelUpdates;
+            if (level.qtyE8 == 0) ++summary.bidRemovals;
+            else summary.bidQtyUpdatedE8 += level.qtyE8;
+        }
+        for (const auto& level : depth.asks) {
+            if (level.priceE8 < range.priceMinE8 || level.priceE8 > range.priceMaxE8) continue;
+            rowMatched = true;
+            ++summary.askLevelUpdates;
+            if (level.qtyE8 == 0) ++summary.askRemovals;
+            else summary.askQtyUpdatedE8 += level.qtyE8;
+        }
+
+        if (rowMatched) ++summary.depthEventCount;
+    }
+
+    replay_.seek(range.timeStartNs);
+    auto state = replay_.book();
+
+    auto captureBookState = [&](bool& outHasState,
+                                std::int64_t& outBidE8,
+                                std::int64_t& outAskE8,
+                                std::int64_t& outSpreadE8) {
+        std::int64_t bidE8 = 0;
+        std::int64_t askE8 = 0;
+        const bool hasBid = findBestBidInBand(state.bids(), range.priceMinE8, range.priceMaxE8, bidE8);
+        const bool hasAsk = findBestAskInBand(state.asks(), range.priceMinE8, range.priceMaxE8, askE8);
+        if (!hasBid || !hasAsk || askE8 < bidE8) return;
+        outHasState = true;
+        outBidE8 = bidE8;
+        outAskE8 = askE8;
+        outSpreadE8 = askE8 - bidE8;
+    };
+
+    auto updateExtrema = [&](std::int64_t bidE8, std::int64_t askE8, std::int64_t spreadE8) {
+        if (!summary.hasBestBidMax || bidE8 > summary.bestBidMaxE8) {
+            summary.hasBestBidMax = true;
+            summary.bestBidMaxE8 = bidE8;
+        }
+        if (!summary.hasBestAskMin || askE8 < summary.bestAskMinE8) {
+            summary.hasBestAskMin = true;
+            summary.bestAskMinE8 = askE8;
+        }
+        if (!summary.hasSpreadMin || spreadE8 < summary.spreadMinE8) {
+            summary.hasSpreadMin = true;
+            summary.spreadMinE8 = spreadE8;
+        }
+        if (!summary.hasSpreadMax || spreadE8 > summary.spreadMaxE8) {
+            summary.hasSpreadMax = true;
+            summary.spreadMaxE8 = spreadE8;
+        }
+    };
+
+    captureBookState(summary.hasBookStart, summary.bestBidStartE8, summary.bestAskStartE8, summary.spreadStartE8);
+    if (summary.hasBookStart) {
+        updateExtrema(summary.bestBidStartE8, summary.bestAskStartE8, summary.spreadStartE8);
+    }
+
+    for (const auto& depth : replay_.depths()) {
+        if (depth.tsNs < range.timeStartNs) continue;
+        if (depth.tsNs > range.timeEndNs) break;
+        state.applyDelta(depth);
+
+        std::int64_t bidE8 = 0;
+        std::int64_t askE8 = 0;
+        std::int64_t spreadE8 = 0;
+        bool hasState = false;
+        captureBookState(hasState, bidE8, askE8, spreadE8);
+        if (hasState) updateExtrema(bidE8, askE8, spreadE8);
+    }
+
+    captureBookState(summary.hasBookEnd, summary.bestBidEndE8, summary.bestAskEndE8, summary.spreadEndE8);
+    syncReplayCursorToViewport();
+    return summary;
+}
+
+QString ChartController::formatSelectionSummary_(const SelectionRange& range,
+                                                 const SelectionSummary& summary) const {
+    if (!range.valid) return {};
+
+    QStringList lines;
+    lines << QStringLiteral("Selection");
+    lines << QStringLiteral("Time   %1 -> %2")
+                 .arg(formatShortTimeNs(range.timeStartNs))
+                 .arg(formatShortTimeNs(range.timeEndNs));
+    lines << QStringLiteral("DeltaT %1 us").arg(summary.durationUs);
+    lines << QStringLiteral("Price  %1 .. %2")
+                 .arg(detail::formatTrimmedE8(range.priceMinE8))
+                 .arg(detail::formatTrimmedE8(range.priceMaxE8));
+    lines << QString{};
+
+    const auto totalQtyE8 = summary.buyQtyE8 + summary.sellQtyE8;
+    const auto totalNotionalE8 = summary.buyNotionalE8 + summary.sellNotionalE8;
+    const auto qtyDeltaE8 = summary.buyQtyE8 - summary.sellQtyE8;
+    const auto usdDeltaE8 = summary.buyNotionalE8 - summary.sellNotionalE8;
+
+    lines << QStringLiteral("Trades");
+    lines << QStringLiteral("Count  %1").arg(summary.tradeCount);
+    lines << QStringLiteral("Buy    %1 coin | $%2")
+                 .arg(detail::formatTrimmedE8(summary.buyQtyE8))
+                 .arg(detail::formatTrimmedE8(summary.buyNotionalE8));
+    lines << QStringLiteral("Sell   %1 coin | $%2")
+                 .arg(detail::formatTrimmedE8(summary.sellQtyE8))
+                 .arg(detail::formatTrimmedE8(summary.sellNotionalE8));
+    lines << QStringLiteral("Total  %1 coin | $%2")
+                 .arg(detail::formatTrimmedE8(totalQtyE8))
+                 .arg(detail::formatTrimmedE8(totalNotionalE8));
+    lines << QStringLiteral("Delta  %1 coin | $%2")
+                 .arg(detail::formatTrimmedE8(qtyDeltaE8))
+                 .arg(detail::formatTrimmedE8(usdDeltaE8));
+    lines << QStringLiteral("Move   %1")
+                 .arg(summary.hasMovePct ? formatPctE8(summary.movePctE8) : QStringLiteral("n/a"));
+    return lines.join(QLatin1Char('\n'));
 }
 
 RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx,
@@ -457,14 +771,18 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx,
     // Book segments — only when orderbook or ticker is drawn.
     if (!in.orderbookVisible && !in.bookTickerVisible) return snap;
 
-    replay_.seek(snap.vp.tMin);
+    const std::int64_t coverageStart = std::max<std::int64_t>(snap.vp.tMin, replay_.firstTsNs());
+    const std::int64_t coverageEnd = std::min<std::int64_t>(snap.vp.tMax, replay_.lastTsNs());
+    if (coverageEnd <= coverageStart) return snap;
+
+    replay_.seek(coverageStart);
     const auto& events  = replay_.events();
     const auto& tickers = replay_.bookTickers();
 
     int activeTickerIndex = -1;
     {
         const auto it = std::upper_bound(
-            tickers.begin(), tickers.end(), snap.vp.tMin,
+            tickers.begin(), tickers.end(), coverageStart,
             [](std::int64_t ts, const hftrec::replay::BookTickerRow& row) noexcept {
                 return ts < row.tsNs;
             });
@@ -511,9 +829,9 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx,
     // deltas (so book state stays correct) but only materialize a new segment
     // once `stampTs` is at least one pixel to the right of the pending
     // segment's start. Visually identical; orders of magnitude cheaper.
-    std::int64_t segStart    = snap.vp.tMin;
+    std::int64_t segStart    = coverageStart;
     std::size_t  eventCursor = replay_.cursor();
-    while (eventCursor < events.size() && events[eventCursor].tsNs <= snap.vp.tMax) {
+    while (eventCursor < events.size() && events[eventCursor].tsNs <= coverageEnd) {
         const auto stampTs = events[eventCursor].tsNs;
         const double xStart = snap.vp.toX(segStart);
         const double xStamp = snap.vp.toX(stampTs);
@@ -533,7 +851,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx,
         replay_.seek(stampTs);
         eventCursor = replay_.cursor();
     }
-    emitSegment(segStart, snap.vp.tMax);
+    emitSegment(segStart, coverageEnd);
 
     return snap;
 }
