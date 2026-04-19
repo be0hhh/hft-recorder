@@ -5,7 +5,9 @@ add_library(hftrec_core STATIC
     capture/SessionId.cpp
     capture/SessionManifest.cpp
     capture/ChannelJsonWriter.cpp
+    capture/CaptureCoordinatorInternal.cpp
     capture/CaptureCoordinator.cpp
+    capture/CaptureCoordinatorRuntime.cpp
     capture/JsonSerializers.cpp
     common/Log.cpp
     codec/VarInt.cpp
@@ -23,6 +25,7 @@ add_library(hftrec_core STATIC
     replay/JsonLineParser.cpp
     replay/BookState.cpp
     replay/SessionReplay.cpp
+    replay/SessionReplayTimeline.cpp
     validation/ValidationRunner.cpp
 )
 

@@ -7,6 +7,9 @@ namespace hftrec::lab {
 std::vector<PipelineResult> RankingEngine::rank(const std::vector<PipelineResult>& input) const {
     auto sorted = input;
     std::sort(sorted.begin(), sorted.end(), [](const PipelineResult& lhs, const PipelineResult& rhs) {
+        if (lhs.supported != rhs.supported) {
+            return lhs.supported && !rhs.supported;
+        }
         if (lhs.validation.accuracyPpm != rhs.validation.accuracyPpm) {
             return lhs.validation.accuracyPpm > rhs.validation.accuracyPpm;
         }

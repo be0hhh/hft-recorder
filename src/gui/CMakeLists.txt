@@ -8,8 +8,16 @@ qt_add_executable(hft-recorder-gui
     models/SessionListModel.cpp
     viewmodels/AppViewModel.cpp
     viewmodels/CaptureViewModel.cpp
+    viewmodels/CaptureViewModelBatch.cpp
+    viewmodels/CaptureViewModelRequests.cpp
+    viewmodels/CaptureViewModelState.cpp
     viewer/ChartController.cpp
+    viewer/ChartControllerSession.cpp
+    viewer/ChartControllerViewport.cpp
+    viewer/ChartControllerSelection.cpp
     viewer/ChartItem.cpp
+    viewer/ChartItemHover.cpp
+    viewer/ChartItemPaint.cpp
     viewer/hit_test/HoverDetection.cpp
     viewer/renderers/BookRenderer.cpp
     viewer/renderers/BookTickerRenderer.cpp
@@ -28,6 +36,20 @@ qt_add_qml_module(hft-recorder-gui
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/components/CaptureDarkButton.qml
+        qml/components/CaptureAliasChip.qml
+        qml/components/CaptureWeightBadge.qml
+        qml/components/CaptureAccentActionButton.qml
+        qml/components/CaptureSessionSummaryCard.qml
+        qml/components/CaptureChannelCard.qml
+        qml/components/ViewerChromeButton.qml
+        qml/components/ViewerChannelButton.qml
+        qml/components/ViewerInteractionState.qml
+        qml/components/ViewerSessionToolbar.qml
+        qml/components/ViewerLayerToolbar.qml
+        qml/components/ViewerSelectionOverlay.qml
+        qml/components/ViewerPriceScale.qml
+        qml/components/ViewerTimeScale.qml
         qml/views/CaptureView.qml
         qml/views/SessionsView.qml
         qml/views/ValidationView.qml

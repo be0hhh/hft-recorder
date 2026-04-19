@@ -76,9 +76,7 @@ Status sampleGroundTruthBookFrames(const corpus::SessionCorpus& corpus,
         replay::SnapshotDocument parsed{};
         const auto st = replay::parseSnapshotDocument(document, parsed);
         if (!isOk(st)) return st;
-        if (!hasSnapshot ||
-            parsed.snapshotIndex < chosenSnapshot.snapshotIndex ||
-            (parsed.snapshotIndex == chosenSnapshot.snapshotIndex && parsed.tsNs < chosenSnapshot.tsNs)) {
+        if (!hasSnapshot || parsed.tsNs < chosenSnapshot.tsNs) {
             chosenSnapshot = std::move(parsed);
             hasSnapshot = true;
         }

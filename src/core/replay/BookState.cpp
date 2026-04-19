@@ -5,7 +5,6 @@ namespace hftrec::replay {
 void BookState::reset() noexcept {
     bids_.clear();
     asks_.clear();
-    lastUpdateId_ = 0;
     lastTsNs_ = 0;
 }
 
@@ -19,7 +18,6 @@ void BookState::applySnapshot(const SnapshotDocument& snap) {
         if (level.qtyE8 > 0) asks_.emplace(level.priceE8, level.qtyE8);
     }
     lastTsNs_ = snap.tsNs;
-    lastUpdateId_ = 0;
 }
 
 void BookState::applyDelta(const DepthRow& delta) {
@@ -38,7 +36,6 @@ void BookState::applyDelta(const DepthRow& delta) {
         }
     }
     lastTsNs_ = delta.tsNs;
-    lastUpdateId_ = delta.finalUpdateId;
 }
 
 }  // namespace hftrec::replay

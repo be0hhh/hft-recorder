@@ -22,8 +22,12 @@ struct PipelineResult {
     std::size_t inputBytes{0};
     std::size_t outputBytes{0};
     std::uint64_t compressionRatioPpm{1'000'000u};
+    std::uint64_t encodeNs{0};
+    std::uint64_t decodeNs{0};
     std::uint64_t encodeBytesPerSec{0};
     std::uint64_t decodeBytesPerSec{0};
+    bool supported{true};
+    std::string failureReason{};
     GroundTruthSummary groundTruth{};
     validation::ValidationResult validation{};
 };

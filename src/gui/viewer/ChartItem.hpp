@@ -11,6 +11,14 @@ namespace hftrec::gui::viewer {
 
 class ChartController;
 struct RenderSnapshot;
+struct SnapshotInputs;
+struct HoverInfo;
+class ChartItem;
+
+namespace detail {
+SnapshotInputs collectInputs(const ChartItem& item);
+HoverInfo buildHoverInfo(const ChartItem& item);
+}
 
 // CPU QPainter-backed chart. Draws into a QImage target; the scene graph
 // composites that image. Simple and portable — no Qt RHI scene-graph geometry
@@ -75,6 +83,9 @@ class ChartItem : public QQuickPaintedItem {
     void requestRepaint();
 
   private:
+    friend SnapshotInputs detail::collectInputs(const ChartItem& item);
+    friend HoverInfo detail::buildHoverInfo(const ChartItem& item);
+
     void updateHover_();
     void invalidateSnapshotCache_();
     const RenderSnapshot& ensureSnapshot_();

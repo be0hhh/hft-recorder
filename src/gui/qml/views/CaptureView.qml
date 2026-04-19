@@ -13,23 +13,9 @@ Pane {
     property color textColor: "#f5f5f5"
     property color mutedTextColor: "#b6b6b6"
     property color accentBuyColor: "#24c2cb"
+    property color accentRequiredColor: "#1ed8ff"
+    property color accentOptionalColor: "#179ca4"
     property color accentSellColor: "#da2536"
-
-    component DarkButton: Button {
-        id: control
-        background: Rectangle {
-            radius: 8
-            color: control.enabled ? root.panelAltColor : "#232326"
-            border.color: control.enabled ? root.borderColor : "#313136"
-            border.width: 1
-        }
-        contentItem: Text {
-            text: control.text
-            color: control.enabled ? root.textColor : root.mutedTextColor
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-    }
 
     background: Rectangle { color: root.windowColor }
 
@@ -57,77 +43,14 @@ Pane {
                 color: root.mutedTextColor
             }
 
-            Rectangle {
-                Layout.fillWidth: true
-                radius: 12
-                color: root.panelColor
-                border.color: root.borderColor
-                border.width: 1
-                implicitHeight: infoColumn.implicitHeight + 24
-
-                ColumnLayout {
-                    id: infoColumn
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 10
-
-                    Label { text: "Parent Directory"; font.bold: true; color: root.textColor }
-
-                    TextField {
-                        Layout.fillWidth: true
-                        text: captureVm.outputDirectory
-                        readOnly: true
-                        color: root.textColor
-                        selectedTextColor: root.textColor
-                        selectionColor: root.accentBuyColor
-                        background: Rectangle {
-                            radius: 8
-                            color: root.panelAltColor
-                            border.color: root.borderColor
-                            border.width: 1
-                        }
-                    }
-
-                    Label { text: "Symbols"; font.bold: true; color: root.textColor }
-
-                    TextField {
-                        Layout.fillWidth: true
-                        text: captureVm.symbolsText
-                        placeholderText: "RAVE BTC ETH"
-                        color: root.textColor
-                        placeholderTextColor: root.mutedTextColor
-                        selectedTextColor: root.textColor
-                        selectionColor: root.accentBuyColor
-                        enabled: !captureVm.sessionOpen
-                        onTextChanged: captureVm.setSymbolsText(text)
-                        background: Rectangle {
-                            radius: 8
-                            color: root.panelAltColor
-                            border.color: root.borderColor
-                            border.width: 1
-                        }
-                    }
-
-                    Label {
-                        text: "Normalized: " + (captureVm.normalizedSymbolsText === "" ? "<none>" : captureVm.normalizedSymbolsText)
-                        color: root.mutedTextColor
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Label { text: "Session ID: " + (captureVm.sessionId === "" ? "<not started>" : captureVm.sessionId); color: root.textColor }
-                    Label { text: "Session Path: " + (captureVm.sessionPath === "" ? "<not created>" : captureVm.sessionPath); color: root.textColor }
-                    Label { text: "Status: " + captureVm.statusText; wrapMode: Text.WordWrap; color: root.mutedTextColor }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 18
-
-                        Label { text: "Trades: " + captureVm.tradesCount; color: root.textColor }
-                        Label { text: "BookTicker: " + captureVm.bookTickerCount; color: root.textColor }
-                        Label { text: "Depth: " + captureVm.depthCount; color: root.textColor }
-                        Item { Layout.fillWidth: true }
-                    }
-                }
+            CaptureSessionSummaryCard {
+                captureVm: captureVm
+                panelColor: root.panelColor
+                panelAltColor: root.panelAltColor
+                borderColor: root.borderColor
+                textColor: root.textColor
+                mutedTextColor: root.mutedTextColor
+                accentBuyColor: root.accentBuyColor
             }
 
             Rectangle {
@@ -150,59 +73,97 @@ Pane {
                         color: root.textColor
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        Button {
-                            id: tradesButton
-                            text: captureVm.tradesRunning ? "Stop Trades" : "Start Trades"
-                            onClicked: {
-                                if (captureVm.tradesRunning)
-                                    captureVm.stopTrades()
-                                else
-                                    captureVm.startTrades()
-                            }
-                            background: Rectangle {
-                                radius: 8
-                                color: captureVm.tradesRunning ? root.accentSellColor : root.accentBuyColor
-                                border.color: captureVm.tradesRunning ? root.accentSellColor : root.accentBuyColor
-                                border.width: 1
-                            }
-                            contentItem: Text {
-                                text: tradesButton.text
-                                color: "#101314"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
+                    CaptureChannelCard {
+                        captureVm: captureVm
+                        channelKey: "trades"
+                        titleText: "Trades Request"
+                        emptyText: "No trade aliases available."
+                        availableAliases: captureVm.tradesAvailableAliases
+                        requestPreview: captureVm.tradesRequestPreview
+                        weightSummary: captureVm.channelWeightSummary("trades")
+                        running: captureVm.tradesRunning
+                        actionText: captureVm.tradesRunning ? "Stop Trades" : "Start Trades"
+                        panelColor: root.panelColor
+                        panelAltColor: root.panelAltColor
+                        borderColor: root.borderColor
+                        textColor: root.textColor
+                        mutedTextColor: root.mutedTextColor
+                        accentRequiredColor: root.accentRequiredColor
+                        accentOptionalColor: root.accentOptionalColor
+                        accentSellColor: root.accentSellColor
+                        actionAccentColor: captureVm.tradesRunning ? root.accentSellColor : root.accentRequiredColor
+                        actionTextColor: captureVm.tradesRunning ? "#fff4f5" : "#071419"
+                        onActionTriggered: {
+                            if (captureVm.tradesRunning)
+                                captureVm.stopTrades()
+                            else
+                                captureVm.startTrades()
                         }
+                    }
 
-                        DarkButton {
-                            text: captureVm.bookTickerRunning ? "Stop BookTicker" : "Start BookTicker"
-                            onClicked: {
-                                if (captureVm.bookTickerRunning)
-                                    captureVm.stopBookTicker()
-                                else
-                                    captureVm.startBookTicker()
-                            }
+                    CaptureChannelCard {
+                        captureVm: captureVm
+                        channelKey: "bookticker"
+                        titleText: "BookTicker Request"
+                        emptyText: "No book-ticker aliases available."
+                        availableAliases: captureVm.bookTickerAvailableAliases
+                        requestPreview: captureVm.bookTickerRequestPreview
+                        weightSummary: captureVm.channelWeightSummary("bookticker")
+                        running: captureVm.bookTickerRunning
+                        actionText: captureVm.bookTickerRunning ? "Stop BookTicker" : "Start BookTicker"
+                        panelColor: root.panelColor
+                        panelAltColor: root.panelAltColor
+                        borderColor: root.borderColor
+                        textColor: root.textColor
+                        mutedTextColor: root.mutedTextColor
+                        accentRequiredColor: root.accentRequiredColor
+                        accentOptionalColor: root.accentOptionalColor
+                        accentSellColor: root.accentSellColor
+                        actionAccentColor: captureVm.bookTickerRunning ? root.accentSellColor : root.accentRequiredColor
+                        actionTextColor: captureVm.bookTickerRunning ? "#fff4f5" : "#071419"
+                        onActionTriggered: {
+                            if (captureVm.bookTickerRunning)
+                                captureVm.stopBookTicker()
+                            else
+                                captureVm.startBookTicker()
                         }
+                    }
 
-                        DarkButton {
-                            text: captureVm.orderbookRunning ? "Stop Orderbook" : "Start Orderbook"
-                            onClicked: {
-                                if (captureVm.orderbookRunning)
-                                    captureVm.stopOrderbook()
-                                else
-                                    captureVm.startOrderbook()
-                            }
+                    CaptureChannelCard {
+                        captureVm: captureVm
+                        channelKey: "orderbook"
+                        titleText: "Orderbook Request"
+                        emptyText: "No orderbook aliases available."
+                        availableAliases: captureVm.orderbookAvailableAliases
+                        requestPreview: captureVm.orderbookRequestPreview
+                        weightSummary: captureVm.channelWeightSummary("orderbook")
+                        running: captureVm.orderbookRunning
+                        actionText: captureVm.orderbookRunning ? "Stop Orderbook" : "Start Orderbook"
+                        panelColor: root.panelColor
+                        panelAltColor: root.panelAltColor
+                        borderColor: root.borderColor
+                        textColor: root.textColor
+                        mutedTextColor: root.mutedTextColor
+                        accentRequiredColor: root.accentRequiredColor
+                        accentOptionalColor: root.accentOptionalColor
+                        accentSellColor: root.accentSellColor
+                        actionAccentColor: captureVm.orderbookRunning ? root.accentSellColor : root.accentRequiredColor
+                        actionTextColor: captureVm.orderbookRunning ? "#fff4f5" : "#071419"
+                        onActionTriggered: {
+                            if (captureVm.orderbookRunning)
+                                captureVm.stopOrderbook()
+                            else
+                                captureVm.startOrderbook()
                         }
+                    }
 
-                        Item { Layout.fillWidth: true }
-
-                        DarkButton {
-                            text: "Finalize Session"
-                            onClicked: captureVm.finalizeSession()
-                        }
+                    CaptureDarkButton {
+                        text: "Finalize Session"
+                        panelAltColor: root.panelAltColor
+                        borderColor: root.borderColor
+                        textColor: root.textColor
+                        mutedTextColor: root.mutedTextColor
+                        onClicked: captureVm.finalizeSession()
                     }
 
                     Label {

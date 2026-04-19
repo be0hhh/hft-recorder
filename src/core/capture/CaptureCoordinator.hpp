@@ -28,6 +28,12 @@ struct CaptureConfig {
     std::filesystem::path outputDir{"./recordings"};
     std::int64_t durationSec{1800};
     std::int64_t snapshotIntervalSec{60};
+    std::vector<std::string> tradesAliases{};
+    std::vector<std::string> bookTickerAliases{};
+    std::vector<std::string> orderbookAliases{};
+    std::string tradesRequestCommand{};
+    std::string bookTickerRequestCommand{};
+    std::string orderbookRequestCommand{};
 };
 
 class CaptureCoordinator {

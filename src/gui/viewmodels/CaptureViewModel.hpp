@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 #include <memory>
 #include <vector>
@@ -10,11 +11,24 @@
 
 namespace hftrec::gui {
 
+class CaptureViewModel;
+
+namespace detail {
+struct CaptureBatchSnapshot;
+CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel);
+}
+
 class CaptureViewModel : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString outputDirectory READ outputDirectory WRITE setOutputDirectory NOTIFY outputDirectoryChanged)
     Q_PROPERTY(QString symbolsText READ symbolsText WRITE setSymbolsText NOTIFY symbolsTextChanged)
     Q_PROPERTY(QString normalizedSymbolsText READ normalizedSymbolsText NOTIFY symbolsTextChanged)
+    Q_PROPERTY(QStringList tradesAvailableAliases READ tradesAvailableAliases NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QStringList bookTickerAvailableAliases READ bookTickerAvailableAliases NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QStringList orderbookAvailableAliases READ orderbookAvailableAliases NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString tradesRequestPreview READ tradesRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString bookTickerRequestPreview READ bookTickerRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString orderbookRequestPreview READ orderbookRequestPreview NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString sessionId READ sessionId NOTIFY sessionStateChanged)
     Q_PROPERTY(QString sessionPath READ sessionPath NOTIFY sessionStateChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
@@ -32,6 +46,12 @@ class CaptureViewModel : public QObject {
     QString outputDirectory() const;
     QString symbolsText() const;
     QString normalizedSymbolsText() const;
+    QStringList tradesAvailableAliases() const;
+    QStringList bookTickerAvailableAliases() const;
+    QStringList orderbookAvailableAliases() const;
+    QString tradesRequestPreview() const;
+    QString bookTickerRequestPreview() const;
+    QString orderbookRequestPreview() const;
     QString sessionId() const;
     QString sessionPath() const;
     QString statusText() const;
@@ -45,6 +65,11 @@ class CaptureViewModel : public QObject {
 
     Q_INVOKABLE void setOutputDirectory(const QString& outputDirectory);
     Q_INVOKABLE void setSymbolsText(const QString& symbolsText);
+    Q_INVOKABLE void toggleAlias(const QString& channel, const QString& alias);
+    Q_INVOKABLE bool isAliasSelected(const QString& channel, const QString& alias) const;
+    Q_INVOKABLE bool isRequiredAlias(const QString& channel, const QString& alias) const;
+    Q_INVOKABLE QString aliasDisplayText(const QString& channel, const QString& alias) const;
+    Q_INVOKABLE QString channelWeightSummary(const QString& channel) const;
     Q_INVOKABLE bool startTrades();
     Q_INVOKABLE void stopTrades();
     Q_INVOKABLE bool startBookTicker();
@@ -56,15 +81,21 @@ class CaptureViewModel : public QObject {
   signals:
     void outputDirectoryChanged();
     void symbolsTextChanged();
+    void requestBuilderChanged();
     void sessionStateChanged();
     void statusTextChanged();
     void channelStateChanged();
     void countersChanged();
 
   private:
+    friend detail::CaptureBatchSnapshot detail::collectBatchSnapshot(const CaptureViewModel& viewModel);
+
     std::vector<capture::CaptureConfig> makeConfigs() const;
-    std::vector<std::string> normalizedSymbols_() const;
+    QStringList* selectedAliasesForChannel_(const QString& channel);
+    const QStringList* selectedAliasesForChannel_(const QString& channel) const;
+    const QStringList* availableAliasesForChannel_(const QString& channel) const;
     bool ensureCoordinatorBatch_();
+    void abortCoordinatorBatch_(const QString& fallbackStatus);
     void clearCoordinatorBatch_();
     void refreshState();
     void setStatusText(const QString& statusText);
@@ -75,6 +106,12 @@ class CaptureViewModel : public QObject {
     QTimer refreshTimer_{};
     QString outputDirectory_{"./recordings"};
     QString symbolsText_{"ETH"};
+    QStringList tradesAvailableAliases_{};
+    QStringList bookTickerAvailableAliases_{};
+    QStringList orderbookAvailableAliases_{};
+    QStringList selectedTradesAliases_{};
+    QStringList selectedBookTickerAliases_{};
+    QStringList selectedOrderbookAliases_{};
     QString statusText_{"Ready to capture symbols into canonical JSON session folders"};
     QString lastSessionId_{};
     QString lastSessionPath_{};

@@ -11,10 +11,8 @@ namespace hftrec::replay {
 
 struct TradeRow {
     std::int64_t tsNs{0};
-    std::int64_t id{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
-    std::int64_t eventIndex{0};
     std::uint8_t sideBuy{0};  // 1 = taker-buy, 0 = taker-sell
 };
 
@@ -24,7 +22,6 @@ struct BookTickerRow {
     std::int64_t bidQtyE8{0};
     std::int64_t askPriceE8{0};
     std::int64_t askQtyE8{0};
-    std::int64_t eventIndex{0};
 };
 
 struct PricePair {
@@ -34,16 +31,16 @@ struct PricePair {
 
 struct DepthRow {
     std::int64_t tsNs{0};
+    std::int64_t updateId{0};
     std::int64_t firstUpdateId{0};
-    std::int64_t finalUpdateId{0};
-    std::int64_t eventIndex{0};
     std::vector<PricePair> bids;
     std::vector<PricePair> asks;
 };
 
 struct SnapshotDocument {
     std::int64_t tsNs{0};
-    std::int64_t snapshotIndex{0};
+    std::int64_t updateId{0};
+    std::int64_t firstUpdateId{0};
     std::vector<PricePair> bids;
     std::vector<PricePair> asks;
 };

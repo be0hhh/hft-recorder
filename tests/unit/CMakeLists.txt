@@ -6,6 +6,7 @@ add_executable(hftrec_unit_tests
     test_capture_serializers.cpp
     test_identity_codec.cpp
     test_json_line_parser.cpp
+    test_validation_runner.cpp
     test_book_state.cpp
     test_session_replay.cpp
 )

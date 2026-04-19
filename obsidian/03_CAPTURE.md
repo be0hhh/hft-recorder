@@ -15,6 +15,10 @@ Main objects:
 - `JsonSerializers`
 - `SessionManifest`
 - `SessionId`
+- `CaptureViewModel`
+- `CaptureViewModelRequests`
+- `CaptureViewModelBatch`
+- `CaptureViewModelState`
 
 Actual flow:
 
@@ -49,11 +53,19 @@ Important current facts:
 
 - Current capture target is effectively Binance futures style flow centered on normalized CXET APIs.
 - `CaptureViewModel` creates one `CaptureCoordinator` per normalized symbol.
+- `CaptureViewModel` is now split by concern:
+  - facade/QML signal glue in `CaptureViewModel.cpp`
+  - symbol + alias + request DSL policy in `CaptureViewModelRequests.cpp`
+  - multi-coordinator start/stop/finalize supervision in `CaptureViewModelBatch.cpp`
+  - polling/state aggregation in `CaptureViewModelState.cpp`
+- `CaptureView.qml` is also split structurally:
+  - top-level screen composition stays in `CaptureView.qml`
+  - reusable cards/buttons/chips live under `src/gui/qml/components/Capture*.qml`
 - `CxetCaptureBridge` is not the active path; `CaptureCoordinator` talks to CXET APIs directly.
 
 If you debug capture:
 
 - start at `CaptureCoordinator.cpp`
-- then read `CaptureViewModel.cpp`
+- then read `CaptureViewModelBatch.cpp`
+- then read `CaptureViewModelRequests.cpp`
 - then inspect `JsonSerializers.cpp`
-

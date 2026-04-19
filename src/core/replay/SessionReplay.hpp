@@ -44,6 +44,10 @@ class SessionReplay {
     void   finalize() noexcept;
     Status status() const noexcept { return status_; }
     std::string_view errorDetail() const noexcept { return errorDetail_; }
+    bool gapDetected() const noexcept { return gapDetected_; }
+    bool sequenceValidationAvailable() const noexcept { return sequenceValidationAvailable_; }
+    std::size_t parseFailureCount() const noexcept { return parseFailureCount_; }
+    std::size_t integrityFailureCount() const noexcept { return integrityFailureCount_; }
 
     const std::vector<TradeRow>&      trades()      const noexcept { return trades_;      }
     const std::vector<BookTickerRow>& bookTickers() const noexcept { return bookTickers_; }
@@ -68,9 +72,8 @@ class SessionReplay {
   private:
     void rewindToSnapshot_();
     void applyEvent_(const Event& ev);
-    bool validateDepthSequence_(std::string& warningDetail) noexcept;
+    bool validateDepthStream_() noexcept;
     void rebuildEvents_() noexcept;
-    void setError_(Status status, std::string detail) noexcept;
 
     std::vector<TradeRow>      trades_{};
     std::vector<BookTickerRow> bookTickers_{};
@@ -84,6 +87,10 @@ class SessionReplay {
     std::int64_t     lastTsNs_{0};
     Status           status_{Status::Ok};
     std::string      errorDetail_{};
+    bool             gapDetected_{false};
+    bool             sequenceValidationAvailable_{false};
+    std::size_t      parseFailureCount_{0};
+    std::size_t      integrityFailureCount_{0};
 };
 
 }  // namespace hftrec::replay

@@ -25,7 +25,9 @@ struct BookSegment {
     std::int64_t maxBidQty{1};
     std::int64_t maxAskQty{1};
     std::int64_t tickerBidE8{0};    // 0 if no active ticker during this segment
+    std::int64_t tickerBidQtyE8{0};
     std::int64_t tickerAskE8{0};
+    std::int64_t tickerAskQtyE8{0};
 };
 
 struct TradeDot {

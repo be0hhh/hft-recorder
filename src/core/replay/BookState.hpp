@@ -30,13 +30,11 @@ class BookState {
     std::int64_t bestBidQty()   const noexcept { return bids_.empty() ? 0 : bids_.begin()->second; }
     std::int64_t bestAskQty()   const noexcept { return asks_.empty() ? 0 : asks_.begin()->second; }
 
-    std::int64_t lastUpdateId() const noexcept { return lastUpdateId_; }
     std::int64_t lastTsNs()     const noexcept { return lastTsNs_;     }
 
   private:
     BidMap       bids_{};
     AskMap       asks_{};
-    std::int64_t lastUpdateId_{0};
     std::int64_t lastTsNs_{0};
 };
 

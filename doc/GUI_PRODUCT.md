@@ -14,21 +14,25 @@ The GUI is a first-class deliverable.
 ### Capture
 
 Controls:
-- exchange
-- market
 - symbols
-- duration
-- snapshot interval
 - output directory
-- start
-- stop
+- start/stop per channel
+
+Current supported runtime scope:
+- exchange is effectively fixed to `Binance`
+- market is effectively fixed to `futures_usd`
+- one symbol per `CaptureCoordinator`
+- multi-symbol capture is implemented as a batch of single-symbol coordinators
 
 Live status:
 - session id
-- elapsed time
 - event counters per channel
-- bytes written
 - warnings/errors
+
+Planned-but-not-current UI copy to treat carefully:
+- generic exchange/market selection
+- bytes written
+- fully generic source coverage
 
 ### Sessions
 

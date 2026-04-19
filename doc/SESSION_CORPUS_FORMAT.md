@@ -42,22 +42,25 @@ logs/
 
 ## Manifest
 
-`manifest.json` stores session metadata:
+Current implemented manifest fields are:
 - `session_id`
-- `app_version`
-- `cxetcpp_version`
 - `exchange`
 - `market`
 - `symbols`
+- `selected_parent_dir`
 - `started_at_ns`
 - `ended_at_ns`
 - `target_duration_sec`
 - `actual_duration_sec`
 - `snapshot_interval_sec`
-- `channels`
+- `channel_status`
 - `event_counts`
-- `warning_counts`
-- `error_counts`
+- `warning_summary`
+
+Fields like `app_version`, `cxetcpp_version`, separate warning/error maps, and
+other richer metadata remain planned but are not the current on-disk contract.
+
+`manifest.json` stores session metadata for the current runtime.
 
 ## Channel files
 
@@ -65,53 +68,36 @@ logs/
 
 One line per normalized trade-like event.
 
-Required fields:
-- `session_id`
-- `channel`
-- `exchange`
-- `market`
-- `symbol`
-- `event_index`
-- `event_time_ns`
-- `trade_time_ns`
-- `trade_id`
-- `price_i64`
-- `qty_i64`
-- `side`
-- `is_aggregated`
+Current implemented fields:
+- `tsNs`
+- `priceE8`
+- `qtyE8`
+- `sideBuy`
+
+The richer normalized trade schema described in older docs is not yet what the
+recorder writes today.
 
 ### `bookticker.jsonl`
 
 One line per normalized level-1 event.
 
-Required fields:
-- `session_id`
-- `channel`
-- `exchange`
-- `market`
-- `symbol`
-- `event_index`
-- `event_time_ns`
-- `update_id`
-- `best_bid_price_i64`
-- `best_bid_qty_i64`
-- `best_ask_price_i64`
-- `best_ask_qty_i64`
+Current implemented fields:
+- `tsNs`
+- `bidPriceE8`
+- `askPriceE8`
+
+Optional current fields:
+- `bidQtyE8`
+- `askQtyE8`
 
 ### `depth.jsonl`
 
 One line per normalized orderbook delta event.
 
-Required fields:
-- `session_id`
-- `channel`
-- `exchange`
-- `market`
-- `symbol`
-- `event_index`
-- `event_time_ns`
-- `first_update_id`
-- `final_update_id`
+Current implemented fields:
+- `tsNs`
+- `updateId`
+- `firstUpdateId`
 - `bids`
 - `asks`
 
@@ -119,18 +105,17 @@ Each `bids` / `asks` item:
 - `price_i64`
 - `qty_i64`
 
+These sequence ids are the current replay integrity seam for orderbook gap
+validation.
+
 ### `snapshot_NNN.json`
 
 One file per full normalized snapshot.
 
-Required fields:
-- `session_id`
-- `channel`
-- `exchange`
-- `market`
-- `symbol`
-- `snapshot_index`
-- `snapshot_time_ns`
+Current implemented fields:
+- `tsNs`
+- `updateId`
+- `firstUpdateId`
 - `bids`
 - `asks`
 
@@ -151,8 +136,8 @@ Rules:
 
 ## Schema rule
 
-The canonical schema describes normalized `CXETCPP` events, not raw exchange
-messages.
+The canonical schema describes the normalized events currently emitted by the
+recorder, not the larger aspirational schema from older planning docs.
 
 This is intentional:
 - cleaner replay

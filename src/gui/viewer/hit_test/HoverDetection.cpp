@@ -59,7 +59,7 @@ void computeHover(const RenderSnapshot& snap,
                 const bool bidWins = bidDist <= askDist;
                 out.bookKind    = bidWins ? 1 : 2;
                 out.bookPriceE8 = bidWins ? seg->tickerBidE8 : seg->tickerAskE8;
-                out.bookQtyE8   = 0;
+                out.bookQtyE8   = bidWins ? seg->tickerBidQtyE8 : seg->tickerAskQtyE8;
                 out.bookTsNs    = seg->tsStartNs;
             } else if (snap.orderbookVisible) {
                 constexpr double kBookHitPx = 8.0;

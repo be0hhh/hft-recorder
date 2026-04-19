@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <filesystem>
 
 #include "core/capture/CaptureCoordinator.hpp"
@@ -17,7 +18,8 @@ CaptureConfig makeValidConfig() {
     config.exchange = "binance";
     config.market = "futures_usd";
     config.symbols = {"ETHUSDT"};
-    config.outputDir = fs::temp_directory_path() / "hftrec_capture_coordinator_tests";
+    config.outputDir = fs::temp_directory_path()
+        / ("hftrec_capture_coordinator_tests_" + std::to_string(std::rand()));
     return config;
 }
 
@@ -37,6 +39,23 @@ TEST(CaptureCoordinator, RejectsMultipleSymbolsPerCoordinator) {
 
     EXPECT_EQ(coordinator.ensureSession(config), Status::InvalidArgument);
     EXPECT_NE(coordinator.lastError().find("exactly one symbol"), std::string::npos);
+}
+
+TEST(CaptureCoordinator, RejectsConfigDriftWhileSessionIsOpen) {
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+
+    ASSERT_EQ(coordinator.ensureSession(config), Status::Ok);
+
+    auto mismatchedConfig = config;
+    mismatchedConfig.symbols = {"BTCUSDT"};
+
+    EXPECT_EQ(coordinator.ensureSession(mismatchedConfig), Status::InvalidArgument);
+    EXPECT_NE(coordinator.lastError().find("different exchange/market/symbol/output directory"), std::string::npos);
+
+    std::error_code ec;
+    coordinator.finalizeSession();
+    fs::remove_all(config.outputDir, ec);
 }
 
 }  // namespace

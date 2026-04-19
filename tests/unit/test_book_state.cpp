@@ -35,7 +35,6 @@ TEST(BookState, DeltaOverwritesModifiesAndRemoves) {
 
     DepthRow d{};
     d.tsNs = 200;
-    d.finalUpdateId = 42;
     d.bids = {
         {30000, 1'500},   // modify top bid
         {29800, 300},     // add new bid level
@@ -62,7 +61,6 @@ TEST(BookState, DeltaOverwritesModifiesAndRemoves) {
     EXPECT_EQ(b.bestAskPrice(), 30200);
 
     EXPECT_EQ(b.lastTsNs(), 200);
-    EXPECT_EQ(b.lastUpdateId(), 42);
 }
 
 TEST(BookState, StickyLevelsPreservedBetweenDeltas) {
@@ -98,7 +96,6 @@ TEST(BookState, ResetClears) {
     EXPECT_TRUE(b.bids().empty());
     EXPECT_TRUE(b.asks().empty());
     EXPECT_EQ(b.lastTsNs(), 0);
-    EXPECT_EQ(b.lastUpdateId(), 0);
 }
 
 }  // namespace

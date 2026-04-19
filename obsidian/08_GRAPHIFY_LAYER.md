@@ -7,12 +7,12 @@ Purpose:
 
 Generated corpus summary:
 
-- `graphify` run date: `2026-04-19`
+- `graphify` run date: `2026-04-20`
 - scope: `apps/hft-recorder`
 - mode: local AST-only for code graph
-- detected corpus: 183 files total, 127 code files, 56 docs
-- AST extraction scope: 134 code/QML files
-- extracted code graph: 453 nodes, 514 edges
+- detected corpus: 139 files total, ~58,832 words
+- AST extraction scope: 139 files
+- extracted code graph: 510 nodes, 535 edges
 
 Locations:
 
@@ -43,3 +43,4 @@ Regeneration intent:
 - keep `.graphifyignore` authoritative
 - regenerate raw graph when code shape changes materially
 - do not overwrite curated root notes with generated output
+- current raw graph was refreshed after the GUI split wave on `2026-04-20`

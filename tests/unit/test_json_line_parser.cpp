@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 #include "core/capture/JsonSerializers.hpp"
 #include "core/replay/EventRows.hpp"
@@ -25,21 +26,18 @@ using hftrec::replay::TradeRow;
 TEST(JsonLineParser, TradeLineRoundTrip) {
     cxet::composite::TradePublic ev{};
     ev.symbol.copyFrom("BTCUSDT");
-    ev.id.raw = 5'123'456ULL;
     ev.price.raw = 3'000'100'000'000LL;
     ev.amount.raw = 10'000'000LL;
     ev.ts.raw = 1'713'168'000'000'000'000ULL;
     ev.side = Side::Buy();
 
-    const auto line = hftrec::capture::renderTradeJsonLine("s", "binance", "futures_usd", ev, 7);
+    const auto line = hftrec::capture::renderTradeJsonLine(ev);
 
     TradeRow row{};
     ASSERT_EQ(parseTradeLine(line, row), Status::Ok);
     EXPECT_EQ(row.tsNs, 1'713'168'000'000'000'000LL);
-    EXPECT_EQ(row.id,        5'123'456LL);
     EXPECT_EQ(row.priceE8,   3'000'100'000'000LL);
     EXPECT_EQ(row.qtyE8,     10'000'000LL);
-    EXPECT_EQ(row.eventIndex, 7LL);
     EXPECT_EQ(row.sideBuy, 1u);
 }
 
@@ -50,7 +48,7 @@ TEST(JsonLineParser, TradeLineSellSide) {
     ev.ts.raw = 1'000'000'000ULL;
     ev.side = Side::Sell();
 
-    const auto line = hftrec::capture::renderTradeJsonLine("s", "e", "m", ev, 1);
+    const auto line = hftrec::capture::renderTradeJsonLine(ev);
 
     TradeRow row{};
     ASSERT_EQ(parseTradeLine(line, row), Status::Ok);
@@ -66,7 +64,7 @@ TEST(JsonLineParser, BookTickerLineRoundTrip) {
     ev.askAmount.raw = 60'000'000LL;
     ev.ts.raw = 1'713'168'000'500'000'000ULL;
 
-    const auto line = hftrec::capture::renderBookTickerJsonLine("s", "e", "m", ev, 3);
+    const auto line = hftrec::capture::renderBookTickerJsonLine(ev, {"bidQty", "askQty"});
 
     BookTickerRow row{};
     ASSERT_EQ(parseBookTickerLine(line, row), Status::Ok);
@@ -75,15 +73,27 @@ TEST(JsonLineParser, BookTickerLineRoundTrip) {
     EXPECT_EQ(row.bidQtyE8,   50'000'000LL);
     EXPECT_EQ(row.askPriceE8, 200'010'000'000LL);
     EXPECT_EQ(row.askQtyE8,   60'000'000LL);
-    EXPECT_EQ(row.eventIndex, 3LL);
+}
+
+TEST(JsonLineParser, BookTickerLineWithoutQtyParses) {
+    const std::string line =
+        "{\"tsNs\":123,\"bidPriceE8\":456,\"askPriceE8\":789}";
+
+    BookTickerRow row{};
+    ASSERT_EQ(parseBookTickerLine(line, row), Status::Ok);
+    EXPECT_EQ(row.tsNs, 123);
+    EXPECT_EQ(row.bidPriceE8, 456);
+    EXPECT_EQ(row.askPriceE8, 789);
+    EXPECT_EQ(row.bidQtyE8, 0);
+    EXPECT_EQ(row.askQtyE8, 0);
 }
 
 TEST(JsonLineParser, DepthLineRoundTrip) {
     cxet::composite::OrderBookSnapshot delta{};
     delta.symbol.copyFrom("BTCUSDT");
     delta.ts.raw = 1'713'168'000'750'000'000ULL;
-    delta.firstUpdateId.raw = 100ULL;
-    delta.updateId.raw = 102ULL;
+    delta.updateId.raw = 220ULL;
+    delta.firstUpdateId.raw = 218ULL;
     delta.bidCount.raw = 2u;
     delta.bids[0].price.raw  = 3'000'000'000'000LL;
     delta.bids[0].amount.raw = 25'000'000LL;
@@ -93,14 +103,13 @@ TEST(JsonLineParser, DepthLineRoundTrip) {
     delta.asks[0].price.raw  = 3'000'100'000'000LL;
     delta.asks[0].amount.raw = 15'000'000LL;
 
-    const auto line = hftrec::capture::renderDepthJsonLine("s", "e", "m", delta, 42);
+    const auto line = hftrec::capture::renderDepthJsonLine(delta);
 
     DepthRow row{};
     ASSERT_EQ(parseDepthLine(line, row), Status::Ok);
     EXPECT_EQ(row.tsNs, 1'713'168'000'750'000'000LL);
-    EXPECT_EQ(row.firstUpdateId, 100LL);
-    EXPECT_EQ(row.finalUpdateId, 102LL);
-    EXPECT_EQ(row.eventIndex, 42LL);
+    EXPECT_EQ(row.updateId, 220);
+    EXPECT_EQ(row.firstUpdateId, 218);
     ASSERT_EQ(row.bids.size(), 2u);
     EXPECT_EQ(row.bids[0].priceE8, 3'000'000'000'000LL);
     EXPECT_EQ(row.bids[0].qtyE8,   25'000'000LL);
@@ -119,7 +128,7 @@ TEST(JsonLineParser, DepthLineEmptyAskArray) {
     delta.bids[0].amount.raw = 200LL;
     delta.askCount.raw = 0u;
 
-    const auto line = hftrec::capture::renderDepthJsonLine("s", "e", "m", delta, 0);
+    const auto line = hftrec::capture::renderDepthJsonLine(delta);
     DepthRow row{};
     ASSERT_EQ(parseDepthLine(line, row), Status::Ok);
     EXPECT_EQ(row.bids.size(), 1u);
@@ -130,6 +139,8 @@ TEST(JsonLineParser, SnapshotDocumentRoundTrip) {
     cxet::composite::OrderBookSnapshot snap{};
     snap.symbol.copyFrom("BTCUSDT");
     snap.ts.raw = 1'713'168'000'000'000'000ULL;
+    snap.updateId.raw = 150ULL;
+    snap.firstUpdateId.raw = 145ULL;
     snap.bidCount.raw = 1u;
     snap.bids[0].price.raw = 3'000'000'000'000LL;
     snap.bids[0].amount.raw = 100'000'000LL;
@@ -137,12 +148,13 @@ TEST(JsonLineParser, SnapshotDocumentRoundTrip) {
     snap.asks[0].price.raw = 3'000'100'000'000LL;
     snap.asks[0].amount.raw = 80'000'000LL;
 
-    const auto doc = hftrec::capture::renderSnapshotJson("s", "e", "m", snap, 7);
+    const auto doc = hftrec::capture::renderSnapshotJson(snap);
 
     SnapshotDocument parsed{};
     ASSERT_EQ(parseSnapshotDocument(doc, parsed), Status::Ok);
     EXPECT_EQ(parsed.tsNs, 1'713'168'000'000'000'000LL);
-    EXPECT_EQ(parsed.snapshotIndex, 7LL);
+    EXPECT_EQ(parsed.updateId, 150);
+    EXPECT_EQ(parsed.firstUpdateId, 145);
     ASSERT_EQ(parsed.bids.size(), 1u);
     EXPECT_EQ(parsed.bids[0].priceE8, 3'000'000'000'000LL);
     EXPECT_EQ(parsed.bids[0].qtyE8,   100'000'000LL);
@@ -157,33 +169,37 @@ TEST(JsonLineParser, MissingFieldReturnsCorrupt) {
     EXPECT_EQ(parseTradeLine(bad, row), Status::CorruptData);
 }
 
+TEST(JsonLineParser, DepthLineWithoutIdsStillParsesForBackwardCompatibility) {
+    const std::string line =
+        "{\"tsNs\":123,\"bids\":[{\"price_i64\":1,\"qty_i64\":2}],\"asks\":[]}";
+
+    DepthRow row{};
+    ASSERT_EQ(parseDepthLine(line, row), Status::Ok);
+    EXPECT_EQ(row.updateId, 0);
+    EXPECT_EQ(row.firstUpdateId, 0);
+}
+
 TEST(JsonLineParser, TradeLineHandlesEscapedStringsAndUnknownFields) {
     const std::string line =
         "{"
-        "\"session_id\":\"sess\\\"-1\","
-        "\"channel\":\"trades\","
         "\"meta\":{\"ignored\":true,\"nested\":[1,2,{\"x\":\"y\"}]},"
-        "\"event_time_ns\":123,"
-        "\"trade_id\":456,"
-        "\"price_i64\":789,"
-        "\"qty_i64\":11,"
-        "\"event_index\":5,"
-        "\"side\":\"buy\""
+        "\"tsNs\":123,"
+        "\"priceE8\":789,"
+        "\"qtyE8\":11,"
+        "\"sideBuy\":1"
         "}";
 
     TradeRow row{};
     ASSERT_EQ(parseTradeLine(line, row), Status::Ok);
     EXPECT_EQ(row.tsNs, 123);
-    EXPECT_EQ(row.id, 456);
     EXPECT_EQ(row.priceE8, 789);
     EXPECT_EQ(row.qtyE8, 11);
-    EXPECT_EQ(row.eventIndex, 5);
     EXPECT_EQ(row.sideBuy, 1u);
 }
 
 TEST(JsonLineParser, CorruptJsonReturnsCorrupt) {
     const std::string line =
-        "{\"event_time_ns\":123,\"trade_id\":1,\"price_i64\":2,\"qty_i64\":3,\"event_index\":4,\"side\":\"buy}";
+        "{\"tsNs\":123,\"priceE8\":2,\"qtyE8\":3,\"sideBuy\":\"buy\"}";
     TradeRow row{};
     EXPECT_EQ(parseTradeLine(line, row), Status::CorruptData);
 }

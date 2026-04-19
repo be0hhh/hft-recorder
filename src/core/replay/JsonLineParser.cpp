@@ -258,34 +258,28 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
     if (!parser.parseObjectStart()) return Status::CorruptData;
 
     bool sawTs = false;
-    bool sawId = false;
     bool sawPrice = false;
     bool sawQty = false;
-    bool sawEventIndex = false;
     bool sawSide = false;
     std::string key;
-    std::string side;
 
     if (parser.peek('}')) return Status::CorruptData;
     do {
         if (!parser.parseKey(key)) return Status::CorruptData;
-        if (key == "event_time_ns") {
+        if (key == "tsNs") {
             if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
             sawTs = true;
-        } else if (key == "trade_id") {
-            if (!parser.parseInt64(out.id)) return Status::CorruptData;
-            sawId = true;
-        } else if (key == "price_i64") {
+        } else if (key == "priceE8") {
             if (!parser.parseInt64(out.priceE8)) return Status::CorruptData;
             sawPrice = true;
-        } else if (key == "qty_i64") {
+        } else if (key == "qtyE8") {
             if (!parser.parseInt64(out.qtyE8)) return Status::CorruptData;
             sawQty = true;
-        } else if (key == "event_index") {
-            if (!parser.parseInt64(out.eventIndex)) return Status::CorruptData;
-            sawEventIndex = true;
-        } else if (key == "side") {
-            if (!parser.parseString(side)) return Status::CorruptData;
+        } else if (key == "sideBuy") {
+            std::int64_t sideBuy = 0;
+            if (!parser.parseInt64(sideBuy)) return Status::CorruptData;
+            if (sideBuy != 0 && sideBuy != 1) return Status::CorruptData;
+            out.sideBuy = static_cast<std::uint8_t>(sideBuy);
             sawSide = true;
         } else if (!parser.skipValue()) {
             return Status::CorruptData;
@@ -294,11 +288,7 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
     } while (parser.parseComma());
 
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
-    if (!sawTs || !sawId || !sawPrice || !sawQty || !sawEventIndex || !sawSide) return Status::CorruptData;
-
-    if (side == "buy") out.sideBuy = 1u;
-    else if (side == "sell") out.sideBuy = 0u;
-    else return Status::CorruptData;
+    if (!sawTs || !sawPrice || !sawQty || !sawSide) return Status::CorruptData;
 
     return Status::Ok;
 }
@@ -310,33 +300,25 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
 
     bool sawTs = false;
     bool sawBidPrice = false;
-    bool sawBidQty = false;
     bool sawAskPrice = false;
-    bool sawAskQty = false;
-    bool sawEventIndex = false;
     std::string key;
 
     if (parser.peek('}')) return Status::CorruptData;
     do {
         if (!parser.parseKey(key)) return Status::CorruptData;
-        if (key == "event_time_ns") {
+        if (key == "tsNs") {
             if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
             sawTs = true;
-        } else if (key == "best_bid_price_i64") {
+        } else if (key == "bidPriceE8") {
             if (!parser.parseInt64(out.bidPriceE8)) return Status::CorruptData;
             sawBidPrice = true;
-        } else if (key == "best_bid_qty_i64") {
+        } else if (key == "bidQtyE8") {
             if (!parser.parseInt64(out.bidQtyE8)) return Status::CorruptData;
-            sawBidQty = true;
-        } else if (key == "best_ask_price_i64") {
+        } else if (key == "askPriceE8") {
             if (!parser.parseInt64(out.askPriceE8)) return Status::CorruptData;
             sawAskPrice = true;
-        } else if (key == "best_ask_qty_i64") {
+        } else if (key == "askQtyE8") {
             if (!parser.parseInt64(out.askQtyE8)) return Status::CorruptData;
-            sawAskQty = true;
-        } else if (key == "event_index") {
-            if (!parser.parseInt64(out.eventIndex)) return Status::CorruptData;
-            sawEventIndex = true;
         } else if (!parser.skipValue()) {
             return Status::CorruptData;
         }
@@ -344,7 +326,7 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
     } while (parser.parseComma());
 
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
-    if (!sawTs || !sawBidPrice || !sawBidQty || !sawAskPrice || !sawAskQty || !sawEventIndex) {
+    if (!sawTs || !sawBidPrice || !sawAskPrice) {
         return Status::CorruptData;
     }
     return Status::Ok;
@@ -356,9 +338,8 @@ Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
     if (!parser.parseObjectStart()) return Status::CorruptData;
 
     bool sawTs = false;
-    bool sawFirst = false;
-    bool sawFinal = false;
-    bool sawEventIndex = false;
+    bool sawUpdateId = false;
+    bool sawFirstUpdateId = false;
     bool sawBids = false;
     bool sawAsks = false;
     std::string key;
@@ -366,18 +347,15 @@ Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
     if (parser.peek('}')) return Status::CorruptData;
     do {
         if (!parser.parseKey(key)) return Status::CorruptData;
-        if (key == "event_time_ns") {
+        if (key == "tsNs") {
             if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
             sawTs = true;
-        } else if (key == "first_update_id") {
+        } else if (key == "updateId") {
+            if (!parser.parseInt64(out.updateId)) return Status::CorruptData;
+            sawUpdateId = true;
+        } else if (key == "firstUpdateId") {
             if (!parser.parseInt64(out.firstUpdateId)) return Status::CorruptData;
-            sawFirst = true;
-        } else if (key == "final_update_id") {
-            if (!parser.parseInt64(out.finalUpdateId)) return Status::CorruptData;
-            sawFinal = true;
-        } else if (key == "event_index") {
-            if (!parser.parseInt64(out.eventIndex)) return Status::CorruptData;
-            sawEventIndex = true;
+            sawFirstUpdateId = true;
         } else if (key == "bids") {
             if (!parsePairArray(parser, out.bids)) return Status::CorruptData;
             sawBids = true;
@@ -391,9 +369,11 @@ Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
     } while (parser.parseComma());
 
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
-    if (!sawTs || !sawFirst || !sawFinal || !sawEventIndex || !sawBids || !sawAsks) {
+    if (!sawTs || !sawBids || !sawAsks) {
         return Status::CorruptData;
     }
+    if (!sawUpdateId) out.updateId = 0;
+    if (!sawFirstUpdateId) out.firstUpdateId = 0;
     return Status::Ok;
 }
 
@@ -403,7 +383,8 @@ Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexce
     if (!parser.parseObjectStart()) return Status::CorruptData;
 
     bool sawTs = false;
-    bool sawIndex = false;
+    bool sawUpdateId = false;
+    bool sawFirstUpdateId = false;
     bool sawBids = false;
     bool sawAsks = false;
     std::string key;
@@ -411,12 +392,15 @@ Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexce
     if (parser.peek('}')) return Status::CorruptData;
     do {
         if (!parser.parseKey(key)) return Status::CorruptData;
-        if (key == "snapshot_time_ns") {
+        if (key == "tsNs") {
             if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
             sawTs = true;
-        } else if (key == "snapshot_index") {
-            if (!parser.parseInt64(out.snapshotIndex)) return Status::CorruptData;
-            sawIndex = true;
+        } else if (key == "updateId") {
+            if (!parser.parseInt64(out.updateId)) return Status::CorruptData;
+            sawUpdateId = true;
+        } else if (key == "firstUpdateId") {
+            if (!parser.parseInt64(out.firstUpdateId)) return Status::CorruptData;
+            sawFirstUpdateId = true;
         } else if (key == "bids") {
             if (!parsePairArray(parser, out.bids)) return Status::CorruptData;
             sawBids = true;
@@ -430,7 +414,9 @@ Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexce
     } while (parser.parseComma());
 
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
-    if (!sawTs || !sawIndex || !sawBids || !sawAsks) return Status::CorruptData;
+    if (!sawTs || !sawBids || !sawAsks) return Status::CorruptData;
+    if (!sawUpdateId) out.updateId = 0;
+    if (!sawFirstUpdateId) out.firstUpdateId = 0;
     return Status::Ok;
 }
 

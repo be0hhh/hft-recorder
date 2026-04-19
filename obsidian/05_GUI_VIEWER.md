@@ -23,6 +23,7 @@ Actual GUI split:
 - QML owns layout and user interactions.
 - Viewmodels/controllers own state and backend calls.
 - Core owns file I/O, capture, replay, and validation logic.
+- Large QML screens are now decomposed into `src/gui/qml/components/*`; top-level views act as composition shells.
 
 Most important runtime paths:
 
@@ -43,7 +44,21 @@ Used by:
 
 Important current facts:
 
-- `ChartController` is the viewer brain; chart items are render surfaces, not data sources.
+- `ChartController` remains the viewer facade, but the heavy logic is split:
+  - `ChartControllerSession.cpp` owns load/reset/finalize file flows
+  - `ChartControllerViewport.cpp` owns viewport math and snapshot generation
+  - `ChartControllerSelection.cpp` owns rectangle selection and derived summary stats
+- `ChartItem` is no longer one mixed runtime blob:
+  - `ChartItem.cpp` keeps property/setter wiring
+  - `ChartItemHover.cpp` owns hover/context hit recomputation
+  - `ChartItemPaint.cpp` owns snapshot cache invalidation and painter orchestration
+- `ViewerView.qml` is no longer the only place that owns toolbar/scale/selection UI:
+  - `ViewerSessionToolbar.qml` owns session picker chrome
+  - `ViewerLayerToolbar.qml` owns layer toggles and slider controls
+  - `ViewerSelectionOverlay.qml`, `ViewerPriceScale.qml`, and `ViewerTimeScale.qml` own the viewer-side support surfaces
+  - `ViewerInteractionState.qml` holds local interaction/selection helper state that stays on the QML side
+- `CaptureView.qml` is likewise decomposed into reusable `Capture*.qml` controls and request cards.
+- chart items are render surfaces, not data sources.
 - `ViewerView` already supports `Shift + LMB` rectangle selection and a compact overlay summary.
 - top viewer controls are persistent through `AppViewModel -> QSettings`.
 - orderbook controls are dollar-based:
@@ -56,8 +71,10 @@ Important current facts:
 
 If you debug a chart issue:
 
-1. read `ChartController.cpp`
-2. read `ChartItem.cpp`
+1. read the relevant `ChartController*.cpp` unit for the concern:
+   session / viewport / selection
+2. read the relevant `ChartItem*.cpp` unit for item runtime concern:
+   setters / hover / paint-cache
 3. read the specific renderer in `viewer/renderers/`
 4. verify replay state in `SessionReplay`
 5. verify viewer baseline assumptions in `17_VIEWER_BASELINE_2026_04`
