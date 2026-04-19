@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import HftRecorder 1.0
 
 Pane {
@@ -38,12 +37,6 @@ Pane {
         id: captureVm
     }
 
-    FolderDialog {
-        id: folderDialog
-        title: "Choose parent directory for session folders"
-        onAccepted: captureVm.setOutputDirectory(selectedFolder.toString().replace("file:///", ""))
-    }
-
     ScrollView {
         anchors.fill: parent
         contentWidth: availableWidth
@@ -60,7 +53,7 @@ Pane {
             }
 
             Label {
-                text: "Binance FAPI / ETHUSDT / canonical normalized JSON corpus"
+                text: "Binance FAPI / canonical normalized JSON corpus"
                 color: root.mutedTextColor
             }
 
@@ -80,34 +73,60 @@ Pane {
 
                     Label { text: "Parent Directory"; font.bold: true; color: root.textColor }
 
-                    RowLayout {
+                    TextField {
                         Layout.fillWidth: true
-                        spacing: 10
-
-                        TextField {
-                            Layout.fillWidth: true
-                            text: captureVm.outputDirectory
-                            readOnly: true
-                            color: root.textColor
-                            selectedTextColor: root.textColor
-                            selectionColor: root.accentBuyColor
-                            background: Rectangle {
-                                radius: 8
-                                color: root.panelAltColor
-                                border.color: root.borderColor
-                                border.width: 1
-                            }
+                        text: captureVm.outputDirectory
+                        readOnly: true
+                        color: root.textColor
+                        selectedTextColor: root.textColor
+                        selectionColor: root.accentBuyColor
+                        background: Rectangle {
+                            radius: 8
+                            color: root.panelAltColor
+                            border.color: root.borderColor
+                            border.width: 1
                         }
+                    }
 
-                        DarkButton {
-                            text: "Choose Folder"
-                            onClicked: folderDialog.open()
+                    Label { text: "Symbols"; font.bold: true; color: root.textColor }
+
+                    TextField {
+                        Layout.fillWidth: true
+                        text: captureVm.symbolsText
+                        placeholderText: "RAVE BTC ETH"
+                        color: root.textColor
+                        placeholderTextColor: root.mutedTextColor
+                        selectedTextColor: root.textColor
+                        selectionColor: root.accentBuyColor
+                        enabled: !captureVm.sessionOpen
+                        onTextChanged: captureVm.setSymbolsText(text)
+                        background: Rectangle {
+                            radius: 8
+                            color: root.panelAltColor
+                            border.color: root.borderColor
+                            border.width: 1
                         }
+                    }
+
+                    Label {
+                        text: "Normalized: " + (captureVm.normalizedSymbolsText === "" ? "<none>" : captureVm.normalizedSymbolsText)
+                        color: root.mutedTextColor
+                        wrapMode: Text.WordWrap
                     }
 
                     Label { text: "Session ID: " + (captureVm.sessionId === "" ? "<not started>" : captureVm.sessionId); color: root.textColor }
                     Label { text: "Session Path: " + (captureVm.sessionPath === "" ? "<not created>" : captureVm.sessionPath); color: root.textColor }
                     Label { text: "Status: " + captureVm.statusText; wrapMode: Text.WordWrap; color: root.mutedTextColor }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 18
+
+                        Label { text: "Trades: " + captureVm.tradesCount; color: root.textColor }
+                        Label { text: "BookTicker: " + captureVm.bookTickerCount; color: root.textColor }
+                        Label { text: "Depth: " + captureVm.depthCount; color: root.textColor }
+                        Item { Layout.fillWidth: true }
+                    }
                 }
             }
 

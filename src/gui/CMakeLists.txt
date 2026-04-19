@@ -10,6 +10,11 @@ qt_add_executable(hft-recorder-gui
     viewmodels/CaptureViewModel.cpp
     viewer/ChartController.cpp
     viewer/ChartItem.cpp
+    viewer/hit_test/HoverDetection.cpp
+    viewer/renderers/BookRenderer.cpp
+    viewer/renderers/BookTickerRenderer.cpp
+    viewer/renderers/TradeRenderer.cpp
+    viewer/renderers/OverlayRenderer.cpp
 )
 
 target_include_directories(hft-recorder-gui

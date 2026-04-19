@@ -4,6 +4,7 @@
 #include <QString>
 
 #include "core/replay/SessionReplay.hpp"
+#include "gui/viewer/RenderSnapshot.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -23,6 +24,7 @@ class ChartController : public QObject {
     Q_PROPERTY(bool hasTrades READ hasTrades NOTIFY sessionChanged)
     Q_PROPERTY(bool hasBookTicker READ hasBookTicker NOTIFY sessionChanged)
     Q_PROPERTY(bool hasOrderbook READ hasOrderbook NOTIFY sessionChanged)
+    Q_PROPERTY(bool gpuRendererAvailable READ gpuRendererAvailable CONSTANT)
     Q_PROPERTY(int tradeCount READ tradeCount NOTIFY sessionChanged)
     Q_PROPERTY(int depthCount READ depthCount NOTIFY sessionChanged)
 
@@ -44,6 +46,7 @@ class ChartController : public QObject {
     bool hasOrderbook() const noexcept {
         return !replay_.depths().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
     }
+    bool gpuRendererAvailable() const noexcept { return gpuRendererAvailable_; }
 
     int tradeCount() const { return static_cast<int>(replay_.trades().size()); }
     int depthCount() const { return static_cast<int>(replay_.depths().size()); }
@@ -75,6 +78,11 @@ class ChartController : public QObject {
     std::int64_t viewportCursorTs() const noexcept;
     const hftrec::replay::BookTickerRow* currentBookTicker() const noexcept;
 
+    // Builds a POD snapshot of what renderers need to draw one frame. Mutates
+    // replay cursor internally (advances through events in the viewport), but
+    // leaves no Qt-thread-visible state the renderers then observe.
+    RenderSnapshot buildSnapshot(qreal widthPx, qreal heightPx, const SnapshotInputs& in);
+
     hftrec::replay::SessionReplay& replay() noexcept { return replay_; }
     const hftrec::replay::SessionReplay& replay() const noexcept { return replay_; }
 
@@ -96,6 +104,7 @@ class ChartController : public QObject {
     qint64 priceMinE8_{0};
     qint64 priceMaxE8_{0};
     std::int64_t currentBookTickerIndex_{-1};
+    bool gpuRendererAvailable_{true};
 };
 
 }  // namespace hftrec::gui::viewer

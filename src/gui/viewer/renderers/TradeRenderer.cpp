@@ -1,0 +1,65 @@
+#include "gui/viewer/renderers/TradeRenderer.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
+#include <QColor>
+#include <QPainter>
+#include <QPen>
+#include <QPointF>
+
+#include "gui/viewer/ColorScheme.hpp"
+#include "gui/viewer/RenderContext.hpp"
+#include "gui/viewer/RenderSnapshot.hpp"
+#include "gui/viewer/detail/BookMath.hpp"
+
+namespace hftrec::gui::viewer::renderers {
+
+void renderTrades(const RenderContext& ctx) {
+    if (!ctx.s.tradesVisible || ctx.s.tradeDots.empty()) return;
+
+    const auto& vp   = ctx.s.vp;
+    const auto& dots = ctx.s.tradeDots;
+
+    // Connector: crisp 1-px segments, no AA. Broken where origIndex diff != 1.
+    ctx.p->save();
+    ctx.p->setRenderHint(QPainter::Antialiasing, false);
+    QPen connectorPen(tradeConnectorColor());
+    connectorPen.setWidth(1);
+    connectorPen.setCapStyle(Qt::SquareCap);
+    ctx.p->setPen(connectorPen);
+
+    QPointF prev;
+    int     prevOrig = -2;
+    for (std::size_t i = 0; i < dots.size(); ++i) {
+        const auto& dot = dots[i];
+        const int x = static_cast<int>(std::round(vp.toX(dot.tsNs)));
+        const int y = static_cast<int>(std::round(vp.toY(dot.priceE8)));
+        const QPointF pt{static_cast<qreal>(x), static_cast<qreal>(y)};
+        if (prevOrig == dot.origIndex - 1) {
+            ctx.p->drawLine(prev, pt);
+        }
+        prev     = pt;
+        prevOrig = dot.origIndex;
+    }
+    ctx.p->restore();
+
+    // Dots: AA filled circles. Radius from amountRadiusScale (log of qty × price).
+    ctx.p->save();
+    ctx.p->setRenderHint(QPainter::Antialiasing, true);
+    ctx.p->setPen(Qt::NoPen);
+    for (const auto& dot : dots) {
+        const qreal x = vp.toX(dot.tsNs);
+        const qreal y = vp.toY(dot.priceE8);
+        const auto amountE8 = detail::multiplyScaledE8(dot.qtyE8, dot.priceE8);
+        const qreal radius  = detail::amountRadiusScale(amountE8, ctx.s.tradeAmountScale, ctx.s.interactiveMode);
+        QColor fill = dot.sideBuy ? tradeBuyColor() : tradeSellColor();
+        fill.setAlpha(255);
+        ctx.p->setBrush(fill);
+        ctx.p->drawEllipse(QPointF{x, y}, radius, radius);
+    }
+    ctx.p->restore();
+}
+
+}  // namespace hftrec::gui::viewer::renderers

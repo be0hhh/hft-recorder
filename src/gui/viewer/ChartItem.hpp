@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <QPointF>
 #include <QQuickPaintedItem>
 
@@ -8,11 +10,12 @@ class QPainter;
 namespace hftrec::gui::viewer {
 
 class ChartController;
+struct RenderSnapshot;
 
-// QPainter-based chart item. Software-renderer friendly (Qt scene-graph
-// custom QSGGeometryNodes do not render under the software backend that
-// we pin on WSL), and plenty fast for the data sizes we deal with here
-// (low tens of thousands of primitives per frame).
+// CPU QPainter-backed chart. Draws into a QImage target; the scene graph
+// composites that image. Simple and portable — no Qt RHI scene-graph geometry
+// nodes — accepting the lower framerate in exchange for predictable behaviour
+// on any Qt 6 backend (XCB + Wayland + software).
 class ChartItem : public QQuickPaintedItem {
     Q_OBJECT
     Q_PROPERTY(hftrec::gui::viewer::ChartController* controller
@@ -24,6 +27,7 @@ class ChartItem : public QQuickPaintedItem {
     Q_PROPERTY(qreal bookOpacityGain READ bookOpacityGain WRITE setBookOpacityGain NOTIFY bookOpacityGainChanged)
     Q_PROPERTY(qreal bookRenderDetail READ bookRenderDetail WRITE setBookRenderDetail NOTIFY bookRenderDetailChanged)
     Q_PROPERTY(bool interactiveMode READ interactiveMode WRITE setInteractiveMode NOTIFY interactiveModeChanged)
+    Q_PROPERTY(bool overlayOnly READ overlayOnly WRITE setOverlayOnly NOTIFY overlayOnlyChanged)
 
   public:
     explicit ChartItem(QQuickItem* parent = nullptr);
@@ -45,6 +49,8 @@ class ChartItem : public QQuickPaintedItem {
     void setBookRenderDetail(qreal value);
     bool interactiveMode() const noexcept { return interactiveMode_; }
     void setInteractiveMode(bool value);
+    bool overlayOnly() const noexcept { return overlayOnly_; }
+    void setOverlayOnly(bool value);
 
     void paint(QPainter* painter) override;
     Q_INVOKABLE void setHoverPoint(qreal x, qreal y);
@@ -60,19 +66,25 @@ class ChartItem : public QQuickPaintedItem {
     void bookOpacityGainChanged();
     void bookRenderDetailChanged();
     void interactiveModeChanged();
+    void overlayOnlyChanged();
+
+  protected:
+    void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
 
   private slots:
     void requestRepaint();
 
   private:
     void updateHover_();
+    void invalidateSnapshotCache_();
+    const RenderSnapshot& ensureSnapshot_();
 
     ChartController* controller_{nullptr};
     QPointF hoverPoint_{};
     bool hoverActive_{false};
     bool contextActive_{false};
     int hoveredTradeIndex_{-1};
-    int hoveredBookKind_{0};  // 0 none, 1 bid ticker, 2 ask ticker, 3 bid book, 4 ask book
+    int hoveredBookKind_{0};
     std::int64_t hoveredBookPriceE8_{0};
     std::int64_t hoveredBookQtyE8_{0};
     std::int64_t hoveredBookTsNs_{0};
@@ -83,6 +95,14 @@ class ChartItem : public QQuickPaintedItem {
     qreal bookOpacityGain_{0.55};
     qreal bookRenderDetail_{0.7};
     bool interactiveMode_{false};
+    bool overlayOnly_{false};
+
+    // Snapshot cache. Invalidated on viewport / session / visibility / tuning
+    // / geometry changes. Reused across hover events so mouse-move repaints
+    // skip the buildSnapshot rebuild.
+    std::unique_ptr<RenderSnapshot> cachedSnap_{};
+    qreal cachedW_{0.0};
+    qreal cachedH_{0.0};
 };
 
 }  // namespace hftrec::gui::viewer

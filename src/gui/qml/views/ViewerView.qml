@@ -28,6 +28,10 @@ Pane {
     property real bookOpacityGain: 0.55
     property real bookRenderDetail: 0.7
     property bool interactiveMode: false
+    // Kept for backwards compatibility with existing QML references; the
+    // scene-graph `ChartItem` always runs on the GPU now (Qt RHI composites
+    // QSGGeometryNode natively — no separate GPU/software switch needed).
+    property bool useGpuRenderer: true
     property bool plotDragging: false
     property bool priceScaleDragging: false
     property bool timeScaleDragging: false
@@ -42,6 +46,10 @@ Pane {
 
     function anyHoverableLayerVisible() {
         return root.showTradesLayer || root.effectiveBookTickerLayer || root.showOrderbookLayer
+    }
+
+    function activeInteractionItem() {
+        return chartItem
     }
 
     function ensureSessionSelection() {
@@ -412,14 +420,14 @@ Pane {
 
                     onPressed: function(mouse) {
                         if (mouse.button === Qt.RightButton) {
-                            chartItem.activateContextPoint(mouse.x, mouse.y)
+                            root.activeInteractionItem().activateContextPoint(mouse.x, mouse.y)
                             return
                         }
                         root.startInteractiveMode()
                         root.plotDragging = true
                         lastX = mouse.x
                         lastY = mouse.y
-                        chartItem.clearHover()
+                        root.activeInteractionItem().clearHover()
                     }
 
                     onPositionChanged: function(mouse) {
@@ -436,7 +444,7 @@ Pane {
                             return
                         if (!root.anyHoverableLayerVisible())
                             return
-                        chartItem.setHoverPoint(mouse.x, mouse.y)
+                        root.activeInteractionItem().setHoverPoint(mouse.x, mouse.y)
                     }
 
                     onReleased: {
@@ -447,11 +455,11 @@ Pane {
                         root.plotDragging = false
                         root.stopInteractiveModeSoon()
                     }
-                    onExited: chartItem.clearHover()
+                    onExited: root.activeInteractionItem().clearHover()
 
                     onWheel: function(wheel) {
                         root.startInteractiveMode()
-                        chartItem.clearHover()
+                        root.activeInteractionItem().clearHover()
                         var factor = wheel.angleDelta.y > 0 ? 1.18 : 0.84
                         chart.zoomTime(factor)
                         chart.zoomPrice(factor)
@@ -486,7 +494,7 @@ Pane {
                             anchors.verticalCenter: parent.verticalCenter
                             text: {
                                 let _ = chart.priceMinE8 + chart.priceMaxE8
-                                return chart.formatPriceAt(parent.tickRatio)
+                                return chart.formatPriceScaleLabel(index, root.priceTickCount)
                             }
                             color: root.mutedTextColor
                             font.pixelSize: 12
@@ -505,7 +513,7 @@ Pane {
                         root.startInteractiveMode()
                         root.priceScaleDragging = true
                         lastY = mouse.y
-                        chartItem.clearHover()
+                        root.activeInteractionItem().clearHover()
                     }
 
                     onPositionChanged: function(mouse) {
@@ -570,7 +578,7 @@ Pane {
                         root.startInteractiveMode()
                         root.timeScaleDragging = true
                         lastX = mouse.x
-                        chartItem.clearHover()
+                        root.activeInteractionItem().clearHover()
                     }
 
                     onPositionChanged: function(mouse) {
