@@ -162,9 +162,11 @@ Pane {
 
             Item {
                 id: plotFrame
-                anchors.fill: parent
-                anchors.rightMargin: 88
-                anchors.bottomMargin: 38
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.right: priceScale.left
+                anchors.bottom: timeScale.top
+                clip: true
 
                 ChartItem {
                     id: chartItem

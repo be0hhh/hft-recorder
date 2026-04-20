@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 
 Rectangle {
     id: scaleRoot
@@ -9,6 +8,16 @@ Rectangle {
     property color scaleColor: "#26262b"
     property color borderColor: "#49494f"
     property color mutedTextColor: "#aaaaaf"
+    property var ticks: {
+        if (!scaleRoot.chart)
+            return []
+
+        const tsMin = scaleRoot.chart.tsMin
+        const tsMax = scaleRoot.chart.tsMax
+        void tsMin
+        void tsMax
+        return scaleRoot.chart.timeScaleTicks(scaleRoot.tickCount)
+    }
 
     height: 38
     color: scaleRoot.scaleColor
@@ -16,20 +25,21 @@ Rectangle {
     border.width: 1
 
     Repeater {
-        model: scaleRoot.tickCount
+        model: scaleRoot.ticks
         delegate: Item {
-            required property int index
-            property real tickRatio: index / Math.max(1, scaleRoot.tickCount - 1)
+            property var tickData: modelData
             width: 70
             height: scaleRoot.height
-            x: (scaleRoot.width - width) * tickRatio
+            x: (scaleRoot.width - width) * tickData.ratio
 
-            Label {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                text: scaleRoot.chart ? scaleRoot.chart.formatTimeAt(parent.tickRatio) : ""
+            Text {
+                anchors.fill: parent
+                text: tickData.text
                 color: scaleRoot.mutedTextColor
                 font.pixelSize: 12
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                renderType: Text.NativeRendering
             }
         }
     }

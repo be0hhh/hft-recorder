@@ -1,217 +1,14 @@
 #include "core/replay/JsonLineParser.hpp"
 
-#include <cstddef>
-#include <limits>
 #include <string>
 #include <utility>
+
+#include "core/common/MiniJsonParser.hpp"
 
 namespace hftrec::replay {
 
 namespace {
-
-class JsonParser {
-  public:
-    explicit JsonParser(std::string_view json) noexcept : json_(json) {}
-
-    bool finish() noexcept {
-        skipWs_();
-        return pos_ == json_.size();
-    }
-
-    bool parseObjectStart() noexcept {
-        skipWs_();
-        if (!consume_('{')) return false;
-        skipWs_();
-        return true;
-    }
-
-    bool parseObjectEnd() noexcept {
-        skipWs_();
-        return consume_('}');
-    }
-
-    bool parseArrayStart() noexcept {
-        skipWs_();
-        if (!consume_('[')) return false;
-        skipWs_();
-        return true;
-    }
-
-    bool parseArrayEnd() noexcept {
-        skipWs_();
-        return consume_(']');
-    }
-
-    bool parseComma() noexcept {
-        skipWs_();
-        return consume_(',');
-    }
-
-    bool peek(char ch) noexcept {
-        skipWs_();
-        return pos_ < json_.size() && json_[pos_] == ch;
-    }
-
-    bool parseString(std::string& out) noexcept {
-        skipWs_();
-        if (pos_ >= json_.size() || json_[pos_] != '"') return false;
-        ++pos_;
-        out.clear();
-        while (pos_ < json_.size()) {
-            const char ch = json_[pos_++];
-            if (ch == '"') return true;
-            if (ch != '\\') {
-                out.push_back(ch);
-                continue;
-            }
-            if (pos_ >= json_.size()) return false;
-            const char esc = json_[pos_++];
-            switch (esc) {
-                case '"': out.push_back('"'); break;
-                case '\\': out.push_back('\\'); break;
-                case '/': out.push_back('/'); break;
-                case 'b': out.push_back('\b'); break;
-                case 'f': out.push_back('\f'); break;
-                case 'n': out.push_back('\n'); break;
-                case 'r': out.push_back('\r'); break;
-                case 't': out.push_back('\t'); break;
-                case 'u': {
-                    unsigned value = 0;
-                    for (int i = 0; i < 4; ++i) {
-                        if (pos_ >= json_.size()) return false;
-                        value <<= 4;
-                        const char hex = json_[pos_++];
-                        if (hex >= '0' && hex <= '9') value |= static_cast<unsigned>(hex - '0');
-                        else if (hex >= 'a' && hex <= 'f') value |= static_cast<unsigned>(hex - 'a' + 10);
-                        else if (hex >= 'A' && hex <= 'F') value |= static_cast<unsigned>(hex - 'A' + 10);
-                        else return false;
-                    }
-                    if (value <= 0x7f) out.push_back(static_cast<char>(value));
-                    else if (value <= 0x7ff) {
-                        out.push_back(static_cast<char>(0xc0u | ((value >> 6) & 0x1fu)));
-                        out.push_back(static_cast<char>(0x80u | (value & 0x3fu)));
-                    } else {
-                        out.push_back(static_cast<char>(0xe0u | ((value >> 12) & 0x0fu)));
-                        out.push_back(static_cast<char>(0x80u | ((value >> 6) & 0x3fu)));
-                        out.push_back(static_cast<char>(0x80u | (value & 0x3fu)));
-                    }
-                    break;
-                }
-                default:
-                    return false;
-            }
-        }
-        return false;
-    }
-
-    bool parseKey(std::string& key) noexcept {
-        if (!parseString(key)) return false;
-        skipWs_();
-        return consume_(':');
-    }
-
-    bool parseInt64(std::int64_t& out) noexcept {
-        skipWs_();
-        if (pos_ >= json_.size()) return false;
-
-        bool neg = false;
-        if (json_[pos_] == '-') {
-            neg = true;
-            ++pos_;
-        }
-        if (pos_ >= json_.size() || json_[pos_] < '0' || json_[pos_] > '9') return false;
-
-        std::uint64_t value = 0;
-        while (pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9') {
-            const std::uint64_t digit = static_cast<std::uint64_t>(json_[pos_] - '0');
-            if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10u) return false;
-            value = value * 10u + digit;
-            ++pos_;
-        }
-
-        if (neg) {
-            const auto limit = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1u;
-            if (value > limit) return false;
-            out = value == limit ? std::numeric_limits<std::int64_t>::min() : -static_cast<std::int64_t>(value);
-            return true;
-        }
-
-        if (value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) return false;
-        out = static_cast<std::int64_t>(value);
-        return true;
-    }
-
-    bool skipValue() noexcept {
-        skipWs_();
-        if (pos_ >= json_.size()) return false;
-        switch (json_[pos_]) {
-            case '{':
-                return skipObject_();
-            case '[':
-                return skipArray_();
-            case '"': {
-                std::string ignored;
-                return parseString(ignored);
-            }
-            case 't':
-                return consumeLiteral_("true");
-            case 'f':
-                return consumeLiteral_("false");
-            case 'n':
-                return consumeLiteral_("null");
-            default: {
-                std::int64_t ignored = 0;
-                return parseInt64(ignored);
-            }
-        }
-    }
-
-  private:
-    void skipWs_() noexcept {
-        while (pos_ < json_.size()) {
-            const char ch = json_[pos_];
-            if (ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r') break;
-            ++pos_;
-        }
-    }
-
-    bool consume_(char expected) noexcept {
-        if (pos_ >= json_.size() || json_[pos_] != expected) return false;
-        ++pos_;
-        return true;
-    }
-
-    bool consumeLiteral_(std::string_view literal) noexcept {
-        if (json_.substr(pos_, literal.size()) != literal) return false;
-        pos_ += literal.size();
-        return true;
-    }
-
-    bool skipObject_() noexcept {
-        if (!parseObjectStart()) return false;
-        if (peek('}')) return parseObjectEnd();
-        std::string key;
-        do {
-            if (!parseKey(key)) return false;
-            if (!skipValue()) return false;
-            if (peek('}')) break;
-        } while (parseComma());
-        return parseObjectEnd();
-    }
-
-    bool skipArray_() noexcept {
-        if (!parseArrayStart()) return false;
-        if (peek(']')) return parseArrayEnd();
-        do {
-            if (!skipValue()) return false;
-            if (peek(']')) break;
-        } while (parseComma());
-        return parseArrayEnd();
-    }
-
-    std::string_view json_{};
-    std::size_t pos_{0};
-};
+using JsonParser = hftrec::json::MiniJsonParser;
 
 bool parsePricePair(JsonParser& parser, PricePair& out) noexcept {
     if (!parser.parseObjectStart()) return false;
@@ -258,6 +55,8 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
     if (!parser.parseObjectStart()) return Status::CorruptData;
 
     bool sawTs = false;
+    bool sawCaptureSeq = false;
+    bool sawIngestSeq = false;
     bool sawPrice = false;
     bool sawQty = false;
     bool sawSide = false;
@@ -269,6 +68,10 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
         if (key == "tsNs") {
             if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
             sawTs = true;
+        } else if (key == "captureSeq") {
+            if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
+        } else if (key == "ingestSeq") {
+            if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
         } else if (key == "priceE8") {
             if (!parser.parseInt64(out.priceE8)) return Status::CorruptData;
             sawPrice = true;
@@ -288,7 +91,9 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
     } while (parser.parseComma());
 
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
-    if (!sawTs || !sawPrice || !sawQty || !sawSide) return Status::CorruptData;
+    if (!sawTs || !sawPrice || !sawQty || !sawSide) {
+        return Status::CorruptData;
+    }
 
     return Status::Ok;
 }
@@ -309,6 +114,10 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
         if (key == "tsNs") {
             if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
             sawTs = true;
+        } else if (key == "captureSeq") {
+            if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
+        } else if (key == "ingestSeq") {
+            if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
         } else if (key == "bidPriceE8") {
             if (!parser.parseInt64(out.bidPriceE8)) return Status::CorruptData;
             sawBidPrice = true;
@@ -338,6 +147,8 @@ Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
     if (!parser.parseObjectStart()) return Status::CorruptData;
 
     bool sawTs = false;
+    bool sawCaptureSeq = false;
+    bool sawIngestSeq = false;
     bool sawUpdateId = false;
     bool sawFirstUpdateId = false;
     bool sawBids = false;
@@ -350,6 +161,12 @@ Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
         if (key == "tsNs") {
             if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
             sawTs = true;
+        } else if (key == "captureSeq") {
+            if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
+            sawCaptureSeq = true;
+        } else if (key == "ingestSeq") {
+            if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
+            sawIngestSeq = true;
         } else if (key == "updateId") {
             if (!parser.parseInt64(out.updateId)) return Status::CorruptData;
             sawUpdateId = true;
@@ -383,8 +200,20 @@ Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexce
     if (!parser.parseObjectStart()) return Status::CorruptData;
 
     bool sawTs = false;
+    bool sawCaptureSeq = false;
+    bool sawIngestSeq = false;
     bool sawUpdateId = false;
     bool sawFirstUpdateId = false;
+    bool sawSnapshotKind = false;
+    bool sawSource = false;
+    bool sawExchange = false;
+    bool sawMarket = false;
+    bool sawSymbol = false;
+    bool sawSourceTsNs = false;
+    bool sawIngestTsNs = false;
+    bool sawAnchorUpdateId = false;
+    bool sawAnchorFirstUpdateId = false;
+    bool sawTrustedReplayAnchor = false;
     bool sawBids = false;
     bool sawAsks = false;
     std::string key;
@@ -395,12 +224,51 @@ Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexce
         if (key == "tsNs") {
             if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
             sawTs = true;
+        } else if (key == "captureSeq") {
+            if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
+            sawCaptureSeq = true;
+        } else if (key == "ingestSeq") {
+            if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
+            sawIngestSeq = true;
         } else if (key == "updateId") {
             if (!parser.parseInt64(out.updateId)) return Status::CorruptData;
             sawUpdateId = true;
         } else if (key == "firstUpdateId") {
             if (!parser.parseInt64(out.firstUpdateId)) return Status::CorruptData;
             sawFirstUpdateId = true;
+        } else if (key == "snapshotKind") {
+            if (!parser.parseString(out.snapshotKind)) return Status::CorruptData;
+            sawSnapshotKind = true;
+        } else if (key == "source") {
+            if (!parser.parseString(out.source)) return Status::CorruptData;
+            sawSource = true;
+        } else if (key == "exchange") {
+            if (!parser.parseString(out.exchange)) return Status::CorruptData;
+            sawExchange = true;
+        } else if (key == "market") {
+            if (!parser.parseString(out.market)) return Status::CorruptData;
+            sawMarket = true;
+        } else if (key == "symbol") {
+            if (!parser.parseString(out.symbol)) return Status::CorruptData;
+            sawSymbol = true;
+        } else if (key == "sourceTsNs") {
+            if (!parser.parseInt64(out.sourceTsNs)) return Status::CorruptData;
+            sawSourceTsNs = true;
+        } else if (key == "ingestTsNs") {
+            if (!parser.parseInt64(out.ingestTsNs)) return Status::CorruptData;
+            sawIngestTsNs = true;
+        } else if (key == "anchorUpdateId") {
+            if (!parser.parseInt64(out.anchorUpdateId)) return Status::CorruptData;
+            sawAnchorUpdateId = true;
+        } else if (key == "anchorFirstUpdateId") {
+            if (!parser.parseInt64(out.anchorFirstUpdateId)) return Status::CorruptData;
+            sawAnchorFirstUpdateId = true;
+        } else if (key == "trustedReplayAnchor") {
+            std::int64_t trusted = 0;
+            if (!parser.parseInt64(trusted)) return Status::CorruptData;
+            if (trusted != 0 && trusted != 1) return Status::CorruptData;
+            out.trustedReplayAnchor = static_cast<std::uint8_t>(trusted);
+            sawTrustedReplayAnchor = true;
         } else if (key == "bids") {
             if (!parsePairArray(parser, out.bids)) return Status::CorruptData;
             sawBids = true;
@@ -414,9 +282,23 @@ Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexce
     } while (parser.parseComma());
 
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
-    if (!sawTs || !sawBids || !sawAsks) return Status::CorruptData;
+    if (!sawTs || !sawBids || !sawAsks) {
+        return Status::CorruptData;
+    }
     if (!sawUpdateId) out.updateId = 0;
     if (!sawFirstUpdateId) out.firstUpdateId = 0;
+    if (!sawCaptureSeq) out.captureSeq = 0;
+    if (!sawIngestSeq) out.ingestSeq = 0;
+    if (!sawSnapshotKind) out.snapshotKind.clear();
+    if (!sawSource) out.source.clear();
+    if (!sawExchange) out.exchange.clear();
+    if (!sawMarket) out.market.clear();
+    if (!sawSymbol) out.symbol.clear();
+    if (!sawSourceTsNs) out.sourceTsNs = 0;
+    if (!sawIngestTsNs) out.ingestTsNs = 0;
+    if (!sawAnchorUpdateId) out.anchorUpdateId = 0;
+    if (!sawAnchorFirstUpdateId) out.anchorFirstUpdateId = 0;
+    if (!sawTrustedReplayAnchor) out.trustedReplayAnchor = 0;
     return Status::Ok;
 }
 

@@ -30,9 +30,16 @@ Current active tasks:
 - `viewer baseline stabilization`
   - owner: `replay/gui`
   - status: `active`
-  - last_verified_at: `2026-04-19`
+  - last_verified_at: `2026-04-20`
   - verified_against: `src/gui/viewer/ChartController.cpp`, `src/gui/qml/views/ViewerView.qml`, `src/gui/viewer/renderers/BookRenderer.cpp`
-  - notes: current viewer now serves as the baseline comparison workbench; keep controls meaningful and preserve readability-first orderbook rendering
+  - notes: current viewer is structurally closer to the baseline comparison workbench, but live screenshots still show scale/graph desynchronization; preserve readability-first orderbook rendering while treating axis correctness as an active blocker
+
+- `viewer scale/graph desynchronization`
+  - owner: `replay/gui`
+  - status: `active`
+  - last_verified_at: `2026-04-20`
+  - verified_against: `src/gui/viewer/ChartController.cpp`, `src/gui/qml/components/ViewerPriceScale.qml`, `src/gui/qml/components/ViewerTimeScale.qml`, `src/gui/qml/views/ViewerView.qml`
+  - notes: chart shape reflects live session data, but axes can remain frozen / zero-like / visually detached; resolve runtime scale reactivity or layout mismatch before calling the viewer visually stable
 
 - `qdrant recorder retrieval scope`
   - owner: `agent tooling`

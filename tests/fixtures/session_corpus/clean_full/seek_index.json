@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "sources": {},
+  "buckets": [
+    { "ts_ns": 2500, "event_index_start": 1, "depth_row_index": 1 }
+  ]
+}
+

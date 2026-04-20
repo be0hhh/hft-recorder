@@ -1,0 +1,3 @@
+{"tsNs":2000,"captureSeq":2,"ingestSeq":2,"updateId":11,"firstUpdateId":11,"bids":[{"price_i64":30000,"qty_i64":7}],"asks":[]}
+{"tsNs":3000,"captureSeq":5,"ingestSeq":5,"updateId":12,"firstUpdateId":12,"bids":[],"asks":[{"price_i64":30100,"qty_i64":0},{"price_i64":30200,"qty_i64":8}]}
+

@@ -10,16 +10,28 @@ Must verify:
 - session directory created correctly
 - all required files exist
 - manifest is valid JSON
+- manifest schema versions are supported
 - channel JSON lines follow the canonical schema
 - snapshot cadence works
 
 ### 2. Corpus loading
 
 Must verify:
+- manifest-first loading works
+- legacy manifest compatibility is explicit and bounded
 - all channel files parse
 - ordering is preserved
 - integer values survive exactly
 - malformed input reports deterministic errors
+- stale seek indexes are ignored deterministically
+- replay and loader can share the same corpus fixtures and reach the same
+  structural verdict
+
+Fixture substrate:
+- corpus fixtures live under `tests/fixtures/session_corpus/`
+- fixture directories document intended status in `README.md`
+- new loader/replay structural tests should prefer these fixtures over ad hoc
+  temp directories
 
 ### 3. Validation correctness
 

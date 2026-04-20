@@ -5,6 +5,8 @@
 
 #include "core/capture/CaptureCoordinatorInternal.hpp"
 #include "core/capture/SessionId.hpp"
+#include "core/capture/SupportArtifacts.hpp"
+#include "core/corpus/InstrumentMetadata.hpp"
 
 namespace hftrec::capture {
 
@@ -40,6 +42,11 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.startedAtNs = internal::nowNs();
     manifest_.targetDurationSec = config.durationSec;
     manifest_.snapshotIntervalSec = config.snapshotIntervalSec;
+    manifest_.tradesPath = "trades.jsonl";
+    manifest_.bookTickerPath = "bookticker.jsonl";
+    manifest_.depthPath = "depth.jsonl";
+    manifest_.canonicalArtifacts = {"manifest.json", manifest_.instrumentMetadataPath};
+    manifest_.captureContractVersion = "hftrec.cxet_capture.v1";
 
     sessionDir_ = config.outputDir / manifest_.sessionId;
     std::error_code ec;
@@ -53,6 +60,16 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
         lastError_ = "failed to create session directory: " + sessionDir_.string();
         return Status::IoError;
     }
+
+    if (const auto metadataStatus = writeInstrumentMetadataFile(); !isOk(metadataStatus)) {
+        lastError_ = "failed to write instrument metadata sidecar";
+        return metadataStatus;
+    }
+    manifest_.supportArtifacts = {
+        manifest_.sessionAuditPath,
+        manifest_.integrityReportPath,
+        manifest_.loaderDiagnosticsPath,
+    };
 
     lastError_.clear();
     return Status::Ok;
@@ -77,6 +94,13 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
     manifest_.warningSummary = lastError_;
+    manifest_.structuralBlockers.clear();
+    manifest_.structurallyLoadable = true;
+
+    if (const auto supportStatus = writeSupportArtifacts(); !isOk(supportStatus)) {
+        lastError_ = "failed to write support artifacts";
+        return supportStatus;
+    }
 
     std::ofstream manifestStream(sessionDir_ / "manifest.json", std::ios::out | std::ios::trunc);
     if (!manifestStream.is_open()) {
@@ -126,10 +150,48 @@ void CaptureCoordinator::resetSessionState() noexcept {
     bookTickerCount_.store(0, std::memory_order_release);
     depthCount_.store(0, std::memory_order_release);
     snapshotCount_.store(0, std::memory_order_release);
+    tradesCaptureSeq_.store(0, std::memory_order_release);
+    bookTickerCaptureSeq_.store(0, std::memory_order_release);
+    depthCaptureSeq_.store(0, std::memory_order_release);
+    snapshotCaptureSeq_.store(0, std::memory_order_release);
+    ingestSeq_.store(0, std::memory_order_release);
 }
 
 bool CaptureCoordinator::sessionOpen() const noexcept {
     return !sessionDir_.empty();
+}
+
+Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
+    if (config_.symbols.empty()) return Status::InvalidArgument;
+    const auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
+    std::ofstream out(sessionDir_ / manifest_.instrumentMetadataPath, std::ios::out | std::ios::trunc);
+    if (!out.is_open()) return Status::IoError;
+    out << corpus::renderInstrumentMetadataJson(metadata);
+    return out.good() ? Status::Ok : Status::IoError;
+}
+
+Status CaptureCoordinator::writeSupportArtifacts() noexcept {
+    std::error_code ec;
+    std::filesystem::create_directories(sessionDir_ / "reports", ec);
+    if (ec) return Status::IoError;
+
+    const auto generatedAtNs = internal::nowNs();
+    struct ArtifactSpec {
+        std::filesystem::path path;
+        std::string document;
+    };
+    const ArtifactSpec artifacts[] = {
+        {sessionDir_ / manifest_.sessionAuditPath, renderSessionAuditJson(manifest_, generatedAtNs)},
+        {sessionDir_ / manifest_.integrityReportPath, renderIntegrityReportJson(manifest_, generatedAtNs)},
+        {sessionDir_ / manifest_.loaderDiagnosticsPath, renderLoaderDiagnosticsJson(manifest_, generatedAtNs)},
+    };
+    for (const auto& artifact : artifacts) {
+        std::ofstream out(artifact.path, std::ios::out | std::ios::trunc);
+        if (!out.is_open()) return Status::IoError;
+        out << artifact.document;
+        if (!out.good()) return Status::IoError;
+    }
+    return Status::Ok;
 }
 
 }  // namespace hftrec::capture

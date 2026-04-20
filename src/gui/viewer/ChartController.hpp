@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 
 #include "core/replay/SessionReplay.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
@@ -75,6 +76,8 @@ class ChartController : public QObject {
     Q_INVOKABLE void jumpToEnd();
     Q_INVOKABLE QString formatPriceAt(double ratio) const;
     Q_INVOKABLE QString formatTimeAt(double ratio) const;
+    Q_INVOKABLE QVariantList priceScaleTicks(int tickCount) const;
+    Q_INVOKABLE QVariantList timeScaleTicks(int tickCount) const;
     Q_INVOKABLE QString formatPriceScaleLabel(int index, int tickCount) const;
     Q_INVOKABLE QString formatTimeScaleLabel(int index, int tickCount) const;
     Q_INVOKABLE bool commitSelectionRect(qreal plotWidthPx, qreal plotHeightPx,

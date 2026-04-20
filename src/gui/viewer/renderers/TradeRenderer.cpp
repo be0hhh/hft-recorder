@@ -37,7 +37,7 @@ void renderTrades(const RenderContext& ctx) {
         const int x = static_cast<int>(std::round(vp.toX(dot.tsNs)));
         const int y = static_cast<int>(std::round(vp.toY(dot.priceE8)));
         const QPointF pt{static_cast<qreal>(x), static_cast<qreal>(y)};
-        if (prevOrig == dot.origIndex - 1) {
+        if (prevOrig == dot.origIndex - 1 && prev != pt) {
             ctx.p->drawLine(prev, pt);
         }
         prev     = pt;
@@ -54,6 +54,8 @@ void renderTrades(const RenderContext& ctx) {
         const qreal y = vp.toY(dot.priceE8);
         const auto amountE8 = detail::multiplyScaledE8(dot.qtyE8, dot.priceE8);
         const qreal radius  = detail::amountRadiusScale(amountE8, ctx.s.tradeAmountScale, ctx.s.interactiveMode);
+        if ((x + radius) < 0.0 || (x - radius) > vp.w || (y + radius) < 0.0 || (y - radius) > vp.h) continue;
+        if ((radius * 2.0) < 1.0) continue;
         QColor fill = dot.sideBuy ? tradeBuyColor() : tradeSellColor();
         fill.setAlpha(255);
         ctx.p->setBrush(fill);

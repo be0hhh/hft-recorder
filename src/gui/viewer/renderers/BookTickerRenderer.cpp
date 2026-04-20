@@ -1,6 +1,7 @@
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QColor>
 #include <QPainter>
@@ -25,14 +26,20 @@ void renderBookTicker(const RenderContext& ctx) {
     for (const auto& seg : ctx.s.bookSegments) {
         const qreal xLeft  = std::clamp(ctx.s.vp.toX(seg.tsStartNs), 0.0, ctx.s.vp.w);
         const qreal xRight = std::clamp(ctx.s.vp.toX(seg.tsEndNs),   0.0, ctx.s.vp.w);
-        if (xRight <= xLeft) continue;
+        const int xStartPx = static_cast<int>(std::floor(xLeft));
+        const int xEndPx = static_cast<int>(std::ceil(xRight));
+        if ((xEndPx - xStartPx) < 1) continue;
         if (seg.tickerBidE8 != 0) {
-            detail::appendStepSegment(bidPath, bidStarted, xLeft, xRight,
-                                      ctx.s.vp.toY(seg.tickerBidE8));
+            const qreal y = ctx.s.vp.toY(seg.tickerBidE8);
+            if (y >= 0.0 && y < ctx.s.vp.h) {
+                detail::appendStepSegment(bidPath, bidStarted, xLeft, xRight, y);
+            }
         }
         if (seg.tickerAskE8 != 0) {
-            detail::appendStepSegment(askPath, askStarted, xLeft, xRight,
-                                      ctx.s.vp.toY(seg.tickerAskE8));
+            const qreal y = ctx.s.vp.toY(seg.tickerAskE8);
+            if (y >= 0.0 && y < ctx.s.vp.h) {
+                detail::appendStepSegment(askPath, askStarted, xLeft, xRight, y);
+            }
         }
     }
 

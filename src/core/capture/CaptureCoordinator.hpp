@@ -66,7 +66,12 @@ class CaptureCoordinator {
     void resetSessionState() noexcept;
     bool sessionOpen() const noexcept;
     Status writeSnapshotFile(const cxet::composite::OrderBookSnapshot& snapshot,
-                             std::uint64_t snapshotIndex) noexcept;
+                             std::uint64_t snapshotIndex,
+                             std::string_view snapshotKind,
+                             std::string_view source,
+                             bool trustedReplayAnchor) noexcept;
+    Status writeInstrumentMetadataFile() noexcept;
+    Status writeSupportArtifacts() noexcept;
 
     SessionManifest manifest_{};
     std::filesystem::path sessionDir_{};
@@ -84,6 +89,11 @@ class CaptureCoordinator {
     std::atomic<std::uint64_t> bookTickerCount_{0};
     std::atomic<std::uint64_t> depthCount_{0};
     std::atomic<std::uint64_t> snapshotCount_{0};
+    std::atomic<std::uint64_t> tradesCaptureSeq_{0};
+    std::atomic<std::uint64_t> bookTickerCaptureSeq_{0};
+    std::atomic<std::uint64_t> depthCaptureSeq_{0};
+    std::atomic<std::uint64_t> snapshotCaptureSeq_{0};
+    std::atomic<std::uint64_t> ingestSeq_{0};
     mutable std::mutex stateMutex_{};
     std::thread tradesThread_{};
     std::thread bookTickerThread_{};

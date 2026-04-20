@@ -12,6 +12,15 @@ using namespace cxet::api;
 using namespace cxet::composite;
 ```
 
+Boundary rule for `hft-recorder`:
+
+- these examples define how the app calls `CXETCPP`
+- they do not define the recorder's durable corpus contract
+- recorder code should convert `CXETCPP` callback payloads into recorder-owned
+  normalized capture rows before writing canonical JSON
+- future replay/backtest consumers should depend on the recorder corpus
+  contract, not on live `CXETCPP` callback shapes
+
 > Rule: `#include "cxet.hpp"` is the **single** entry into the library. Any other include
 > (`"parse/..."`, `"network/..."`, `"runtime/..."`, `"exchanges/..."`) is a rules violation —
 > see `CODING_STYLE.md` § "No internal includes".

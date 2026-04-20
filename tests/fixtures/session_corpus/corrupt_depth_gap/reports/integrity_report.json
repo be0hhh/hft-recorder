@@ -1,0 +1,62 @@
+{
+  "session_health": "corrupt",
+  "exact_replay_eligible": false,
+  "total_incidents": 1,
+  "highest_severity": "error",
+  "channels": {
+    "trades": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "channel disabled for session"
+    },
+    "bookticker": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "channel disabled for session"
+    },
+    "depth": {
+      "state": "corrupt",
+      "exact_replay_eligible": false,
+      "incident_count": 1,
+      "gap_count": 1,
+      "parse_error_count": 0,
+      "highest_severity": "error",
+      "reason_code": "depth_sequence_gap",
+      "reason_text": "depth integrity failure at row 1: expected update 12 but saw range [15, 15]"
+    },
+    "snapshot": {
+      "state": "clean",
+      "exact_replay_eligible": true,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "ok",
+      "reason_text": "snapshot anchor available"
+    }
+  },
+  "incidents": [
+    {
+      "channel": "depth",
+      "kind": "depth_sequence_gap",
+      "severity": "error",
+      "reason_code": "depth_sequence_gap",
+      "message": "depth integrity failure at row 1: expected update 12 but saw range [15, 15]",
+      "detected_at_ts_ns": 3000,
+      "row_index": 1,
+      "expected_value": "12",
+      "observed_value": "[15,15]",
+      "exactness_lost": true
+    }
+  ]
+}

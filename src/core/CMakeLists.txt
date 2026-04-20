@@ -9,10 +9,12 @@ add_library(hftrec_core STATIC
     capture/CaptureCoordinator.cpp
     capture/CaptureCoordinatorRuntime.cpp
     capture/JsonSerializers.cpp
+    capture/SupportArtifacts.cpp
     common/Log.cpp
     codec/VarInt.cpp
     codec/Crc32c.cpp
     corpus/CorpusLoader.cpp
+    corpus/InstrumentMetadata.cpp
     cxet_bridge/CxetCaptureBridge.cpp
     block/FileHeader.cpp
     block/BlockHeader.cpp

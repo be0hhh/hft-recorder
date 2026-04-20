@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <algorithm>
 #include <string>
 #include <thread>
 
@@ -9,9 +10,26 @@
 #include "composite/level_0/GetObject.hpp"
 #include "core/capture/CaptureCoordinatorInternal.hpp"
 #include "core/capture/JsonSerializers.hpp"
+#include "core/cxet_bridge/CxetCaptureBridge.hpp"
 #include "core/metrics/Metrics.hpp"
 
 namespace hftrec::capture {
+
+namespace {
+
+EventSequenceIds nextEventSequenceIds(std::atomic<std::uint64_t>& channelCounter,
+                                      std::atomic<std::uint64_t>& ingestCounter) noexcept {
+    EventSequenceIds ids{};
+    ids.captureSeq = channelCounter.fetch_add(1, std::memory_order_acq_rel) + 1u;
+    ids.ingestSeq = ingestCounter.fetch_add(1, std::memory_order_acq_rel) + 1u;
+    return ids;
+}
+
+std::string snapshotSymbolString(const cxet::composite::OrderBookSnapshot& snapshot) {
+    return std::string(snapshot.symbol.data);
+}
+
+}  // namespace
 
 Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
     if (tradesThread_.joinable() && !tradesRunning_.load(std::memory_order_acquire)) {
@@ -37,6 +55,10 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
         manifest_.tradesEnabled = true;
+        if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.tradesPath)
+            == manifest_.canonicalArtifacts.end()) {
+            manifest_.canonicalArtifacts.push_back(manifest_.tradesPath);
+        }
         if (!isOk(tradesWriter_.open(ChannelKind::Trades, sessionDir_))) {
             tradesRunning_.store(false, std::memory_order_release);
             lastError_ = "failed to open trades.jsonl";
@@ -125,15 +147,22 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                 auto* context = static_cast<CallbackContext*>(userData);
                 auto* self = context->self;
                 self->tradesCount_.fetch_add(1, std::memory_order_acq_rel);
-                const auto jsonLine = renderTradeJsonLine(trade);
+                const auto sequenceIds = nextEventSequenceIds(self->tradesCaptureSeq_, self->ingestSeq_);
+                const auto capturedTrade = cxet_bridge::CxetCaptureBridge::captureTrade(trade);
+                const auto jsonLine = renderTradeJsonLine(capturedTrade, sequenceIds);
                 if (!isOk(self->tradesWriter_.writeLine(jsonLine))) {
                     metrics::recordCaptureWriteError("trades");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
-                    self->lastError_ = "failed to write trades.jsonl";
+                    const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
+                        cxet_bridge::CaptureFailureKind::WriteFailed,
+                        "trades",
+                        "failed to write trades.jsonl",
+                        false);
+                    self->lastError_ = failure.channel + ": " + failure.detail;
                     return false;
                 }
                 metrics::recordCaptureEvent("trades",
-                                            static_cast<std::uint64_t>(trade.ts.raw),
+                                            capturedTrade.tsNs,
                                             static_cast<std::uint64_t>(jsonLine.size() + 1u),
                                             static_cast<std::uint64_t>(internal::nowNs()));
                 return !self->tradesStop_.load(std::memory_order_acquire);
@@ -214,6 +243,10 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
         manifest_.bookTickerEnabled = true;
+        if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.bookTickerPath)
+            == manifest_.canonicalArtifacts.end()) {
+            manifest_.canonicalArtifacts.push_back(manifest_.bookTickerPath);
+        }
         if (!isOk(bookTickerWriter_.open(ChannelKind::BookTicker, sessionDir_))) {
             bookTickerRunning_.store(false, std::memory_order_release);
             lastError_ = "failed to open bookticker.jsonl";
@@ -243,15 +276,23 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
                 auto* context = static_cast<CallbackContext*>(userData);
                 auto* self = context->self;
                 self->bookTickerCount_.fetch_add(1, std::memory_order_acq_rel);
-                const auto jsonLine = renderBookTickerJsonLine(bookTicker, context->requestedAliases);
+                const auto sequenceIds = nextEventSequenceIds(self->bookTickerCaptureSeq_, self->ingestSeq_);
+                const auto capturedBookTicker =
+                    cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, context->requestedAliases);
+                const auto jsonLine = renderBookTickerJsonLine(capturedBookTicker, sequenceIds);
                 if (!isOk(self->bookTickerWriter_.writeLine(jsonLine))) {
                     metrics::recordCaptureWriteError("bookticker");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
-                    self->lastError_ = "failed to write bookticker.jsonl";
+                    const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
+                        cxet_bridge::CaptureFailureKind::WriteFailed,
+                        "bookticker",
+                        "failed to write bookticker.jsonl",
+                        false);
+                    self->lastError_ = failure.channel + ": " + failure.detail;
                     return false;
                 }
                 metrics::recordCaptureEvent("bookticker",
-                                            static_cast<std::uint64_t>(bookTicker.ts.raw),
+                                            capturedBookTicker.tsNs,
                                             static_cast<std::uint64_t>(jsonLine.size() + 1u),
                                             static_cast<std::uint64_t>(internal::nowNs()));
                 return !self->bookTickerStop_.load(std::memory_order_acquire);
@@ -313,6 +354,10 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
         manifest_.orderbookEnabled = true;
+        if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.depthPath)
+            == manifest_.canonicalArtifacts.end()) {
+            manifest_.canonicalArtifacts.push_back(manifest_.depthPath);
+        }
         if (!isOk(depthWriter_.open(ChannelKind::DepthDelta, sessionDir_))) {
             orderbookRunning_.store(false, std::memory_order_release);
             lastError_ = "failed to open depth.jsonl";
@@ -341,12 +386,17 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
         if (!cxet::api::runGetOrderBookByConfig(getBuilder, requestBuf, recvBuf, &snapshot)) {
             metrics::recordSnapshotFetchFailure("depth");
             std::lock_guard<std::mutex> lock(stateMutex_);
-            lastError_ = "failed to fetch initial REST orderbook snapshot";
+            const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
+                cxet_bridge::CaptureFailureKind::SnapshotFetchFailed,
+                "depth",
+                "failed to fetch initial REST orderbook snapshot",
+                true);
+            lastError_ = failure.channel + ": " + failure.detail;
             orderbookRunning_.store(false, std::memory_order_release);
             return;
         }
 
-        const auto snapshotStatus = writeSnapshotFile(snapshot, 0u);
+        const auto snapshotStatus = writeSnapshotFile(snapshot, 0u, "initial", "rest_orderbook_snapshot", true);
         if (!isOk(snapshotStatus)) {
             std::lock_guard<std::mutex> lock(stateMutex_);
             lastError_ = "failed to write snapshot_000.json";
@@ -372,15 +422,22 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
                 auto* context = static_cast<CallbackContext*>(userData);
                 auto* self = context->self;
                 self->depthCount_.fetch_add(1, std::memory_order_acq_rel);
-                const auto jsonLine = renderDepthJsonLine(delta);
+                const auto sequenceIds = nextEventSequenceIds(self->depthCaptureSeq_, self->ingestSeq_);
+                const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(delta);
+                const auto jsonLine = renderDepthJsonLine(capturedDepth, sequenceIds);
                 if (!isOk(self->depthWriter_.writeLine(jsonLine))) {
                     metrics::recordCaptureWriteError("depth");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
-                    self->lastError_ = "failed to write depth.jsonl";
+                    const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
+                        cxet_bridge::CaptureFailureKind::WriteFailed,
+                        "depth",
+                        "failed to write depth.jsonl",
+                        false);
+                    self->lastError_ = failure.channel + ": " + failure.detail;
                     return false;
                 }
                 metrics::recordCaptureEvent("depth",
-                                            static_cast<std::uint64_t>(delta.ts.raw),
+                                            capturedDepth.tsNs,
                                             static_cast<std::uint64_t>(jsonLine.size() + 1u),
                                             static_cast<std::uint64_t>(internal::nowNs()));
                 return !self->orderbookStop_.load(std::memory_order_acquire);
@@ -414,7 +471,10 @@ Status CaptureCoordinator::stopOrderbook() noexcept {
 }
 
 Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSnapshot& snapshot,
-                                             std::uint64_t snapshotIndex) noexcept {
+                                             std::uint64_t snapshotIndex,
+                                             std::string_view snapshotKind,
+                                             std::string_view source,
+                                             bool trustedReplayAnchor) noexcept {
     std::string fileName;
     if (snapshotIndex == 0u) {
         fileName = std::string{channelFileName(ChannelKind::Snapshot)};
@@ -432,9 +492,30 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
     if (!out.is_open()) {
         return Status::IoError;
     }
-    out << renderSnapshotJson(snapshot);
+    SnapshotProvenance provenance{};
+    provenance.sequence = nextEventSequenceIds(snapshotCaptureSeq_, ingestSeq_);
+    provenance.snapshotKind = std::string(snapshotKind);
+    provenance.source = std::string(source);
+    provenance.exchange = config_.exchange;
+    provenance.market = config_.market;
+    provenance.symbol = snapshotSymbolString(snapshot);
+    provenance.sourceTsNs = static_cast<std::int64_t>(snapshot.ts.raw);
+    provenance.ingestTsNs = internal::nowNs();
+    provenance.anchorUpdateId = static_cast<std::uint64_t>(snapshot.updateId.raw);
+    provenance.anchorFirstUpdateId = static_cast<std::uint64_t>(snapshot.firstUpdateId.raw);
+    provenance.trustedReplayAnchor = trustedReplayAnchor;
+    out << renderSnapshotJson(cxet_bridge::CxetCaptureBridge::captureOrderBook(snapshot), provenance);
     if (!out.good()) {
         return Status::IoError;
+    }
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        if (std::find(manifest_.snapshotFiles.begin(), manifest_.snapshotFiles.end(), fileName) == manifest_.snapshotFiles.end()) {
+            manifest_.snapshotFiles.push_back(fileName);
+        }
+        if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), fileName) == manifest_.canonicalArtifacts.end()) {
+            manifest_.canonicalArtifacts.push_back(fileName);
+        }
     }
     snapshotCount_.fetch_add(1, std::memory_order_acq_rel);
     return Status::Ok;

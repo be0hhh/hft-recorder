@@ -1,6 +1,7 @@
 #include "gui/viewer/ChartController.hpp"
 
 #include <QDateTime>
+#include <QVariantMap>
 #include <algorithm>
 #include <limits>
 
@@ -12,6 +13,8 @@ namespace {
 
 constexpr std::int64_t kOneMsNs = 1000000ll;
 constexpr std::size_t kViewportBookLevelsPerSide = 24;
+constexpr std::size_t kRenderBookLevelsBudgetPerSide = 256;
+constexpr std::int64_t kUsdScaleE8 = 100000000ll;
 
 std::int64_t ceilToStep(std::int64_t value, std::int64_t step) {
     if (step <= 0) return value;
@@ -60,6 +63,11 @@ std::int64_t niceTimeStepNs(std::int64_t spanNs, int tickCount) {
     return kCandidates[std::size(kCandidates) - 1];
 }
 
+std::int64_t usdToE8(qreal usd) noexcept {
+    const qreal clamped = std::clamp<qreal>(usd, 100.0, 100000.0);
+    return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
+}
+
 void absorbPrice(std::int64_t price, bool& hasPrice, std::int64_t& pMin, std::int64_t& pMax) {
     if (price <= 0) return;
     if (!hasPrice) {
@@ -105,6 +113,20 @@ QString formatShortTimeNs(std::int64_t tsNs) {
     const auto dt = QDateTime::fromMSecsSinceEpoch(ms, Qt::UTC);
     if (!dt.isValid()) return QString::number(tsNs);
     return dt.toString(QStringLiteral("HH:mm:ss.zzz"));
+}
+
+QVariantList buildAxisTicks(int tickCount, const auto& formatter) {
+    QVariantList ticks;
+    const int safeTicks = std::max(2, tickCount);
+    ticks.reserve(safeTicks);
+    for (int i = 0; i < safeTicks; ++i) {
+        const double ratio = static_cast<double>(i) / static_cast<double>(std::max(1, safeTicks - 1));
+        QVariantMap tick;
+        tick.insert(QStringLiteral("ratio"), ratio);
+        tick.insert(QStringLiteral("text"), formatter(ratio));
+        ticks.push_back(tick);
+    }
+    return ticks;
 }
 
 }  // namespace
@@ -228,6 +250,18 @@ QString ChartController::formatTimeAt(double ratio) const {
     return formatShortTimeNs(value);
 }
 
+QVariantList ChartController::priceScaleTicks(int tickCount) const {
+    return buildAxisTicks(tickCount, [this](double ratio) {
+        return formatPriceAt(ratio);
+    });
+}
+
+QVariantList ChartController::timeScaleTicks(int tickCount) const {
+    return buildAxisTicks(tickCount, [this](double ratio) {
+        return formatTimeAt(ratio);
+    });
+}
+
 QString ChartController::formatPriceScaleLabel(int index, int tickCount) const {
     const auto safeTicks = std::max(2, tickCount);
     const auto step = nicePriceStepE8(std::max<std::int64_t>(priceMaxE8_ - priceMinE8_, 1), safeTicks);
@@ -289,12 +323,18 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     if (!loaded_ || widthPx <= 0.0 || heightPx <= 0.0) return snap;
     if (snap.vp.tMax <= snap.vp.tMin || snap.vp.pMax <= snap.vp.pMin) return snap;
 
+    const auto minVisibleAmountE8 = usdToE8(in.bookRenderDetail);
+    const auto heightLimit = static_cast<double>(heightPx);
+
     const auto& trades = replay_.trades();
     snap.tradeDots.reserve(trades.size());
     for (int i = 0; i < static_cast<int>(trades.size()); ++i) {
         const auto& t = trades[static_cast<std::size_t>(i)];
         if (t.tsNs < snap.vp.tMin || t.tsNs > snap.vp.tMax) continue;
         if (t.priceE8 < snap.vp.pMin || t.priceE8 > snap.vp.pMax) continue;
+        const auto x = snap.vp.toX(t.tsNs);
+        const auto y = snap.vp.toY(t.priceE8);
+        if (x < 0.0 || x > snap.vp.w || y < 0.0 || y > snap.vp.h) continue;
         snap.tradeDots.push_back(TradeDot{t.tsNs, t.priceE8, t.qtyE8, t.sideBuy != 0, i});
     }
 
@@ -305,7 +345,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     if (coverageEnd <= coverageStart) return snap;
 
     replay_.seek(coverageStart);
-    const auto& events = replay_.events();
+    const auto& buckets = replay_.buckets();
     const auto& tickers = replay_.bookTickers();
 
     int activeTickerIndex = -1;
@@ -318,6 +358,11 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
 
     auto emitSegment = [&](std::int64_t tsStart, std::int64_t tsEnd) {
         if (tsEnd <= tsStart) return;
+        const qreal xLeft = std::clamp(snap.vp.toX(tsStart), 0.0, snap.vp.w);
+        const qreal xRight = std::clamp(snap.vp.toX(tsEnd), 0.0, snap.vp.w);
+        const int xStartPx = static_cast<int>(std::floor(xLeft));
+        const int xEndPx = static_cast<int>(std::ceil(xRight));
+        if ((xEndPx - xStartPx) < 1) return;
 
         BookSegment seg;
         seg.tsStartNs = tsStart;
@@ -326,33 +371,57 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         if (in.orderbookVisible) {
             std::int64_t maxBid = 0;
             std::int64_t maxAsk = 0;
+            std::size_t keptBids = 0;
+            std::size_t keptAsks = 0;
             for (const auto& [price, qty] : book.bids()) {
                 if (price < snap.vp.pMin || price > snap.vp.pMax || qty <= 0) continue;
+                if (keptBids >= kRenderBookLevelsBudgetPerSide) break;
+                const auto y = snap.vp.toY(price);
+                if (y < 0.0 || y >= heightLimit) continue;
+                const auto amountE8 = detail::multiplyScaledE8(qty, price);
+                if (amountE8 < minVisibleAmountE8) continue;
                 seg.bids.push_back(BookLevel{price, qty});
                 if (qty > maxBid) maxBid = qty;
+                ++keptBids;
             }
             for (const auto& [price, qty] : book.asks()) {
                 if (price < snap.vp.pMin || price > snap.vp.pMax || qty <= 0) continue;
+                if (keptAsks >= kRenderBookLevelsBudgetPerSide) break;
+                const auto y = snap.vp.toY(price);
+                if (y < 0.0 || y >= heightLimit) continue;
+                const auto amountE8 = detail::multiplyScaledE8(qty, price);
+                if (amountE8 < minVisibleAmountE8) continue;
                 seg.asks.push_back(BookLevel{price, qty});
                 if (qty > maxAsk) maxAsk = qty;
+                ++keptAsks;
             }
             seg.maxBidQty = std::max<std::int64_t>(maxBid, 1);
             seg.maxAskQty = std::max<std::int64_t>(maxAsk, 1);
         }
+        bool hasVisibleTicker = false;
         if (in.bookTickerVisible && activeTickerIndex >= 0) {
             const auto& tk = tickers[static_cast<std::size_t>(activeTickerIndex)];
-            seg.tickerBidE8 = tk.bidPriceE8;
-            seg.tickerBidQtyE8 = tk.bidQtyE8;
-            seg.tickerAskE8 = tk.askPriceE8;
-            seg.tickerAskQtyE8 = tk.askQtyE8;
+            const auto bidY = snap.vp.toY(tk.bidPriceE8);
+            const auto askY = snap.vp.toY(tk.askPriceE8);
+            if (tk.bidPriceE8 > 0 && bidY >= 0.0 && bidY < heightLimit) {
+                seg.tickerBidE8 = tk.bidPriceE8;
+                seg.tickerBidQtyE8 = tk.bidQtyE8;
+                hasVisibleTicker = true;
+            }
+            if (tk.askPriceE8 > 0 && askY >= 0.0 && askY < heightLimit) {
+                seg.tickerAskE8 = tk.askPriceE8;
+                seg.tickerAskQtyE8 = tk.askQtyE8;
+                hasVisibleTicker = true;
+            }
         }
+        if (seg.bids.empty() && seg.asks.empty() && !hasVisibleTicker) return;
         snap.bookSegments.push_back(std::move(seg));
     };
 
     std::int64_t segStart = coverageStart;
-    std::size_t eventCursor = replay_.cursor();
-    while (eventCursor < events.size() && events[eventCursor].tsNs <= coverageEnd) {
-        const auto stampTs = events[eventCursor].tsNs;
+    std::size_t bucketCursor = replay_.cursor();
+    while (bucketCursor < buckets.size() && buckets[bucketCursor].tsNs <= coverageEnd) {
+        const auto stampTs = buckets[bucketCursor].tsNs;
         const double xStart = snap.vp.toX(segStart);
         const double xStamp = snap.vp.toX(stampTs);
         const bool wide = (xStamp - xStart) >= 1.0;
@@ -361,15 +430,13 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             emitSegment(segStart, stampTs);
             segStart = stampTs;
         }
-        while (eventCursor < events.size() && events[eventCursor].tsNs == stampTs) {
-            const auto& ev = events[eventCursor];
-            if (ev.kind == hftrec::replay::SessionReplay::EventKind::BookTicker) {
-                activeTickerIndex = static_cast<int>(ev.rowIndex);
+        for (const auto& item : buckets[bucketCursor].items) {
+            if (item.kind == hftrec::replay::SessionReplay::EventKind::BookTicker) {
+                activeTickerIndex = static_cast<int>(item.rowIndex);
             }
-            ++eventCursor;
         }
         replay_.seek(stampTs);
-        eventCursor = replay_.cursor();
+        bucketCursor = replay_.cursor();
     }
     emitSegment(segStart, coverageEnd);
 

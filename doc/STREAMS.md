@@ -51,3 +51,21 @@ Compression work is still organized into three families:
 
 Snapshots are supporting truth data for orderbook reconstruction, not a fourth
 independent ranking family.
+
+## Replay semantics
+
+Canonical replay time is the row `tsNs`.
+
+Replay is bucketed by timestamp:
+- all rows with the same `tsNs` belong to one replay moment
+- same-`tsNs` rows are rendered at the same visual position/frame
+- there is no visible channel priority between channels for equal timestamps
+
+State reconstruction rules:
+- exact L2 reconstruction is driven by `snapshot + depth`
+- `bookticker` is observational L1 data
+- `trades` are observational tape data
+- `bookticker` and `trades` must not mutate reconstructed L2 state
+
+Deterministic internal ordering may still exist inside a bucket for
+reproducibility, but it is not a semantic precedence contract.

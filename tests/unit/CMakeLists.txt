@@ -4,6 +4,7 @@ add_executable(hftrec_unit_tests
     test_smoke.cpp
     test_capture_coordinator.cpp
     test_capture_serializers.cpp
+    test_corpus_loader.cpp
     test_identity_codec.cpp
     test_json_line_parser.cpp
     test_validation_runner.cpp
@@ -26,5 +27,6 @@ target_link_libraries(hftrec_unit_tests
 )
 
 target_compile_features(hftrec_unit_tests PRIVATE cxx_std_23)
+target_compile_definitions(hftrec_unit_tests PRIVATE HFTRREC_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 gtest_discover_tests(hftrec_unit_tests)

@@ -18,3 +18,5 @@ Gotchas:
 - viewer sliders are no longer abstract percentages; `Full Bright @` and `Min Visible` are dollar controls.
 - current orderbook rendering is intentionally simplified to line-based levels because fill-heavy rendering produced misleading artifact blocks.
 - selection summary is intentionally compact; richer comparison metrics can be added later without turning the baseline overlay into a debug dump.
+- do not trust viewer screenshots just because hover/data look correct; recent live runs show the chart surface can update while price/time scales remain visually detached.
+- if a chart screenshot shows a sensible market shape with `0.00000000`-like axes, treat that as a presentation/reactivity bug first, not as proof that replay parsing is wrong.

@@ -1,0 +1,20 @@
+{
+  "tsNs": 1000,
+  "captureSeq": 1,
+  "ingestSeq": 1,
+  "updateId": 10,
+  "firstUpdateId": 10,
+  "snapshotKind": "initial",
+  "source": "rest",
+  "exchange": "binance",
+  "market": "futures_usd",
+  "symbol": "BTCUSDT",
+  "sourceTsNs": 1000,
+  "ingestTsNs": 1000,
+  "anchorUpdateId": 10,
+  "anchorFirstUpdateId": 10,
+  "trustedReplayAnchor": 1,
+  "bids": [{"price_i64":30000,"qty_i64":5}],
+  "asks": [{"price_i64":30100,"qty_i64":4}]
+}
+

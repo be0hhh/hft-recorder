@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include <QColor>
@@ -20,7 +21,6 @@ namespace hftrec::gui::viewer::renderers {
 namespace {
 
 constexpr std::int64_t kUsdScaleE8 = 100000000ll;
-constexpr int kHardLevelBudgetPerSide = 256;
 
 std::int64_t usdToE8(qreal usd) noexcept {
     const qreal clamped = std::clamp<qreal>(usd, 100.0, 100000.0);
@@ -62,15 +62,15 @@ void drawSide(QPainter* painter,
     const int xEnd     = std::max(xStart + 1, static_cast<int>(std::ceil(xRight)));
     const int width    = xEnd - xStart;
     const int heightPx = static_cast<int>(std::ceil(vp.h));
+    if (width < 1 || heightPx <= 0) return;
 
-    int seen = 0;
+    int lastDrawnY = std::numeric_limits<int>::min();
     for (const auto& level : levels) {
-        if (seen >= kHardLevelBudgetPerSide) break;
         std::int64_t amountE8 = 0;
         if (!isVisibleLevel(level, vp, minVisibleAmountE8, amountE8)) continue;
-        ++seen;
 
         const int y = std::clamp(static_cast<int>(std::round(vp.toY(level.priceE8))), 0, heightPx - 1);
+        if (y == lastDrawnY) continue;
         const qreal brightness = normalizedBrightness(amountE8, minVisibleAmountE8, brightnessRefE8);
         const int alpha = std::clamp(static_cast<int>(std::round(brightness * 255.0)), 0, 255);
         if (alpha <= 1) continue;
@@ -82,6 +82,7 @@ void drawSide(QPainter* painter,
         painter->setPen(pen);
         painter->setBrush(Qt::NoBrush);
         painter->drawLine(xStart, y, xEnd - 1, y);
+        lastDrawnY = y;
     }
 }
 

@@ -1,0 +1,30 @@
+{
+  "manifest_schema_version": 1,
+  "corpus_schema_version": 999,
+  "capture_contract_version": "cxet_capture_v1",
+  "session_status": "complete",
+  "identity": { "session_id": "fixture_corrupt_schema_mismatch", "exchange": "binance", "market": "futures_usd", "symbols": ["BTCUSDT"] },
+  "capture": { "selected_parent_dir": "./recordings", "started_at_ns": 1000, "ended_at_ns": 2000, "target_duration_sec": 2, "actual_duration_sec": 2, "snapshot_interval_sec": 60 },
+  "replay": { "structurally_loadable": true, "structural_blockers": [] },
+  "channels": {
+    "trades": { "enabled": true, "required_when_enabled": true, "path": "trades.jsonl", "row_schema": "trade_v1", "declared_event_count": 1 },
+    "bookticker": { "enabled": false, "required_when_enabled": false, "path": "bookticker.jsonl", "row_schema": "bookticker_v1", "declared_event_count": 0 },
+    "depth": { "enabled": false, "required_when_enabled": false, "path": "depth.jsonl", "row_schema": "depth_v1", "declared_event_count": 0 }
+  },
+  "snapshots": { "schema": "orderbook_snapshot_v1", "files": [], "declared_snapshot_count": 0 },
+  "artifacts": { "instrument_metadata_path": "derived/instrument_metadata.json", "session_audit_path": "reports/session_audit.json", "loader_diagnostics_path": "reports/loader_diagnostics.json", "canonical": ["manifest.json", "trades.jsonl"], "support": [] },
+  "integrity": {
+    "session_health": "corrupt",
+    "exact_replay_eligible": false,
+    "report_path": "reports/integrity_report.json",
+    "summary": { "total_incidents": 0, "highest_severity": "error" },
+    "channels": {
+      "trades": { "state": "clean", "exact_replay_eligible": false, "incident_count": 0, "gap_count": 0, "parse_error_count": 0, "highest_severity": "info", "reason_code": "", "reason_text": "" },
+      "bookticker": { "state": "not_captured", "exact_replay_eligible": false, "incident_count": 0, "gap_count": 0, "parse_error_count": 0, "highest_severity": "info", "reason_code": "", "reason_text": "" },
+      "depth": { "state": "not_captured", "exact_replay_eligible": false, "incident_count": 0, "gap_count": 0, "parse_error_count": 0, "highest_severity": "info", "reason_code": "", "reason_text": "" },
+      "snapshot": { "state": "not_captured", "exact_replay_eligible": false, "incident_count": 0, "gap_count": 0, "parse_error_count": 0, "highest_severity": "info", "reason_code": "", "reason_text": "" }
+    }
+  },
+  "summary": { "warning_summary": "" }
+}
+

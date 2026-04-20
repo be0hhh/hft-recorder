@@ -14,7 +14,7 @@ Status legend:
 
 Verified at:
 
-- `2026-04-19`
+- `2026-04-20`
 
 Reality matrix:
 
@@ -41,7 +41,7 @@ Reality matrix:
 - `replay loader`
   - status: `usable`
   - verified_against: `src/core/replay/SessionReplay.cpp`
-  - notes: active path for viewer; loads the current JSON corpus and now supports a stable replay/viewer baseline for chart work
+  - notes: active path for viewer; loads the current JSON corpus and supports the current replay/viewer baseline, but live chart-axis presentation still needs verification
 
 - `json replay parser`
   - status: `usable`
@@ -51,12 +51,12 @@ Reality matrix:
 - `book state / viewer replay`
   - status: `usable`
   - verified_against: `src/core/replay/BookState.cpp`, `src/gui/viewer/ChartController.cpp`
-  - notes: real and central; orderbook rendering is now clipped to real session time coverage and supports selection-summary-driven viewer work
+  - notes: real and central; orderbook rendering is clipped to real session time coverage and supports selection-summary-driven viewer work, but scale/graph synchronization in the live GUI is still an open runtime issue
 
 - `gui viewer`
   - status: `usable`
   - verified_against: `src/gui/viewer/ChartController.cpp`, `src/gui/qml/views/ViewerView.qml`
-  - notes: active product surface; selection rectangle, compact summary overlay, dollar-based book controls, and persistent top controls are all real
+  - notes: active product surface; selection rectangle, compact summary overlay, dollar-based book controls, and persistent top controls are all real, but recent live screenshots show axes visually detached from the rendered chart so the presentation layer is not yet fully trustworthy
 
 - `session list / browsing`
   - status: `usable`

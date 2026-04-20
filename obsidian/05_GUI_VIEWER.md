@@ -61,13 +61,21 @@ Important current facts:
 - chart items are render surfaces, not data sources.
 - `ViewerView` already supports `Shift + LMB` rectangle selection and a compact overlay summary.
 - top viewer controls are persistent through `AppViewModel -> QSettings`.
+- viewer internals improved materially during the current pass:
+  - viewport/session/selection logic is split more cleanly
+  - scale widgets are isolated from the main composition shell
+  - chart rendering and viewer chrome are easier to audit than before
 - orderbook controls are dollar-based:
   - `Full Bright @` = dollar level that reaches full line intensity
   - `Min Visible` = dollar filter that removes weaker book levels from the renderer
 - `BookTicker` stays visible even when the orderbook dollar filter hides weak levels.
 - current orderbook baseline is line-based and readability-first; heavy fill passes were removed after artifact issues.
 - book rendering is clipped to real session coverage, so there are no fake tails before the first event or after the last event.
-- the current viewer is no longer just a playback surface; it is the baseline visual comparison workbench for later compression and reconstruction work.
+- the current viewer is no longer just a playback surface; it is intended to be the baseline visual comparison workbench for later compression and reconstruction work.
+- important live caveat:
+  - recent screenshots still show price/time scales visually detached from the chart surface
+  - treat axis correctness as unresolved until the live GUI matches the rendered market shape
+  - do not describe the baseline as visually stable end-to-end yet
 
 If you debug a chart issue:
 
@@ -78,3 +86,4 @@ If you debug a chart issue:
 3. read the specific renderer in `viewer/renderers/`
 4. verify replay state in `SessionReplay`
 5. verify viewer baseline assumptions in `17_VIEWER_BASELINE_2026_04`
+6. if the chart shape looks right but the axes look frozen / detached, verify runtime scale reactivity before changing replay math

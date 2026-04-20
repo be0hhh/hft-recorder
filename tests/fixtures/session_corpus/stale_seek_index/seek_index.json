@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "sources": {
+    "depth.jsonl": { "size_bytes": 1, "row_count": 99 }
+  },
+  "buckets": [
+    { "ts_ns": 2500, "event_index_start": 1, "depth_row_index": 1 }
+  ]
+}
+

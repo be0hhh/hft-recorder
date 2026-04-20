@@ -1,0 +1,50 @@
+{
+  "session_health": "clean",
+  "exact_replay_eligible": true,
+  "total_incidents": 0,
+  "highest_severity": "info",
+  "channels": {
+    "trades": {
+      "state": "clean",
+      "exact_replay_eligible": true,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "ok",
+      "reason_text": "channel loaded cleanly"
+    },
+    "bookticker": {
+      "state": "clean",
+      "exact_replay_eligible": true,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "ok",
+      "reason_text": "channel loaded cleanly"
+    },
+    "depth": {
+      "state": "clean",
+      "exact_replay_eligible": true,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "ok",
+      "reason_text": "depth continuity validated"
+    },
+    "snapshot": {
+      "state": "clean",
+      "exact_replay_eligible": true,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "ok",
+      "reason_text": "snapshot anchor available"
+    }
+  },
+  "incidents": [
+  ]
+}

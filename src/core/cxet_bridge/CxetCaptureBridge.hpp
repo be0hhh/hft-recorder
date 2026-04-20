@@ -1,12 +1,78 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 #include "core/common/Status.hpp"
 
+namespace cxet {
+namespace composite {
+struct TradePublic;
+struct BookTickerData;
+struct OrderBookSnapshot;
+}  // namespace composite
+}  // namespace cxet
+
 namespace hftrec::cxet_bridge {
+
+struct CapturedTradeRow {
+    std::string symbol{};
+    std::uint64_t tsNs{0};
+    std::int64_t priceE8{0};
+    std::int64_t qtyE8{0};
+    bool sideBuy{false};
+};
+
+struct CapturedBookTickerRow {
+    std::string symbol{};
+    std::uint64_t tsNs{0};
+    std::int64_t bidPriceE8{0};
+    std::int64_t askPriceE8{0};
+    std::int64_t bidQtyE8{0};
+    std::int64_t askQtyE8{0};
+    bool includeBidQty{false};
+    bool includeAskQty{false};
+};
+
+struct CapturedLevel {
+    std::int64_t priceI64{0};
+    std::int64_t qtyI64{0};
+};
+
+struct CapturedOrderBookRow {
+    std::string symbol{};
+    std::uint64_t tsNs{0};
+    std::uint64_t updateId{0};
+    std::uint64_t firstUpdateId{0};
+    std::vector<CapturedLevel> bids{};
+    std::vector<CapturedLevel> asks{};
+};
+
+enum class CaptureFailureKind : std::uint8_t {
+    SubscribeFailed = 1,
+    SnapshotFetchFailed = 2,
+    WriteFailed = 3,
+};
+
+struct CaptureFailureEvent {
+    CaptureFailureKind kind{CaptureFailureKind::SubscribeFailed};
+    std::string channel{};
+    std::string detail{};
+    bool recoverable{false};
+};
 
 class CxetCaptureBridge {
   public:
     Status initialize() noexcept;
+    static CapturedTradeRow captureTrade(const cxet::composite::TradePublic& trade);
+    static CapturedBookTickerRow captureBookTicker(const cxet::composite::BookTickerData& bookTicker,
+                                                   const std::vector<std::string>& requestedAliases);
+    static CapturedOrderBookRow captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot);
+    static CaptureFailureEvent makeFailure(CaptureFailureKind kind,
+                                           std::string channel,
+                                           std::string detail,
+                                           bool recoverable) noexcept;
 };
 
 }  // namespace hftrec::cxet_bridge

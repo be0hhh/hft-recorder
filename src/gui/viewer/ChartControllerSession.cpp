@@ -127,7 +127,7 @@ void ChartController::finalizeFiles() {
         return;
     }
 
-    loaded_ = (replay_.events().size() > 0) || (replay_.book().bids().size() + replay_.book().asks().size() > 0);
+    loaded_ = (!replay_.buckets().empty()) || (replay_.book().bids().size() + replay_.book().asks().size() > 0);
     if (loaded_) computeInitialViewport_();
     currentBookTickerIndex_ = -1;
 
@@ -152,7 +152,7 @@ bool ChartController::loadSession(const QString& dir) {
         return false;
     }
 
-    loaded_ = !replay_.events().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
+    loaded_ = !replay_.buckets().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
     currentBookTickerIndex_ = -1;
     statusText_ = QStringLiteral("Loaded trades=%1 depth=%2 bookticker=%3")
                       .arg(replay_.trades().size())
