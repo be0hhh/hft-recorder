@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# hft-recorder compile.sh — one-shot build driver.
+# hft-recorder compile.sh - one-shot build driver.
 #
 # Typical flow:
 #   cd apps/hft-recorder
 #   ./compile.sh            # incremental build (first run bootstraps CXETCPP)
-#   ./build/start           # launch the Qt GUI
+#   ./build/start           # launch the Qt GUI in CPU-safe software mode
+#   ./build/start --gpu     # launch the Qt GUI requesting Qt Quick/OpenGL
 #
 # Everything runs in WSL/Linux. Paths are /mnt/c/... under Windows.
 #
@@ -60,20 +61,37 @@ _install_cxet_if_missing() {
 
 _write_start_launcher() {
     mkdir -p "$APP/build"
-    # Single CPU-only launcher. The app is a QQuickPaintedItem — all rendering
-    # runs through QPainter and the Qt RHI software backend. Works identically
-    # on any Qt 6 setup; no Mesa/NVIDIA/WSLg tuning required.
-    rm -f "$APP/build/start-software"
     cat > "$APP/build/start" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_DIR="${HOME}/.local/cxet"
 export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${LD_LIBRARY_PATH:-}"
-export LIBGL_ALWAYS_SOFTWARE=1
-export QT_XCB_GL_INTEGRATION=none
-export QSG_RHI_BACKEND=software
-export QT_QUICK_BACKEND=software
+
+MODE="cpu"
+if [ "${1:-}" = "--gpu" ]; then
+    MODE="gpu"
+    shift
+fi
+
+if [ "$MODE" = "gpu" ]; then
+    export HFTREC_RENDER_MODE=gpu
+    unset LIBGL_ALWAYS_SOFTWARE
+    unset QT_XCB_GL_INTEGRATION
+    unset QT_QUICK_BACKEND
+    export QSG_RHI_BACKEND=opengl
+    export QSG_INFO=1
+    echo ">>> hft-recorder launcher: GPU mode (Qt Quick/OpenGL requested)"
+else
+    export HFTREC_RENDER_MODE=cpu
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export QT_XCB_GL_INTEGRATION=none
+    export QSG_RHI_BACKEND=software
+    export QT_QUICK_BACKEND=software
+    echo ">>> hft-recorder launcher: CPU-safe software mode"
+fi
+
 exec "$APP_DIR/build/bin/hft-recorder-gui" "$@"
 EOF
     chmod +x "$APP/build/start"
@@ -113,5 +131,6 @@ _write_start_launcher
 
 echo ""
 echo ">>> Done."
-echo ">>> Launch: ./build/start"
+echo ">>> Launch: ./build/start        (CPU-safe software mode)"
+echo ">>> Launch: ./build/start --gpu  (Qt Quick OpenGL mode)"
 echo ">>> Tests:  ctest --test-dir build"

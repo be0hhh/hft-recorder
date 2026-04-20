@@ -1,31 +1,22 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
-#include <QImage>
 #include <QPointF>
-#include <QQuickPaintedItem>
-
-class QPainter;
+#include <QQuickFramebufferObject>
 
 namespace hftrec::gui::viewer {
 
 class ChartController;
 struct RenderSnapshot;
-struct SnapshotInputs;
 struct HoverInfo;
-class ChartItem;
 
-namespace detail {
-SnapshotInputs collectInputs(const ChartItem& item);
-HoverInfo buildHoverInfo(const ChartItem& item);
-}
+namespace gpu {
 
-// CPU QPainter-backed chart. Draws into a QImage target; the scene graph
-// composites that image. Simple and portable — no Qt RHI scene-graph geometry
-// nodes — accepting the lower framerate in exchange for predictable behaviour
-// on any Qt 6 backend (XCB + Wayland + software).
-class ChartItem : public QQuickPaintedItem {
+class GpuChartRenderer;
+
+class GpuChartItem : public QQuickFramebufferObject {
     Q_OBJECT
     Q_PROPERTY(hftrec::gui::viewer::ChartController* controller
                    READ controller WRITE setController NOTIFY controllerChanged)
@@ -39,8 +30,8 @@ class ChartItem : public QQuickPaintedItem {
     Q_PROPERTY(bool overlayOnly READ overlayOnly WRITE setOverlayOnly NOTIFY overlayOnlyChanged)
 
   public:
-    explicit ChartItem(QQuickItem* parent = nullptr);
-    ~ChartItem() override;
+    explicit GpuChartItem(QQuickItem* parent = nullptr);
+    ~GpuChartItem() override;
 
     ChartController* controller() const noexcept { return controller_; }
     void setController(ChartController* c);
@@ -61,7 +52,7 @@ class ChartItem : public QQuickPaintedItem {
     bool overlayOnly() const noexcept { return overlayOnly_; }
     void setOverlayOnly(bool value);
 
-    void paint(QPainter* painter) override;
+    Renderer* createRenderer() const override;
     Q_INVOKABLE void setHoverPoint(qreal x, qreal y);
     Q_INVOKABLE void activateContextPoint(qreal x, qreal y);
     Q_INVOKABLE void clearHover();
@@ -84,16 +75,15 @@ class ChartItem : public QQuickPaintedItem {
     void requestRepaint();
 
   private:
-    friend SnapshotInputs detail::collectInputs(const ChartItem& item);
-    friend HoverInfo detail::buildHoverInfo(const ChartItem& item);
+    friend class GpuChartRenderer;
 
+    bool shouldSkipHoverRecompute_(const QPointF& point, bool contextActive) const noexcept;
     void updateHover_();
     void invalidateSnapshotCache_();
-    void invalidateBaseImage_();
-    const RenderSnapshot& ensureSnapshot_();
-    std::unique_ptr<RenderSnapshot>& activeSnapshotCache_() noexcept;
-    void ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h);
-    bool shouldSkipHoverRecompute_(const QPointF& point, bool contextActive) const noexcept;
+    void rebuildSnapshot_();
+    HoverInfo buildHoverInfo_() const;
+    RenderSnapshot snapshotCopy_() const;
+    HoverInfo hoverInfoCopy_() const;
 
     ChartController* controller_{nullptr};
     QPointF hoverPoint_{};
@@ -113,20 +103,11 @@ class ChartItem : public QQuickPaintedItem {
     bool interactiveMode_{false};
     bool overlayOnly_{false};
 
-    // Dual snapshot caches: an approximate interactive snapshot and an exact
-    // settled snapshot. Hover repaints reuse whichever cache matches the
-    // current mode without rebuilding.
-    std::unique_ptr<RenderSnapshot> cachedInteractiveSnap_{};
-    std::unique_ptr<RenderSnapshot> cachedExactSnap_{};
+    std::unique_ptr<RenderSnapshot> cachedSnap_{};
+    std::unique_ptr<HoverInfo> hoverInfo_{};
     qreal cachedW_{0.0};
     qreal cachedH_{0.0};
-    bool snapshotDirty_{false};
-    // Only heavy image layers are cached here. BookTicker is intentionally
-    // excluded and is always painted live from the dedicated ticker paint path.
-    QImage cachedOrderbookImage_{};
-    QImage cachedTradesImage_{};
-    qreal cachedLayerImageW_{0.0};
-    qreal cachedLayerImageH_{0.0};
 };
 
+}  // namespace gpu
 }  // namespace hftrec::gui::viewer

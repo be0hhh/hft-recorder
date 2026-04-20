@@ -20,6 +20,7 @@ ApplicationWindow {
 
     AppViewModel {
         id: appVm
+        objectName: "appVm"
     }
 
     component DarkTabButton: TabButton {

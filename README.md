@@ -30,7 +30,16 @@ User build/run entrypoints:
   - forcibly rebuilds and reinstalls `CXETCPP` before building `hft-recorder`
   - use this when public headers in `~/.local/cxet` became stale relative to the current repo
 - `./build/start`
-  - launches the Qt GUI with correct `LD_LIBRARY_PATH`
+  - launches the Qt GUI in CPU-safe software mode
+- `./build/start --gpu`
+  - launches the Qt GUI requesting the Qt Quick OpenGL backend
+  - intended for real Linux desktop GPU validation, e.g. Ubuntu 24 on the laptop
+
+Current runtime truth:
+- default runtime is intentionally software-safe
+- `--gpu` enables a hardware-backed Qt Quick/OpenGL setup for validation
+- the active viewer path is still `ChartItem` (`QQuickPaintedItem`)
+- this means current `--gpu` is hardware-backed compositing, not yet a separate GPU-native chart renderer
 
 Primary user workflow:
 1. Open the GUI.
@@ -46,6 +55,12 @@ Dependency contract:
 - `hft-recorder` includes only the public API surface needed to consume `CXETCPP`
 - no `add_subdirectory(..)` on the parent project
 - no dependency on `network/`, `parse/`, `exchanges/`, or runtime internals
+
+Laptop transfer note:
+- code moves by normal git branch workflow
+- `recordings/` is intentionally ignored and should be transferred separately from the repo
+- if a ready `libcxet_lib.so` and matching public headers are already available, copy the installed `~/.local/cxet/` tree to the laptop before running `./compile.sh`
+- if that copied install is incompatible on Ubuntu 24, rerun `./compile.sh --force-cxet` on the laptop to rebuild and reinstall `CXETCPP`
 
 Repository layout:
 - `doc/` - source-of-truth architecture, corpus, GUI, and lab docs

@@ -18,6 +18,8 @@ qt_add_executable(hft-recorder-gui
     viewer/ChartItem.cpp
     viewer/ChartItemHover.cpp
     viewer/ChartItemPaint.cpp
+    viewer/ChartItemBookTicker.cpp
+    viewer/gpu/GpuChartItem.cpp
     viewer/hit_test/HoverDetection.cpp
     viewer/renderers/BookRenderer.cpp
     viewer/renderers/BookTickerRenderer.cpp

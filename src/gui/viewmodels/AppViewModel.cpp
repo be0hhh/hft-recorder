@@ -1,6 +1,7 @@
 #include "gui/viewmodels/AppViewModel.hpp"
 
 #include <QCoreApplication>
+#include <QProcessEnvironment>
 
 #include <algorithm>
 
@@ -8,6 +9,11 @@ namespace hftrec::gui {
 
 AppViewModel::AppViewModel(QObject* parent)
     : QObject(parent) {
+    requestedRenderMode_ = QProcessEnvironment::systemEnvironment().value(
+        QStringLiteral("HFTREC_RENDER_MODE"),
+        QStringLiteral("cpu")).trimmed().toLower();
+    if (requestedRenderMode_.isEmpty()) requestedRenderMode_ = QStringLiteral("cpu");
+    refreshRenderDiagnosticsText_();
     loadSettings_();
 
     saveTimer_.setInterval(1000);
@@ -27,6 +33,23 @@ AppViewModel::AppViewModel(QObject* parent)
 
 QString AppViewModel::statusText() const {
     return statusText_;
+}
+
+void AppViewModel::setRenderDiagnostics(const QString& requestedMode, const QString& actualGraphicsApi) {
+    const QString normalizedRequested = requestedMode.trimmed().toLower().isEmpty()
+        ? QStringLiteral("cpu")
+        : requestedMode.trimmed().toLower();
+    const QString normalizedApi = actualGraphicsApi.trimmed().toLower().isEmpty()
+        ? QStringLiteral("unknown")
+        : actualGraphicsApi.trimmed();
+
+    if (normalizedRequested == requestedRenderMode_ && normalizedApi == actualGraphicsApi_) {
+        return;
+    }
+    requestedRenderMode_ = normalizedRequested;
+    actualGraphicsApi_ = normalizedApi;
+    refreshRenderDiagnosticsText_();
+    emit renderDiagnosticsChanged();
 }
 
 void AppViewModel::setTradeAmountScale(qreal value) {
@@ -72,6 +95,11 @@ void AppViewModel::flushSettings_() {
     settings_.setValue(QStringLiteral("viewer/book_min_visible_usd"), bookMinVisibleUsd_);
     settings_.sync();
     settingsDirty_ = false;
+}
+
+void AppViewModel::refreshRenderDiagnosticsText_() {
+    renderDiagnosticsText_ = QStringLiteral("%1 requested | %2 backend")
+        .arg(requestedRenderMode_.toUpper(), actualGraphicsApi_);
 }
 
 }  // namespace hftrec::gui

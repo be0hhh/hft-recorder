@@ -26,9 +26,15 @@ Pane {
     property bool showOrderbookLayer: false
     property bool showBookTickerLayer: false
     property bool effectiveBookTickerLayer: showBookTickerLayer || showOrderbookLayer
-    // Kept for backwards compatibility with existing QML references; the
-    // scene-graph `ChartItem` always runs on the GPU now.
+    property bool useDedicatedGpuPath: root.appVm.requestedRenderMode === "gpu"
+    // Legacy compatibility flag. The active viewer item is still `ChartItem`
+    // (`QQuickPaintedItem`), so current GPU mode means hardware-backed Qt
+    // Quick compositing, not a dedicated GPU-native chart renderer.
     property bool useGpuRenderer: true
+
+    function chartSurface() {
+        return chartLoader.item
+    }
 
     function syncChannelView() {
         interaction.clearSelectionVisual()
@@ -168,43 +174,74 @@ Pane {
                 anchors.bottom: timeScale.top
                 clip: true
 
-                ChartItem {
-                    id: chartItem
+                Component {
+                    id: cpuChartComponent
+                    ChartItem {
+                        anchors.fill: parent
+                        controller: chart
+                        tradesVisible: root.showTradesLayer
+                        orderbookVisible: root.showOrderbookLayer
+                        bookTickerVisible: root.effectiveBookTickerLayer
+                        tradeAmountScale: root.appVm.tradeAmountScale
+                        bookOpacityGain: root.appVm.bookBrightnessUsdRef
+                        bookRenderDetail: root.appVm.bookMinVisibleUsd
+                        interactiveMode: interaction.interactiveMode
+                    }
+                }
+
+                Component {
+                    id: gpuChartComponent
+                    GpuChartItem {
+                        anchors.fill: parent
+                        controller: chart
+                        tradesVisible: root.showTradesLayer
+                        orderbookVisible: root.showOrderbookLayer
+                        bookTickerVisible: root.effectiveBookTickerLayer
+                        tradeAmountScale: root.appVm.tradeAmountScale
+                        bookOpacityGain: root.appVm.bookBrightnessUsdRef
+                        bookRenderDetail: root.appVm.bookMinVisibleUsd
+                        interactiveMode: interaction.interactiveMode
+                    }
+                }
+
+                Loader {
+                    id: chartLoader
                     anchors.fill: parent
-                    controller: chart
-                    tradesVisible: root.showTradesLayer
-                    orderbookVisible: root.showOrderbookLayer
-                    bookTickerVisible: root.effectiveBookTickerLayer
-                    tradeAmountScale: root.appVm.tradeAmountScale
-                    bookOpacityGain: root.appVm.bookBrightnessUsdRef
-                    bookRenderDetail: root.appVm.bookMinVisibleUsd
-                    interactiveMode: interaction.interactiveMode
+                    sourceComponent: root.useDedicatedGpuPath ? gpuChartComponent : cpuChartComponent
                 }
 
                 MouseArea {
                     anchors.fill: parent
                     property real lastX: 0
                     property real lastY: 0
+                    property real pressX: 0
+                    property real pressY: 0
+                    property bool dragActive: false
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     hoverEnabled: true
                     preventStealing: true
 
                     onPressed: function(mouse) {
                         if (mouse.button === Qt.RightButton) {
-                            chartItem.activateContextPoint(mouse.x, mouse.y)
+                            if (root.chartSurface())
+                                root.chartSurface().activateContextPoint(mouse.x, mouse.y)
                             return
                         }
                         if ((mouse.modifiers & Qt.ShiftModifier) && mouse.button === Qt.LeftButton) {
                             interaction.startInteractiveMode(interactiveModeTimer)
                             interaction.beginSelection(mouse.x, mouse.y)
-                            chartItem.clearHover()
+                            if (root.chartSurface())
+                                root.chartSurface().clearHover()
                             return
                         }
-                        interaction.startInteractiveMode(interactiveModeTimer)
                         interaction.plotDragging = true
+                        dragActive = false
+                        pressX = mouse.x
+                        pressY = mouse.y
                         lastX = mouse.x
                         lastY = mouse.y
-                        chartItem.clearHover()
+                        if (root.chartSurface() && !interaction.anyHoverableLayerVisible(root.showTradesLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer))
+                            root.chartSurface().clearHover()
                     }
 
                     onPositionChanged: function(mouse) {
@@ -213,6 +250,15 @@ Pane {
                             return
                         }
                         if (mouse.buttons & Qt.LeftButton) {
+                            if (!dragActive) {
+                                var distance = Math.abs(mouse.x - pressX) + Math.abs(mouse.y - pressY)
+                                if (distance < 4)
+                                    return
+                                dragActive = true
+                                interaction.startInteractiveMode(interactiveModeTimer)
+                                if (root.chartSurface())
+                                    root.chartSurface().clearHover()
+                            }
                             var dx = mouse.x - lastX
                             var dy = mouse.y - lastY
                             lastX = mouse.x
@@ -225,7 +271,8 @@ Pane {
                             return
                         if (!interaction.anyHoverableLayerVisible(root.showTradesLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer))
                             return
-                        chartItem.setHoverPoint(mouse.x, mouse.y)
+                        if (root.chartSurface())
+                            root.chartSurface().setHoverPoint(mouse.x, mouse.y)
                     }
 
                     onReleased: {
@@ -235,24 +282,29 @@ Pane {
                             return
                         }
                         interaction.plotDragging = false
-                        interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        if (dragActive)
+                            interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        dragActive = false
                     }
 
                     onCanceled: {
                         if (interaction.rangeSelectionActive)
                             interaction.clearSelectionVisual()
                         interaction.plotDragging = false
-                        interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        if (dragActive)
+                            interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        dragActive = false
                     }
 
                     onExited: {
-                        if (!interaction.rangeSelectionActive)
-                            chartItem.clearHover()
+                        if (!interaction.rangeSelectionActive && root.chartSurface())
+                            root.chartSurface().clearHover()
                     }
 
                     onWheel: function(wheel) {
                         interaction.startInteractiveMode(interactiveModeTimer)
-                        chartItem.clearHover()
+                        if (root.chartSurface())
+                            root.chartSurface().clearHover()
                         var factor = wheel.angleDelta.y > 0 ? 1.18 : 0.84
                         chart.zoomTime(factor)
                         chart.zoomPrice(factor)
@@ -286,20 +338,30 @@ Pane {
                 MouseArea {
                     anchors.fill: parent
                     property real lastY: 0
+                    property real pressY: 0
+                    property bool dragActive: false
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     cursorShape: Qt.SizeVerCursor
                     preventStealing: true
 
                     onPressed: function(mouse) {
-                        interaction.startInteractiveMode(interactiveModeTimer)
                         interaction.priceScaleDragging = true
+                        dragActive = false
+                        pressY = mouse.y
                         lastY = mouse.y
-                        chartItem.clearHover()
                     }
 
                     onPositionChanged: function(mouse) {
                         if (!(mouse.buttons & Qt.LeftButton) && !(mouse.buttons & Qt.RightButton))
                             return
+                        if (!dragActive) {
+                            if (Math.abs(mouse.y - pressY) < 3)
+                                return
+                            dragActive = true
+                            interaction.startInteractiveMode(interactiveModeTimer)
+                            if (root.chartSurface())
+                                root.chartSurface().clearHover()
+                        }
                         var dy = mouse.y - lastY
                         lastY = mouse.y
                         chart.zoomPrice(Math.exp(-dy * 0.012))
@@ -307,12 +369,16 @@ Pane {
 
                     onReleased: {
                         interaction.priceScaleDragging = false
-                        interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        if (dragActive)
+                            interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        dragActive = false
                     }
 
                     onCanceled: {
                         interaction.priceScaleDragging = false
-                        interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        if (dragActive)
+                            interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        dragActive = false
                     }
                 }
             }
@@ -331,20 +397,30 @@ Pane {
                 MouseArea {
                     anchors.fill: parent
                     property real lastX: 0
+                    property real pressX: 0
+                    property bool dragActive: false
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     cursorShape: Qt.SizeHorCursor
                     preventStealing: true
 
                     onPressed: function(mouse) {
-                        interaction.startInteractiveMode(interactiveModeTimer)
                         interaction.timeScaleDragging = true
+                        dragActive = false
+                        pressX = mouse.x
                         lastX = mouse.x
-                        chartItem.clearHover()
                     }
 
                     onPositionChanged: function(mouse) {
                         if (!(mouse.buttons & Qt.LeftButton) && !(mouse.buttons & Qt.RightButton))
                             return
+                        if (!dragActive) {
+                            if (Math.abs(mouse.x - pressX) < 3)
+                                return
+                            dragActive = true
+                            interaction.startInteractiveMode(interactiveModeTimer)
+                            if (root.chartSurface())
+                                root.chartSurface().clearHover()
+                        }
                         var dx = mouse.x - lastX
                         lastX = mouse.x
                         chart.zoomTime(Math.exp(dx * 0.012))
@@ -352,12 +428,16 @@ Pane {
 
                     onReleased: {
                         interaction.timeScaleDragging = false
-                        interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        if (dragActive)
+                            interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        dragActive = false
                     }
 
                     onCanceled: {
                         interaction.timeScaleDragging = false
-                        interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        if (dragActive)
+                            interaction.stopInteractiveModeSoon(interactiveModeTimer)
+                        dragActive = false
                     }
                 }
             }

@@ -7,7 +7,15 @@
 
 namespace hftrec::gui::viewer {
 
+bool ChartItem::shouldSkipHoverRecompute_(const QPointF& point, bool contextActive) const noexcept {
+    if (!hoverActive_ || contextActive_ != contextActive) return false;
+    const qreal dx = point.x() - hoverPoint_.x();
+    const qreal dy = point.y() - hoverPoint_.y();
+    return (dx * dx + dy * dy) < 0.25;
+}
+
 void ChartItem::setHoverPoint(qreal x, qreal y) {
+    if (shouldSkipHoverRecompute_(QPointF{x, y}, false)) return;
     hoverPoint_ = QPointF{x, y};
     hoverActive_ = true;
     contextActive_ = false;
@@ -16,6 +24,7 @@ void ChartItem::setHoverPoint(qreal x, qreal y) {
 }
 
 void ChartItem::activateContextPoint(qreal x, qreal y) {
+    if (shouldSkipHoverRecompute_(QPointF{x, y}, true)) return;
     hoverPoint_ = QPointF{x, y};
     hoverActive_ = true;
     contextActive_ = true;

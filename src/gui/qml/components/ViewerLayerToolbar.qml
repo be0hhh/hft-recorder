@@ -143,5 +143,11 @@ Rectangle {
         }
 
         Item { Layout.fillWidth: true }
+
+        Label {
+            text: bar.appVm.renderDiagnosticsText
+            color: bar.mutedTextColor
+            font.pixelSize: 12
+        }
     }
 }

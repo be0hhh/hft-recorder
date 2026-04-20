@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QVariantMap>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include "gui/viewer/detail/Formatters.hpp"
@@ -14,7 +15,10 @@ namespace {
 constexpr std::int64_t kOneMsNs = 1000000ll;
 constexpr std::size_t kViewportBookLevelsPerSide = 24;
 constexpr std::size_t kRenderBookLevelsBudgetPerSide = 256;
+constexpr std::size_t kInteractiveBookLevelsBudgetPerSide = 192;
 constexpr std::int64_t kUsdScaleE8 = 100000000ll;
+constexpr double kTradeDenseMultiplierInteractive = 2.25;
+constexpr double kTradeDenseMultiplierStatic = 5.0;
 
 std::int64_t ceilToStep(std::int64_t value, std::int64_t step) {
     if (step <= 0) return value;
@@ -127,6 +131,63 @@ QVariantList buildAxisTicks(int tickCount, const auto& formatter) {
         ticks.push_back(tick);
     }
     return ticks;
+}
+
+struct TradePixelAccumulator {
+    bool hasLow{false};
+    bool hasHigh{false};
+    TradeDot low{};
+    TradeDot high{};
+
+    void absorb(const TradeDot& dot) noexcept {
+        if (!hasLow || dot.priceE8 < low.priceE8) {
+            low = dot;
+            hasLow = true;
+        }
+        if (!hasHigh || dot.priceE8 > high.priceE8) {
+            high = dot;
+            hasHigh = true;
+        }
+    }
+
+    void appendTo(std::vector<TradeDot>& out) const {
+        if (!hasLow) return;
+        if (hasLow && hasHigh && low.origIndex > high.origIndex) {
+            out.push_back(high);
+            if (low.origIndex != high.origIndex) out.push_back(low);
+            return;
+        }
+        out.push_back(low);
+        if (hasHigh && high.origIndex != low.origIndex) out.push_back(high);
+    }
+};
+
+struct TradePixelBin {
+    int xPx{-1};
+    TradePixelAccumulator buy{};
+    TradePixelAccumulator sell{};
+
+    void reset(int nextXPx) noexcept {
+        xPx = nextXPx;
+        buy = TradePixelAccumulator{};
+        sell = TradePixelAccumulator{};
+    }
+
+    void appendTo(std::vector<TradeDot>& out) const {
+        buy.appendTo(out);
+        sell.appendTo(out);
+    }
+};
+
+bool shouldDecimateTrades(std::size_t visibleTradeCount,
+                          qreal widthPx,
+                          bool interactiveMode) noexcept {
+    if (visibleTradeCount <= 1u || widthPx <= 0.0) return false;
+    const double multiplier = interactiveMode
+        ? kTradeDenseMultiplierInteractive
+        : kTradeDenseMultiplierStatic;
+    const double budget = std::max(32.0, static_cast<double>(widthPx) * multiplier);
+    return static_cast<double>(visibleTradeCount) > budget;
 }
 
 }  // namespace
@@ -316,6 +377,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     snap.bookTickerVisible = in.bookTickerVisible;
     snap.interactiveMode = in.interactiveMode;
     snap.overlayOnly = in.overlayOnly;
+    snap.exactTradeRendering = in.exactTradeRendering;
     snap.tradeAmountScale = in.tradeAmountScale;
     snap.bookOpacityGain = in.bookOpacityGain;
     snap.bookRenderDetail = in.bookRenderDetail;
@@ -327,7 +389,28 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     const auto heightLimit = static_cast<double>(heightPx);
 
     const auto& trades = replay_.trades();
-    snap.tradeDots.reserve(trades.size());
+    std::size_t visibleTradeCount = 0;
+    for (const auto& trade : trades) {
+        if (trade.tsNs < snap.vp.tMin || trade.tsNs > snap.vp.tMax) continue;
+        if (trade.priceE8 < snap.vp.pMin || trade.priceE8 > snap.vp.pMax) continue;
+        ++visibleTradeCount;
+    }
+
+    snap.tradeDecimated = !in.exactTradeRendering
+        && shouldDecimateTrades(visibleTradeCount, widthPx, in.interactiveMode);
+    snap.tradeDots.reserve(
+        snap.tradeDecimated
+            ? static_cast<std::size_t>(std::max<qreal>(32.0, std::ceil(widthPx) * 4.0))
+            : visibleTradeCount);
+
+    TradePixelBin pixelBin{};
+    bool pixelBinActive = false;
+    auto flushTradeBin = [&]() {
+        if (!pixelBinActive) return;
+        pixelBin.appendTo(snap.tradeDots);
+        pixelBinActive = false;
+    };
+
     for (int i = 0; i < static_cast<int>(trades.size()); ++i) {
         const auto& t = trades[static_cast<std::size_t>(i)];
         if (t.tsNs < snap.vp.tMin || t.tsNs > snap.vp.tMax) continue;
@@ -335,8 +418,27 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         const auto x = snap.vp.toX(t.tsNs);
         const auto y = snap.vp.toY(t.priceE8);
         if (x < 0.0 || x > snap.vp.w || y < 0.0 || y > snap.vp.h) continue;
-        snap.tradeDots.push_back(TradeDot{t.tsNs, t.priceE8, t.qtyE8, t.sideBuy != 0, i});
+
+        const TradeDot dot{t.tsNs, t.priceE8, t.qtyE8, t.sideBuy != 0, i};
+        if (!snap.tradeDecimated) {
+            snap.tradeDots.push_back(dot);
+            continue;
+        }
+
+        const int xPx = std::clamp(
+            static_cast<int>(std::floor(x)),
+            0,
+            std::max(0, static_cast<int>(std::ceil(widthPx)) - 1));
+        if (!pixelBinActive || pixelBin.xPx != xPx) {
+            flushTradeBin();
+            pixelBin.reset(xPx);
+            pixelBinActive = true;
+        }
+
+        if (dot.sideBuy) pixelBin.buy.absorb(dot);
+        else pixelBin.sell.absorb(dot);
     }
+    flushTradeBin();
 
     if (!in.orderbookVisible && !in.bookTickerVisible) return snap;
 
@@ -373,9 +475,12 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             std::int64_t maxAsk = 0;
             std::size_t keptBids = 0;
             std::size_t keptAsks = 0;
+            const std::size_t levelsBudget = in.interactiveMode
+                ? kInteractiveBookLevelsBudgetPerSide
+                : kRenderBookLevelsBudgetPerSide;
             for (const auto& [price, qty] : book.bids()) {
                 if (price < snap.vp.pMin || price > snap.vp.pMax || qty <= 0) continue;
-                if (keptBids >= kRenderBookLevelsBudgetPerSide) break;
+                if (keptBids >= levelsBudget) break;
                 const auto y = snap.vp.toY(price);
                 if (y < 0.0 || y >= heightLimit) continue;
                 const auto amountE8 = detail::multiplyScaledE8(qty, price);
@@ -386,7 +491,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             }
             for (const auto& [price, qty] : book.asks()) {
                 if (price < snap.vp.pMin || price > snap.vp.pMax || qty <= 0) continue;
-                if (keptAsks >= kRenderBookLevelsBudgetPerSide) break;
+                if (keptAsks >= levelsBudget) break;
                 const auto y = snap.vp.toY(price);
                 if (y < 0.0 || y >= heightLimit) continue;
                 const auto amountE8 = detail::multiplyScaledE8(qty, price);

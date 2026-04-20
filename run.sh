@@ -4,7 +4,7 @@
 # Subcommands:
 #   install-cxet   - build + install libcxet_lib.so to ~/.local/cxet
 #   build          - configure + build all hft-recorder targets
-#   gui            - run the Qt GUI
+#   gui            - run the Qt GUI [--gpu]
 #   cli            - run the support CLI
 #   clean          - remove build/ (prompts)
 #   help           - show this message
@@ -35,19 +35,38 @@ _require_linux_build_env() {
 
 _write_start_launcher() {
     mkdir -p "$APP/build"
-    cat > "$APP/build/start" <<EOF
+    cat > "$APP/build/start" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
-INSTALL_DIR="\${HOME}/.local/cxet"
-export LD_LIBRARY_PATH="\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
-export LIBGL_ALWAYS_SOFTWARE=1
-export QT_XCB_GL_INTEGRATION=none
-export QSG_RHI_BACKEND=software
-export QT_QUICK_BACKEND=software
+APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+INSTALL_DIR="${HOME}/.local/cxet"
+export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${LD_LIBRARY_PATH:-}"
 
-exec "\$APP_DIR/build/bin/hft-recorder-gui" "\$@"
+MODE="cpu"
+if [ "${1:-}" = "--gpu" ]; then
+    MODE="gpu"
+    shift
+fi
+
+if [ "$MODE" = "gpu" ]; then
+    export HFTREC_RENDER_MODE=gpu
+    unset LIBGL_ALWAYS_SOFTWARE
+    unset QT_XCB_GL_INTEGRATION
+    unset QT_QUICK_BACKEND
+    export QSG_RHI_BACKEND=opengl
+    export QSG_INFO=1
+    echo ">>> hft-recorder launcher: GPU mode (Qt Quick/OpenGL requested)"
+else
+    export HFTREC_RENDER_MODE=cpu
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export QT_XCB_GL_INTEGRATION=none
+    export QSG_RHI_BACKEND=software
+    export QT_QUICK_BACKEND=software
+    echo ">>> hft-recorder launcher: CPU-safe software mode"
+fi
+
+exec "$APP_DIR/build/bin/hft-recorder-gui" "$@"
 EOF
     chmod +x "$APP/build/start"
 }
@@ -112,12 +131,29 @@ cmd_gui() {
     _require_linux_build_env
     _resolve_cxet_paths
     export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${LD_LIBRARY_PATH:-}"
-    export LIBGL_ALWAYS_SOFTWARE=1
-    export QT_XCB_GL_INTEGRATION=none
-    export QSG_RHI_BACKEND=software
-    export QT_QUICK_BACKEND=software
+    local mode="cpu"
+    if [ "${1:-}" = "--gpu" ]; then
+        mode="gpu"
+        shift
+    fi
+    if [ "$mode" = "gpu" ]; then
+        export HFTREC_RENDER_MODE=gpu
+        unset LIBGL_ALWAYS_SOFTWARE
+        unset QT_XCB_GL_INTEGRATION
+        unset QT_QUICK_BACKEND
+        export QSG_RHI_BACKEND=opengl
+        export QSG_INFO=1
+        echo ">>> hft-recorder GUI: GPU mode (Qt Quick/OpenGL requested)"
+    else
+        export HFTREC_RENDER_MODE=cpu
+        export LIBGL_ALWAYS_SOFTWARE=1
+        export QT_XCB_GL_INTEGRATION=none
+        export QSG_RHI_BACKEND=software
+        export QT_QUICK_BACKEND=software
+        echo ">>> hft-recorder GUI: CPU-safe software mode"
+    fi
     cd "$APP"
-    exec "$APP/build/bin/hft-recorder-gui"
+    exec "$APP/build/bin/hft-recorder-gui" "$@"
 }
 
 cmd_cli() {

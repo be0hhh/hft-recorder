@@ -63,6 +63,8 @@ struct HoverInfo {
 struct RenderSnapshot {
     ViewportMap vp{};
     bool        loaded{false};
+    bool        tradeDecimated{false};
+    bool        exactTradeRendering{false};
 
     // Visibility + tuning knobs (snapshot of ChartItem state at build time).
     bool  tradesVisible{true};
@@ -91,6 +93,7 @@ struct SnapshotInputs {
     bool  bookTickerVisible{false};
     bool  interactiveMode{false};
     bool  overlayOnly{false};
+    bool  exactTradeRendering{false};
     qreal tradeAmountScale{0.45};
     qreal bookOpacityGain{15000.0};
     qreal bookRenderDetail{5000.0};
