@@ -3,8 +3,11 @@
 #include <algorithm>
 
 #include "primitives/composite/BookTickerData.hpp"
+#include "primitives/composite/BookTickerRuntimeV1.hpp"
 #include "primitives/composite/OrderBookSnapshot.hpp"
+#include "primitives/composite/StreamMeta.hpp"
 #include "primitives/composite/Trade.hpp"
+#include "primitives/composite/TradeRuntimeV1.hpp"
 
 namespace hftrec::cxet_bridge {
 
@@ -22,6 +25,17 @@ CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradePub
     return row;
 }
 
+CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradeRuntimeV1& trade,
+                                                 const cxet::composite::StreamMeta& meta) {
+    CapturedTradeRow row{};
+    row.symbol = meta.symbol.data;
+    row.tsNs = static_cast<std::uint64_t>(trade.ts.raw);
+    row.priceE8 = static_cast<std::int64_t>(trade.price.raw);
+    row.qtyE8 = static_cast<std::int64_t>(trade.qty.raw);
+    row.sideBuy = static_cast<std::uint8_t>(trade.side.raw) == 1u;
+    return row;
+}
+
 CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerData& bookTicker,
                                                            const std::vector<std::string>& requestedAliases) {
     CapturedBookTickerRow row{};
@@ -33,6 +47,20 @@ CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite
     row.askQtyE8 = static_cast<std::int64_t>(bookTicker.askAmount.raw);
     row.includeBidQty = std::find(requestedAliases.begin(), requestedAliases.end(), "bidQty") != requestedAliases.end();
     row.includeAskQty = std::find(requestedAliases.begin(), requestedAliases.end(), "askQty") != requestedAliases.end();
+    return row;
+}
+
+CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
+                                                           const cxet::composite::StreamMeta& meta) {
+    CapturedBookTickerRow row{};
+    row.symbol = meta.symbol.data;
+    row.tsNs = static_cast<std::uint64_t>(bookTicker.ts.raw);
+    row.bidPriceE8 = static_cast<std::int64_t>(bookTicker.bidPrice.raw);
+    row.askPriceE8 = static_cast<std::int64_t>(bookTicker.askPrice.raw);
+    row.bidQtyE8 = static_cast<std::int64_t>(bookTicker.bidQty.raw);
+    row.askQtyE8 = static_cast<std::int64_t>(bookTicker.askQty.raw);
+    row.includeBidQty = true;
+    row.includeAskQty = true;
     return row;
 }
 

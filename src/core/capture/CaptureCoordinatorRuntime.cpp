@@ -134,13 +134,14 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
             diag->streamEnded = true;
         };
 
-        const bool subscribeOk = cxet::api::runSubscribeByConfigStream(
+        const bool subscribeOk = cxet::api::runSubscribeTradeRuntimeByConfigStream(
             subscribeBuilder,
             payloadBuf,
             combinedPayloadBuf,
             recvBuf,
             subscribeBuilder.requestedFields(),
-            [](const cxet::composite::TradePublic& trade,
+            [](const cxet::composite::TradeRuntimeV1& trade,
+               const cxet::composite::StreamMeta& meta,
                std::size_t,
                const cxet::api::TradeStreamLatency*,
                void* userData) noexcept -> bool {
@@ -148,7 +149,7 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                 auto* self = context->self;
                 self->tradesCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->tradesCaptureSeq_, self->ingestSeq_);
-                const auto capturedTrade = cxet_bridge::CxetCaptureBridge::captureTrade(trade);
+                const auto capturedTrade = cxet_bridge::CxetCaptureBridge::captureTrade(trade, meta);
                 const auto jsonLine = renderTradeJsonLine(capturedTrade, sequenceIds);
                 if (!isOk(self->tradesWriter_.writeLine(jsonLine))) {
                     metrics::recordCaptureWriteError("trades");
@@ -254,8 +255,7 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
         }
     }
 
-    const auto requestedAliases = config.bookTickerAliases;
-    bookTickerThread_ = std::thread([this, subscribeBuilder, requestedAliases]() mutable noexcept {
+    bookTickerThread_ = std::thread([this, subscribeBuilder]() mutable noexcept {
         MessageBuffer payloadBuf{};
         MessageBuffer recvBuf{};
         std::FILE* debugOut = std::fopen("/dev/null", "w");
@@ -265,20 +265,20 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
 
         struct CallbackContext {
             CaptureCoordinator* self;
-            std::vector<std::string> requestedAliases;
-        } callbackContext{this, requestedAliases};
+        } callbackContext{this};
 
-        const bool subscribeOk = cxet::api::runSubscribeBookTickerByConfig(
+        const bool subscribeOk = cxet::api::runSubscribeBookTickerRuntimeByConfig(
             subscribeBuilder,
             payloadBuf,
             recvBuf,
-            [](const cxet::composite::BookTickerData& bookTicker, void* userData) noexcept -> bool {
+            [](const cxet::composite::BookTickerRuntimeV1& bookTicker,
+               const cxet::composite::StreamMeta& meta,
+               void* userData) noexcept -> bool {
                 auto* context = static_cast<CallbackContext*>(userData);
                 auto* self = context->self;
                 self->bookTickerCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->bookTickerCaptureSeq_, self->ingestSeq_);
-                const auto capturedBookTicker =
-                    cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, context->requestedAliases);
+                const auto capturedBookTicker = cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, meta);
                 const auto jsonLine = renderBookTickerJsonLine(capturedBookTicker, sequenceIds);
                 if (!isOk(self->bookTickerWriter_.writeLine(jsonLine))) {
                     metrics::recordCaptureWriteError("bookticker");

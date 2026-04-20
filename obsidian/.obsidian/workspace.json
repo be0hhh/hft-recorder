@@ -11,10 +11,14 @@
             "id": "76d00fcc28a537bd",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Граф"
+              "type": "markdown",
+              "state": {
+                "file": "graphify-generated/CaptureCoordinator.cpp.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "CaptureCoordinator.cpp"
             }
           }
         ]
