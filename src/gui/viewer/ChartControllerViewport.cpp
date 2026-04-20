@@ -206,17 +206,22 @@ void ChartController::computeInitialViewport_() {
     std::int64_t pMin = 0;
     std::int64_t pMax = 0;
     bool hasPrice = false;
+    bool hasTradeOrTickerPrice = false;
 
     for (const auto& trade : replay_.trades()) {
         absorbPrice(trade.priceE8, hasPrice, pMin, pMax);
+        hasTradeOrTickerPrice = hasPrice;
     }
     for (const auto& ticker : replay_.bookTickers()) {
         absorbPrice(ticker.bidPriceE8, hasPrice, pMin, pMax);
         absorbPrice(ticker.askPriceE8, hasPrice, pMin, pMax);
+        if (ticker.bidPriceE8 > 0 || ticker.askPriceE8 > 0) hasTradeOrTickerPrice = true;
     }
 
-    absorbBookLevels(replay_.book().bids(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
-    absorbBookLevels(replay_.book().asks(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
+    if (!hasTradeOrTickerPrice) {
+        absorbBookLevels(replay_.book().bids(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
+        absorbBookLevels(replay_.book().asks(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
+    }
 
     if (!hasPrice) {
         pMin = 0;

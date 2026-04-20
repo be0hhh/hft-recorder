@@ -64,7 +64,18 @@ class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
         painter.setRenderHint(QPainter::Antialiasing, false);
         painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
         painter.setRenderHint(QPainter::TextAntialiasing, true);
-        if (dpr_ > 0.0) painter.scale(dpr_, dpr_);
+        if (dpr_ > 0.0) {
+            // EN: QOpenGLPaintDevice on the FBO uses OpenGL-style bottom-left
+            // origin, while the CPU path and the rest of the viewer use Qt's
+            // top-left coordinate system. Flip Y once here so all renderers
+            // keep the same math in both paths.
+            // RU: В FBO через QOpenGLPaintDevice ось Y идёт как в OpenGL
+            // (origin снизу), а остальной viewer считает координаты как Qt
+            // (origin сверху). Один раз переворачиваем Y здесь, чтобы GPU и
+            // CPU пути использовали одинаковую геометрию.
+            painter.scale(dpr_, -dpr_);
+            painter.translate(0.0, -snapshot_.vp.h);
+        }
 
         const QRectF rect{0.0, 0.0, snapshot_.vp.w, snapshot_.vp.h};
         if (!snapshot_.overlayOnly) painter.fillRect(rect, bgColor());

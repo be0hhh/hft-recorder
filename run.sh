@@ -11,7 +11,26 @@
 set -e
 
 APP="$(cd "$(dirname "$0")" && pwd)"
-CXETCPP="$(cd "$APP/../.." && pwd)"
+
+resolveCxetRoot() {
+    local candidate
+    candidate="$(cd "$APP/.." && pwd)"
+    if [ -f "$candidate/CMakeLists.txt" ] && [ -d "$candidate/src/src" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+
+    candidate="$(cd "$APP/../.." && pwd)"
+    if [ -f "$candidate/CMakeLists.txt" ] && [ -d "$candidate/src/src" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+
+    echo "ERROR: failed to locate CXETCPP root from $APP" >&2
+    exit 2
+}
+
+CXETCPP="$(resolveCxetRoot)"
 INSTALL_DIR="$HOME/.local/cxet"
 
 _require_linux_build_env() {
@@ -85,6 +104,7 @@ cmd_install_cxet() {
     echo ">>> Building CXETCPP ..."
     cd "$CXETCPP"
     cmake -B build \
+          -DCXET_FULL_BUILD=OFF \
           -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_CXX_FLAGS="-w" \

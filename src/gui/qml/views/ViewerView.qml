@@ -43,7 +43,7 @@ Pane {
             chart.resetSession()
             return
         }
-        chart.loadSession("./recordings/" + selectedSessionId)
+        chart.loadSession(sessionsModel.sessionPath(selectedSessionId))
     }
 
     function ensureSessionSelection() {

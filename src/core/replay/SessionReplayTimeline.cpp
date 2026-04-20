@@ -350,7 +350,16 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
         return false;
     }
 
-    std::int64_t previousIngestSeq = snapshotLoaded_ ? snapshot_.ingestSeq : 0;
+    // EN: Snapshot is a replay anchor, not necessarily the first persisted
+    // event in ingest order. Capture may write snapshot metadata after earlier
+    // trades/bookticker rows already exist, so seeding merged ingest-sequence
+    // validation from snapshot_.ingestSeq produces false "non-increasing"
+    // failures for otherwise valid sessions.
+    // RU: Snapshot — это anchor для replay, а не обязательно первое событие по
+    // ingestSeq. Он может быть записан позже уже сохранённых trades/bookticker,
+    // поэтому начинать merged-проверку с snapshot_.ingestSeq нельзя: это даёт
+    // ложные ошибки non-increasing на валидных сессиях.
+    std::int64_t previousIngestSeq = 0;
     for (std::size_t i = 0; i < events_.size(); ++i) {
         if (events_[i].ingestSeq <= 0) {
             return true;
@@ -360,10 +369,25 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
             continue;
         }
         if (previousIngestSeq != 0 && events_[i].ingestSeq <= previousIngestSeq) {
-            ++integrityFailureCount_;
-            errorDetail_ = "merged event sequence failure at row " + std::to_string(i)
-                + ": non-increasing ingestSeq";
-            return false;
+            auto& tradesSummary = summaryFor_(IntegrityChannel::Trades);
+            auto& bookTickerSummary = summaryFor_(IntegrityChannel::BookTicker);
+            auto& depthSummary = summaryFor_(IntegrityChannel::Depth);
+            if (tradesSummary.state != ChannelHealthState::Corrupt) tradesSummary.state = ChannelHealthState::Degraded;
+            if (bookTickerSummary.state != ChannelHealthState::Corrupt) bookTickerSummary.state = ChannelHealthState::Degraded;
+            if (depthSummary.state != ChannelHealthState::Corrupt) depthSummary.state = ChannelHealthState::Degraded;
+            noteIncident_(IntegrityIncident{
+                IntegrityChannel::Trades,
+                IntegrityIncidentKind::ExactnessUnprovable,
+                IntegritySeverity::Warning,
+                "non_monotonic_merged_ingest_seq",
+                "merged event ingest sequence is non-monotonic across channels; replay order falls back to timestamp ordering",
+                events_[i].tsNs,
+                i,
+                "strictly increasing ingestSeq across all channels",
+                std::to_string(events_[i].ingestSeq),
+                true
+            });
+            return true;
         }
         previousIngestSeq = events_[i].ingestSeq;
     }
