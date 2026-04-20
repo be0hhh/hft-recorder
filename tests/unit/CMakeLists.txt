@@ -10,6 +10,7 @@ add_executable(hftrec_unit_tests
     test_validation_runner.cpp
     test_book_state.cpp
     test_session_replay.cpp
+    test_bookticker_exactness.cpp
 )
 
 target_include_directories(hftrec_unit_tests

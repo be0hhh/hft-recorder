@@ -121,14 +121,14 @@ Status sampleGroundTruthBookFrames(const corpus::SessionCorpus& corpus,
         return static_cast<std::uint8_t>(lhs.kind) < static_cast<std::uint8_t>(rhs.kind);
     });
 
-    const replay::BookTickerRow* currentTicker = nullptr;
     for (const auto& event : events) {
+        const replay::BookTickerRow* eventTicker = nullptr;
         if (event.kind == TimedKind::Depth) {
             if (event.index < depths.size()) book.applyDelta(depths[event.index]);
         } else {
-            if (event.index < tickers.size()) currentTicker = &tickers[event.index];
+            if (event.index < tickers.size()) eventTicker = &tickers[event.index];
         }
-        out.push_back(makeFrame(book, currentTicker, event.tsNs, topLevelsPerSide));
+        out.push_back(makeFrame(book, eventTicker, event.tsNs, topLevelsPerSide));
     }
 
     return Status::Ok;

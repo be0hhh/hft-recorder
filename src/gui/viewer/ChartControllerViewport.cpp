@@ -32,6 +32,12 @@ std::int64_t floorToStep(std::int64_t value, std::int64_t step) {
     return ((value - step + 1) / step) * step;
 }
 
+std::int64_t timeSpanPerPixelNs(std::int64_t spanNs, qreal widthPx) noexcept {
+    const auto pixelCount = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(widthPx)));
+    if (spanNs <= 0) return 1;
+    return std::max<std::int64_t>(1, (spanNs + pixelCount - 1) / pixelCount);
+}
+
 std::int64_t nicePriceStepE8(std::int64_t spanE8, int tickCount) {
     const auto safeTicks = std::max(2, tickCount);
     std::int64_t rawStep = spanE8 / static_cast<std::int64_t>(safeTicks - 1);
@@ -450,15 +456,11 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     const auto& buckets = replay_.buckets();
     const auto& tickers = replay_.bookTickers();
 
-    int activeTickerIndex = -1;
-    const auto it = std::upper_bound(
-        tickers.begin(), tickers.end(), coverageStart,
-        [](std::int64_t ts, const hftrec::replay::BookTickerRow& row) noexcept { return ts < row.tsNs; });
-    if (it != tickers.begin()) {
-        activeTickerIndex = static_cast<int>(std::distance(tickers.begin(), it) - 1);
-    }
+    const auto tickerMarkerWidthNs = timeSpanPerPixelNs(snap.vp.tMax - snap.vp.tMin, widthPx);
 
-    auto emitSegment = [&](std::int64_t tsStart, std::int64_t tsEnd) {
+    auto emitSegment = [&](std::int64_t tsStart,
+                           std::int64_t tsEnd,
+                           const hftrec::replay::BookTickerRow* ticker) {
         if (tsEnd <= tsStart) return;
         const qreal xLeft = std::clamp(snap.vp.toX(tsStart), 0.0, snap.vp.w);
         const qreal xRight = std::clamp(snap.vp.toX(tsEnd), 0.0, snap.vp.w);
@@ -504,18 +506,17 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             seg.maxAskQty = std::max<std::int64_t>(maxAsk, 1);
         }
         bool hasVisibleTicker = false;
-        if (in.bookTickerVisible && activeTickerIndex >= 0) {
-            const auto& tk = tickers[static_cast<std::size_t>(activeTickerIndex)];
-            const auto bidY = snap.vp.toY(tk.bidPriceE8);
-            const auto askY = snap.vp.toY(tk.askPriceE8);
-            if (tk.bidPriceE8 > 0 && bidY >= 0.0 && bidY < heightLimit) {
-                seg.tickerBidE8 = tk.bidPriceE8;
-                seg.tickerBidQtyE8 = tk.bidQtyE8;
+        if (in.bookTickerVisible && ticker != nullptr) {
+            const auto bidY = snap.vp.toY(ticker->bidPriceE8);
+            const auto askY = snap.vp.toY(ticker->askPriceE8);
+            if (ticker->bidPriceE8 > 0 && bidY >= 0.0 && bidY < heightLimit) {
+                seg.tickerBidE8 = ticker->bidPriceE8;
+                seg.tickerBidQtyE8 = ticker->bidQtyE8;
                 hasVisibleTicker = true;
             }
-            if (tk.askPriceE8 > 0 && askY >= 0.0 && askY < heightLimit) {
-                seg.tickerAskE8 = tk.askPriceE8;
-                seg.tickerAskQtyE8 = tk.askQtyE8;
+            if (ticker->askPriceE8 > 0 && askY >= 0.0 && askY < heightLimit) {
+                seg.tickerAskE8 = ticker->askPriceE8;
+                seg.tickerAskQtyE8 = ticker->askQtyE8;
                 hasVisibleTicker = true;
             }
         }
@@ -532,18 +533,28 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         const bool wide = (xStamp - xStart) >= 1.0;
 
         if (wide) {
-            emitSegment(segStart, stampTs);
+            emitSegment(segStart, stampTs, nullptr);
             segStart = stampTs;
         }
+        int bucketTickerIndex = -1;
         for (const auto& item : buckets[bucketCursor].items) {
             if (item.kind == hftrec::replay::SessionReplay::EventKind::BookTicker) {
-                activeTickerIndex = static_cast<int>(item.rowIndex);
+                bucketTickerIndex = static_cast<int>(item.rowIndex);
             }
         }
         replay_.seek(stampTs);
         bucketCursor = replay_.cursor();
+        if (in.bookTickerVisible && bucketTickerIndex >= 0) {
+            const auto nextTs = (bucketCursor < buckets.size()) ? buckets[bucketCursor].tsNs : coverageEnd;
+            const auto markerEndTs = std::min<std::int64_t>(
+                nextTs,
+                std::min<std::int64_t>(coverageEnd, stampTs + tickerMarkerWidthNs));
+            const auto& ticker = tickers[static_cast<std::size_t>(bucketTickerIndex)];
+            emitSegment(stampTs, markerEndTs, &ticker);
+            segStart = std::max(segStart, markerEndTs);
+        }
     }
-    emitSegment(segStart, coverageEnd);
+    emitSegment(segStart, coverageEnd, nullptr);
 
     return snap;
 }
