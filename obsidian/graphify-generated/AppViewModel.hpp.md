@@ -1,12 +1,12 @@
 ---
 source_file: "src\gui\viewmodels\AppViewModel.hpp"
 type: "code"
-community: "Community 27"
+community: "Community 15"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_27
+  - community/Community_15
 ---
 
 # AppViewModel.hpp
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[AppViewModel]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_27
+#graphify/code #graphify/EXTRACTED #community/Community_15

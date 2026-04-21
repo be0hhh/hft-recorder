@@ -1,22 +1,22 @@
 ---
-source_file: "src\gui\viewer\ChartController.cpp"
+source_file: "src\gui\viewer\ChartControllerSession.cpp"
 type: "code"
-community: "Community 0"
-location: "L71"
+community: "Community 19"
+location: "L9"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_0
+  - community/Community_19
 ---
 
 # stripFileUrl()
 
 ## Connections
-- [[ChartController.cpp]] - `contains` [EXTRACTED]
+- [[ChartControllerSession.cpp]] - `contains` [EXTRACTED]
 - [[addBookTickerFile()_1]] - `calls` [EXTRACTED]
 - [[addDepthFile()_1]] - `calls` [EXTRACTED]
 - [[addSnapshotFile()_1]] - `calls` [EXTRACTED]
 - [[addTradesFile()_1]] - `calls` [EXTRACTED]
 - [[loadSession()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_0
+#graphify/code #graphify/EXTRACTED #community/Community_19

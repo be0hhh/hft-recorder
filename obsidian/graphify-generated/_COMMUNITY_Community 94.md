@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 94
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[ViewportMap.hpp]] - code - src\gui\viewer\ViewportMap.hpp
+- [[TEST()_6]] - code - tests\unit\test_json_line_parser.cpp
+- [[test_json_line_parser.cpp]] - code - tests\unit\test_json_line_parser.cpp
 
 ## Live Query (requires Dataview plugin)
 

@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 80
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[VarInt.hpp]] - code - src\core\codec\VarInt.hpp
+- [[RankingEngine.cpp]] - code - apps\hft-recorder\src\core\lab\RankingEngine.cpp
+- [[rank()]] - code - apps\hft-recorder\src\core\lab\RankingEngine.cpp
 
 ## Live Query (requires Dataview plugin)
 

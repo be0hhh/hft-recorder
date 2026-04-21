@@ -1,23 +1,28 @@
 ---
 type: community
-cohesion: 0.25
-members: 8
+members: 15
 ---
 
 # Community 8
 
-**Cohesion:** 0.25 - loosely connected
-**Members:** 8 nodes
+**Members:** 15 nodes
 
 ## Members
-- [[.BlockReader()]] - code - src\core\block\BlockReader.hpp
-- [[BlockReader]] - code - src\core\block\BlockReader.hpp
-- [[BlockReader.cpp]] - code - src\core\block\BlockReader.cpp
-- [[BlockReader.hpp]] - code - src\core\block\BlockReader.hpp
-- [[close()]] - code - src\core\block\BlockReader.cpp
-- [[fileHeader()]] - code - src\core\block\BlockReader.cpp
-- [[nextBlock()]] - code - src\core\block\BlockReader.cpp
-- [[open()]] - code - src\core\block\BlockReader.cpp
+- [[ChartController_1]] - code - src\gui\viewer\ChartItem.hpp
+- [[ChartItem]] - code - src\gui\viewer\ChartItem.hpp
+- [[ChartItem.cpp]] - code - src\gui\viewer\ChartItem.cpp
+- [[ChartItem.hpp]] - code - src\gui\viewer\ChartItem.hpp
+- [[QPainter]] - code - src\gui\viewer\ChartItem.hpp
+- [[collectInputs()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setBookOpacityGain()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setBookRenderDetail()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setBookTickerVisible()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setController()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setInteractiveMode()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setOrderbookVisible()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setOverlayOnly()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setTradeAmountScale()]] - code - src\gui\viewer\ChartItem.cpp
+- [[setTradesVisible()]] - code - src\gui\viewer\ChartItem.cpp
 
 ## Live Query (requires Dataview plugin)
 

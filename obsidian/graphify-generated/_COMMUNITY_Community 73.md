@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 73
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[version.hpp]] - code - include\hftrec\version.hpp
+- [[SessionId.cpp]] - code - apps\hft-recorder\src\core\capture\SessionId.cpp
+- [[makeSessionId()]] - code - apps\hft-recorder\src\core\capture\SessionId.cpp
 
 ## Live Query (requires Dataview plugin)
 

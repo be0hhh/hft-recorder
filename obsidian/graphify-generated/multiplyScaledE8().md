@@ -1,18 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartGpuItem.cpp"
+source_file: "apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp"
 type: "code"
-community: "Community 2"
-location: "L140"
+community: "Community 27"
+location: "L35"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_2
+  - community/Community_27
 ---
 
 # multiplyScaledE8()
 
 ## Connections
-- [[ChartGpuItem.cpp]] - `contains` [EXTRACTED]
-- [[updatePaintNode()]] - `calls` [EXTRACTED]
+- [[Formatters.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_2
+#graphify/code #graphify/EXTRACTED #community/Community_27

@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 85
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[BookFrame.hpp]] - code - src\core\lab\BookFrame.hpp
+- [[ValidationRunner.cpp]] - code - apps\hft-recorder\src\core\validation\ValidationRunner.cpp
+- [[compare()]] - code - apps\hft-recorder\src\core\validation\ValidationRunner.cpp
 
 ## Live Query (requires Dataview plugin)
 

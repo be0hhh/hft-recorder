@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\stream\StreamRecorder.hpp"
+source_file: "apps\hft-recorder\src\core\stream\StreamRecorder.hpp"
 type: "code"
-community: "Community 40"
+community: "Community 60"
 location: "L16"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_40
+  - community/Community_60
 ---
 
 # IStreamRecorder
@@ -15,4 +15,4 @@ tags:
 - [[.IStreamRecorder()]] - `method` [EXTRACTED]
 - [[StreamRecorder.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_40
+#graphify/code #graphify/EXTRACTED #community/Community_60

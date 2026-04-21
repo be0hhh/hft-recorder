@@ -1,22 +1,24 @@
 ---
 type: community
-cohesion: 0.33
-members: 7
+members: 11
 ---
 
 # Community 13
 
-**Cohesion:** 0.33 - loosely connected
-**Members:** 7 nodes
+**Members:** 11 nodes
 
 ## Members
-- [[Formatters.hpp]] - code - src\gui\viewer\detail\Formatters.hpp
-- [[appendStepSegment()]] - code - src\gui\viewer\detail\Formatters.hpp
-- [[clampReal()_1]] - code - src\gui\viewer\detail\Formatters.hpp
-- [[formatScaledE8()_1]] - code - src\gui\viewer\detail\Formatters.hpp
-- [[formatTimeNs()]] - code - src\gui\viewer\detail\Formatters.hpp
-- [[formatTrimmedE8()]] - code - src\gui\viewer\detail\Formatters.hpp
-- [[multiplyScaledE8()_1]] - code - src\gui\viewer\detail\Formatters.hpp
+- [[CaptureCoordinatorInternal.cpp]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[applyRequestedAliases()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[ensureCxetInitialized()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[makeBookTickerBuilder()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[makeOrderbookSubscribeBuilder()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[makeSymbol()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[makeTradesBuilder()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[nowNs()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[nowSec()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[sessionConfigMatches()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
+- [[validateSupportedConfig()]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp
 
 ## Live Query (requires Dataview plugin)
 

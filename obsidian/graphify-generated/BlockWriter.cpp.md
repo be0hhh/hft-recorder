@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\block\BlockWriter.cpp"
+source_file: "apps\hft-recorder\src\core\block\BlockWriter.cpp"
 type: "code"
-community: "Community 9"
+community: "Community 22"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_9
+  - community/Community_22
 ---
 
 # BlockWriter.cpp
@@ -18,4 +18,4 @@ tags:
 - [[flush()]] - `contains` [EXTRACTED]
 - [[open()_1]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_9
+#graphify/code #graphify/EXTRACTED #community/Community_22

@@ -1,23 +1,27 @@
 ---
 type: community
-cohesion: 0.25
-members: 8
+members: 14
 ---
 
 # Community 9
 
-**Cohesion:** 0.25 - loosely connected
-**Members:** 8 nodes
+**Members:** 14 nodes
 
 ## Members
-- [[.BlockWriter()]] - code - src\core\block\BlockWriter.hpp
-- [[BlockWriter]] - code - src\core\block\BlockWriter.hpp
-- [[BlockWriter.cpp]] - code - src\core\block\BlockWriter.cpp
-- [[BlockWriter.hpp]] - code - src\core\block\BlockWriter.hpp
-- [[appendEvent()]] - code - src\core\block\BlockWriter.cpp
-- [[close()_1]] - code - src\core\block\BlockWriter.cpp
-- [[flush()]] - code - src\core\block\BlockWriter.cpp
-- [[open()_1]] - code - src\core\block\BlockWriter.cpp
+- [[CorpusLoader.cpp]] - code - src\core\corpus\CorpusLoader.cpp
+- [[addIssue()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[bindSeekIndex()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[fileSizeOrZero()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[load()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[loadDetailed()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[loadJsonLines()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[loadSnapshots()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[parseSeekBuckets()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[parseSeekIndexDocument()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[parseSeekSources()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[parseSourceInfoObject()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[readWholeFile()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[readWholeFileOptional()]] - code - src\core\corpus\CorpusLoader.cpp
 
 ## Live Query (requires Dataview plugin)
 

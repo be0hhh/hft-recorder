@@ -1,17 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartGpuItem.cpp"
+source_file: "src\gui\viewer\ChartItem.cpp"
 type: "code"
-community: "Community 2"
-location: "L289"
+community: "Community 8"
+location: "L35"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_2
+  - community/Community_8
 ---
 
 # setTradesVisible()
 
 ## Connections
-- [[ChartGpuItem.cpp]] - `contains` [EXTRACTED]
+- [[ChartItem.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_2
+#graphify/code #graphify/EXTRACTED #community/Community_8

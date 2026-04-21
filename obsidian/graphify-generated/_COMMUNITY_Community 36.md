@@ -1,18 +1,18 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 5
 ---
 
 # Community 36
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 5 nodes
 
 ## Members
-- [[ZigZag.hpp]] - code - src\core\codec\ZigZag.hpp
-- [[zigzagDecode()]] - code - src\core\codec\ZigZag.hpp
-- [[zigzagEncode()]] - code - src\core\codec\ZigZag.hpp
+- [[.IBookTickerDeltaDecoder()]] - code - apps\hft-recorder\src\core\representation\DeltaBookTicker.hpp
+- [[.IBookTickerDeltaEncoder()]] - code - apps\hft-recorder\src\core\representation\DeltaBookTicker.hpp
+- [[DeltaBookTicker.hpp]] - code - apps\hft-recorder\src\core\representation\DeltaBookTicker.hpp
+- [[IBookTickerDeltaDecoder]] - code - apps\hft-recorder\src\core\representation\DeltaBookTicker.hpp
+- [[IBookTickerDeltaEncoder]] - code - apps\hft-recorder\src\core\representation\DeltaBookTicker.hpp
 
 ## Live Query (requires Dataview plugin)
 

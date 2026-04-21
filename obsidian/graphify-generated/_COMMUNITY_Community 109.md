@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 109
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[metadata.hpp_1]] - code - src\variants\orderbook\var01_raw_updates_cpp\metadata.hpp
+- [[PrimitiveAliases.hpp]] - code - apps\hft-recorder\src\core\common\PrimitiveAliases.hpp
 
 ## Live Query (requires Dataview plugin)
 

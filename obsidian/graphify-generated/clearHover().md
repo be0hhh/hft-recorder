@@ -1,18 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartItem.cpp"
+source_file: "src\gui\viewer\ChartItemHover.cpp"
 type: "code"
-community: "Community 4"
-location: "L139"
+community: "Community 26"
+location: "L35"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_4
+  - community/Community_26
 ---
 
 # clearHover()
 
 ## Connections
-- [[ChartItem.cpp]] - `contains` [EXTRACTED]
-- [[setTradesVisible()_1]] - `calls` [EXTRACTED]
+- [[ChartItemHover.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_4
+#graphify/code #graphify/EXTRACTED #community/Community_26

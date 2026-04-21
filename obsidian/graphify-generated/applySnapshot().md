@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\replay\BookState.cpp"
+source_file: "apps\hft-recorder\src\core\replay\BookState.cpp"
 type: "code"
-community: "Community 26"
-location: "L12"
+community: "Community 44"
+location: "L11"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_26
+  - community/Community_44
 ---
 
 # applySnapshot()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[BookState.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_26
+#graphify/code #graphify/EXTRACTED #community/Community_44

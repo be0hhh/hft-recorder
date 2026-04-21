@@ -1,20 +1,18 @@
 ---
-source_file: "src\gui\viewmodels\CaptureViewModel.cpp"
+source_file: "apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp"
 type: "code"
-community: "Community 1"
-location: "L157"
+community: "Community 12"
+location: "L59"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_1
+  - community/Community_12
 ---
 
 # stopBookTicker()
 
 ## Connections
-- [[CaptureViewModel.cpp]] - `contains` [EXTRACTED]
-- [[refreshState()]] - `calls` [EXTRACTED]
-- [[setStatusText()]] - `calls` [EXTRACTED]
-- [[startBookTicker()_1]] - `calls` [EXTRACTED]
+- [[CaptureViewModelBatch.cpp]] - `contains` [EXTRACTED]
+- [[abortCoordinatorBatch_()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_1
+#graphify/code #graphify/EXTRACTED #community/Community_12

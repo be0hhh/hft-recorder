@@ -1,19 +1,21 @@
 ---
 type: community
-cohesion: 0.83
-members: 4
+members: 8
 ---
 
 # Community 23
 
-**Cohesion:** 0.83 - tightly connected
-**Members:** 4 nodes
+**Members:** 8 nodes
 
 ## Members
-- [[SessionManifest.cpp]] - code - src\core\capture\SessionManifest.cpp
-- [[appendStringArray()]] - code - src\core\capture\SessionManifest.cpp
-- [[boolToString()]] - code - src\core\capture\SessionManifest.cpp
-- [[renderManifestJson()]] - code - src\core\capture\SessionManifest.cpp
+- [[JsonSerializers.cpp]] - code - src\core\capture\JsonSerializers.cpp
+- [[appendCapturedLevels()]] - code - src\core\capture\JsonSerializers.cpp
+- [[appendLevels()]] - code - src\core\capture\JsonSerializers.cpp
+- [[hasRequestedAlias()]] - code - src\core\capture\JsonSerializers.cpp
+- [[renderBookTickerJsonLine()]] - code - src\core\capture\JsonSerializers.cpp
+- [[renderDepthJsonLine()]] - code - src\core\capture\JsonSerializers.cpp
+- [[renderSnapshotJson()]] - code - src\core\capture\JsonSerializers.cpp
+- [[renderTradeJsonLine()]] - code - src\core\capture\JsonSerializers.cpp
 
 ## Live Query (requires Dataview plugin)
 

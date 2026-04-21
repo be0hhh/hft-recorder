@@ -1,17 +1,17 @@
 ---
-source_file: "src\gui\viewer\RenderContext.hpp"
+source_file: "src\gui\viewer\ChartItemPaintInternal.hpp"
 type: "code"
-community: "Community 66"
+community: "Community 47"
 location: "L3"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_66
+  - community/Community_47
 ---
 
 # QPainter
 
 ## Connections
-- [[RenderContext.hpp]] - `contains` [EXTRACTED]
+- [[ChartItemPaintInternal.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_66
+#graphify/code #graphify/EXTRACTED #community/Community_47

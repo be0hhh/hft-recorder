@@ -1,22 +1,25 @@
 ---
 type: community
-cohesion: 0.33
-members: 7
+members: 12
 ---
 
 # Community 12
 
-**Cohesion:** 0.33 - loosely connected
-**Members:** 7 nodes
+**Members:** 12 nodes
 
 ## Members
-- [[SessionListModel]] - code - src\gui\models\SessionListModel.hpp
-- [[SessionListModel.cpp]] - code - src\gui\models\SessionListModel.cpp
-- [[SessionListModel.hpp]] - code - src\gui\models\SessionListModel.hpp
-- [[data()]] - code - src\gui\models\SessionListModel.cpp
-- [[reload()]] - code - src\gui\models\SessionListModel.cpp
-- [[roleNames()]] - code - src\gui\models\SessionListModel.cpp
-- [[rowCount()]] - code - src\gui\models\SessionListModel.cpp
+- [[CaptureViewModelBatch.cpp]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[abortCoordinatorBatch_()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[clearCoordinatorBatch_()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[ensureCoordinatorBatch_()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[finalizeSession()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[joinCoordinatorErrors_()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[startBookTicker()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[startOrderbook()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[startTrades()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[stopBookTicker()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[stopOrderbook()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
+- [[stopTrades()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp
 
 ## Live Query (requires Dataview plugin)
 

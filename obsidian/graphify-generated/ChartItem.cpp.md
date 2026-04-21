@@ -1,33 +1,27 @@
 ---
 source_file: "src\gui\viewer\ChartItem.cpp"
 type: "code"
-community: "Community 4"
+community: "Community 8"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_4
+  - community/Community_8
 ---
 
 # ChartItem.cpp
 
 ## Connections
 - [[ChartItem]] - `contains` [EXTRACTED]
-- [[activateContextPoint()]] - `contains` [EXTRACTED]
-- [[clearHover()]] - `contains` [EXTRACTED]
 - [[collectInputs()]] - `contains` [EXTRACTED]
-- [[paint()]] - `contains` [EXTRACTED]
-- [[requestRepaint()]] - `contains` [EXTRACTED]
-- [[setBookOpacityGain()_1]] - `contains` [EXTRACTED]
-- [[setBookRenderDetail()_1]] - `contains` [EXTRACTED]
-- [[setBookTickerVisible()_1]] - `contains` [EXTRACTED]
-- [[setController()_1]] - `contains` [EXTRACTED]
-- [[setHoverPoint()]] - `contains` [EXTRACTED]
-- [[setInteractiveMode()_1]] - `contains` [EXTRACTED]
-- [[setOrderbookVisible()_1]] - `contains` [EXTRACTED]
+- [[setBookOpacityGain()]] - `contains` [EXTRACTED]
+- [[setBookRenderDetail()]] - `contains` [EXTRACTED]
+- [[setBookTickerVisible()]] - `contains` [EXTRACTED]
+- [[setController()]] - `contains` [EXTRACTED]
+- [[setInteractiveMode()]] - `contains` [EXTRACTED]
+- [[setOrderbookVisible()]] - `contains` [EXTRACTED]
 - [[setOverlayOnly()]] - `contains` [EXTRACTED]
-- [[setTradeAmountScale()_1]] - `contains` [EXTRACTED]
-- [[setTradesVisible()_1]] - `contains` [EXTRACTED]
-- [[updateHover_()]] - `contains` [EXTRACTED]
+- [[setTradeAmountScale()]] - `contains` [EXTRACTED]
+- [[setTradesVisible()]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_4
+#graphify/code #graphify/EXTRACTED #community/Community_8

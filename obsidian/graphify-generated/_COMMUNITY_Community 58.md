@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 58
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[LabRunner]] - code - src\core\lab\LabRunner.hpp
-- [[LabRunner.hpp]] - code - src\core\lab\LabRunner.hpp
+- [[Status.hpp]] - code - apps\hft-recorder\src\core\common\Status.hpp
+- [[isOk()]] - code - apps\hft-recorder\src\core\common\Status.hpp
+- [[statusToString()]] - code - apps\hft-recorder\src\core\common\Status.hpp
 
 ## Live Query (requires Dataview plugin)
 

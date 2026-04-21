@@ -1,20 +1,23 @@
 ---
 type: community
-cohesion: 0.40
-members: 5
+members: 10
 ---
 
 # Community 19
 
-**Cohesion:** 0.40 - moderately connected
-**Members:** 5 nodes
+**Members:** 10 nodes
 
 ## Members
-- [[.IOrderBookDeltaDecoder()]] - code - src\core\representation\DeltaOrderBook.hpp
-- [[.IOrderBookDeltaEncoder()]] - code - src\core\representation\DeltaOrderBook.hpp
-- [[DeltaOrderBook.hpp]] - code - src\core\representation\DeltaOrderBook.hpp
-- [[IOrderBookDeltaDecoder]] - code - src\core\representation\DeltaOrderBook.hpp
-- [[IOrderBookDeltaEncoder]] - code - src\core\representation\DeltaOrderBook.hpp
+- [[ChartControllerSession.cpp]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[addBookTickerFile()_1]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[addDepthFile()_1]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[addSnapshotFile()_1]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[addTradesFile()_1]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[finalizeFiles()]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[loadSession()]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[replayFailureText()]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[resetSession()]] - code - src\gui\viewer\ChartControllerSession.cpp
+- [[stripFileUrl()]] - code - src\gui\viewer\ChartControllerSession.cpp
 
 ## Live Query (requires Dataview plugin)
 

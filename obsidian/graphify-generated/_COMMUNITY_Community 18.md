@@ -1,20 +1,23 @@
 ---
 type: community
-cohesion: 0.40
-members: 5
+members: 10
 ---
 
 # Community 18
 
-**Cohesion:** 0.40 - moderately connected
-**Members:** 5 nodes
+**Members:** 10 nodes
 
 ## Members
-- [[.IBookTickerDeltaDecoder()]] - code - src\core\representation\DeltaBookTicker.hpp
-- [[.IBookTickerDeltaEncoder()]] - code - src\core\representation\DeltaBookTicker.hpp
-- [[DeltaBookTicker.hpp]] - code - src\core\representation\DeltaBookTicker.hpp
-- [[IBookTickerDeltaDecoder]] - code - src\core\representation\DeltaBookTicker.hpp
-- [[IBookTickerDeltaEncoder]] - code - src\core\representation\DeltaBookTicker.hpp
+- [[SessionListModel]] - code - src\gui\models\SessionListModel.hpp
+- [[SessionListModel.cpp]] - code - src\gui\models\SessionListModel.cpp
+- [[SessionListModel.hpp]] - code - src\gui\models\SessionListModel.hpp
+- [[data()]] - code - src\gui\models\SessionListModel.cpp
+- [[recordingsRoot()]] - code - src\gui\models\SessionListModel.cpp
+- [[reload()]] - code - src\gui\models\SessionListModel.cpp
+- [[resolveRecordingsRoot()]] - code - src\gui\models\SessionListModel.cpp
+- [[roleNames()]] - code - src\gui\models\SessionListModel.cpp
+- [[rowCount()]] - code - src\gui\models\SessionListModel.cpp
+- [[sessionPath()]] - code - src\gui\models\SessionListModel.cpp
 
 ## Live Query (requires Dataview plugin)
 

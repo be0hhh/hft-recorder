@@ -56,6 +56,13 @@ Dependency contract:
 - no `add_subdirectory(..)` on the parent project
 - no dependency on `network/`, `parse/`, `exchanges/`, or runtime internals
 
+Public contract freeze:
+- recorder-visible event meaning for trades, bookticker, and orderbook must stay stable
+- `TradePublic`, `BookTickerData`, and `OrderBookSnapshot` are the compatibility/output contracts
+- internal runtime payloads may change in memory/layout, but only behind the explicit compatibility bridge
+- `hft-recorder` is allowed to consume `TradeRuntimeV1` / `BookTickerRuntimeV1` only at the capture boundary where they are immediately materialized into stable recorder rows
+- `hft-recorder` must not depend on internal parser/layout details beyond that bridge
+
 Laptop transfer note:
 - code moves by normal git branch workflow
 - `recordings/` is intentionally ignored and should be transferred separately from the repo

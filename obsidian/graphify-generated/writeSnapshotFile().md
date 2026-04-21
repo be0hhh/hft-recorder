@@ -1,18 +1,20 @@
 ---
-source_file: "src\core\capture\CaptureCoordinator.cpp"
+source_file: "src\core\capture\CaptureCoordinatorRuntime.cpp"
 type: "code"
-community: "Community 3"
-location: "L478"
+community: "Community 16"
+location: "L473"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_3
+  - community/Community_16
 ---
 
 # writeSnapshotFile()
 
 ## Connections
-- [[CaptureCoordinator.cpp]] - `contains` [EXTRACTED]
+- [[CaptureCoordinatorRuntime.cpp]] - `contains` [EXTRACTED]
+- [[nextEventSequenceIds()]] - `calls` [EXTRACTED]
+- [[snapshotSymbolString()]] - `calls` [EXTRACTED]
 - [[startOrderbook()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_3
+#graphify/code #graphify/EXTRACTED #community/Community_16

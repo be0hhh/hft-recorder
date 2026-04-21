@@ -1,18 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartGpuItem.cpp"
+source_file: "apps\hft-recorder\src\gui\viewer\detail\BookMath.hpp"
 type: "code"
-community: "Community 2"
-location: "L167"
+community: "Community 39"
+location: "L18"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_2
+  - community/Community_39
 ---
 
 # maxVisibleQty()
 
 ## Connections
-- [[ChartGpuItem.cpp]] - `contains` [EXTRACTED]
-- [[updatePaintNode()]] - `calls` [EXTRACTED]
+- [[BookMath.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_2
+#graphify/code #graphify/EXTRACTED #community/Community_39

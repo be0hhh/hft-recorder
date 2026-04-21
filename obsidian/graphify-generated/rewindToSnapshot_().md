@@ -1,19 +1,18 @@
 ---
-source_file: "src\core\replay\SessionReplay.cpp"
+source_file: "src\core\replay\SessionReplayTimeline.cpp"
 type: "code"
-community: "Community 7"
-location: "L143"
+community: "Community 17"
+location: "L26"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_7
+  - community/Community_17
 ---
 
 # rewindToSnapshot_()
 
 ## Connections
-- [[SessionReplay.cpp]] - `contains` [EXTRACTED]
-- [[reset()_1]] - `calls` [EXTRACTED]
+- [[SessionReplayTimeline.cpp]] - `contains` [EXTRACTED]
 - [[seek()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_7
+#graphify/code #graphify/EXTRACTED #community/Community_17

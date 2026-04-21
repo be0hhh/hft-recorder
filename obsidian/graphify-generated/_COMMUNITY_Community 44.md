@@ -1,18 +1,17 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 4
 ---
 
 # Community 44
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[Lz4Wrapper.cpp]] - code - src\support\external_wrappers\Lz4Wrapper.cpp
-- [[lz4Decode()]] - code - src\support\external_wrappers\Lz4Wrapper.cpp
-- [[lz4Encode()]] - code - src\support\external_wrappers\Lz4Wrapper.cpp
+- [[BookState.cpp]] - code - apps\hft-recorder\src\core\replay\BookState.cpp
+- [[applyDelta()]] - code - apps\hft-recorder\src\core\replay\BookState.cpp
+- [[applySnapshot()]] - code - apps\hft-recorder\src\core\replay\BookState.cpp
+- [[reset()]] - code - apps\hft-recorder\src\core\replay\BookState.cpp
 
 ## Live Query (requires Dataview plugin)
 

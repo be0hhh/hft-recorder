@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 81
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[Log.hpp]] - code - src\core\common\Log.hpp
+- [[RankingEngine]] - code - apps\hft-recorder\src\core\lab\RankingEngine.hpp
+- [[RankingEngine.hpp]] - code - apps\hft-recorder\src\core\lab\RankingEngine.hpp
 
 ## Live Query (requires Dataview plugin)
 

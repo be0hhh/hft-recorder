@@ -1,19 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartGpuItem.cpp"
+source_file: "apps\hft-recorder\src\gui\viewer\detail\BookMath.hpp"
 type: "code"
-community: "Community 2"
-location: "L51"
+community: "Community 39"
+location: "L80"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_2
+  - community/Community_39
 ---
 
 # amountRadiusScale()
 
 ## Connections
-- [[ChartGpuItem.cpp]] - `contains` [EXTRACTED]
-- [[clampReal()]] - `calls` [EXTRACTED]
-- [[updatePaintNode()]] - `calls` [EXTRACTED]
+- [[BookMath.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_2
+#graphify/code #graphify/EXTRACTED #community/Community_39

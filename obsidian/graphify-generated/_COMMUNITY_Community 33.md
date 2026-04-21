@@ -1,18 +1,18 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 5
 ---
 
 # Community 33
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 5 nodes
 
 ## Members
-- [[FileHeader.cpp]] - code - src\core\block\FileHeader.cpp
-- [[fileHeaderParse()]] - code - src\core\block\FileHeader.cpp
-- [[fileHeaderSerialize()]] - code - src\core\block\FileHeader.cpp
+- [[ChannelJsonWriter.cpp]] - code - apps\hft-recorder\src\core\capture\ChannelJsonWriter.cpp
+- [[close()_2]] - code - apps\hft-recorder\src\core\capture\ChannelJsonWriter.cpp
+- [[open()_2]] - code - apps\hft-recorder\src\core\capture\ChannelJsonWriter.cpp
+- [[writeJson()]] - code - apps\hft-recorder\src\core\capture\ChannelJsonWriter.cpp
+- [[writeLine()]] - code - apps\hft-recorder\src\core\capture\ChannelJsonWriter.cpp
 
 ## Live Query (requires Dataview plugin)
 

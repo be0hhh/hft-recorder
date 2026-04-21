@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 54
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[CxetCaptureBridge]] - code - src\core\cxet_bridge\CxetCaptureBridge.hpp
-- [[CxetCaptureBridge.hpp]] - code - src\core\cxet_bridge\CxetCaptureBridge.hpp
+- [[VarInt.cpp]] - code - apps\hft-recorder\src\core\codec\VarInt.cpp
+- [[varintDecode()]] - code - apps\hft-recorder\src\core\codec\VarInt.cpp
+- [[varintEncode()]] - code - apps\hft-recorder\src\core\codec\VarInt.cpp
 
 ## Live Query (requires Dataview plugin)
 

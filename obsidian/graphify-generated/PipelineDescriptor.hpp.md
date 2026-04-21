@@ -1,14 +1,14 @@
 ---
-source_file: "src\core\lab\PipelineDescriptor.hpp"
+source_file: "apps\hft-recorder\src\core\lab\PipelineDescriptor.hpp"
 type: "code"
-community: "Community 87"
+community: "Community 114"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_87
+  - community/Community_114
 ---
 
 # PipelineDescriptor.hpp
 
-#graphify/code #graphify/EXTRACTED #community/Community_87
+#graphify/code #graphify/EXTRACTED #community/Community_114

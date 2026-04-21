@@ -1,36 +1,33 @@
 ---
 type: community
-cohesion: 0.13
-members: 21
+members: 20
 ---
 
 # Community 4
 
-**Cohesion:** 0.13 - loosely connected
-**Members:** 21 nodes
+**Members:** 20 nodes
 
 ## Members
-- [[ChartController_2]] - code - src\gui\viewer\ChartItem.hpp
-- [[ChartItem]] - code - src\gui\viewer\ChartItem.hpp
-- [[ChartItem.cpp]] - code - src\gui\viewer\ChartItem.cpp
-- [[ChartItem.hpp]] - code - src\gui\viewer\ChartItem.hpp
-- [[QPainter]] - code - src\gui\viewer\ChartItem.hpp
-- [[activateContextPoint()]] - code - src\gui\viewer\ChartItem.cpp
-- [[clearHover()]] - code - src\gui\viewer\ChartItem.cpp
-- [[collectInputs()]] - code - src\gui\viewer\ChartItem.cpp
-- [[paint()]] - code - src\gui\viewer\ChartItem.cpp
-- [[requestRepaint()]] - code - src\gui\viewer\ChartItem.cpp
-- [[setBookOpacityGain()_1]] - code - src\gui\viewer\ChartItem.cpp
-- [[setBookRenderDetail()_1]] - code - src\gui\viewer\ChartItem.cpp
-- [[setBookTickerVisible()_1]] - code - src\gui\viewer\ChartItem.cpp
-- [[setController()_1]] - code - src\gui\viewer\ChartItem.cpp
-- [[setHoverPoint()]] - code - src\gui\viewer\ChartItem.cpp
-- [[setInteractiveMode()_1]] - code - src\gui\viewer\ChartItem.cpp
-- [[setOrderbookVisible()_1]] - code - src\gui\viewer\ChartItem.cpp
-- [[setOverlayOnly()]] - code - src\gui\viewer\ChartItem.cpp
-- [[setTradeAmountScale()_1]] - code - src\gui\viewer\ChartItem.cpp
-- [[setTradesVisible()_1]] - code - src\gui\viewer\ChartItem.cpp
-- [[updateHover_()]] - code - src\gui\viewer\ChartItem.cpp
+- [[CaptureViewModelRequests.cpp]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[aliasWeightBytes()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[buildAliasesSuffix()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[buildRequestPreview()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[canonicalBookTickerAliases()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[canonicalOrderbookAliases()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[canonicalTradesAliases()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[channelWeightSummary()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[containsAlias()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[cxetAliasSourcePath()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[extractAliasesFromCxetSource()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[isRequiredAliasForChannel()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[loadAliasesForChannel()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[makeConfigs()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[normalizeToken()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[normalizedSelectedAliasesForChannel()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[normalizedSymbols()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[orderedAliases()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[requiredAliasesForChannel()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
+- [[toDslSymbol()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelRequests.cpp
 
 ## Live Query (requires Dataview plugin)
 

@@ -1,49 +1,47 @@
 ---
 type: community
-cohesion: 0.14
 members: 34
 ---
 
 # Community 1
 
-**Cohesion:** 0.14 - loosely connected
 **Members:** 34 nodes
 
 ## Members
-- [[CaptureViewModel]] - code - src\gui\viewmodels\CaptureViewModel.hpp
-- [[CaptureViewModel.cpp]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[CaptureViewModel.hpp]] - code - src\gui\viewmodels\CaptureViewModel.hpp
-- [[bookTickerCount()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[bookTickerRunning()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[clearCoordinatorBatch_()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[depthCount()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[ensureCoordinatorBatch_()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[finalizeSession()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[joinCoordinatorErrors_()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[makeConfigs()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[normalizeToken()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[normalizedSymbolsText()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[normalizedSymbols_()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[orderbookRunning()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[outputDirectory()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[refreshState()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[sessionId()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[sessionOpen()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[sessionPath()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[setOutputDirectory()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[setStatusFromStatus()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[setStatusText()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[setSymbolsText()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[startBookTicker()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[startOrderbook()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[startTrades()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[statusText()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[stopBookTicker()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[stopOrderbook()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[stopTrades()_1]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[symbolsText()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[tradesCount()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
-- [[tradesRunning()]] - code - src\gui\viewmodels\CaptureViewModel.cpp
+- [[CaptureViewModel]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.hpp
+- [[CaptureViewModel.cpp]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[CaptureViewModel.hpp]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.hpp
+- [[aliasDisplayText()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[availableAliasesForChannel_()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[bookTickerAvailableAliases()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[bookTickerCount()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[bookTickerRequestPreview()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[bookTickerRunning()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[channelWeightSummary()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[depthCount()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[isAliasSelected()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[isRequiredAlias()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[makeConfigs()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[normalizedSymbolsText()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[orderbookAvailableAliases()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[orderbookRequestPreview()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[orderbookRunning()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[outputDirectory()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[selectedAliasesForChannel_()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[sessionId()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[sessionOpen()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[sessionPath()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[setOutputDirectory()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[setStatusFromStatus()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[setStatusText()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[setSymbolsText()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[statusText()_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[symbolsText()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[toggleAlias()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[tradesAvailableAliases()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[tradesCount()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[tradesRequestPreview()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
+- [[tradesRunning()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp
 
 ## Live Query (requires Dataview plugin)
 

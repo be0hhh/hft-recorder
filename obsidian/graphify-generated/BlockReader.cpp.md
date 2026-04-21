@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\block\BlockReader.cpp"
+source_file: "apps\hft-recorder\src\core\block\BlockReader.cpp"
 type: "code"
-community: "Community 8"
+community: "Community 21"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_8
+  - community/Community_21
 ---
 
 # BlockReader.cpp
@@ -18,4 +18,4 @@ tags:
 - [[nextBlock()]] - `contains` [EXTRACTED]
 - [[open()]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_8
+#graphify/code #graphify/EXTRACTED #community/Community_21

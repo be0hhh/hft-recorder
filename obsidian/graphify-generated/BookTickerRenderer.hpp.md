@@ -1,14 +1,14 @@
 ---
-source_file: "src\gui\viewer\renderers\BookTickerRenderer.hpp"
+source_file: "apps\hft-recorder\src\gui\viewer\renderers\BookTickerRenderer.hpp"
 type: "code"
-community: "Community 97"
+community: "Community 125"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_97
+  - community/Community_125
 ---
 
 # BookTickerRenderer.hpp
 
-#graphify/code #graphify/EXTRACTED #community/Community_97
+#graphify/code #graphify/EXTRACTED #community/Community_125

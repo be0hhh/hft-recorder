@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 51
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[SessionId.cpp]] - code - src\core\capture\SessionId.cpp
-- [[makeSessionId()]] - code - src\core\capture\SessionId.cpp
+- [[BlockHeader.cpp]] - code - apps\hft-recorder\src\core\block\BlockHeader.cpp
+- [[blockHeaderParse()]] - code - apps\hft-recorder\src\core\block\BlockHeader.cpp
+- [[blockHeaderSerialize()]] - code - apps\hft-recorder\src\core\block\BlockHeader.cpp
 
 ## Live Query (requires Dataview plugin)
 

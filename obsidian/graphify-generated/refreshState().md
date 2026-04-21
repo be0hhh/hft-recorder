@@ -1,32 +1,18 @@
 ---
-source_file: "src\gui\viewmodels\CaptureViewModel.cpp"
+source_file: "apps\hft-recorder\src\gui\viewmodels\CaptureViewModelState.cpp"
 type: "code"
-community: "Community 1"
-location: "L276"
+community: "Community 62"
+location: "L52"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_1
+  - community/Community_62
 ---
 
 # refreshState()
 
 ## Connections
-- [[CaptureViewModel]] - `calls` [EXTRACTED]
-- [[CaptureViewModel.cpp]] - `contains` [EXTRACTED]
-- [[bookTickerCount()]] - `calls` [EXTRACTED]
-- [[bookTickerRunning()]] - `calls` [EXTRACTED]
-- [[depthCount()]] - `calls` [EXTRACTED]
-- [[finalizeSession()_1]] - `calls` [EXTRACTED]
-- [[orderbookRunning()]] - `calls` [EXTRACTED]
-- [[setStatusText()]] - `calls` [EXTRACTED]
-- [[startBookTicker()_1]] - `calls` [EXTRACTED]
-- [[startOrderbook()_1]] - `calls` [EXTRACTED]
-- [[startTrades()_1]] - `calls` [EXTRACTED]
-- [[stopBookTicker()_1]] - `calls` [EXTRACTED]
-- [[stopOrderbook()_1]] - `calls` [EXTRACTED]
-- [[stopTrades()_1]] - `calls` [EXTRACTED]
-- [[tradesCount()]] - `calls` [EXTRACTED]
-- [[tradesRunning()]] - `calls` [EXTRACTED]
+- [[CaptureViewModelState.cpp]] - `contains` [EXTRACTED]
+- [[collectBatchSnapshot()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_1
+#graphify/code #graphify/EXTRACTED #community/Community_62

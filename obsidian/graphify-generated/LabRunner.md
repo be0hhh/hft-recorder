@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\lab\LabRunner.hpp"
+source_file: "apps\hft-recorder\src\core\lab\LabRunner.hpp"
 type: "code"
-community: "Community 58"
+community: "Community 79"
 location: "L11"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_58
+  - community/Community_79
 ---
 
 # LabRunner
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[LabRunner.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_58
+#graphify/code #graphify/EXTRACTED #community/Community_79

@@ -1,17 +1,18 @@
 ---
-source_file: "src\gui\viewmodels\CaptureViewModel.cpp"
+source_file: "src\gui\models\SessionListModel.cpp"
 type: "code"
-community: "Community 1"
-location: "L49"
+community: "Community 18"
+location: "L39"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_1
+  - community/Community_18
 ---
 
 # sessionPath()
 
 ## Connections
-- [[CaptureViewModel.cpp]] - `contains` [EXTRACTED]
+- [[SessionListModel.cpp]] - `contains` [EXTRACTED]
+- [[recordingsRoot()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_1
+#graphify/code #graphify/EXTRACTED #community/Community_18

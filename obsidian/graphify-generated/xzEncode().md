@@ -1,12 +1,12 @@
 ---
-source_file: "src\support\external_wrappers\XzWrapper.cpp"
+source_file: "apps\hft-recorder\src\support\external_wrappers\XzWrapper.cpp"
 type: "code"
-community: "Community 45"
+community: "Community 65"
 location: "L5"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_45
+  - community/Community_65
 ---
 
 # xzEncode()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[XzWrapper.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_45
+#graphify/code #graphify/EXTRACTED #community/Community_65

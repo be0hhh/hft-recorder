@@ -1,17 +1,17 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 4
 ---
 
 # Community 48
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[analyze_cli.cpp]] - code - src\app\analyze_cli.cpp
-- [[runAnalyze()]] - code - src\app\analyze_cli.cpp
+- [[decode.cpp]] - code - apps\hft-recorder\src\variants\l1\var01_raw_lz4_cpp\decode.cpp
+- [[decode.cpp_1]] - code - apps\hft-recorder\src\variants\orderbook\var01_raw_updates_cpp\decode.cpp
+- [[decode.cpp_2]] - code - apps\hft-recorder\src\variants\trade\var01_raw_zstd_cpp\decode.cpp
+- [[decodeBlock()]] - code - apps\hft-recorder\src\variants\trade\var01_raw_zstd_cpp\decode.cpp
 
 ## Live Query (requires Dataview plugin)
 

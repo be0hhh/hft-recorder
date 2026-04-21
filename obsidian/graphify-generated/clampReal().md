@@ -1,23 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartGpuItem.cpp"
+source_file: "apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp"
 type: "code"
-community: "Community 2"
-location: "L47"
+community: "Community 27"
+location: "L68"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_2
+  - community/Community_27
 ---
 
 # clampReal()
 
 ## Connections
-- [[ChartGpuItem.cpp]] - `contains` [EXTRACTED]
-- [[amountRadiusScale()]] - `calls` [EXTRACTED]
-- [[drawBookSideImage()]] - `calls` [EXTRACTED]
-- [[remapBookOpacity()]] - `calls` [EXTRACTED]
-- [[setBookOpacityGain()]] - `calls` [EXTRACTED]
-- [[setBookRenderDetail()]] - `calls` [EXTRACTED]
-- [[setTradeAmountScale()]] - `calls` [EXTRACTED]
+- [[Formatters.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_2
+#graphify/code #graphify/EXTRACTED #community/Community_27

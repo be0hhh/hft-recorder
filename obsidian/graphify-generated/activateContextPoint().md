@@ -1,18 +1,19 @@
 ---
-source_file: "src\gui\viewer\ChartItem.cpp"
+source_file: "src\gui\viewer\ChartItemHover.cpp"
 type: "code"
-community: "Community 4"
-location: "L131"
+community: "Community 26"
+location: "L26"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_4
+  - community/Community_26
 ---
 
 # activateContextPoint()
 
 ## Connections
-- [[ChartItem.cpp]] - `contains` [EXTRACTED]
+- [[ChartItemHover.cpp]] - `contains` [EXTRACTED]
+- [[shouldSkipHoverRecompute_()]] - `calls` [EXTRACTED]
 - [[updateHover_()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_4
+#graphify/code #graphify/EXTRACTED #community/Community_26

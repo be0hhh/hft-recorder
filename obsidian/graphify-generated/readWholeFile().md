@@ -1,18 +1,21 @@
 ---
-source_file: "src\core\replay\SessionReplay.cpp"
+source_file: "src\core\corpus\CorpusLoader.cpp"
 type: "code"
-community: "Community 7"
-location: "L15"
+community: "Community 9"
+location: "L29"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_7
+  - community/Community_9
 ---
 
 # readWholeFile()
 
 ## Connections
-- [[SessionReplay.cpp]] - `contains` [EXTRACTED]
-- [[addSnapshotFile()]] - `calls` [EXTRACTED]
+- [[CorpusLoader.cpp]] - `contains` [EXTRACTED]
+- [[bindSeekIndex()]] - `calls` [EXTRACTED]
+- [[loadDetailed()]] - `calls` [EXTRACTED]
+- [[loadSnapshots()]] - `calls` [EXTRACTED]
+- [[readWholeFileOptional()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_7
+#graphify/code #graphify/EXTRACTED #community/Community_9

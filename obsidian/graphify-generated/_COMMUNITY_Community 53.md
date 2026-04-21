@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 53
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[CxetCaptureBridge.cpp]] - code - src\core\cxet_bridge\CxetCaptureBridge.cpp
-- [[initialize()]] - code - src\core\cxet_bridge\CxetCaptureBridge.cpp
+- [[ChannelKind.hpp]] - code - apps\hft-recorder\src\core\capture\ChannelKind.hpp
+- [[channelFileName()]] - code - apps\hft-recorder\src\core\capture\ChannelKind.hpp
+- [[channelName()]] - code - apps\hft-recorder\src\core\capture\ChannelKind.hpp
 
 ## Live Query (requires Dataview plugin)
 

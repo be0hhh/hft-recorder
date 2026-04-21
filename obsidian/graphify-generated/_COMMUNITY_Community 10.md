@@ -1,23 +1,25 @@
 ---
 type: community
-cohesion: 0.39
-members: 8
+members: 12
 ---
 
 # Community 10
 
-**Cohesion:** 0.39 - loosely connected
-**Members:** 8 nodes
+**Members:** 12 nodes
 
 ## Members
-- [[JsonSerializers.cpp]] - code - src\core\capture\JsonSerializers.cpp
-- [[appendLevels()]] - code - src\core\capture\JsonSerializers.cpp
-- [[renderBookTickerJsonLine()]] - code - src\core\capture\JsonSerializers.cpp
-- [[renderDepthJsonLine()]] - code - src\core\capture\JsonSerializers.cpp
-- [[renderSnapshotJson()]] - code - src\core\capture\JsonSerializers.cpp
-- [[renderTradeJsonLine()]] - code - src\core\capture\JsonSerializers.cpp
-- [[sideToString()]] - code - src\core\capture\JsonSerializers.cpp
-- [[triStateToString()]] - code - src\core\capture\JsonSerializers.cpp
+- [[CaptureCoordinator]] - code - src\core\capture\CaptureCoordinator.hpp
+- [[CaptureCoordinator.cpp]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[CaptureCoordinator.hpp]] - code - src\core\capture\CaptureCoordinator.hpp
+- [[ensureSession()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[finalizeSession()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[lastError()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[manifestCopy()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[resetSessionState()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[sessionDirCopy()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[sessionOpen()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[writeInstrumentMetadataFile()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[writeSupportArtifacts()]] - code - src\core\capture\CaptureCoordinator.cpp
 
 ## Live Query (requires Dataview plugin)
 

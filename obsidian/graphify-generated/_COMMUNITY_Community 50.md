@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 50
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[ChannelJsonWriter]] - code - src\core\capture\ChannelJsonWriter.hpp
-- [[ChannelJsonWriter.hpp]] - code - src\core\capture\ChannelJsonWriter.hpp
+- [[benchmark_cli.cpp]] - code - apps\hft-recorder\src\app\benchmark_cli.cpp
+- [[main()]] - code - apps\hft-recorder\src\app\benchmark_cli.cpp
+- [[printHelp()]] - code - apps\hft-recorder\src\app\benchmark_cli.cpp
 
 ## Live Query (requires Dataview plugin)
 

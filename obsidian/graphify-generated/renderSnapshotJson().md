@@ -1,18 +1,19 @@
 ---
 source_file: "src\core\capture\JsonSerializers.cpp"
 type: "code"
-community: "Community 10"
-location: "L111"
+community: "Community 23"
+location: "L154"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_10
+  - community/Community_23
 ---
 
 # renderSnapshotJson()
 
 ## Connections
 - [[JsonSerializers.cpp]] - `contains` [EXTRACTED]
+- [[appendCapturedLevels()]] - `calls` [EXTRACTED]
 - [[appendLevels()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_10
+#graphify/code #graphify/EXTRACTED #community/Community_23

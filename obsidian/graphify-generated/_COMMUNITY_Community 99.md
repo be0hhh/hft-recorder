@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 99
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[TradeRenderer.hpp]] - code - src\gui\viewer\renderers\TradeRenderer.hpp
+- [[FileHeader.hpp]] - code - apps\hft-recorder\src\core\block\FileHeader.hpp
 
 ## Live Query (requires Dataview plugin)
 

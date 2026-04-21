@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\codec\Crc32c.cpp"
+source_file: "apps\hft-recorder\src\core\codec\Crc32c.cpp"
 type: "code"
-community: "Community 24"
+community: "Community 41"
 location: "L26"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_24
+  - community/Community_41
 ---
 
 # crc32cUpdate()
@@ -15,4 +15,4 @@ tags:
 - [[Crc32c.cpp]] - `contains` [EXTRACTED]
 - [[crc32c()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_24
+#graphify/code #graphify/EXTRACTED #community/Community_41

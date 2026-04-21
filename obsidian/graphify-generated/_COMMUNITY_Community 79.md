@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 79
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[Crc32c.hpp]] - code - src\core\codec\Crc32c.hpp
+- [[LabRunner]] - code - apps\hft-recorder\src\core\lab\LabRunner.hpp
+- [[LabRunner.hpp]] - code - apps\hft-recorder\src\core\lab\LabRunner.hpp
 
 ## Live Query (requires Dataview plugin)
 

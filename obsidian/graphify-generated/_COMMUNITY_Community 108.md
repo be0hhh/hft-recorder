@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 108
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[encode.hpp_1]] - code - src\variants\orderbook\var01_raw_updates_cpp\encode.hpp
+- [[Log.hpp]] - code - apps\hft-recorder\src\core\common\Log.hpp
 
 ## Live Query (requires Dataview plugin)
 

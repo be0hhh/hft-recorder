@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 63
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[AccuracyClass.hpp]] - code - src\core\validation\AccuracyClass.hpp
-- [[accuracyClassToString()]] - code - src\core\validation\AccuracyClass.hpp
+- [[BrotliWrapper.cpp]] - code - apps\hft-recorder\src\support\external_wrappers\BrotliWrapper.cpp
+- [[brotliDecode()]] - code - apps\hft-recorder\src\support\external_wrappers\BrotliWrapper.cpp
+- [[brotliEncode()]] - code - apps\hft-recorder\src\support\external_wrappers\BrotliWrapper.cpp
 
 ## Live Query (requires Dataview plugin)
 

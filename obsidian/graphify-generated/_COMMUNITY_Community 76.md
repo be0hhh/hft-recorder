@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 76
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[JsonSerializers.hpp]] - code - src\core\capture\JsonSerializers.hpp
+- [[CxetCaptureBridge]] - code - src\core\cxet_bridge\CxetCaptureBridge.hpp
+- [[CxetCaptureBridge.hpp]] - code - src\core\cxet_bridge\CxetCaptureBridge.hpp
 
 ## Live Query (requires Dataview plugin)
 

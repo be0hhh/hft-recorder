@@ -1,18 +1,19 @@
 ---
 source_file: "src\core\capture\SessionManifest.cpp"
 type: "code"
-community: "Community 23"
-location: "L18"
+community: "Community 0"
+location: "L229"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_23
+  - community/Community_0
 ---
 
 # boolToString()
 
 ## Connections
 - [[SessionManifest.cpp]] - `contains` [EXTRACTED]
+- [[appendChannelIntegrity()]] - `calls` [EXTRACTED]
 - [[renderManifestJson()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_23
+#graphify/code #graphify/EXTRACTED #community/Community_0

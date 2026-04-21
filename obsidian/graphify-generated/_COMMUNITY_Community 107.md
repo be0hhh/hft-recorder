@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 107
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[decode.hpp_1]] - code - src\variants\orderbook\var01_raw_updates_cpp\decode.hpp
+- [[constants.hpp]] - code - apps\hft-recorder\src\core\common\constants.hpp
 
 ## Live Query (requires Dataview plugin)
 

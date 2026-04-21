@@ -1,20 +1,20 @@
 ---
-source_file: "src\gui\viewer\ChartController.cpp"
+source_file: "src\gui\viewer\ChartControllerViewport.cpp"
 type: "code"
-community: "Community 0"
-location: "L388"
+community: "Community 2"
+location: "L345"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_0
+  - community/Community_2
 ---
 
 # formatTimeScaleLabel()
 
 ## Connections
-- [[ChartController.cpp]] - `contains` [EXTRACTED]
+- [[ChartControllerViewport.cpp]] - `contains` [EXTRACTED]
 - [[floorToStep()]] - `calls` [EXTRACTED]
-- [[formatShortTimeNs()]] - `calls` [EXTRACTED]
+- [[formatShortTimeNs()_1]] - `calls` [EXTRACTED]
 - [[niceTimeStepNs()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_0
+#graphify/code #graphify/EXTRACTED #community/Community_2

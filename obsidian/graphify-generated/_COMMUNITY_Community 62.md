@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 62
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[SessionReplay]] - code - src\core\replay\SessionReplay.hpp
-- [[SessionReplay.hpp]] - code - src\core\replay\SessionReplay.hpp
+- [[CaptureViewModelState.cpp]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelState.cpp
+- [[collectBatchSnapshot()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelState.cpp
+- [[refreshState()]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelState.cpp
 
 ## Live Query (requires Dataview plugin)
 

@@ -1,20 +1,23 @@
 ---
 type: community
-cohesion: 0.40
-members: 5
+members: 10
 ---
 
 # Community 20
 
-**Cohesion:** 0.40 - moderately connected
-**Members:** 5 nodes
+**Members:** 10 nodes
 
 ## Members
-- [[.ITradeDeltaDecoder()]] - code - src\core\representation\DeltaTrade.hpp
-- [[.ITradeDeltaEncoder()]] - code - src\core\representation\DeltaTrade.hpp
-- [[DeltaTrade.hpp]] - code - src\core\representation\DeltaTrade.hpp
-- [[ITradeDeltaDecoder]] - code - src\core\representation\DeltaTrade.hpp
-- [[ITradeDeltaEncoder]] - code - src\core\representation\DeltaTrade.hpp
+- [[ChartItemPaint.cpp]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[ensureLayerImages_()]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[geometryChange()]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[invalidateBaseImage_()]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[invalidateSnapshotCache_()]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[paint()]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[paintSnapshotFrame()]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[paintSnapshotLayers()]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[requestRepaint()]] - code - src\gui\viewer\ChartItemPaint.cpp
+- [[sourceRectForViewport()]] - code - src\gui\viewer\ChartItemPaint.cpp
 
 ## Live Query (requires Dataview plugin)
 

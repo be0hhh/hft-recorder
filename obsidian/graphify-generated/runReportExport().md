@@ -1,12 +1,12 @@
 ---
-source_file: "src\app\report_export.cpp"
+source_file: "apps\hft-recorder\src\app\report_export.cpp"
 type: "code"
-community: "Community 49"
+community: "Community 71"
 location: "L5"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_49
+  - community/Community_71
 ---
 
 # runReportExport()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[report_export.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_49
+#graphify/code #graphify/EXTRACTED #community/Community_71

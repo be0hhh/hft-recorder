@@ -1,20 +1,20 @@
 ---
-source_file: "src\gui\viewer\detail\BookMath.hpp"
+source_file: "apps\hft-recorder\src\gui\viewer\detail\BookMath.hpp"
 type: "code"
-community: "Community 21"
+community: "Community 39"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_21
+  - community/Community_39
 ---
 
 # BookMath.hpp
 
 ## Connections
-- [[amountRadiusScale()_1]] - `contains` [EXTRACTED]
+- [[amountRadiusScale()]] - `contains` [EXTRACTED]
 - [[findNearestBookLevel()]] - `contains` [EXTRACTED]
-- [[maxVisibleQty()_1]] - `contains` [EXTRACTED]
-- [[remapBookOpacity()_1]] - `contains` [EXTRACTED]
+- [[maxVisibleQty()]] - `contains` [EXTRACTED]
+- [[remapBookOpacity()]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_21
+#graphify/code #graphify/EXTRACTED #community/Community_39

@@ -1,19 +1,21 @@
 ---
 type: community
-cohesion: 0.83
-members: 4
+members: 8
 ---
 
 # Community 22
 
-**Cohesion:** 0.83 - tightly connected
-**Members:** 4 nodes
+**Members:** 8 nodes
 
 ## Members
-- [[capture_cli.cpp]] - code - src\app\capture_cli.cpp
-- [[makeDefaultConfig()]] - code - src\app\capture_cli.cpp
-- [[printUsage()]] - code - src\app\capture_cli.cpp
-- [[runCapture()]] - code - src\app\capture_cli.cpp
+- [[.BlockWriter()]] - code - apps\hft-recorder\src\core\block\BlockWriter.hpp
+- [[BlockWriter]] - code - apps\hft-recorder\src\core\block\BlockWriter.hpp
+- [[BlockWriter.cpp]] - code - apps\hft-recorder\src\core\block\BlockWriter.cpp
+- [[BlockWriter.hpp]] - code - apps\hft-recorder\src\core\block\BlockWriter.hpp
+- [[appendEvent()]] - code - apps\hft-recorder\src\core\block\BlockWriter.cpp
+- [[close()_1]] - code - apps\hft-recorder\src\core\block\BlockWriter.cpp
+- [[flush()]] - code - apps\hft-recorder\src\core\block\BlockWriter.cpp
+- [[open()_1]] - code - apps\hft-recorder\src\core\block\BlockWriter.cpp
 
 ## Live Query (requires Dataview plugin)
 

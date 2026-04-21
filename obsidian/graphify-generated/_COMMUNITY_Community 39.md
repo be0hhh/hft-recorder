@@ -1,18 +1,18 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 5
 ---
 
 # Community 39
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 5 nodes
 
 ## Members
-- [[.SpscRing()]] - code - src\core\stream\SpscRing.hpp
-- [[SpscRing]] - code - src\core\stream\SpscRing.hpp
-- [[SpscRing.hpp]] - code - src\core\stream\SpscRing.hpp
+- [[BookMath.hpp]] - code - apps\hft-recorder\src\gui\viewer\detail\BookMath.hpp
+- [[amountRadiusScale()]] - code - apps\hft-recorder\src\gui\viewer\detail\BookMath.hpp
+- [[findNearestBookLevel()]] - code - apps\hft-recorder\src\gui\viewer\detail\BookMath.hpp
+- [[maxVisibleQty()]] - code - apps\hft-recorder\src\gui\viewer\detail\BookMath.hpp
+- [[remapBookOpacity()]] - code - apps\hft-recorder\src\gui\viewer\detail\BookMath.hpp
 
 ## Live Query (requires Dataview plugin)
 

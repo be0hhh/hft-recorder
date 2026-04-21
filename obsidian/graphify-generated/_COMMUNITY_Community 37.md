@@ -1,18 +1,18 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 5
 ---
 
 # Community 37
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 5 nodes
 
 ## Members
-- [[Status.hpp]] - code - src\core\common\Status.hpp
-- [[isOk()]] - code - src\core\common\Status.hpp
-- [[statusToString()]] - code - src\core\common\Status.hpp
+- [[.IOrderBookDeltaDecoder()]] - code - apps\hft-recorder\src\core\representation\DeltaOrderBook.hpp
+- [[.IOrderBookDeltaEncoder()]] - code - apps\hft-recorder\src\core\representation\DeltaOrderBook.hpp
+- [[DeltaOrderBook.hpp]] - code - apps\hft-recorder\src\core\representation\DeltaOrderBook.hpp
+- [[IOrderBookDeltaDecoder]] - code - apps\hft-recorder\src\core\representation\DeltaOrderBook.hpp
+- [[IOrderBookDeltaEncoder]] - code - apps\hft-recorder\src\core\representation\DeltaOrderBook.hpp
 
 ## Live Query (requires Dataview plugin)
 

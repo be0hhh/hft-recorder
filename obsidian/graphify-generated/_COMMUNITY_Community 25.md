@@ -1,19 +1,20 @@
 ---
 type: community
-cohesion: 0.83
-members: 4
+members: 7
 ---
 
 # Community 25
 
-**Cohesion:** 0.83 - tightly connected
-**Members:** 4 nodes
+**Members:** 7 nodes
 
 ## Members
-- [[BookFrameSampler.cpp]] - code - src\core\lab\BookFrameSampler.cpp
-- [[copyTopLevels()]] - code - src\core\lab\BookFrameSampler.cpp
-- [[makeFrame()]] - code - src\core\lab\BookFrameSampler.cpp
-- [[sampleGroundTruthBookFrames()]] - code - src\core\lab\BookFrameSampler.cpp
+- [[JsonLineParser.cpp]] - code - src\core\replay\JsonLineParser.cpp
+- [[parseBookTickerLine()]] - code - src\core\replay\JsonLineParser.cpp
+- [[parseDepthLine()]] - code - src\core\replay\JsonLineParser.cpp
+- [[parsePairArray()]] - code - src\core\replay\JsonLineParser.cpp
+- [[parsePricePair()]] - code - src\core\replay\JsonLineParser.cpp
+- [[parseSnapshotDocument()]] - code - src\core\replay\JsonLineParser.cpp
+- [[parseTradeLine()]] - code - src\core\replay\JsonLineParser.cpp
 
 ## Live Query (requires Dataview plugin)
 

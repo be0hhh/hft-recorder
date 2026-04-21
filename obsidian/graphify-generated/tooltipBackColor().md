@@ -1,8 +1,8 @@
 ---
-source_file: "src\gui\viewer\ColorScheme.hpp"
+source_file: "apps\hft-recorder\src\gui\viewer\ColorScheme.hpp"
 type: "code"
 community: "Community 5"
-location: "L26"
+location: "L24"
 tags:
   - graphify/code
   - graphify/EXTRACTED

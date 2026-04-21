@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 74
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[BlockHeader.hpp]] - code - src\core\block\BlockHeader.hpp
+- [[Integrity.hpp]] - code - src\core\common\Integrity.hpp
+- [[toString()]] - code - src\core\common\Integrity.hpp
 
 ## Live Query (requires Dataview plugin)
 

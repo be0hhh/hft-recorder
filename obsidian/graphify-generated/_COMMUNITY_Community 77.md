@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 77
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[SessionId.hpp]] - code - src\core\capture\SessionId.hpp
+- [[PipelineProfile.hpp]] - code - apps\hft-recorder\src\core\dataset\PipelineProfile.hpp
+- [[pipelineProfileToString()]] - code - apps\hft-recorder\src\core\dataset\PipelineProfile.hpp
 
 ## Live Query (requires Dataview plugin)
 

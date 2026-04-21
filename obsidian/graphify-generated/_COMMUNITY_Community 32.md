@@ -1,18 +1,19 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 6
 ---
 
 # Community 32
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 6 nodes
 
 ## Members
-- [[BlockHeader.cpp]] - code - src\core\block\BlockHeader.cpp
-- [[blockHeaderParse()]] - code - src\core\block\BlockHeader.cpp
-- [[blockHeaderSerialize()]] - code - src\core\block\BlockHeader.cpp
+- [[TEST()_7]] - code - tests\unit\test_session_replay.cpp
+- [[makeSnapshotJson()]] - code - tests\unit\test_session_replay.cpp
+- [[makeTmpDir()]] - code - tests\unit\test_session_replay.cpp
+- [[test_session_replay.cpp]] - code - tests\unit\test_session_replay.cpp
+- [[writeFile()]] - code - tests\unit\test_session_replay.cpp
+- [[writeManifest()]] - code - tests\unit\test_session_replay.cpp
 
 ## Live Query (requires Dataview plugin)
 

@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 87
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[PipelineDescriptor.hpp]] - code - src\core\lab\PipelineDescriptor.hpp
+- [[QPainter_2]] - code - apps\hft-recorder\src\gui\viewer\RenderContext.hpp
+- [[RenderContext.hpp]] - code - apps\hft-recorder\src\gui\viewer\RenderContext.hpp
 
 ## Live Query (requires Dataview plugin)
 

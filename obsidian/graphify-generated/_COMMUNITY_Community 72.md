@@ -1,17 +1,15 @@
 ---
 type: community
-cohesion: 1.00
 members: 2
 ---
 
 # Community 72
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 2 nodes
 
 ## Members
-- [[TEST()_5]] - code - tests\unit\test_smoke.cpp
-- [[test_smoke.cpp]] - code - tests\unit\test_smoke.cpp
+- [[ChannelJsonWriter]] - code - apps\hft-recorder\src\core\capture\ChannelJsonWriter.hpp
+- [[ChannelJsonWriter.hpp]] - code - apps\hft-recorder\src\core\capture\ChannelJsonWriter.hpp
 
 ## Live Query (requires Dataview plugin)
 

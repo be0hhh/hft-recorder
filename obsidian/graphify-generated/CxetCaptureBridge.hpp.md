@@ -1,12 +1,12 @@
 ---
 source_file: "src\core\cxet_bridge\CxetCaptureBridge.hpp"
 type: "code"
-community: "Community 54"
+community: "Community 76"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_54
+  - community/Community_76
 ---
 
 # CxetCaptureBridge.hpp
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[CxetCaptureBridge]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_54
+#graphify/code #graphify/EXTRACTED #community/Community_76

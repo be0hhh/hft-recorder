@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 111
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[encode.hpp_2]] - code - src\variants\trade\var01_raw_zstd_cpp\encode.hpp
+- [[SessionCorpus.hpp]] - code - src\core\corpus\SessionCorpus.hpp
 
 ## Live Query (requires Dataview plugin)
 

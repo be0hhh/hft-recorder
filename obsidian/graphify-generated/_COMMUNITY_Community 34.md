@@ -1,18 +1,18 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 5
 ---
 
 # Community 34
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 5 nodes
 
 ## Members
-- [[ChannelKind.hpp]] - code - src\core\capture\ChannelKind.hpp
-- [[channelFileName()]] - code - src\core\capture\ChannelKind.hpp
-- [[channelName()]] - code - src\core\capture\ChannelKind.hpp
+- [[Log.cpp]] - code - apps\hft-recorder\src\core\common\Log.cpp
+- [[get()]] - code - apps\hft-recorder\src\core\common\Log.cpp
+- [[init()]] - code - apps\hft-recorder\src\core\common\Log.cpp
+- [[parseLevel()]] - code - apps\hft-recorder\src\core\common\Log.cpp
+- [[shutdown()]] - code - apps\hft-recorder\src\core\common\Log.cpp
 
 ## Live Query (requires Dataview plugin)
 

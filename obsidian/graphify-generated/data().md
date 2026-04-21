@@ -1,12 +1,12 @@
 ---
 source_file: "src\gui\models\SessionListModel.cpp"
 type: "code"
-community: "Community 12"
-location: "L31"
+community: "Community 18"
+location: "L52"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_12
+  - community/Community_18
 ---
 
 # data()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[SessionListModel.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_12
+#graphify/code #graphify/EXTRACTED #community/Community_18

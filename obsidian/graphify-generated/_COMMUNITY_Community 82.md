@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 82
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[PrimitiveAliases.hpp]] - code - src\core\common\PrimitiveAliases.hpp
+- [[BookState]] - code - apps\hft-recorder\src\core\replay\BookState.hpp
+- [[BookState.hpp]] - code - apps\hft-recorder\src\core\replay\BookState.hpp
 
 ## Live Query (requires Dataview plugin)
 

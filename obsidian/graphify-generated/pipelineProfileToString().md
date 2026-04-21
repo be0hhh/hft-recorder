@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\dataset\PipelineProfile.hpp"
+source_file: "apps\hft-recorder\src\core\dataset\PipelineProfile.hpp"
 type: "code"
-community: "Community 55"
+community: "Community 77"
 location: "L16"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_55
+  - community/Community_77
 ---
 
 # pipelineProfileToString()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[PipelineProfile.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_55
+#graphify/code #graphify/EXTRACTED #community/Community_77

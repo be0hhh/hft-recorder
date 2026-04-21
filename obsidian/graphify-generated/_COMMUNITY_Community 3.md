@@ -1,41 +1,41 @@
 ---
 type: community
-cohesion: 0.16
-members: 26
+members: 28
 ---
 
 # Community 3
 
-**Cohesion:** 0.16 - loosely connected
-**Members:** 26 nodes
+**Members:** 28 nodes
 
 ## Members
-- [[CaptureCoordinator]] - code - src\core\capture\CaptureCoordinator.hpp
-- [[CaptureCoordinator.cpp]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[CaptureCoordinator.hpp]] - code - src\core\capture\CaptureCoordinator.hpp
-- [[ensureCxetInitialized()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[ensureSession()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[finalizeSession()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[lastError()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[makeBookTickerBuilder()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[makeOrderbookGetBuilder()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[makeOrderbookSubscribeBuilder()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[makeSymbol()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[makeTradesBuilder()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[manifestCopy()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[nowNs()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[nowSec()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[resetSessionState()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[sessionDirCopy()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[sessionOpen()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[sleepIfIdle()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[startBookTicker()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[startOrderbook()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[startTrades()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[stopBookTicker()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[stopOrderbook()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[stopTrades()]] - code - src\core\capture\CaptureCoordinator.cpp
-- [[writeSnapshotFile()]] - code - src\core\capture\CaptureCoordinator.cpp
+- [[ChartController_3]] - code - src\gui\viewer\gpu\GpuChartItem.hpp
+- [[GpuChartItem]] - code - src\gui\viewer\gpu\GpuChartItem.hpp
+- [[GpuChartItem.cpp]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[GpuChartItem.hpp]] - code - src\gui\viewer\gpu\GpuChartItem.hpp
+- [[GpuChartRenderer]] - code - src\gui\viewer\gpu\GpuChartItem.hpp
+- [[activateContextPoint()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[buildHoverInfo_()]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[clearHover()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[collectInputs()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[createRenderer()]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[geometryChange()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[hoverInfoCopy_()]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[invalidateSnapshotCache_()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[rebuildSnapshot_()]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[requestRepaint()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setBookOpacityGain()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setBookRenderDetail()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setBookTickerVisible()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setController()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setHoverPoint()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setInteractiveMode()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setOrderbookVisible()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setOverlayOnly()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setTradeAmountScale()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[setTradesVisible()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[shouldSkipHoverRecompute_()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[snapshotCopy_()]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
+- [[updateHover_()_1]] - code - src\gui\viewer\gpu\GpuChartItem.cpp
 
 ## Live Query (requires Dataview plugin)
 

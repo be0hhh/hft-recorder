@@ -1,50 +1,47 @@
 ---
 type: community
-cohesion: 0.09
-members: 35
+members: 34
 ---
 
 # Community 0
 
-**Cohesion:** 0.09 - loosely connected
-**Members:** 35 nodes
+**Members:** 34 nodes
 
 ## Members
-- [[ChartController]] - code - src\gui\viewer\ChartController.hpp
-- [[ChartController.cpp]] - code - src\gui\viewer\ChartController.cpp
-- [[ChartController.hpp]] - code - src\gui\viewer\ChartController.hpp
-- [[addBookTickerFile()_1]] - code - src\gui\viewer\ChartController.cpp
-- [[addDepthFile()_1]] - code - src\gui\viewer\ChartController.cpp
-- [[addSnapshotFile()_1]] - code - src\gui\viewer\ChartController.cpp
-- [[addTradesFile()_1]] - code - src\gui\viewer\ChartController.cpp
-- [[autoFit()]] - code - src\gui\viewer\ChartController.cpp
-- [[buildSnapshot()]] - code - src\gui\viewer\ChartController.cpp
-- [[ceilToStep()]] - code - src\gui\viewer\ChartController.cpp
-- [[computeInitialViewport_()]] - code - src\gui\viewer\ChartController.cpp
-- [[currentBookTicker()]] - code - src\gui\viewer\ChartController.cpp
-- [[envForcesSoftwareRenderer()]] - code - src\gui\viewer\ChartController.cpp
-- [[finalizeFiles()]] - code - src\gui\viewer\ChartController.cpp
-- [[floorToStep()]] - code - src\gui\viewer\ChartController.cpp
-- [[formatPriceAt()]] - code - src\gui\viewer\ChartController.cpp
-- [[formatPriceScaleLabel()]] - code - src\gui\viewer\ChartController.cpp
-- [[formatScaledE8()]] - code - src\gui\viewer\ChartController.cpp
-- [[formatShortTimeNs()]] - code - src\gui\viewer\ChartController.cpp
-- [[formatTimeAt()]] - code - src\gui\viewer\ChartController.cpp
-- [[formatTimeScaleLabel()]] - code - src\gui\viewer\ChartController.cpp
-- [[jumpToEnd()]] - code - src\gui\viewer\ChartController.cpp
-- [[jumpToStart()]] - code - src\gui\viewer\ChartController.cpp
-- [[loadSession()]] - code - src\gui\viewer\ChartController.cpp
-- [[nicePriceStepE8()]] - code - src\gui\viewer\ChartController.cpp
-- [[niceTimeStepNs()]] - code - src\gui\viewer\ChartController.cpp
-- [[panPrice()]] - code - src\gui\viewer\ChartController.cpp
-- [[panTime()]] - code - src\gui\viewer\ChartController.cpp
-- [[resetSession()]] - code - src\gui\viewer\ChartController.cpp
-- [[setViewport()]] - code - src\gui\viewer\ChartController.cpp
-- [[stripFileUrl()]] - code - src\gui\viewer\ChartController.cpp
-- [[syncReplayCursorToViewport()]] - code - src\gui\viewer\ChartController.cpp
-- [[viewportCursorTs()]] - code - src\gui\viewer\ChartController.cpp
-- [[zoomPrice()]] - code - src\gui\viewer\ChartController.cpp
-- [[zoomTime()]] - code - src\gui\viewer\ChartController.cpp
+- [[.JsonParser()]] - code - src\core\capture\SessionManifest.cpp
+- [[JsonParser]] - code - src\core\capture\SessionManifest.cpp
+- [[SessionManifest.cpp]] - code - src\core\capture\SessionManifest.cpp
+- [[appendChannelIntegrity()]] - code - src\core\capture\SessionManifest.cpp
+- [[appendStringArray()]] - code - src\core\capture\SessionManifest.cpp
+- [[boolToString()]] - code - src\core\capture\SessionManifest.cpp
+- [[ensureLegacyDefaults()]] - code - src\core\capture\SessionManifest.cpp
+- [[isLegacyManifest()]] - code - src\core\capture\SessionManifest.cpp
+- [[isSupportedCorpusSchemaVersion()]] - code - src\core\capture\SessionManifest.cpp
+- [[isSupportedManifestSchemaVersion()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseArtifactsObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseCaptureObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseChannelHealthStateString()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseChannelIntegrityGroupObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseChannelIntegrityObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseChannelObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseChannelsObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseIdentityObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseInt32Field()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseInt64Field()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseIntegritySummaryObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseLegacyFlatManifest()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseManifestJson()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseReplayObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseSessionHealthString()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseSeverityString()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseSnapshotsObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseStringArray()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseSummaryObject()]] - code - src\core\capture\SessionManifest.cpp
+- [[parseUint64Field()]] - code - src\core\capture\SessionManifest.cpp
+- [[populateCanonicalArtifacts()]] - code - src\core\capture\SessionManifest.cpp
+- [[populateSupportArtifacts()]] - code - src\core\capture\SessionManifest.cpp
+- [[renderManifestJson()]] - code - src\core\capture\SessionManifest.cpp
+- [[validateStructurally()]] - code - src\core\capture\SessionManifest.cpp
 
 ## Live Query (requires Dataview plugin)
 

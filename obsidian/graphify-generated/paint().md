@@ -1,18 +1,20 @@
 ---
-source_file: "src\gui\viewer\ChartItem.cpp"
+source_file: "src\gui\viewer\ChartItemPaint.cpp"
 type: "code"
-community: "Community 4"
-location: "L178"
+community: "Community 20"
+location: "L181"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_4
+  - community/Community_20
 ---
 
 # paint()
 
 ## Connections
-- [[ChartItem.cpp]] - `contains` [EXTRACTED]
-- [[collectInputs()]] - `calls` [EXTRACTED]
+- [[ChartItemPaint.cpp]] - `contains` [EXTRACTED]
+- [[ensureLayerImages_()]] - `calls` [EXTRACTED]
+- [[paintSnapshotFrame()]] - `calls` [EXTRACTED]
+- [[sourceRectForViewport()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_4
+#graphify/code #graphify/EXTRACTED #community/Community_20

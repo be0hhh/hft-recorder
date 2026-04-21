@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\capture\SessionId.cpp"
+source_file: "apps\hft-recorder\src\core\capture\SessionId.cpp"
 type: "code"
-community: "Community 51"
+community: "Community 73"
 location: "L7"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_51
+  - community/Community_73
 ---
 
 # makeSessionId()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[SessionId.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_51
+#graphify/code #graphify/EXTRACTED #community/Community_73

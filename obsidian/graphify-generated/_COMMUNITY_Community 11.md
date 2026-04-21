@@ -1,22 +1,25 @@
 ---
 type: community
-cohesion: 0.29
-members: 7
+members: 12
 ---
 
 # Community 11
 
-**Cohesion:** 0.29 - loosely connected
-**Members:** 7 nodes
+**Members:** 12 nodes
 
 ## Members
-- [[Metrics.cpp]] - code - src\core\metrics\Metrics.cpp
-- [[addBytesWritten()]] - code - src\core\metrics\Metrics.cpp
-- [[incBlocksFlushed()]] - code - src\core\metrics\Metrics.cpp
-- [[incEventsCaptured()]] - code - src\core\metrics\Metrics.cpp
-- [[incEventsDropped()]] - code - src\core\metrics\Metrics.cpp
-- [[init()_1]] - code - src\core\metrics\Metrics.cpp
-- [[shutdown()_1]] - code - src\core\metrics\Metrics.cpp
+- [[ChartControllerSelection.cpp]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[buildSelectionSummary_()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[clampPriceToBand()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[clearSelection()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[commitSelectionRect()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[findBestAskInBand()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[findBestBidInBand()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[formatPctE8()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[formatSelectionSummary_()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[formatShortTimeNs()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[percentScaledE8()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
+- [[selectionFromRect_()]] - code - apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp
 
 ## Live Query (requires Dataview plugin)
 

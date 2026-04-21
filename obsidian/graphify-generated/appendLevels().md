@@ -1,12 +1,12 @@
 ---
 source_file: "src\core\capture\JsonSerializers.cpp"
 type: "code"
-community: "Community 10"
-location: "L27"
+community: "Community 23"
+location: "L24"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_10
+  - community/Community_23
 ---
 
 # appendLevels()
@@ -16,4 +16,4 @@ tags:
 - [[renderDepthJsonLine()]] - `calls` [EXTRACTED]
 - [[renderSnapshotJson()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_10
+#graphify/code #graphify/EXTRACTED #community/Community_23

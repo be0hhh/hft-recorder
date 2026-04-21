@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 52
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[CorpusLoader]] - code - src\core\corpus\CorpusLoader.hpp
-- [[CorpusLoader.hpp]] - code - src\core\corpus\CorpusLoader.hpp
+- [[FileHeader.cpp]] - code - apps\hft-recorder\src\core\block\FileHeader.cpp
+- [[fileHeaderParse()]] - code - apps\hft-recorder\src\core\block\FileHeader.cpp
+- [[fileHeaderSerialize()]] - code - apps\hft-recorder\src\core\block\FileHeader.cpp
 
 ## Live Query (requires Dataview plugin)
 

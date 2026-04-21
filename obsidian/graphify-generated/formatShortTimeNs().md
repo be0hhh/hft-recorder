@@ -1,19 +1,18 @@
 ---
-source_file: "src\gui\viewer\ChartController.cpp"
+source_file: "apps\hft-recorder\src\gui\viewer\ChartControllerSelection.cpp"
 type: "code"
-community: "Community 0"
-location: "L91"
+community: "Community 11"
+location: "L16"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_0
+  - community/Community_11
 ---
 
 # formatShortTimeNs()
 
 ## Connections
-- [[ChartController.cpp]] - `contains` [EXTRACTED]
-- [[formatTimeAt()]] - `calls` [EXTRACTED]
-- [[formatTimeScaleLabel()]] - `calls` [EXTRACTED]
+- [[ChartControllerSelection.cpp]] - `contains` [EXTRACTED]
+- [[formatSelectionSummary_()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_0
+#graphify/code #graphify/EXTRACTED #community/Community_11

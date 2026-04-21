@@ -1,12 +1,12 @@
 ---
-source_file: "src\app\main.cpp"
+source_file: "apps\hft-recorder\src\app\main.cpp"
 type: "code"
-community: "Community 15"
+community: "Community 24"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_15
+  - community/Community_24
 ---
 
 # main.cpp
@@ -16,4 +16,4 @@ tags:
 - [[printUsage()_1]] - `contains` [EXTRACTED]
 - [[printVersion()]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_15
+#graphify/code #graphify/EXTRACTED #community/Community_24

@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 78
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[SessionManifest.hpp]] - code - src\core\capture\SessionManifest.hpp
+- [[StreamFamily.hpp]] - code - apps\hft-recorder\src\core\dataset\StreamFamily.hpp
+- [[streamFamilyToString()]] - code - apps\hft-recorder\src\core\dataset\StreamFamily.hpp
 
 ## Live Query (requires Dataview plugin)
 

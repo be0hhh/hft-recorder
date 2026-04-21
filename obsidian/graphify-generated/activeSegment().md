@@ -1,12 +1,12 @@
 ---
 source_file: "src\gui\viewer\hit_test\HoverDetection.cpp"
 type: "code"
-community: "Community 41"
-location: "L17"
+community: "Community 61"
+location: "L16"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_41
+  - community/Community_61
 ---
 
 # activeSegment()
@@ -15,4 +15,4 @@ tags:
 - [[HoverDetection.cpp]] - `contains` [EXTRACTED]
 - [[computeHover()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_41
+#graphify/code #graphify/EXTRACTED #community/Community_61

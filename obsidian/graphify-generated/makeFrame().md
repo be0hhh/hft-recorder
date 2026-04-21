@@ -1,12 +1,12 @@
 ---
 source_file: "src\core\lab\BookFrameSampler.cpp"
 type: "code"
-community: "Community 25"
+community: "Community 42"
 location: "L38"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_25
+  - community/Community_42
 ---
 
 # makeFrame()
@@ -16,4 +16,4 @@ tags:
 - [[copyTopLevels()]] - `calls` [EXTRACTED]
 - [[sampleGroundTruthBookFrames()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_25
+#graphify/code #graphify/EXTRACTED #community/Community_42

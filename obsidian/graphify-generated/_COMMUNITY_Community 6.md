@@ -1,29 +1,30 @@
 ---
 type: community
-cohesion: 0.34
-members: 14
+members: 17
 ---
 
 # Community 6
 
-**Cohesion:** 0.34 - loosely connected
-**Members:** 14 nodes
+**Members:** 17 nodes
 
 ## Members
-- [[JsonLineParser.cpp]] - code - src\core\replay\JsonLineParser.cpp
-- [[isWs()]] - code - src\core\replay\JsonLineParser.cpp
-- [[parseBookTickerLine()]] - code - src\core\replay\JsonLineParser.cpp
-- [[parseDepthLine()]] - code - src\core\replay\JsonLineParser.cpp
-- [[parseInt64()]] - code - src\core\replay\JsonLineParser.cpp
-- [[parsePairObjectArray()]] - code - src\core\replay\JsonLineParser.cpp
-- [[parseSnapshotDocument()]] - code - src\core\replay\JsonLineParser.cpp
-- [[parseString()]] - code - src\core\replay\JsonLineParser.cpp
-- [[parseTradeLine()]] - code - src\core\replay\JsonLineParser.cpp
-- [[readInt64Field()]] - code - src\core\replay\JsonLineParser.cpp
-- [[readPairArrayField()]] - code - src\core\replay\JsonLineParser.cpp
-- [[readStringField()]] - code - src\core\replay\JsonLineParser.cpp
-- [[seekKey()]] - code - src\core\replay\JsonLineParser.cpp
-- [[skipWs()]] - code - src\core\replay\JsonLineParser.cpp
+- [[Metrics.cpp]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[addBytesWritten()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[addWsReconnects()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[incBlocksFlushed()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[incEventsCaptured()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[incEventsDropped()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[init()_1]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[recordCaptureEvent()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[recordCaptureWriteError()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[recordLabRun()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[recordReplayLoad()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[recordReplayParseFailure()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[recordReplaySeek()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[recordSnapshotFetchFailure()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[recordValidationRun()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[shutdown()_1]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
+- [[snapshot()]] - code - apps\hft-recorder\src\core\metrics\Metrics.cpp
 
 ## Live Query (requires Dataview plugin)
 

@@ -60,6 +60,6 @@ Lab and variants:
 
 Scaffold or low-signal areas:
 
-- `src/core/cxet_bridge/CxetCaptureBridge.cpp -> currently unimplemented bridge stub -> Status -> not central today`
+- `src/core/cxet_bridge/CxetCaptureBridge.cpp -> CXET-to-recorder row mapping helpers used by capture runtime -> CXET public composite/runtime types -> CaptureCoordinatorRuntime and JsonSerializers`
 - `src/core/stream/StreamRecorder.hpp -> producer interface declaration only -> dataset enums/status -> transitional`
 - `src/core/block/* and src/core/codec/* -> file/block/varint scaffolding -> core internals -> not the center of current product`

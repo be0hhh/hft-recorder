@@ -1,19 +1,19 @@
 ---
 type: community
-cohesion: 0.83
-members: 4
+members: 6
 ---
 
 # Community 30
 
-**Cohesion:** 0.83 - tightly connected
-**Members:** 4 nodes
+**Members:** 6 nodes
 
 ## Members
-- [[TEST()_4]] - code - tests\unit\test_session_replay.cpp
-- [[makeTmpDir()]] - code - tests\unit\test_session_replay.cpp
-- [[test_session_replay.cpp]] - code - tests\unit\test_session_replay.cpp
-- [[writeFile()]] - code - tests\unit\test_session_replay.cpp
+- [[BookRenderer.cpp]] - code - src\gui\viewer\renderers\BookRenderer.cpp
+- [[drawSide()]] - code - src\gui\viewer\renderers\BookRenderer.cpp
+- [[isVisibleLevel()]] - code - src\gui\viewer\renderers\BookRenderer.cpp
+- [[normalizedBrightness()]] - code - src\gui\viewer\renderers\BookRenderer.cpp
+- [[renderBook()]] - code - src\gui\viewer\renderers\BookRenderer.cpp
+- [[usdToE8()_1]] - code - src\gui\viewer\renderers\BookRenderer.cpp
 
 ## Live Query (requires Dataview plugin)
 

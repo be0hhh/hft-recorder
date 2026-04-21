@@ -1,18 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartGpuItem.cpp"
+source_file: "src\gui\viewer\ChartItem.cpp"
 type: "code"
-community: "Community 2"
-location: "L293"
+community: "Community 8"
+location: "L75"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_2
+  - community/Community_8
 ---
 
 # setBookOpacityGain()
 
 ## Connections
-- [[ChartGpuItem.cpp]] - `contains` [EXTRACTED]
-- [[clampReal()]] - `calls` [EXTRACTED]
+- [[ChartItem.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_2
+#graphify/code #graphify/EXTRACTED #community/Community_8

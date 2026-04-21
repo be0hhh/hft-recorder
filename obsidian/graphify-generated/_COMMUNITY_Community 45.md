@@ -1,18 +1,17 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 4
 ---
 
 # Community 45
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[XzWrapper.cpp]] - code - src\support\external_wrappers\XzWrapper.cpp
-- [[xzDecode()]] - code - src\support\external_wrappers\XzWrapper.cpp
-- [[xzEncode()]] - code - src\support\external_wrappers\XzWrapper.cpp
+- [[ChartController]] - code - src\gui\viewer\ChartController.hpp
+- [[ChartController.cpp]] - code - apps\hft-recorder\src\gui\viewer\ChartController.cpp
+- [[ChartController.hpp]] - code - src\gui\viewer\ChartController.hpp
+- [[envForcesSoftwareRenderer()]] - code - apps\hft-recorder\src\gui\viewer\ChartController.cpp
 
 ## Live Query (requires Dataview plugin)
 

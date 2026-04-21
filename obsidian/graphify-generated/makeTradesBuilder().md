@@ -1,19 +1,18 @@
 ---
-source_file: "src\core\capture\CaptureCoordinator.cpp"
+source_file: "apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.cpp"
 type: "code"
-community: "Community 3"
-location: "L54"
+community: "Community 13"
+location: "L48"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_3
+  - community/Community_13
 ---
 
 # makeTradesBuilder()
 
 ## Connections
-- [[CaptureCoordinator.cpp]] - `contains` [EXTRACTED]
+- [[CaptureCoordinatorInternal.cpp]] - `contains` [EXTRACTED]
 - [[makeSymbol()]] - `calls` [EXTRACTED]
-- [[startTrades()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_3
+#graphify/code #graphify/EXTRACTED #community/Community_13

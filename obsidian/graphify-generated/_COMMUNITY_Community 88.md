@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 88
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[PipelineResult.hpp]] - code - src\core\lab\PipelineResult.hpp
+- [[BookTickerRenderer.cpp]] - code - apps\hft-recorder\src\gui\viewer\renderers\BookTickerRenderer.cpp
+- [[renderBookTicker()]] - code - apps\hft-recorder\src\gui\viewer\renderers\BookTickerRenderer.cpp
 
 ## Live Query (requires Dataview plugin)
 

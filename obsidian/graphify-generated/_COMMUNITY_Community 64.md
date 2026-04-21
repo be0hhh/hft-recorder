@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 64
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[ValidationRunner.cpp]] - code - src\core\validation\ValidationRunner.cpp
-- [[compare()]] - code - src\core\validation\ValidationRunner.cpp
+- [[Lz4Wrapper.cpp]] - code - apps\hft-recorder\src\support\external_wrappers\Lz4Wrapper.cpp
+- [[lz4Decode()]] - code - apps\hft-recorder\src\support\external_wrappers\Lz4Wrapper.cpp
+- [[lz4Encode()]] - code - apps\hft-recorder\src\support\external_wrappers\Lz4Wrapper.cpp
 
 ## Live Query (requires Dataview plugin)
 

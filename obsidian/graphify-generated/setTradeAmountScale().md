@@ -1,18 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartGpuItem.cpp"
+source_file: "src\gui\viewer\ChartItem.cpp"
 type: "code"
-community: "Community 2"
-location: "L292"
+community: "Community 8"
+location: "L65"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_2
+  - community/Community_8
 ---
 
 # setTradeAmountScale()
 
 ## Connections
-- [[ChartGpuItem.cpp]] - `contains` [EXTRACTED]
-- [[clampReal()]] - `calls` [EXTRACTED]
+- [[ChartItem.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_2
+#graphify/code #graphify/EXTRACTED #community/Community_8

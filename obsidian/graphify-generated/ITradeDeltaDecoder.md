@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\representation\DeltaTrade.hpp"
+source_file: "apps\hft-recorder\src\core\representation\DeltaTrade.hpp"
 type: "code"
-community: "Community 20"
+community: "Community 38"
 location: "L23"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_20
+  - community/Community_38
 ---
 
 # ITradeDeltaDecoder
@@ -15,4 +15,4 @@ tags:
 - [[.ITradeDeltaDecoder()]] - `method` [EXTRACTED]
 - [[DeltaTrade.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_20
+#graphify/code #graphify/EXTRACTED #community/Community_38

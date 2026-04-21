@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\common\Log.cpp"
+source_file: "apps\hft-recorder\src\core\common\Log.cpp"
 type: "code"
-community: "Community 17"
+community: "Community 34"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_17
+  - community/Community_34
 ---
 
 # Log.cpp
@@ -17,4 +17,4 @@ tags:
 - [[parseLevel()]] - `contains` [EXTRACTED]
 - [[shutdown()]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_17
+#graphify/code #graphify/EXTRACTED #community/Community_34

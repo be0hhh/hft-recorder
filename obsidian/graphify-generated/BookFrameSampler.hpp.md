@@ -1,14 +1,14 @@
 ---
-source_file: "src\core\lab\BookFrameSampler.hpp"
+source_file: "apps\hft-recorder\src\core\lab\BookFrameSampler.hpp"
 type: "code"
-community: "Community 86"
+community: "Community 113"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_86
+  - community/Community_113
 ---
 
 # BookFrameSampler.hpp
 
-#graphify/code #graphify/EXTRACTED #community/Community_86
+#graphify/code #graphify/EXTRACTED #community/Community_113

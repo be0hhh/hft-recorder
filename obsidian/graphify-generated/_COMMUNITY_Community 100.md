@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 100
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[BrotliWrapper.hpp]] - code - src\support\external_wrappers\BrotliWrapper.hpp
+- [[CaptureCoordinatorInternal.hpp]] - code - apps\hft-recorder\src\core\capture\CaptureCoordinatorInternal.hpp
 
 ## Live Query (requires Dataview plugin)
 

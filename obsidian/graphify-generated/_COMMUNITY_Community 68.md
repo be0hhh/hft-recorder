@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 68
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[TradeRenderer.cpp]] - code - src\gui\viewer\renderers\TradeRenderer.cpp
-- [[renderTrades()]] - code - src\gui\viewer\renderers\TradeRenderer.cpp
+- [[TEST()_3]] - code - tests\unit\test_capture_serializers.cpp
+- [[contains()]] - code - tests\unit\test_capture_serializers.cpp
+- [[test_capture_serializers.cpp]] - code - tests\unit\test_capture_serializers.cpp
 
 ## Live Query (requires Dataview plugin)
 

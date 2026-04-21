@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 56
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[StreamFamily.hpp]] - code - src\core\dataset\StreamFamily.hpp
-- [[streamFamilyToString()]] - code - src\core\dataset\StreamFamily.hpp
+- [[JsonString.hpp]] - code - apps\hft-recorder\src\core\common\JsonString.hpp
+- [[appendEscaped()]] - code - apps\hft-recorder\src\core\common\JsonString.hpp
+- [[quote()]] - code - apps\hft-recorder\src\core\common\JsonString.hpp
 
 ## Live Query (requires Dataview plugin)
 

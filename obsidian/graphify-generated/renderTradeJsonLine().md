@@ -1,19 +1,17 @@
 ---
 source_file: "src\core\capture\JsonSerializers.cpp"
 type: "code"
-community: "Community 10"
-location: "L42"
+community: "Community 23"
+location: "L50"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_10
+  - community/Community_23
 ---
 
 # renderTradeJsonLine()
 
 ## Connections
 - [[JsonSerializers.cpp]] - `contains` [EXTRACTED]
-- [[sideToString()]] - `calls` [EXTRACTED]
-- [[triStateToString()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_10
+#graphify/code #graphify/EXTRACTED #community/Community_23

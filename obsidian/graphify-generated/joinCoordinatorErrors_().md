@@ -1,22 +1,21 @@
 ---
-source_file: "src\gui\viewmodels\CaptureViewModel.cpp"
+source_file: "apps\hft-recorder\src\gui\viewmodels\CaptureViewModelBatch.cpp"
 type: "code"
-community: "Community 1"
-location: "L265"
+community: "Community 12"
+location: "L149"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_1
+  - community/Community_12
 ---
 
 # joinCoordinatorErrors_()
 
 ## Connections
-- [[CaptureViewModel.cpp]] - `contains` [EXTRACTED]
+- [[CaptureViewModelBatch.cpp]] - `contains` [EXTRACTED]
 - [[finalizeSession()_1]] - `calls` [EXTRACTED]
-- [[setStatusFromStatus()]] - `calls` [EXTRACTED]
 - [[startBookTicker()_1]] - `calls` [EXTRACTED]
 - [[startOrderbook()_1]] - `calls` [EXTRACTED]
 - [[startTrades()_1]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_1
+#graphify/code #graphify/EXTRACTED #community/Community_12

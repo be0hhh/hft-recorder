@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 84
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[SessionCorpus.hpp]] - code - src\core\corpus\SessionCorpus.hpp
+- [[AccuracyClass.hpp]] - code - apps\hft-recorder\src\core\validation\AccuracyClass.hpp
+- [[accuracyClassToString()]] - code - apps\hft-recorder\src\core\validation\AccuracyClass.hpp
 
 ## Live Query (requires Dataview plugin)
 

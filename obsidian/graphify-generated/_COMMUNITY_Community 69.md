@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 69
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[TEST()]] - code - tests\unit\test_book_state.cpp
-- [[test_book_state.cpp]] - code - tests\unit\test_book_state.cpp
+- [[TEST()_4]] - code - tests\unit\test_corpus_loader.cpp
+- [[fixtureDir()]] - code - tests\unit\test_corpus_loader.cpp
+- [[test_corpus_loader.cpp]] - code - tests\unit\test_corpus_loader.cpp
 
 ## Live Query (requires Dataview plugin)
 

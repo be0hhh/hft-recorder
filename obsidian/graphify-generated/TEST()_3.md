@@ -1,17 +1,18 @@
 ---
-source_file: "tests\unit\test_json_line_parser.cpp"
+source_file: "tests\unit\test_capture_serializers.cpp"
 type: "code"
-community: "Community 71"
-location: "L25"
+community: "Community 68"
+location: "L38"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_71
+  - community/Community_68
 ---
 
 # TEST()
 
 ## Connections
-- [[test_json_line_parser.cpp]] - `contains` [EXTRACTED]
+- [[contains()]] - `calls` [EXTRACTED]
+- [[test_capture_serializers.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_71
+#graphify/code #graphify/EXTRACTED #community/Community_68

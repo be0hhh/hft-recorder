@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\validation\AccuracyClass.hpp"
+source_file: "apps\hft-recorder\src\core\validation\AccuracyClass.hpp"
 type: "code"
-community: "Community 63"
+community: "Community 84"
 location: "L14"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_63
+  - community/Community_84
 ---
 
 # accuracyClassToString()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[AccuracyClass.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_63
+#graphify/code #graphify/EXTRACTED #community/Community_84

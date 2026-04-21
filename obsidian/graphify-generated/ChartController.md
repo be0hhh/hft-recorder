@@ -1,12 +1,12 @@
 ---
 source_file: "src\gui\viewer\ChartController.hpp"
 type: "code"
-community: "Community 0"
-location: "L11"
+community: "Community 45"
+location: "L12"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_0
+  - community/Community_45
 ---
 
 # ChartController
@@ -16,4 +16,4 @@ tags:
 - [[ChartController.hpp]] - `contains` [EXTRACTED]
 - [[envForcesSoftwareRenderer()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_0
+#graphify/code #graphify/EXTRACTED #community/Community_45

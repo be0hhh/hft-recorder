@@ -1,21 +1,18 @@
 ---
-source_file: "src\core\capture\CaptureCoordinator.cpp"
+source_file: "src\core\capture\CaptureCoordinatorRuntime.cpp"
 type: "code"
-community: "Community 3"
-location: "L141"
+community: "Community 16"
+location: "L34"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_3
+  - community/Community_16
 ---
 
 # startTrades()
 
 ## Connections
-- [[CaptureCoordinator.cpp]] - `contains` [EXTRACTED]
-- [[ensureCxetInitialized()]] - `calls` [EXTRACTED]
-- [[ensureSession()]] - `calls` [EXTRACTED]
-- [[makeTradesBuilder()]] - `calls` [EXTRACTED]
-- [[sleepIfIdle()]] - `calls` [EXTRACTED]
+- [[CaptureCoordinatorRuntime.cpp]] - `contains` [EXTRACTED]
+- [[nextEventSequenceIds()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_3
+#graphify/code #graphify/EXTRACTED #community/Community_16

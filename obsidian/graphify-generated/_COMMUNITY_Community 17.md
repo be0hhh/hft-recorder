@@ -1,20 +1,23 @@
 ---
 type: community
-cohesion: 0.50
-members: 5
+members: 10
 ---
 
 # Community 17
 
-**Cohesion:** 0.50 - moderately connected
-**Members:** 5 nodes
+**Members:** 10 nodes
 
 ## Members
-- [[Log.cpp]] - code - src\core\common\Log.cpp
-- [[get()]] - code - src\core\common\Log.cpp
-- [[init()]] - code - src\core\common\Log.cpp
-- [[parseLevel()]] - code - src\core\common\Log.cpp
-- [[shutdown()]] - code - src\core\common\Log.cpp
+- [[SessionReplayTimeline.cpp]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[applyBucket_()]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[applyDepthRowsUntil_()]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[finalize()]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[rebuildBuckets_()]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[rebuildEvents_()]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[rewindToSnapshot_()]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[seek()]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[validateDepthStream_()]] - code - src\core\replay\SessionReplayTimeline.cpp
+- [[validateSequenceMetadata_()]] - code - src\core\replay\SessionReplayTimeline.cpp
 
 ## Live Query (requires Dataview plugin)
 

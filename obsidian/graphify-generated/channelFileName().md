@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\capture\ChannelKind.hpp"
+source_file: "apps\hft-recorder\src\core\capture\ChannelKind.hpp"
 type: "code"
-community: "Community 34"
+community: "Community 53"
 location: "L15"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_34
+  - community/Community_53
 ---
 
 # channelFileName()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[ChannelKind.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_34
+#graphify/code #graphify/EXTRACTED #community/Community_53

@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 97
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[BookTickerRenderer.hpp]] - code - src\gui\viewer\renderers\BookTickerRenderer.hpp
+- [[version.hpp]] - code - apps\hft-recorder\include\hftrec\version.hpp
 
 ## Live Query (requires Dataview plugin)
 

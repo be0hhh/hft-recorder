@@ -1,12 +1,12 @@
 ---
-source_file: "src\gui\viewer\renderers\BookTickerRenderer.cpp"
+source_file: "apps\hft-recorder\src\gui\viewer\renderers\BookTickerRenderer.cpp"
 type: "code"
-community: "Community 67"
+community: "Community 88"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_67
+  - community/Community_88
 ---
 
 # BookTickerRenderer.cpp
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[renderBookTicker()]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_67
+#graphify/code #graphify/EXTRACTED #community/Community_88

@@ -1,8 +1,8 @@
 ---
-source_file: "src\gui\viewmodels\CaptureViewModel.cpp"
+source_file: "apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp"
 type: "code"
 community: "Community 1"
-location: "L211"
+location: "L115"
 tags:
   - graphify/code
   - graphify/EXTRACTED
@@ -13,10 +13,5 @@ tags:
 
 ## Connections
 - [[CaptureViewModel.cpp]] - `contains` [EXTRACTED]
-- [[ensureCoordinatorBatch_()]] - `calls` [EXTRACTED]
-- [[normalizedSymbols_()]] - `calls` [EXTRACTED]
-- [[startBookTicker()_1]] - `calls` [EXTRACTED]
-- [[startOrderbook()_1]] - `calls` [EXTRACTED]
-- [[startTrades()_1]] - `calls` [EXTRACTED]
 
 #graphify/code #graphify/EXTRACTED #community/Community_1

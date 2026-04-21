@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 96
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[BookRenderer.hpp]] - code - src\gui\viewer\renderers\BookRenderer.hpp
+- [[TEST()_9]] - code - apps\hft-recorder\tests\unit\test_validation_runner.cpp
+- [[test_validation_runner.cpp]] - code - apps\hft-recorder\tests\unit\test_validation_runner.cpp
 
 ## Live Query (requires Dataview plugin)
 

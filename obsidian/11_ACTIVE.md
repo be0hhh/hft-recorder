@@ -9,9 +9,9 @@ Current active tasks:
 - `obsidian vault maintenance`
   - owner: `obsidian`
   - status: `active`
-  - last_verified_at: `2026-04-19`
-  - verified_against: `obsidian/00_INDEX.md`, `obsidian/CURRENT_REALITY_STATUS.md`
-  - notes: keep curated layer compact; keep generated layer secondary
+  - last_verified_at: `2026-04-21`
+  - verified_against: `obsidian/00_INDEX.md`, `obsidian/CURRENT_REALITY_STATUS.md`, `obsidian/08_GRAPHIFY_LAYER.md`, `graphify-out/GRAPH_REPORT.md`
+  - notes: keep curated layer compact; keep generated layer secondary; refresh generated vault after raw graph rebuilds so symbol navigation does not drift
 
 - `capture path truth audit`
   - owner: `capture`

@@ -1,18 +1,17 @@
 ---
 type: community
-cohesion: 1.00
-members: 3
+members: 4
 ---
 
 # Community 47
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 3 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[TEST()_1]] - code - tests\unit\test_capture_serializers.cpp
-- [[contains()]] - code - tests\unit\test_capture_serializers.cpp
-- [[test_capture_serializers.cpp]] - code - tests\unit\test_capture_serializers.cpp
+- [[ChartController_2]] - code - src\gui\viewer\ChartItemPaintInternal.hpp
+- [[ChartItem_1]] - code - src\gui\viewer\ChartItemPaintInternal.hpp
+- [[ChartItemPaintInternal.hpp]] - code - src\gui\viewer\ChartItemPaintInternal.hpp
+- [[QPainter_1]] - code - src\gui\viewer\ChartItemPaintInternal.hpp
 
 ## Live Query (requires Dataview plugin)
 

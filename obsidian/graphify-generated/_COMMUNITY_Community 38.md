@@ -1,18 +1,18 @@
 ---
 type: community
-cohesion: 1.00
-members: 3
+members: 5
 ---
 
 # Community 38
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 3 nodes
+**Members:** 5 nodes
 
 ## Members
-- [[CorpusLoader.cpp]] - code - src\core\corpus\CorpusLoader.cpp
-- [[load()]] - code - src\core\corpus\CorpusLoader.cpp
-- [[loadLinesOptional()]] - code - src\core\corpus\CorpusLoader.cpp
+- [[.ITradeDeltaDecoder()]] - code - apps\hft-recorder\src\core\representation\DeltaTrade.hpp
+- [[.ITradeDeltaEncoder()]] - code - apps\hft-recorder\src\core\representation\DeltaTrade.hpp
+- [[DeltaTrade.hpp]] - code - apps\hft-recorder\src\core\representation\DeltaTrade.hpp
+- [[ITradeDeltaDecoder]] - code - apps\hft-recorder\src\core\representation\DeltaTrade.hpp
+- [[ITradeDeltaEncoder]] - code - apps\hft-recorder\src\core\representation\DeltaTrade.hpp
 
 ## Live Query (requires Dataview plugin)
 

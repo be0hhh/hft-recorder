@@ -1,17 +1,15 @@
 ---
 type: community
-cohesion: 1.00
 members: 2
 ---
 
 # Community 70
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 2 nodes
 
 ## Members
-- [[TEST()_2]] - code - tests\unit\test_identity_codec.cpp
-- [[test_identity_codec.cpp]] - code - tests\unit\test_identity_codec.cpp
+- [[analyze_cli.cpp]] - code - apps\hft-recorder\src\app\analyze_cli.cpp
+- [[runAnalyze()]] - code - apps\hft-recorder\src\app\analyze_cli.cpp
 
 ## Live Query (requires Dataview plugin)
 

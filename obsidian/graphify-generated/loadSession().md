@@ -1,19 +1,19 @@
 ---
-source_file: "src\gui\viewer\ChartController.cpp"
+source_file: "src\gui\viewer\ChartControllerSession.cpp"
 type: "code"
-community: "Community 0"
-location: "L220"
+community: "Community 19"
+location: "L140"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_0
+  - community/Community_19
 ---
 
 # loadSession()
 
 ## Connections
-- [[ChartController.cpp]] - `contains` [EXTRACTED]
-- [[computeInitialViewport_()]] - `calls` [EXTRACTED]
+- [[ChartControllerSession.cpp]] - `contains` [EXTRACTED]
+- [[replayFailureText()]] - `calls` [EXTRACTED]
 - [[stripFileUrl()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_0
+#graphify/code #graphify/EXTRACTED #community/Community_19

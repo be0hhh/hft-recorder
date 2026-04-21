@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 95
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[HoverDetection.hpp]] - code - src\gui\viewer\hit_test\HoverDetection.hpp
+- [[TEST()_8]] - code - apps\hft-recorder\tests\unit\test_smoke.cpp
+- [[test_smoke.cpp]] - code - apps\hft-recorder\tests\unit\test_smoke.cpp
 
 ## Live Query (requires Dataview plugin)
 

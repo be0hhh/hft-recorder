@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 102
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[XzWrapper.hpp]] - code - src\support\external_wrappers\XzWrapper.hpp
+- [[SessionId.hpp]] - code - apps\hft-recorder\src\core\capture\SessionId.hpp
 
 ## Live Query (requires Dataview plugin)
 

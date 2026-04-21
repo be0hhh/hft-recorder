@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\replay\BookState.hpp"
+source_file: "apps\hft-recorder\src\core\replay\BookState.hpp"
 type: "code"
-community: "Community 61"
+community: "Community 82"
 location: "L16"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_61
+  - community/Community_82
 ---
 
 # BookState
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[BookState.hpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_61
+#graphify/code #graphify/EXTRACTED #community/Community_82

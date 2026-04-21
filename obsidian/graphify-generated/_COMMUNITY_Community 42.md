@@ -1,18 +1,17 @@
 ---
 type: community
-cohesion: 1.00
-members: 3
+members: 4
 ---
 
 # Community 42
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 3 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[BookRenderer.cpp]] - code - src\gui\viewer\renderers\BookRenderer.cpp
-- [[drawSide()]] - code - src\gui\viewer\renderers\BookRenderer.cpp
-- [[renderBook()]] - code - src\gui\viewer\renderers\BookRenderer.cpp
+- [[BookFrameSampler.cpp]] - code - src\core\lab\BookFrameSampler.cpp
+- [[copyTopLevels()]] - code - src\core\lab\BookFrameSampler.cpp
+- [[makeFrame()]] - code - src\core\lab\BookFrameSampler.cpp
+- [[sampleGroundTruthBookFrames()]] - code - src\core\lab\BookFrameSampler.cpp
 
 ## Live Query (requires Dataview plugin)
 

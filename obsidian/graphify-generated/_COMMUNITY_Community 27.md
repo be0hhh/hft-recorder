@@ -1,19 +1,20 @@
 ---
 type: community
-cohesion: 0.50
-members: 4
+members: 7
 ---
 
 # Community 27
 
-**Cohesion:** 0.50 - moderately connected
-**Members:** 4 nodes
+**Members:** 7 nodes
 
 ## Members
-- [[AppViewModel]] - code - src\gui\viewmodels\AppViewModel.hpp
-- [[AppViewModel.cpp]] - code - src\gui\viewmodels\AppViewModel.cpp
-- [[AppViewModel.hpp]] - code - src\gui\viewmodels\AppViewModel.hpp
-- [[statusText()]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[Formatters.hpp]] - code - apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp
+- [[appendStepSegment()]] - code - apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp
+- [[clampReal()]] - code - apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp
+- [[formatScaledE8()_1]] - code - apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp
+- [[formatTimeNs()]] - code - apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp
+- [[formatTrimmedE8()]] - code - apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp
+- [[multiplyScaledE8()]] - code - apps\hft-recorder\src\gui\viewer\detail\Formatters.hpp
 
 ## Live Query (requires Dataview plugin)
 

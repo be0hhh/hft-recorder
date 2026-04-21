@@ -1,19 +1,19 @@
 ---
 type: community
-cohesion: 0.50
-members: 4
+members: 6
 ---
 
 # Community 29
 
-**Cohesion:** 0.50 - moderately connected
-**Members:** 4 nodes
+**Members:** 6 nodes
 
 ## Members
-- [[encode.cpp]] - code - src\variants\l1\var01_raw_lz4_cpp\encode.cpp
-- [[encode.cpp_1]] - code - src\variants\orderbook\var01_raw_updates_cpp\encode.cpp
-- [[encode.cpp_2]] - code - src\variants\trade\var01_raw_zstd_cpp\encode.cpp
-- [[encodeBlock()]] - code - src\variants\trade\var01_raw_zstd_cpp\encode.cpp
+- [[CxetCaptureBridge.cpp]] - code - src\core\cxet_bridge\CxetCaptureBridge.cpp
+- [[captureBookTicker()]] - code - src\core\cxet_bridge\CxetCaptureBridge.cpp
+- [[captureOrderBook()]] - code - src\core\cxet_bridge\CxetCaptureBridge.cpp
+- [[captureTrade()]] - code - src\core\cxet_bridge\CxetCaptureBridge.cpp
+- [[initialize()]] - code - src\core\cxet_bridge\CxetCaptureBridge.cpp
+- [[makeFailure()]] - code - src\core\cxet_bridge\CxetCaptureBridge.cpp
 
 ## Live Query (requires Dataview plugin)
 

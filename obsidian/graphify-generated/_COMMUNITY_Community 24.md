@@ -1,19 +1,20 @@
 ---
 type: community
-cohesion: 0.67
-members: 4
+members: 7
 ---
 
 # Community 24
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 4 nodes
+**Members:** 7 nodes
 
 ## Members
-- [[Crc32c.cpp]] - code - src\core\codec\Crc32c.cpp
-- [[crc32c()]] - code - src\core\codec\Crc32c.cpp
-- [[crc32cUpdate()]] - code - src\core\codec\Crc32c.cpp
-- [[makeTable()]] - code - src\core\codec\Crc32c.cpp
+- [[graphicsApiName()]] - code - src\gui\app\main.cpp
+- [[main()_1]] - code - src\gui\app\main.cpp
+- [[main.cpp]] - code - apps\hft-recorder\src\app\main.cpp
+- [[main.cpp_1]] - code - src\gui\app\main.cpp
+- [[printUsage()_1]] - code - apps\hft-recorder\src\app\main.cpp
+- [[printVersion()]] - code - apps\hft-recorder\src\app\main.cpp
+- [[wireRenderDiagnostics()]] - code - src\gui\app\main.cpp
 
 ## Live Query (requires Dataview plugin)
 

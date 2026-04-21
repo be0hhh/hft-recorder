@@ -11,6 +11,7 @@ add_executable(hftrec_unit_tests
     test_book_state.cpp
     test_session_replay.cpp
     test_bookticker_exactness.cpp
+    test_cxet_capture_bridge.cpp
 )
 
 target_include_directories(hftrec_unit_tests

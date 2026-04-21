@@ -1,18 +1,17 @@
 ---
 type: community
-cohesion: 1.00
-members: 3
+members: 4
 ---
 
 # Community 41
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 3 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[HoverDetection.cpp]] - code - src\gui\viewer\hit_test\HoverDetection.cpp
-- [[activeSegment()]] - code - src\gui\viewer\hit_test\HoverDetection.cpp
-- [[computeHover()]] - code - src\gui\viewer\hit_test\HoverDetection.cpp
+- [[Crc32c.cpp]] - code - apps\hft-recorder\src\core\codec\Crc32c.cpp
+- [[crc32c()]] - code - apps\hft-recorder\src\core\codec\Crc32c.cpp
+- [[crc32cUpdate()]] - code - apps\hft-recorder\src\core\codec\Crc32c.cpp
+- [[makeTable()]] - code - apps\hft-recorder\src\core\codec\Crc32c.cpp
 
 ## Live Query (requires Dataview plugin)
 

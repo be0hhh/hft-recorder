@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 90
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[EventRows.hpp]] - code - src\core\replay\EventRows.hpp
+- [[CaptureViewModel_1]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelInternal.hpp
+- [[CaptureViewModelInternal.hpp]] - code - apps\hft-recorder\src\gui\viewmodels\CaptureViewModelInternal.hpp
 
 ## Live Query (requires Dataview plugin)
 

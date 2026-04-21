@@ -1,22 +1,19 @@
 ---
-source_file: "src\core\capture\CaptureCoordinator.cpp"
+source_file: "src\core\capture\CaptureCoordinatorRuntime.cpp"
 type: "code"
-community: "Community 3"
-location: "L298"
+community: "Community 16"
+location: "L333"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_3
+  - community/Community_16
 ---
 
 # startOrderbook()
 
 ## Connections
-- [[CaptureCoordinator.cpp]] - `contains` [EXTRACTED]
-- [[ensureCxetInitialized()]] - `calls` [EXTRACTED]
-- [[ensureSession()]] - `calls` [EXTRACTED]
-- [[makeOrderbookGetBuilder()]] - `calls` [EXTRACTED]
-- [[makeOrderbookSubscribeBuilder()]] - `calls` [EXTRACTED]
+- [[CaptureCoordinatorRuntime.cpp]] - `contains` [EXTRACTED]
+- [[nextEventSequenceIds()]] - `calls` [EXTRACTED]
 - [[writeSnapshotFile()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_3
+#graphify/code #graphify/EXTRACTED #community/Community_16

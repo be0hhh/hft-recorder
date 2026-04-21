@@ -1,12 +1,12 @@
 ---
 source_file: "src\core\capture\CaptureCoordinator.cpp"
 type: "code"
-community: "Community 3"
-location: "L474"
+community: "Community 10"
+location: "L160"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_3
+  - community/Community_10
 ---
 
 # sessionOpen()
@@ -16,4 +16,4 @@ tags:
 - [[ensureSession()]] - `calls` [EXTRACTED]
 - [[finalizeSession()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_3
+#graphify/code #graphify/EXTRACTED #community/Community_10

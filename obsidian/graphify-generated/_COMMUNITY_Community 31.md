@@ -1,18 +1,19 @@
 ---
 type: community
-cohesion: 1.00
-members: 3
+members: 6
 ---
 
 # Community 31
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 3 nodes
+**Members:** 6 nodes
 
 ## Members
-- [[benchmark_cli.cpp]] - code - src\app\benchmark_cli.cpp
-- [[main()]] - code - src\app\benchmark_cli.cpp
-- [[printHelp()]] - code - src\app\benchmark_cli.cpp
+- [[OverlayRenderer.cpp]] - code - apps\hft-recorder\src\gui\viewer\renderers\OverlayRenderer.cpp
+- [[drawTextCard()]] - code - apps\hft-recorder\src\gui\viewer\renderers\OverlayRenderer.cpp
+- [[layoutCard()]] - code - apps\hft-recorder\src\gui\viewer\renderers\OverlayRenderer.cpp
+- [[renderBookOverlay()]] - code - apps\hft-recorder\src\gui\viewer\renderers\OverlayRenderer.cpp
+- [[renderOverlay()]] - code - apps\hft-recorder\src\gui\viewer\renderers\OverlayRenderer.cpp
+- [[renderTradeOverlay()]] - code - apps\hft-recorder\src\gui\viewer\renderers\OverlayRenderer.cpp
 
 ## Live Query (requires Dataview plugin)
 

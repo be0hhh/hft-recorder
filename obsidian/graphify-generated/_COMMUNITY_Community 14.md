@@ -1,21 +1,24 @@
 ---
 type: community
-cohesion: 0.73
-members: 6
+members: 11
 ---
 
 # Community 14
 
-**Cohesion:** 0.73 - tightly connected
-**Members:** 6 nodes
+**Members:** 11 nodes
 
 ## Members
-- [[OverlayRenderer.cpp]] - code - src\gui\viewer\renderers\OverlayRenderer.cpp
-- [[drawTextCard()]] - code - src\gui\viewer\renderers\OverlayRenderer.cpp
-- [[layoutCard()]] - code - src\gui\viewer\renderers\OverlayRenderer.cpp
-- [[renderBookOverlay()]] - code - src\gui\viewer\renderers\OverlayRenderer.cpp
-- [[renderOverlay()]] - code - src\gui\viewer\renderers\OverlayRenderer.cpp
-- [[renderTradeOverlay()]] - code - src\gui\viewer\renderers\OverlayRenderer.cpp
+- [[InstrumentMetadata.cpp]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[appendOptionalI64()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[appendOptionalString()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[inferBaseAsset()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[inferInstrumentType()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[inferQuoteAsset()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[makeInstrumentMetadata()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[parseInstrumentMetadataJson()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[parseOptionalI64()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[parseOptionalString()]] - code - src\core\corpus\InstrumentMetadata.cpp
+- [[renderInstrumentMetadataJson()]] - code - src\core\corpus\InstrumentMetadata.cpp
 
 ## Live Query (requires Dataview plugin)
 

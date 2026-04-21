@@ -2,7 +2,7 @@
 source_file: "src\core\replay\SessionReplay.cpp"
 type: "code"
 community: "Community 7"
-location: "L114"
+location: "L349"
 tags:
   - graphify/code
   - graphify/EXTRACTED
@@ -13,11 +13,10 @@ tags:
 
 ## Connections
 - [[SessionReplay.cpp]] - `contains` [EXTRACTED]
-- [[addBookTickerFile()]] - `calls` [EXTRACTED]
-- [[addDepthFile()]] - `calls` [EXTRACTED]
-- [[addSnapshotFile()]] - `calls` [EXTRACTED]
-- [[addTradesFile()]] - `calls` [EXTRACTED]
-- [[finalize()]] - `calls` [EXTRACTED]
+- [[applyLoadIssueToIntegritySummary()]] - `calls` [EXTRACTED]
+- [[loadManifestHints_()]] - `calls` [EXTRACTED]
+- [[maybeWriteIntegrityReport_()]] - `calls` [EXTRACTED]
+- [[refreshHealthSummary_()]] - `calls` [EXTRACTED]
 - [[reset()_1]] - `calls` [EXTRACTED]
 
 #graphify/code #graphify/EXTRACTED #community/Community_7

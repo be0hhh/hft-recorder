@@ -1,20 +1,21 @@
 ---
 type: community
-cohesion: 0.40
-members: 5
+members: 8
 ---
 
 # Community 21
 
-**Cohesion:** 0.40 - moderately connected
-**Members:** 5 nodes
+**Members:** 8 nodes
 
 ## Members
-- [[BookMath.hpp]] - code - src\gui\viewer\detail\BookMath.hpp
-- [[amountRadiusScale()_1]] - code - src\gui\viewer\detail\BookMath.hpp
-- [[findNearestBookLevel()]] - code - src\gui\viewer\detail\BookMath.hpp
-- [[maxVisibleQty()_1]] - code - src\gui\viewer\detail\BookMath.hpp
-- [[remapBookOpacity()_1]] - code - src\gui\viewer\detail\BookMath.hpp
+- [[.BlockReader()]] - code - apps\hft-recorder\src\core\block\BlockReader.hpp
+- [[BlockReader]] - code - apps\hft-recorder\src\core\block\BlockReader.hpp
+- [[BlockReader.cpp]] - code - apps\hft-recorder\src\core\block\BlockReader.cpp
+- [[BlockReader.hpp]] - code - apps\hft-recorder\src\core\block\BlockReader.hpp
+- [[close()]] - code - apps\hft-recorder\src\core\block\BlockReader.cpp
+- [[fileHeader()]] - code - apps\hft-recorder\src\core\block\BlockReader.cpp
+- [[nextBlock()]] - code - apps\hft-recorder\src\core\block\BlockReader.cpp
+- [[open()]] - code - apps\hft-recorder\src\core\block\BlockReader.cpp
 
 ## Live Query (requires Dataview plugin)
 

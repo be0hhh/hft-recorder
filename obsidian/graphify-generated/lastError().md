@@ -1,12 +1,12 @@
 ---
 source_file: "src\core\capture\CaptureCoordinator.cpp"
 type: "code"
-community: "Community 3"
-location: "L444"
+community: "Community 10"
+location: "L123"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_3
+  - community/Community_10
 ---
 
 # lastError()
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[CaptureCoordinator.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_3
+#graphify/code #graphify/EXTRACTED #community/Community_10

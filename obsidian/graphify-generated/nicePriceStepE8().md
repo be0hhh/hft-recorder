@@ -1,18 +1,18 @@
 ---
-source_file: "src\gui\viewer\ChartController.cpp"
+source_file: "src\gui\viewer\ChartControllerViewport.cpp"
 type: "code"
-community: "Community 0"
-location: "L29"
+community: "Community 2"
+location: "L41"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_0
+  - community/Community_2
 ---
 
 # nicePriceStepE8()
 
 ## Connections
-- [[ChartController.cpp]] - `contains` [EXTRACTED]
+- [[ChartControllerViewport.cpp]] - `contains` [EXTRACTED]
 - [[formatPriceScaleLabel()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_0
+#graphify/code #graphify/EXTRACTED #community/Community_2

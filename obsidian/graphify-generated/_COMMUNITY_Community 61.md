@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 61
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[BookState]] - code - src\core\replay\BookState.hpp
-- [[BookState.hpp]] - code - src\core\replay\BookState.hpp
+- [[HoverDetection.cpp]] - code - src\gui\viewer\hit_test\HoverDetection.cpp
+- [[activeSegment()]] - code - src\gui\viewer\hit_test\HoverDetection.cpp
+- [[computeHover()]] - code - src\gui\viewer\hit_test\HoverDetection.cpp
 
 ## Live Query (requires Dataview plugin)
 

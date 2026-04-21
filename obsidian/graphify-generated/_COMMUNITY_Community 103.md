@@ -1,16 +1,14 @@
 ---
 type: community
-cohesion: 1.00
 members: 1
 ---
 
 # Community 103
 
-**Cohesion:** 1.00 - tightly connected
 **Members:** 1 nodes
 
 ## Members
-- [[ZstdWrapper.hpp]] - code - src\support\external_wrappers\ZstdWrapper.hpp
+- [[SessionManifest.hpp]] - code - src\core\capture\SessionManifest.hpp
 
 ## Live Query (requires Dataview plugin)
 

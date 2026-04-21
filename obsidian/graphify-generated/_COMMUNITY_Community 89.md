@@ -1,16 +1,15 @@
 ---
 type: community
-cohesion: 1.00
-members: 1
+members: 2
 ---
 
 # Community 89
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 1 nodes
+**Members:** 2 nodes
 
 ## Members
-- [[Metrics.hpp]] - code - src\core\metrics\Metrics.hpp
+- [[TradeRenderer.cpp]] - code - src\gui\viewer\renderers\TradeRenderer.cpp
+- [[renderTrades()]] - code - src\gui\viewer\renderers\TradeRenderer.cpp
 
 ## Live Query (requires Dataview plugin)
 

@@ -1,18 +1,17 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 4
 ---
 
 # Community 40
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[.IStreamRecorder()]] - code - src\core\stream\StreamRecorder.hpp
-- [[IStreamRecorder]] - code - src\core\stream\StreamRecorder.hpp
-- [[StreamRecorder.hpp]] - code - src\core\stream\StreamRecorder.hpp
+- [[capture_cli.cpp]] - code - apps\hft-recorder\src\app\capture_cli.cpp
+- [[makeDefaultConfig()]] - code - apps\hft-recorder\src\app\capture_cli.cpp
+- [[printUsage()]] - code - apps\hft-recorder\src\app\capture_cli.cpp
+- [[runCapture()]] - code - apps\hft-recorder\src\app\capture_cli.cpp
 
 ## Live Query (requires Dataview plugin)
 

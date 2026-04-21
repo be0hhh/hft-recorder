@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\representation\DeltaBookTicker.hpp"
+source_file: "apps\hft-recorder\src\core\representation\DeltaBookTicker.hpp"
 type: "code"
-community: "Community 18"
+community: "Community 36"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_18
+  - community/Community_36
 ---
 
 # DeltaBookTicker.hpp
@@ -15,4 +15,4 @@ tags:
 - [[IBookTickerDeltaDecoder]] - `contains` [EXTRACTED]
 - [[IBookTickerDeltaEncoder]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_18
+#graphify/code #graphify/EXTRACTED #community/Community_36

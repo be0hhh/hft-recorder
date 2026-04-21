@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 57
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[LabRunner.cpp]] - code - src\core\lab\LabRunner.cpp
-- [[run()]] - code - src\core\lab\LabRunner.cpp
+- [[.MiniJsonParser()]] - code - src\core\common\MiniJsonParser.hpp
+- [[MiniJsonParser]] - code - src\core\common\MiniJsonParser.hpp
+- [[MiniJsonParser.hpp]] - code - src\core\common\MiniJsonParser.hpp
 
 ## Live Query (requires Dataview plugin)
 

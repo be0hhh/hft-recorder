@@ -1,19 +1,20 @@
 ---
 type: community
-cohesion: 0.50
-members: 4
+members: 7
 ---
 
 # Community 26
 
-**Cohesion:** 0.50 - moderately connected
-**Members:** 4 nodes
+**Members:** 7 nodes
 
 ## Members
-- [[BookState.cpp]] - code - src\core\replay\BookState.cpp
-- [[applyDelta()]] - code - src\core\replay\BookState.cpp
-- [[applySnapshot()]] - code - src\core\replay\BookState.cpp
-- [[reset()]] - code - src\core\replay\BookState.cpp
+- [[ChartItemHover.cpp]] - code - src\gui\viewer\ChartItemHover.cpp
+- [[activateContextPoint()]] - code - src\gui\viewer\ChartItemHover.cpp
+- [[buildHoverInfo()]] - code - src\gui\viewer\ChartItemHover.cpp
+- [[clearHover()]] - code - src\gui\viewer\ChartItemHover.cpp
+- [[setHoverPoint()]] - code - src\gui\viewer\ChartItemHover.cpp
+- [[shouldSkipHoverRecompute_()]] - code - src\gui\viewer\ChartItemHover.cpp
+- [[updateHover_()]] - code - src\gui\viewer\ChartItemHover.cpp
 
 ## Live Query (requires Dataview plugin)
 

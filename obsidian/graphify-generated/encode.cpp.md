@@ -1,12 +1,12 @@
 ---
-source_file: "src\variants\l1\var01_raw_lz4_cpp\encode.cpp"
+source_file: "apps\hft-recorder\src\variants\l1\var01_raw_lz4_cpp\encode.cpp"
 type: "code"
-community: "Community 29"
+community: "Community 49"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_29
+  - community/Community_49
 ---
 
 # encode.cpp
@@ -14,4 +14,4 @@ tags:
 ## Connections
 - [[encodeBlock()]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_29
+#graphify/code #graphify/EXTRACTED #community/Community_49

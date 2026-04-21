@@ -1,5 +1,5 @@
 ---
-source_file: "src\gui\viewmodels\CaptureViewModel.cpp"
+source_file: "apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp"
 type: "code"
 community: "Community 1"
 location: "L1"
@@ -13,36 +13,36 @@ tags:
 
 ## Connections
 - [[CaptureViewModel]] - `contains` [EXTRACTED]
+- [[aliasDisplayText()]] - `contains` [EXTRACTED]
+- [[availableAliasesForChannel_()]] - `contains` [EXTRACTED]
+- [[bookTickerAvailableAliases()]] - `contains` [EXTRACTED]
 - [[bookTickerCount()]] - `contains` [EXTRACTED]
+- [[bookTickerRequestPreview()]] - `contains` [EXTRACTED]
 - [[bookTickerRunning()]] - `contains` [EXTRACTED]
-- [[clearCoordinatorBatch_()]] - `contains` [EXTRACTED]
+- [[channelWeightSummary()]] - `contains` [EXTRACTED]
 - [[depthCount()]] - `contains` [EXTRACTED]
-- [[ensureCoordinatorBatch_()]] - `contains` [EXTRACTED]
-- [[finalizeSession()_1]] - `contains` [EXTRACTED]
-- [[joinCoordinatorErrors_()]] - `contains` [EXTRACTED]
+- [[isAliasSelected()]] - `contains` [EXTRACTED]
+- [[isRequiredAlias()]] - `contains` [EXTRACTED]
 - [[makeConfigs()]] - `contains` [EXTRACTED]
-- [[normalizeToken()]] - `contains` [EXTRACTED]
 - [[normalizedSymbolsText()]] - `contains` [EXTRACTED]
-- [[normalizedSymbols_()]] - `contains` [EXTRACTED]
+- [[orderbookAvailableAliases()]] - `contains` [EXTRACTED]
+- [[orderbookRequestPreview()]] - `contains` [EXTRACTED]
 - [[orderbookRunning()]] - `contains` [EXTRACTED]
 - [[outputDirectory()]] - `contains` [EXTRACTED]
-- [[refreshState()]] - `contains` [EXTRACTED]
+- [[selectedAliasesForChannel_()]] - `contains` [EXTRACTED]
 - [[sessionId()]] - `contains` [EXTRACTED]
 - [[sessionOpen()_1]] - `contains` [EXTRACTED]
-- [[sessionPath()]] - `contains` [EXTRACTED]
+- [[sessionPath()_1]] - `contains` [EXTRACTED]
 - [[setOutputDirectory()]] - `contains` [EXTRACTED]
 - [[setStatusFromStatus()]] - `contains` [EXTRACTED]
 - [[setStatusText()]] - `contains` [EXTRACTED]
 - [[setSymbolsText()]] - `contains` [EXTRACTED]
-- [[startBookTicker()_1]] - `contains` [EXTRACTED]
-- [[startOrderbook()_1]] - `contains` [EXTRACTED]
-- [[startTrades()_1]] - `contains` [EXTRACTED]
 - [[statusText()_1]] - `contains` [EXTRACTED]
-- [[stopBookTicker()_1]] - `contains` [EXTRACTED]
-- [[stopOrderbook()_1]] - `contains` [EXTRACTED]
-- [[stopTrades()_1]] - `contains` [EXTRACTED]
 - [[symbolsText()]] - `contains` [EXTRACTED]
+- [[toggleAlias()]] - `contains` [EXTRACTED]
+- [[tradesAvailableAliases()]] - `contains` [EXTRACTED]
 - [[tradesCount()]] - `contains` [EXTRACTED]
+- [[tradesRequestPreview()]] - `contains` [EXTRACTED]
 - [[tradesRunning()]] - `contains` [EXTRACTED]
 
 #graphify/code #graphify/EXTRACTED #community/Community_1

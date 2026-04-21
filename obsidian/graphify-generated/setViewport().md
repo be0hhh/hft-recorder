@@ -1,17 +1,17 @@
 ---
-source_file: "src\gui\viewer\ChartController.cpp"
+source_file: "src\gui\viewer\ChartControllerViewport.cpp"
 type: "code"
-community: "Community 0"
-location: "L292"
+community: "Community 2"
+location: "L238"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_0
+  - community/Community_2
 ---
 
 # setViewport()
 
 ## Connections
-- [[ChartController.cpp]] - `contains` [EXTRACTED]
+- [[ChartControllerViewport.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_0
+#graphify/code #graphify/EXTRACTED #community/Community_2

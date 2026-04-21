@@ -1,17 +1,16 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 3
 ---
 
 # Community 66
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 3 nodes
 
 ## Members
-- [[QPainter_1]] - code - src\gui\viewer\RenderContext.hpp
-- [[RenderContext.hpp]] - code - src\gui\viewer\RenderContext.hpp
+- [[ZstdWrapper.cpp]] - code - apps\hft-recorder\src\support\external_wrappers\ZstdWrapper.cpp
+- [[zstdDecode()]] - code - apps\hft-recorder\src\support\external_wrappers\ZstdWrapper.cpp
+- [[zstdEncode()]] - code - apps\hft-recorder\src\support\external_wrappers\ZstdWrapper.cpp
 
 ## Live Query (requires Dataview plugin)
 

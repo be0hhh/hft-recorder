@@ -1,5 +1,5 @@
 ---
-source_file: "src\gui\viewmodels\CaptureViewModel.hpp"
+source_file: "apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.hpp"
 type: "code"
 community: "Community 1"
 location: "L1"

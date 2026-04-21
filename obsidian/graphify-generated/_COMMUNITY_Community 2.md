@@ -1,43 +1,45 @@
 ---
 type: community
-cohesion: 0.13
-members: 28
+members: 32
 ---
 
 # Community 2
 
-**Cohesion:** 0.13 - loosely connected
-**Members:** 28 nodes
+**Members:** 32 nodes
 
 ## Members
-- [[ChartController_1]] - code - src\gui\viewer\ChartGpuItem.hpp
-- [[ChartGpuItem]] - code - src\gui\viewer\ChartGpuItem.hpp
-- [[ChartGpuItem.cpp]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[ChartGpuItem.hpp]] - code - src\gui\viewer\ChartGpuItem.hpp
-- [[QSGNode]] - code - src\gui\viewer\ChartGpuItem.hpp
-- [[amountRadiusScale()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[clampReal()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[drawBookSideImage()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[makeColoredNode()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[maxVisibleQty()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[multiplyScaledE8()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[nthColoredNode()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[nthNode()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[pushLineRect()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[pushRect()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[pushVertex()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[remapBookOpacity()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[requestUpdate()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[setBookOpacityGain()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[setBookRenderDetail()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[setBookTickerVisible()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[setController()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[setInteractiveMode()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[setOrderbookVisible()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[setTradeAmountScale()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[setTradesVisible()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[updateColoredNode()]] - code - src\gui\viewer\ChartGpuItem.cpp
-- [[updatePaintNode()]] - code - src\gui\viewer\ChartGpuItem.cpp
+- [[ChartControllerViewport.cpp]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[absorbBookLevels()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[absorbPrice()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[autoFit()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[buildAxisTicks()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[buildSnapshot()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[ceilToStep()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[computeInitialViewport_()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[currentBookTicker()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[floorToStep()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[formatPriceAt()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[formatPriceScaleLabel()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[formatScaledE8()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[formatShortTimeNs()_1]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[formatTimeAt()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[formatTimeScaleLabel()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[jumpToEnd()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[jumpToStart()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[nicePriceStepE8()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[niceTimeStepNs()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[panPrice()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[panTime()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[priceScaleTicks()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[setViewport()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[shouldDecimateTrades()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[syncReplayCursorToViewport()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[timeScaleTicks()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[timeSpanPerPixelNs()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[usdToE8()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[viewportCursorTs()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[zoomPrice()]] - code - src\gui\viewer\ChartControllerViewport.cpp
+- [[zoomTime()]] - code - src\gui\viewer\ChartControllerViewport.cpp
 
 ## Live Query (requires Dataview plugin)
 

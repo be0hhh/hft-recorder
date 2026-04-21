@@ -1,20 +1,23 @@
 ---
 type: community
-cohesion: 0.40
-members: 5
+members: 10
 ---
 
 # Community 16
 
-**Cohesion:** 0.40 - moderately connected
-**Members:** 5 nodes
+**Members:** 10 nodes
 
 ## Members
-- [[ChannelJsonWriter.cpp]] - code - src\core\capture\ChannelJsonWriter.cpp
-- [[close()_2]] - code - src\core\capture\ChannelJsonWriter.cpp
-- [[open()_2]] - code - src\core\capture\ChannelJsonWriter.cpp
-- [[writeJson()]] - code - src\core\capture\ChannelJsonWriter.cpp
-- [[writeLine()]] - code - src\core\capture\ChannelJsonWriter.cpp
+- [[CaptureCoordinatorRuntime.cpp]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[nextEventSequenceIds()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[snapshotSymbolString()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[startBookTicker()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[startOrderbook()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[startTrades()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[stopBookTicker()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[stopOrderbook()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[stopTrades()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
+- [[writeSnapshotFile()]] - code - src\core\capture\CaptureCoordinatorRuntime.cpp
 
 ## Live Query (requires Dataview plugin)
 

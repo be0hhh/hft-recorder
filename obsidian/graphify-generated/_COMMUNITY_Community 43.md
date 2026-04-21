@@ -1,18 +1,17 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 4
 ---
 
 # Community 43
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[BrotliWrapper.cpp]] - code - src\support\external_wrappers\BrotliWrapper.cpp
-- [[brotliDecode()]] - code - src\support\external_wrappers\BrotliWrapper.cpp
-- [[brotliEncode()]] - code - src\support\external_wrappers\BrotliWrapper.cpp
+- [[LabRunner.cpp]] - code - apps\hft-recorder\src\core\lab\LabRunner.cpp
+- [[run()]] - code - apps\hft-recorder\src\core\lab\LabRunner.cpp
+- [[totalBytes()]] - code - apps\hft-recorder\src\core\lab\LabRunner.cpp
+- [[totalDocumentBytes()]] - code - apps\hft-recorder\src\core\lab\LabRunner.cpp
 
 ## Live Query (requires Dataview plugin)
 

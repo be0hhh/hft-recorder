@@ -1,18 +1,18 @@
 ---
 type: community
-cohesion: 0.67
-members: 3
+members: 5
 ---
 
 # Community 35
 
-**Cohesion:** 0.67 - moderately connected
-**Members:** 3 nodes
+**Members:** 5 nodes
 
 ## Members
-- [[VarInt.cpp]] - code - src\core\codec\VarInt.cpp
-- [[varintDecode()]] - code - src\core\codec\VarInt.cpp
-- [[varintEncode()]] - code - src\core\codec\VarInt.cpp
+- [[LoadReport.hpp]] - code - src\core\corpus\LoadReport.hpp
+- [[appendLoadIssue()]] - code - src\core\corpus\LoadReport.hpp
+- [[escalateChannelState()]] - code - src\core\corpus\LoadReport.hpp
+- [[recomputeLoadReport()]] - code - src\core\corpus\LoadReport.hpp
+- [[toString()_1]] - code - src\core\corpus\LoadReport.hpp
 
 ## Live Query (requires Dataview plugin)
 

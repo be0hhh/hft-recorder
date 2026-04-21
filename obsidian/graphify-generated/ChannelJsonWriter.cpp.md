@@ -1,12 +1,12 @@
 ---
-source_file: "src\core\capture\ChannelJsonWriter.cpp"
+source_file: "apps\hft-recorder\src\core\capture\ChannelJsonWriter.cpp"
 type: "code"
-community: "Community 16"
+community: "Community 33"
 location: "L1"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_16
+  - community/Community_33
 ---
 
 # ChannelJsonWriter.cpp
@@ -17,4 +17,4 @@ tags:
 - [[writeJson()]] - `contains` [EXTRACTED]
 - [[writeLine()]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_16
+#graphify/code #graphify/EXTRACTED #community/Community_33

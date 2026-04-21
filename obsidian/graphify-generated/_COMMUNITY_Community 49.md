@@ -1,17 +1,17 @@
 ---
 type: community
-cohesion: 1.00
-members: 2
+members: 4
 ---
 
 # Community 49
 
-**Cohesion:** 1.00 - tightly connected
-**Members:** 2 nodes
+**Members:** 4 nodes
 
 ## Members
-- [[report_export.cpp]] - code - src\app\report_export.cpp
-- [[runReportExport()]] - code - src\app\report_export.cpp
+- [[encode.cpp]] - code - apps\hft-recorder\src\variants\l1\var01_raw_lz4_cpp\encode.cpp
+- [[encode.cpp_1]] - code - apps\hft-recorder\src\variants\orderbook\var01_raw_updates_cpp\encode.cpp
+- [[encode.cpp_2]] - code - apps\hft-recorder\src\variants\trade\var01_raw_zstd_cpp\encode.cpp
+- [[encodeBlock()]] - code - apps\hft-recorder\src\variants\trade\var01_raw_zstd_cpp\encode.cpp
 
 ## Live Query (requires Dataview plugin)
 

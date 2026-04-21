@@ -14,7 +14,7 @@ Status legend:
 
 Verified at:
 
-- `2026-04-20`
+- `2026-04-21`
 
 Reality matrix:
 
@@ -94,9 +94,9 @@ Reality matrix:
   - notes: placeholder text still references pushgateway-era reporting
 
 - `cxet bridge seam`
-  - status: `unimplemented`
+  - status: `implemented`
   - verified_against: `src/core/cxet_bridge/CxetCaptureBridge.cpp`
-  - notes: real CXET calls live directly inside `CaptureCoordinator`
+  - notes: row-mapping helpers for trades, bookTicker, and orderbook snapshots are real and used by `CaptureCoordinatorRuntime`, but the bridge is still a support seam rather than the architectural center of capture
 
 - `metrics module`
   - status: `scaffold`

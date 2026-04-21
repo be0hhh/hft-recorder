@@ -1,12 +1,12 @@
 ---
-source_file: "src\app\capture_cli.cpp"
+source_file: "apps\hft-recorder\src\app\capture_cli.cpp"
 type: "code"
-community: "Community 22"
-location: "L35"
+community: "Community 40"
+location: "L36"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_22
+  - community/Community_40
 ---
 
 # runCapture()
@@ -16,4 +16,4 @@ tags:
 - [[makeDefaultConfig()]] - `calls` [EXTRACTED]
 - [[printUsage()]] - `calls` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_22
+#graphify/code #graphify/EXTRACTED #community/Community_40

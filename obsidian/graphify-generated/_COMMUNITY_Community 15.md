@@ -1,20 +1,24 @@
 ---
 type: community
-cohesion: 0.60
-members: 5
+members: 11
 ---
 
 # Community 15
 
-**Cohesion:** 0.60 - moderately connected
-**Members:** 5 nodes
+**Members:** 11 nodes
 
 ## Members
-- [[main()_1]] - code - src\gui\app\main.cpp
-- [[main.cpp]] - code - src\app\main.cpp
-- [[main.cpp_1]] - code - src\gui\app\main.cpp
-- [[printUsage()_1]] - code - src\app\main.cpp
-- [[printVersion()]] - code - src\app\main.cpp
+- [[AppViewModel]] - code - src\gui\viewmodels\AppViewModel.hpp
+- [[AppViewModel.cpp]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[AppViewModel.hpp]] - code - src\gui\viewmodels\AppViewModel.hpp
+- [[flushSettings_()]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[loadSettings_()]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[refreshRenderDiagnosticsText_()]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[setBookBrightnessUsdRef()]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[setBookMinVisibleUsd()]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[setRenderDiagnostics()]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[setTradeAmountScale()_2]] - code - src\gui\viewmodels\AppViewModel.cpp
+- [[statusText()]] - code - src\gui\viewmodels\AppViewModel.cpp
 
 ## Live Query (requires Dataview plugin)
 

@@ -1,8 +1,8 @@
 ---
-source_file: "src\gui\viewmodels\CaptureViewModel.cpp"
+source_file: "apps\hft-recorder\src\gui\viewmodels\CaptureViewModel.cpp"
 type: "code"
 community: "Community 1"
-location: "L53"
+location: "L23"
 tags:
   - graphify/code
   - graphify/EXTRACTED

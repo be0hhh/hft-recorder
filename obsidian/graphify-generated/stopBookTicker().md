@@ -1,18 +1,17 @@
 ---
-source_file: "src\core\capture\CaptureCoordinator.cpp"
+source_file: "src\core\capture\CaptureCoordinatorRuntime.cpp"
 type: "code"
-community: "Community 3"
-location: "L289"
+community: "Community 16"
+location: "L324"
 tags:
   - graphify/code
   - graphify/EXTRACTED
-  - community/Community_3
+  - community/Community_16
 ---
 
 # stopBookTicker()
 
 ## Connections
-- [[CaptureCoordinator.cpp]] - `contains` [EXTRACTED]
-- [[finalizeSession()]] - `calls` [EXTRACTED]
+- [[CaptureCoordinatorRuntime.cpp]] - `contains` [EXTRACTED]
 
-#graphify/code #graphify/EXTRACTED #community/Community_3
+#graphify/code #graphify/EXTRACTED #community/Community_16
