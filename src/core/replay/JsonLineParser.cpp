@@ -147,8 +147,6 @@ Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
     if (!parser.parseObjectStart()) return Status::CorruptData;
 
     bool sawTs = false;
-    bool sawCaptureSeq = false;
-    bool sawIngestSeq = false;
     bool sawUpdateId = false;
     bool sawFirstUpdateId = false;
     bool sawBids = false;
@@ -163,10 +161,8 @@ Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
             sawTs = true;
         } else if (key == "captureSeq") {
             if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
-            sawCaptureSeq = true;
         } else if (key == "ingestSeq") {
             if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
-            sawIngestSeq = true;
         } else if (key == "updateId") {
             if (!parser.parseInt64(out.updateId)) return Status::CorruptData;
             sawUpdateId = true;

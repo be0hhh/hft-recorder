@@ -42,7 +42,7 @@ Current reality worth remembering:
 - Capture is real and centered on `CaptureCoordinator`.
 - Replay/viewer path is real and centered on `SessionReplay` and `ChartController`.
 - Lab/ranking path exists but is still mostly baseline/scaffold quality.
-- `CxetCaptureBridge` is present but currently returns `Status::Unimplemented`.
+- `CxetCaptureBridge` is implemented as a real capture mapping seam, but it is still a support seam rather than the architectural center of capture.
 - `StreamRecorder` and several codec/variant areas are transitional or placeholder-level.
 - Docs about metrics, block format, and some CLI paths can overstate implementation maturity.
 

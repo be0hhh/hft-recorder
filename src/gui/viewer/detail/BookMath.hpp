@@ -82,11 +82,11 @@ inline qreal amountRadiusScale(std::int64_t amountE8, qreal amountScale, bool in
         ? static_cast<double>(static_cast<std::uint64_t>(-(amountE8 + 1)) + 1u)
         : static_cast<double>(static_cast<std::uint64_t>(amountE8));
     const double normalized = std::log10(1.0 + amountAbs / 100000000.0);
-    const qreal baseRadius = interactiveMode ? 0.65 : 0.8;
-    const qreal gain = interactiveMode ? 1.4 : 2.2;
+    const qreal baseRadius = interactiveMode ? 0.45 : 0.5;
+    const qreal gain = interactiveMode ? 0.7 : 1.1;
     return clampReal(baseRadius + static_cast<qreal>(normalized) * amountScale * gain,
-                     0.55,
-                     interactiveMode ? 2.4 : 3.4);
+                     0.5,
+                     interactiveMode ? 1.2 : 1.7);
 }
 
 inline qreal remapBookOpacity(qreal gain, bool interactiveMode) {

@@ -273,4 +273,43 @@ TEST(JsonLineParser, CorruptJsonReturnsCorrupt) {
     EXPECT_EQ(parseTradeLine(line, row), Status::CorruptData);
 }
 
+TEST(JsonLineParser, RejectsOverflowInteger) {
+    const std::string line =
+        "{\"tsNs\":9223372036854775808,\"captureSeq\":1,\"ingestSeq\":2,\"priceE8\":2,\"qtyE8\":3,\"sideBuy\":1}";
+    TradeRow row{};
+    EXPECT_EQ(parseTradeLine(line, row), Status::CorruptData);
+}
+
+TEST(JsonLineParser, RejectsLeadingZeroInteger) {
+    const std::string line =
+        "{\"tsNs\":0123,\"captureSeq\":1,\"ingestSeq\":2,\"priceE8\":2,\"qtyE8\":3,\"sideBuy\":1}";
+    TradeRow row{};
+    EXPECT_EQ(parseTradeLine(line, row), Status::CorruptData);
+}
+
+TEST(JsonLineParser, RejectsRawControlCharacterInUnknownString) {
+    const std::string line =
+        "{\"note\":\"bad\nraw\",\"tsNs\":123,\"captureSeq\":1,\"ingestSeq\":2,\"priceE8\":2,\"qtyE8\":3,\"sideBuy\":1}";
+    TradeRow row{};
+    EXPECT_EQ(parseTradeLine(line, row), Status::CorruptData);
+}
+
+TEST(JsonLineParser, SnapshotRejectsInvalidTrustedReplayAnchor) {
+    const std::string doc =
+        "{\"tsNs\":123,\"trustedReplayAnchor\":2,"
+        "\"bids\":[{\"price_i64\":100,\"qty_i64\":2}],"
+        "\"asks\":[{\"price_i64\":101,\"qty_i64\":3}]}";
+
+    SnapshotDocument parsed{};
+    EXPECT_EQ(parseSnapshotDocument(doc, parsed), Status::CorruptData);
+}
+
+TEST(JsonLineParser, BookTickerMissingAskPriceIsCorrupt) {
+    const std::string line =
+        "{\"tsNs\":123,\"captureSeq\":5,\"ingestSeq\":6,\"bidPriceE8\":456}";
+
+    BookTickerRow row{};
+    EXPECT_EQ(parseBookTickerLine(line, row), Status::CorruptData);
+}
+
 }  // namespace

@@ -300,6 +300,41 @@ TEST(SessionHelpers, ManifestParseIgnoresUnknownTopLevelFieldForSupportedVersion
     EXPECT_EQ(parsed.exchange, m.exchange);
 }
 
+TEST(SessionHelpers, ManifestParseIgnoresUnknownNullTopLevelField) {
+    SessionManifest m{};
+    m.sessionId = "1713168000_binance_futures_usd_BTCUSDT";
+    m.exchange = "binance";
+    m.market = "futures_usd";
+    m.symbols = {"BTCUSDT"};
+
+    auto doc = renderManifestJson(m);
+    const auto insertPos = doc.find("\"identity\"");
+    ASSERT_NE(insertPos, std::string::npos);
+    doc.insert(insertPos, "  \"future_optional_null\": null,\n");
+
+    SessionManifest parsed{};
+    ASSERT_EQ(parseManifestJson(doc, parsed), hftrec::Status::Ok);
+    EXPECT_EQ(parsed.sessionId, m.sessionId);
+    EXPECT_EQ(parsed.symbols, m.symbols);
+}
+
+TEST(SessionHelpers, ManifestParseRejectsRawControlCharacterInString) {
+    const std::string doc =
+        "{\n"
+        "  \"manifest_schema_version\": 1,\n"
+        "  \"corpus_schema_version\": 1,\n"
+        "  \"identity\": {\n"
+        "    \"session_id\": \"bad\nraw\",\n"
+        "    \"exchange\": \"binance\",\n"
+        "    \"market\": \"futures_usd\",\n"
+        "    \"symbols\": [\"BTCUSDT\"]\n"
+        "  }\n"
+        "}\n";
+
+    SessionManifest parsed{};
+    EXPECT_EQ(parseManifestJson(doc, parsed), hftrec::Status::CorruptData);
+}
+
 TEST(SessionHelpers, ManifestEscapesStrings) {
     SessionManifest m{};
     m.sessionId = "s\"1";

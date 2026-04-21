@@ -73,7 +73,7 @@ void ChartItem::setTradeAmountScale(qreal value) {
 }
 
 void ChartItem::setBookOpacityGain(qreal value) {
-    value = std::clamp<qreal>(value, 100.0, 100000.0);
+    value = std::clamp<qreal>(value, 1000.0, 1000000.0);
     if (qFuzzyCompare(bookOpacityGain_ + 1.0, value + 1.0)) return;
     bookOpacityGain_ = value;
     invalidateSnapshotCache_();
@@ -83,7 +83,7 @@ void ChartItem::setBookOpacityGain(qreal value) {
 }
 
 void ChartItem::setBookRenderDetail(qreal value) {
-    value = std::clamp<qreal>(value, 100.0, 100000.0);
+    value = std::clamp<qreal>(value, 1000.0, 1000000.0);
     if (qFuzzyCompare(bookRenderDetail_ + 1.0, value + 1.0)) return;
     bookRenderDetail_ = value;
     invalidateSnapshotCache_();

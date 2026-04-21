@@ -73,7 +73,7 @@ std::int64_t niceTimeStepNs(std::int64_t spanNs, int tickCount) {
 }
 
 std::int64_t usdToE8(qreal usd) noexcept {
-    const qreal clamped = std::clamp<qreal>(usd, 100.0, 100000.0);
+    const qreal clamped = std::clamp<qreal>(usd, 1000.0, 1000000.0);
     return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
 }
 
@@ -362,6 +362,8 @@ bool visiblyDifferent(qreal lhs, qreal rhs) noexcept {
     return std::abs(lhs - rhs) >= 0.5;
 }
 
+constexpr std::int64_t kBookTickerStaleGapNs = 1'000'000'000ll;
+
 void appendBookTickerSideLines(std::vector<BookTickerLine>& out,
                                const std::vector<BookTickerPixelState>& pixels,
                                const ViewportMap& vp) {
@@ -464,7 +466,10 @@ void buildBookTickerTrace(RenderSnapshot& snap,
         const std::int64_t tsStart = hasNext
             ? std::max<std::int64_t>(snap.vp.tMin, ticker.tsNs)
             : ticker.tsNs;
-        const std::int64_t nextTs = hasNext ? tickers[index + 1u].tsNs : (ticker.tsNs + pixelSpanNs);
+        std::int64_t nextTs = hasNext ? tickers[index + 1u].tsNs : (ticker.tsNs + pixelSpanNs);
+        if (hasNext && nextTs - ticker.tsNs > kBookTickerStaleGapNs) {
+            nextTs = ticker.tsNs + pixelSpanNs;
+        }
         const std::int64_t tsEnd = std::min<std::int64_t>(snap.vp.tMax, nextTs);
         absorbBookTickerInterval(bidPixels, askPixels, snap.vp, ticker, tsStart, tsEnd);
         if (!hasNext || nextTs >= snap.vp.tMax) break;

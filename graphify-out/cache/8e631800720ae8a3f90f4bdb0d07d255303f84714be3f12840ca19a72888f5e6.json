@@ -1,1 +1,1 @@
-{"nodes": [{"id": "apps_hft_recorder_src_gui_viewer_renderers_overlayrenderer_hpp", "label": "OverlayRenderer.hpp", "file_type": "code", "source_file": "apps\\hft-recorder\\src\\gui\\viewer\\renderers\\OverlayRenderer.hpp", "source_location": "L1"}], "edges": []}
+{"nodes": [{"id": "src_gui_viewer_renderers_overlayrenderer_hpp", "label": "OverlayRenderer.hpp", "file_type": "code", "source_file": "src\\gui\\viewer\\renderers\\OverlayRenderer.hpp", "source_location": "L1"}], "edges": []}

@@ -24,6 +24,10 @@ Rectangle {
     signal toggleOrderbook()
     signal toggleBookTicker()
 
+    function clamp(value, lo, hi) {
+        return Math.max(lo, Math.min(hi, value))
+    }
+
     Layout.fillWidth: true
     Layout.preferredHeight: 48
     color: bar.chromeColor
@@ -90,13 +94,35 @@ Rectangle {
             onMoved: bar.appVm.tradeAmountScale = value
         }
 
-        Label {
-            text: Math.round(bar.appVm.tradeAmountScale * 100) + "%"
+        TextField {
+            id: tradeSizeInput
+            Layout.preferredWidth: 44
+            text: ""
             color: bar.textColor
+            selectionColor: bar.accentBuyColor
+            selectedTextColor: "#101012"
             font.pixelSize: 12
-            Layout.preferredWidth: 34
             horizontalAlignment: Text.AlignRight
+            validator: IntValidator { bottom: 0; top: 100 }
+            background: Rectangle {
+                color: bar.panelColor
+                border.color: tradeSizeInput.activeFocus ? bar.accentBuyColor : bar.borderColor
+                radius: 4
+            }
+            Binding {
+                target: tradeSizeInput
+                property: "text"
+                value: Math.round(bar.appVm.tradeAmountScale * 100)
+                when: !tradeSizeInput.activeFocus
+            }
+            onEditingFinished: {
+                const pct = bar.clamp(Number(text), 0, 100)
+                bar.appVm.tradeAmountScale = pct / 100.0
+                text = Math.round(bar.appVm.tradeAmountScale * 100)
+            }
         }
+
+        Label { text: "%"; color: bar.mutedTextColor; font.pixelSize: 12 }
 
         Label {
             text: "Full Bright @"
@@ -112,12 +138,31 @@ Rectangle {
             onMoved: bar.appVm.bookBrightnessUsdRef = bar.interaction.usdSliderToValue(value)
         }
 
-        Label {
-            text: bar.interaction.formatUsdShort(bar.appVm.bookBrightnessUsdRef)
+        TextField {
+            id: fullBrightInput
+            Layout.preferredWidth: 76
+            text: ""
             color: bar.textColor
+            selectionColor: bar.accentBuyColor
+            selectedTextColor: "#101012"
             font.pixelSize: 12
-            Layout.preferredWidth: 58
             horizontalAlignment: Text.AlignRight
+            validator: IntValidator { bottom: 1000; top: 1000000 }
+            background: Rectangle {
+                color: bar.panelColor
+                border.color: fullBrightInput.activeFocus ? bar.accentBuyColor : bar.borderColor
+                radius: 4
+            }
+            Binding {
+                target: fullBrightInput
+                property: "text"
+                value: bar.interaction.formatUsdInput(bar.appVm.bookBrightnessUsdRef)
+                when: !fullBrightInput.activeFocus
+            }
+            onEditingFinished: {
+                bar.appVm.bookBrightnessUsdRef = bar.interaction.parseUsdInput(text, bar.appVm.bookBrightnessUsdRef)
+                text = bar.interaction.formatUsdInput(bar.appVm.bookBrightnessUsdRef)
+            }
         }
 
         Label {
@@ -134,12 +179,31 @@ Rectangle {
             onMoved: bar.appVm.bookMinVisibleUsd = bar.interaction.usdSliderToValue(value)
         }
 
-        Label {
-            text: bar.interaction.formatUsdShort(bar.appVm.bookMinVisibleUsd)
+        TextField {
+            id: minVisibleInput
+            Layout.preferredWidth: 76
+            text: ""
             color: bar.textColor
+            selectionColor: bar.accentBuyColor
+            selectedTextColor: "#101012"
             font.pixelSize: 12
-            Layout.preferredWidth: 58
             horizontalAlignment: Text.AlignRight
+            validator: IntValidator { bottom: 1000; top: 1000000 }
+            background: Rectangle {
+                color: bar.panelColor
+                border.color: minVisibleInput.activeFocus ? bar.accentBuyColor : bar.borderColor
+                radius: 4
+            }
+            Binding {
+                target: minVisibleInput
+                property: "text"
+                value: bar.interaction.formatUsdInput(bar.appVm.bookMinVisibleUsd)
+                when: !minVisibleInput.activeFocus
+            }
+            onEditingFinished: {
+                bar.appVm.bookMinVisibleUsd = bar.interaction.parseUsdInput(text, bar.appVm.bookMinVisibleUsd)
+                text = bar.interaction.formatUsdInput(bar.appVm.bookMinVisibleUsd)
+            }
         }
 
         Label {
@@ -158,13 +222,35 @@ Rectangle {
             onMoved: bar.appVm.bookDepthWindowPct = value
         }
 
-        Label {
-            text: Math.round(bar.appVm.bookDepthWindowPct) + "%"
+        TextField {
+            id: depthWindowInput
+            Layout.preferredWidth: 40
+            text: ""
             color: bar.textColor
+            selectionColor: bar.accentBuyColor
+            selectedTextColor: "#101012"
             font.pixelSize: 12
-            Layout.preferredWidth: 34
             horizontalAlignment: Text.AlignRight
+            validator: IntValidator { bottom: 1; top: 25 }
+            background: Rectangle {
+                color: bar.panelColor
+                border.color: depthWindowInput.activeFocus ? bar.accentBuyColor : bar.borderColor
+                radius: 4
+            }
+            Binding {
+                target: depthWindowInput
+                property: "text"
+                value: Math.round(bar.appVm.bookDepthWindowPct)
+                when: !depthWindowInput.activeFocus
+            }
+            onEditingFinished: {
+                const pct = bar.clamp(Number(text), 1, 25)
+                bar.appVm.bookDepthWindowPct = pct
+                text = Math.round(bar.appVm.bookDepthWindowPct)
+            }
         }
+
+        Label { text: "%"; color: bar.mutedTextColor; font.pixelSize: 12 }
 
         Item { Layout.fillWidth: true }
 

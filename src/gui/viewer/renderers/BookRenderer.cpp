@@ -23,7 +23,7 @@ namespace {
 constexpr std::int64_t kUsdScaleE8 = 100000000ll;
 
 std::int64_t usdToE8(qreal usd) noexcept {
-    const qreal clamped = std::clamp<qreal>(usd, 100.0, 100000.0);
+    const qreal clamped = std::clamp<qreal>(usd, 1000.0, 1000000.0);
     return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
 }
 

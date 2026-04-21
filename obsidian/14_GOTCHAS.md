@@ -6,7 +6,7 @@ Purpose:
 
 Gotchas:
 
-- `CxetCaptureBridge` is present but currently unimplemented.
+- `CxetCaptureBridge` is implemented and used for capture row mapping, but it is still a support seam rather than the center of the capture architecture.
 - capture/replay/viewer path is more real than lab/ranking path.
 - generated graphs can overstate placeholder/scaffold areas.
 - root or older recorder docs can describe historical `.cxrec` / CLI-first direction; use nested docs and curated notes first.

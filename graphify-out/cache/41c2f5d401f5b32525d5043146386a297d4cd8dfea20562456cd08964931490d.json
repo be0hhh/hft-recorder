@@ -1,1 +1,1 @@
-{"nodes": [{"id": "apps_hft_recorder_include_hftrec_version_hpp", "label": "version.hpp", "file_type": "code", "source_file": "apps\\hft-recorder\\include\\hftrec\\version.hpp", "source_location": "L1"}], "edges": []}
+{"nodes": [{"id": "include_hftrec_version_hpp", "label": "version.hpp", "file_type": "code", "source_file": "include\\hftrec\\version.hpp", "source_location": "L1"}], "edges": []}

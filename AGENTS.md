@@ -2,6 +2,15 @@
 
 This repository is a standalone application over `CXETCPP`.
 
+## Hard safety stop - no Git / no remote automation
+
+- The agent must not run any `git` command unless the user explicitly asks for that exact Git action in the current message.
+- This ban includes read-only commands such as `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git grep`, and `git -C ...`.
+- Reason: even read-only Git commands can produce CRLF/index warnings, touch Git internals through platform tooling, or trigger unwanted surrounding automation/noise.
+- Use filesystem tools instead: `Get-ChildItem`, `rg`, `Get-Content`, targeted file reads, and direct path inspection.
+- Do not start remote/compact/background automation tasks unless the user explicitly asks for them in the current message.
+- If repository state is needed, ask the user to run the Git command or paste the relevant output.
+
 ## Core contract
 
 - `hft-recorder` is not part of the core `CXETCPP` library.

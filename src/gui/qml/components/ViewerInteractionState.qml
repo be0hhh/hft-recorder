@@ -25,19 +25,21 @@ QtObject {
 
     function usdSliderToValue(sliderValue) {
         const clamped = Math.max(0.0, Math.min(1.0, sliderValue))
-        const minUsd = 100.0
-        const maxUsd = 100000.0
+        const minUsd = 1000.0
+        const maxUsd = 1000000.0
         return minUsd + (maxUsd - minUsd) * clamped
     }
 
     function usdValueToSlider(usdValue) {
-        const minUsd = 100.0
-        const maxUsd = 100000.0
+        const minUsd = 1000.0
+        const maxUsd = 1000000.0
         const clamped = Math.max(minUsd, Math.min(maxUsd, usdValue))
         return (clamped - minUsd) / (maxUsd - minUsd)
     }
 
     function formatUsdShort(usdValue) {
+        if (usdValue >= 1000000)
+            return "$" + (usdValue / 1000000).toFixed(usdValue >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "m"
         if (usdValue >= 1000)
             return "$" + (usdValue / 1000).toFixed(usdValue >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k"
         if (usdValue >= 100)
@@ -45,6 +47,17 @@ QtObject {
         if (usdValue >= 10)
             return "$" + usdValue.toFixed(1).replace(/\.0$/, "")
         return "$" + usdValue.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")
+    }
+
+    function formatUsdInput(usdValue) {
+        return String(Math.round(Math.max(1000, Math.min(1000000, usdValue))))
+    }
+
+    function parseUsdInput(text, fallback) {
+        const value = Number(String(text).replace(/[$,\s]/g, ""))
+        if (!isFinite(value))
+            return fallback
+        return Math.max(1000, Math.min(1000000, value))
     }
 
     function selectionLeft() {

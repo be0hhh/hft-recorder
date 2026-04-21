@@ -10,9 +10,9 @@ Generated corpus summary:
 - `graphify` run date: `2026-04-21`
 - scope: `apps/hft-recorder`
 - mode: local AST-only for code graph
-- detected corpus: 155 files total, ~75,855 words
-- AST extraction scope: 155 files
-- extracted code graph: 663 nodes, 809 edges
+- detected corpus: 158 files total, ~79,630 words
+- AST extraction scope: 158 files
+- extracted code graph: 704 nodes, 889 edges
 
 Locations:
 

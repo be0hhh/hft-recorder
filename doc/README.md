@@ -19,6 +19,7 @@ Secondary / supporting material:
 - `COMPARISON_MATRIX.md`
 - `BENCHMARK_PLAN.md`
 - `ORDERBOOK_REPRESENTATION_EXPERIMENTS.md`
+- `MARKET_MAKING_SIMULATION_NOTES.md`
 - `SOURCE_LAYOUT_AND_VARIANTS.md`
 
 Historical / scaffold-era material:

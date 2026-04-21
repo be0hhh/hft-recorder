@@ -60,6 +60,7 @@ class MiniJsonParser {
             const char ch = json_[pos_++];
             if (ch == '"') return true;
             if (ch != '\\') {
+                if (static_cast<unsigned char>(ch) < 0x20u) return false;
                 out.push_back(ch);
                 continue;
             }
@@ -121,11 +122,20 @@ class MiniJsonParser {
         if (pos_ >= json_.size() || json_[pos_] < '0' || json_[pos_] > '9') return false;
 
         std::uint64_t value = 0;
+        const bool leadingZero = json_[pos_] == '0';
         while (pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9') {
             const std::uint64_t digit = static_cast<std::uint64_t>(json_[pos_] - '0');
             if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10u) return false;
             value = value * 10u + digit;
             ++pos_;
+            if (leadingZero && pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9') return false;
+        }
+        if (pos_ < json_.size()) {
+            const char next = json_[pos_];
+            if (next != ' ' && next != '\t' && next != '\n' && next != '\r'
+                && next != ',' && next != ']' && next != '}') {
+                return false;
+            }
         }
 
         if (neg) {
@@ -233,4 +243,3 @@ class MiniJsonParser {
 };
 
 }  // namespace hftrec::json
-

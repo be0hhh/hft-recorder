@@ -1,10 +1,6 @@
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
 #include <QRegularExpression>
-#include <QSet>
 #include <algorithm>
 #include <filesystem>
 
@@ -71,6 +67,7 @@ QStringList canonicalOrderbookAliases() {
     };
 }
 
+#if 0
 QStringList orderedAliases(const QStringList& preferredAliases, const QStringList& discoveredAliases) {
     QStringList ordered;
     ordered.reserve(preferredAliases.size());
@@ -110,6 +107,7 @@ QStringList extractAliasesFromCxetSource() {
     }
     return aliases;
 }
+#endif
 
 QString buildAliasesSuffix(const QStringList& availableAliases,
                            const QStringList& selectedAliases) {
@@ -125,16 +123,15 @@ QString buildAliasesSuffix(const QStringList& availableAliases,
 }  // namespace
 
 QStringList loadAliasesForChannel(const char* channelName) {
-    const auto discoveredAliases = extractAliasesFromCxetSource();
     const auto channel = QString::fromUtf8(channelName);
     if (channel == QStringLiteral("trades")) {
-        return orderedAliases(canonicalTradesAliases(), discoveredAliases);
+        return canonicalTradesAliases();
     }
     if (channel == QStringLiteral("bookticker")) {
-        return orderedAliases(canonicalBookTickerAliases(), discoveredAliases);
+        return canonicalBookTickerAliases();
     }
     if (channel == QStringLiteral("orderbook")) {
-        return orderedAliases(canonicalOrderbookAliases(), discoveredAliases);
+        return canonicalOrderbookAliases();
     }
     return {};
 }

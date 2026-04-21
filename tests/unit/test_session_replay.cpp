@@ -177,6 +177,60 @@ TEST(SessionReplay, DetectsDepthGapWhenSequenceIdsPresent) {
     fs::remove_all(dir, ec);
 }
 
+TEST(SessionReplay, DetectsDepthUpdateRangeInversion) {
+    const auto dir = makeTmpDir();
+    writeManifest(dir, false, false, true, 0u, 0u, 1u, 1u);
+
+    writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
+
+    writeFile(dir / "depth.jsonl",
+              "{\"tsNs\":2000,\"captureSeq\":2,\"ingestSeq\":2,\"updateId\":11,\"firstUpdateId\":12,\"bids\":[{\"price_i64\":30000,\"qty_i64\":7}],\"asks\":[]}\n");
+
+    SessionReplay replay{};
+    EXPECT_EQ(replay.open(dir), Status::CorruptData);
+    EXPECT_TRUE(replay.sequenceValidationAvailable());
+    EXPECT_TRUE(replay.gapDetected());
+    EXPECT_NE(std::string{replay.errorDetail()}.find("updateId < firstUpdateId"), std::string::npos);
+    EXPECT_EQ(replay.integritySummary().depth.state, hftrec::ChannelHealthState::Corrupt);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(SessionReplay, DetectsNonIncreasingCaptureSequence) {
+    const auto dir = makeTmpDir();
+    writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
+
+    writeFile(dir / "trades.jsonl",
+              "{\"tsNs\":2500,\"captureSeq\":2,\"ingestSeq\":1,\"priceE8\":30050,\"qtyE8\":1,\"sideBuy\":1}\n"
+              "{\"tsNs\":2600,\"captureSeq\":2,\"ingestSeq\":2,\"priceE8\":30051,\"qtyE8\":1,\"sideBuy\":0}\n");
+
+    SessionReplay replay{};
+    EXPECT_EQ(replay.open(dir), Status::CorruptData);
+    EXPECT_NE(std::string{replay.errorDetail()}.find("non-increasing captureSeq"), std::string::npos);
+    EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Corrupt);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(SessionReplay, DetectsMixedIngestSequenceMetadata) {
+    const auto dir = makeTmpDir();
+    writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
+
+    writeFile(dir / "trades.jsonl",
+              "{\"tsNs\":2500,\"captureSeq\":1,\"ingestSeq\":1,\"priceE8\":30050,\"qtyE8\":1,\"sideBuy\":1}\n"
+              "{\"tsNs\":2600,\"captureSeq\":2,\"priceE8\":30051,\"qtyE8\":1,\"sideBuy\":0}\n");
+
+    SessionReplay replay{};
+    EXPECT_EQ(replay.open(dir), Status::CorruptData);
+    EXPECT_NE(std::string{replay.errorDetail()}.find("ingest sequence metadata is missing or inconsistent"), std::string::npos);
+    EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Corrupt);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
     const auto dir = makeTmpDir();
     writeManifest(dir, true, true, true, 1u, 1u, 1u, 1u);

@@ -108,4 +108,32 @@ TEST(ViewerBookTickerTrace, BuildsContinuousTickerTraceWithoutBookSegments) {
     fs::remove_all(dir, ec);
 }
 
+TEST(ViewerBookTickerTrace, BreaksTraceAcrossStaleTickerGap) {
+    const auto dir = makeTmpDir();
+    writeFile(
+        dir / "bookticker.jsonl",
+        bookTickerLine(1'000'000'000ll, 1, e8(10000), e8(10100))
+            + bookTickerLine(8'500'000'000ll, 2, e8(10050), e8(10150)));
+
+    ChartController chart;
+    EXPECT_TRUE(chart.addBookTickerFile(QString::fromStdString((dir / "bookticker.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
+    chart.setViewport(0, 10'000'000'000ll, e8(9900), e8(10200));
+
+    const auto snap = chart.buildSnapshot(200.0, 300.0, bookTickerInputs());
+    ASSERT_FALSE(snap.bookTickerTrace.bidLines.empty());
+
+    HoverInfo hover{};
+    hftrec::gui::viewer::hit_test::computeHover(
+        snap,
+        QPointF{100.0, snap.vp.toY(e8(10000))},
+        true,
+        hover);
+    EXPECT_EQ(hover.bookKind, 0);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 }  // namespace
