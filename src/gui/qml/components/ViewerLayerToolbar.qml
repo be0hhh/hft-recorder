@@ -142,6 +142,30 @@ Rectangle {
             horizontalAlignment: Text.AlignRight
         }
 
+        Label {
+            text: "Depth Window"
+            color: bar.mutedTextColor
+            font.pixelSize: 12
+        }
+
+        Slider {
+            Layout.preferredWidth: 110
+            from: 1
+            to: 25
+            stepSize: 1
+            snapMode: Slider.SnapAlways
+            value: bar.appVm.bookDepthWindowPct
+            onMoved: bar.appVm.bookDepthWindowPct = value
+        }
+
+        Label {
+            text: Math.round(bar.appVm.bookDepthWindowPct) + "%"
+            color: bar.textColor
+            font.pixelSize: 12
+            Layout.preferredWidth: 34
+            horizontalAlignment: Text.AlignRight
+        }
+
         Item { Layout.fillWidth: true }
 
         Label {

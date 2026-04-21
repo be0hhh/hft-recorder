@@ -27,6 +27,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
     Q_PROPERTY(qreal bookOpacityGain READ bookOpacityGain WRITE setBookOpacityGain NOTIFY bookOpacityGainChanged)
     Q_PROPERTY(qreal bookRenderDetail READ bookRenderDetail WRITE setBookRenderDetail NOTIFY bookRenderDetailChanged)
+    Q_PROPERTY(qreal bookDepthWindowPct READ bookDepthWindowPct WRITE setBookDepthWindowPct NOTIFY bookDepthWindowPctChanged)
     Q_PROPERTY(bool interactiveMode READ interactiveMode WRITE setInteractiveMode NOTIFY interactiveModeChanged)
     Q_PROPERTY(bool overlayOnly READ overlayOnly WRITE setOverlayOnly NOTIFY overlayOnlyChanged)
 
@@ -48,6 +49,8 @@ class GpuChartItem : public QQuickFramebufferObject {
     void setBookOpacityGain(qreal value);
     qreal bookRenderDetail() const noexcept { return bookRenderDetail_; }
     void setBookRenderDetail(qreal value);
+    qreal bookDepthWindowPct() const noexcept { return bookDepthWindowPct_; }
+    void setBookDepthWindowPct(qreal value);
     bool interactiveMode() const noexcept { return interactiveMode_; }
     void setInteractiveMode(bool value);
     bool overlayOnly() const noexcept { return overlayOnly_; }
@@ -66,6 +69,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     void tradeAmountScaleChanged();
     void bookOpacityGainChanged();
     void bookRenderDetailChanged();
+    void bookDepthWindowPctChanged();
     void interactiveModeChanged();
     void overlayOnlyChanged();
 
@@ -101,6 +105,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     qreal tradeAmountScale_{0.45};
     qreal bookOpacityGain_{15000.0};
     qreal bookRenderDetail_{5000.0};
+    qreal bookDepthWindowPct_{5.0};
     bool interactiveMode_{false};
     bool overlayOnly_{false};
 

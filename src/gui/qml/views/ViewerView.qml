@@ -193,6 +193,7 @@ Pane {
                         tradeAmountScale: root.appVm.tradeAmountScale
                         bookOpacityGain: root.appVm.bookBrightnessUsdRef
                         bookRenderDetail: root.appVm.bookMinVisibleUsd
+                        bookDepthWindowPct: root.appVm.bookDepthWindowPct
                         interactiveMode: interaction.interactiveMode
                     }
                 }
@@ -208,6 +209,7 @@ Pane {
                         tradeAmountScale: root.appVm.tradeAmountScale
                         bookOpacityGain: root.appVm.bookBrightnessUsdRef
                         bookRenderDetail: root.appVm.bookMinVisibleUsd
+                        bookDepthWindowPct: root.appVm.bookDepthWindowPct
                         interactiveMode: interaction.interactiveMode
                     }
                 }

@@ -14,6 +14,20 @@ add_executable(hftrec_unit_tests
     test_cxet_capture_bridge.cpp
 )
 
+if(Qt6_FOUND)
+    target_sources(hftrec_unit_tests
+        PRIVATE
+            test_viewer_orderbook_depth_window.cpp
+            test_viewer_bookticker_trace.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartController.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerSession.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerSelection.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
+    )
+endif()
+
 target_include_directories(hftrec_unit_tests
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
@@ -27,6 +41,14 @@ target_link_libraries(hftrec_unit_tests
         GTest::gtest
         GTest::gtest_main
 )
+
+if(Qt6_FOUND)
+    target_link_libraries(hftrec_unit_tests
+        PRIVATE
+            Qt6::Core
+            Qt6::Gui
+    )
+endif()
 
 target_compile_features(hftrec_unit_tests PRIVATE cxx_std_23)
 target_compile_definitions(hftrec_unit_tests PRIVATE HFTRREC_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

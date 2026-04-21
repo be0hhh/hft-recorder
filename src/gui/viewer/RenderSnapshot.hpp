@@ -23,9 +23,31 @@ struct GpuBookLineVertex {
     std::uint8_t a{0};
 };
 
-// One time-slice of the chart: constant book state + optional active
-// bookTicker, covering [tsStartNs, tsEndNs]. Materialized by
-// ChartController::buildSnapshot so the paint path never mutates replay state.
+struct BookTickerLine {
+    qreal x0{0.0};
+    qreal y0{0.0};
+    qreal x1{0.0};
+    qreal y1{0.0};
+};
+
+struct BookTickerSample {
+    int xPx{0};
+    std::int64_t tsNs{0};
+    std::int64_t bidPriceE8{0};
+    std::int64_t bidQtyE8{0};
+    std::int64_t askPriceE8{0};
+    std::int64_t askQtyE8{0};
+};
+
+struct BookTickerTrace {
+    std::vector<BookTickerLine> bidLines;
+    std::vector<BookTickerLine> askLines;
+    std::vector<BookTickerSample> samples;
+};
+
+// One time-slice of the chart: constant book state covering [tsStartNs,
+// tsEndNs]. Materialized by ChartController::buildSnapshot so the paint path
+// never mutates replay state.
 struct BookSegment {
     std::int64_t tsStartNs{0};
     std::int64_t tsEndNs{0};
@@ -33,10 +55,6 @@ struct BookSegment {
     std::vector<BookLevel> asks;    // best-first (sorted low  -> high)
     std::int64_t maxBidQty{1};
     std::int64_t maxAskQty{1};
-    std::int64_t tickerBidE8{0};    // 0 if no active ticker during this segment
-    std::int64_t tickerBidQtyE8{0};
-    std::int64_t tickerAskE8{0};
-    std::int64_t tickerAskQtyE8{0};
 };
 
 struct TradeDot {
@@ -84,9 +102,11 @@ struct RenderSnapshot {
     qreal tradeAmountScale{0.45};
     qreal bookOpacityGain{15000.0};
     qreal bookRenderDetail{5000.0};
+    qreal bookDepthWindowPct{5.0};
 
-    // Book-history frames (empty if neither orderbook nor bookticker is visible).
+    // Orderbook history frames and the separately prepared continuous bookTicker trace.
     std::vector<BookSegment> bookSegments;
+    BookTickerTrace bookTickerTrace;
     std::vector<GpuBookLineVertex> gpuBookVertices;
 
     // Trades pre-filtered to viewport (original order by tsNs).
@@ -107,6 +127,7 @@ struct SnapshotInputs {
     qreal tradeAmountScale{0.45};
     qreal bookOpacityGain{15000.0};
     qreal bookRenderDetail{5000.0};
+    qreal bookDepthWindowPct{5.0};
 };
 
 }  // namespace hftrec::gui::viewer

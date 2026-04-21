@@ -40,6 +40,7 @@ SnapshotInputs collectInputs(const GpuChartItem& item) {
         item.tradeAmountScale(),
         item.bookOpacityGain(),
         item.bookRenderDetail(),
+        item.bookDepthWindowPct(),
     };
 }
 
@@ -298,6 +299,17 @@ void GpuChartItem::setBookRenderDetail(qreal value) {
     invalidateSnapshotCache_();
     ensureSnapshot_();
     emit bookRenderDetailChanged();
+    update();
+}
+
+void GpuChartItem::setBookDepthWindowPct(qreal value) {
+    value = std::clamp<qreal>(value, 1.0, 25.0);
+    if (qFuzzyCompare(bookDepthWindowPct_ + 1.0, value + 1.0)) return;
+    bookDepthWindowPct_ = value;
+    invalidateSnapshotCache_();
+    ensureSnapshot_();
+    updateHover_();
+    emit bookDepthWindowPctChanged();
     update();
 }
 

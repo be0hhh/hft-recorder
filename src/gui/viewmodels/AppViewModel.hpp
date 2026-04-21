@@ -17,6 +17,7 @@ class AppViewModel : public QObject {
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
     Q_PROPERTY(qreal bookBrightnessUsdRef READ bookBrightnessUsdRef WRITE setBookBrightnessUsdRef NOTIFY bookBrightnessUsdRefChanged)
     Q_PROPERTY(qreal bookMinVisibleUsd READ bookMinVisibleUsd WRITE setBookMinVisibleUsd NOTIFY bookMinVisibleUsdChanged)
+    Q_PROPERTY(qreal bookDepthWindowPct READ bookDepthWindowPct WRITE setBookDepthWindowPct NOTIFY bookDepthWindowPctChanged)
 
   public:
     explicit AppViewModel(QObject* parent = nullptr);
@@ -29,10 +30,12 @@ class AppViewModel : public QObject {
     qreal tradeAmountScale() const noexcept { return tradeAmountScale_; }
     qreal bookBrightnessUsdRef() const noexcept { return bookBrightnessUsdRef_; }
     qreal bookMinVisibleUsd() const noexcept { return bookMinVisibleUsd_; }
+    qreal bookDepthWindowPct() const noexcept { return bookDepthWindowPct_; }
 
     void setTradeAmountScale(qreal value);
     void setBookBrightnessUsdRef(qreal value);
     void setBookMinVisibleUsd(qreal value);
+    void setBookDepthWindowPct(qreal value);
     void setActiveChartRenderer(const QString& rendererName);
     Q_INVOKABLE void setRenderDiagnostics(const QString& requestedMode, const QString& actualGraphicsApi);
 
@@ -42,6 +45,7 @@ class AppViewModel : public QObject {
     void tradeAmountScaleChanged();
     void bookBrightnessUsdRefChanged();
     void bookMinVisibleUsdChanged();
+    void bookDepthWindowPctChanged();
 
   private:
     void loadSettings_();
@@ -57,6 +61,7 @@ class AppViewModel : public QObject {
     qreal tradeAmountScale_{0.45};
     qreal bookBrightnessUsdRef_{15000.0};
     qreal bookMinVisibleUsd_{5000.0};
+    qreal bookDepthWindowPct_{5.0};
     bool settingsDirty_{false};
     QSettings settings_{};
     QTimer saveTimer_{};

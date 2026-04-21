@@ -6,8 +6,8 @@ struct RenderContext;
 
 namespace hftrec::gui::viewer::renderers {
 
-// Draws two step paths (bid & ask) across visible bookSegments. 1-px
-// opaque strokes using ColorScheme bid/ask colors.
+// Draws the prepared continuous bookTicker trace (bid & ask). 1-px opaque
+// strokes using ColorScheme bid/ask colors.
 void renderBookTicker(const RenderContext& ctx);
 
 }  // namespace hftrec::gui::viewer::renderers

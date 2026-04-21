@@ -76,6 +76,14 @@ void AppViewModel::setBookMinVisibleUsd(qreal value) {
     emit bookMinVisibleUsdChanged();
 }
 
+void AppViewModel::setBookDepthWindowPct(qreal value) {
+    value = std::clamp<qreal>(value, 1.0, 25.0);
+    if (qFuzzyCompare(bookDepthWindowPct_ + 1.0, value + 1.0)) return;
+    bookDepthWindowPct_ = value;
+    markDirty_();
+    emit bookDepthWindowPctChanged();
+}
+
 void AppViewModel::setActiveChartRenderer(const QString& rendererName) {
     const QString normalized = rendererName.trimmed().toLower().isEmpty()
         ? QStringLiteral("cpu-chart")
@@ -90,10 +98,12 @@ void AppViewModel::loadSettings_() {
     const auto tradeScale = settings_.value(QStringLiteral("viewer/trade_amount_scale"), tradeAmountScale_).toReal();
     const auto brightnessUsd = settings_.value(QStringLiteral("viewer/book_brightness_usd_ref"), bookBrightnessUsdRef_).toReal();
     const auto minVisibleUsd = settings_.value(QStringLiteral("viewer/book_min_visible_usd"), bookMinVisibleUsd_).toReal();
+    const auto depthWindowPct = settings_.value(QStringLiteral("viewer/book_depth_window_pct"), bookDepthWindowPct_).toReal();
 
     tradeAmountScale_ = std::clamp<qreal>(tradeScale, 0.0, 1.0);
     bookBrightnessUsdRef_ = std::clamp<qreal>(brightnessUsd, 100.0, 100000.0);
     bookMinVisibleUsd_ = std::clamp<qreal>(minVisibleUsd, 100.0, 100000.0);
+    bookDepthWindowPct_ = std::clamp<qreal>(depthWindowPct, 1.0, 25.0);
     settingsDirty_ = false;
 }
 
@@ -103,6 +113,7 @@ void AppViewModel::flushSettings_() {
     settings_.setValue(QStringLiteral("viewer/trade_amount_scale"), tradeAmountScale_);
     settings_.setValue(QStringLiteral("viewer/book_brightness_usd_ref"), bookBrightnessUsdRef_);
     settings_.setValue(QStringLiteral("viewer/book_min_visible_usd"), bookMinVisibleUsd_);
+    settings_.setValue(QStringLiteral("viewer/book_depth_window_pct"), bookDepthWindowPct_);
     settings_.sync();
     settingsDirty_ = false;
 }

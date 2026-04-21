@@ -15,7 +15,8 @@ namespace {
 void drawBookTicker(QPainter* painter,
                     const RenderSnapshot& snap,
                     double dpr) {
-    if (!snap.bookTickerVisible || snap.bookSegments.empty()) return;
+    if (!snap.bookTickerVisible) return;
+    if (snap.bookTickerTrace.bidLines.empty() && snap.bookTickerTrace.askLines.empty()) return;
     RenderContext ctx{painter, snap, HoverInfo{}, dpr};
     renderers::renderBookTicker(ctx);
 }
@@ -34,6 +35,7 @@ RenderSnapshot buildInteractiveTickerSnapshot(ChartController& controller,
         item.tradeAmountScale(),
         item.bookOpacityGain(),
         item.bookRenderDetail(),
+        item.bookDepthWindowPct(),
     };
     if (!tickerInputs.bookTickerVisible) return RenderSnapshot{};
     return controller.buildSnapshot(width, height, tickerInputs);

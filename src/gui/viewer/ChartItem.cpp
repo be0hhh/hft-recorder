@@ -92,6 +92,17 @@ void ChartItem::setBookRenderDetail(qreal value) {
     update();
 }
 
+void ChartItem::setBookDepthWindowPct(qreal value) {
+    value = std::clamp<qreal>(value, 1.0, 25.0);
+    if (qFuzzyCompare(bookDepthWindowPct_ + 1.0, value + 1.0)) return;
+    bookDepthWindowPct_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    updateHover_();
+    emit bookDepthWindowPctChanged();
+    update();
+}
+
 void ChartItem::setInteractiveMode(bool value) {
     if (interactiveMode_ == value) return;
     interactiveMode_ = value;
@@ -127,6 +138,7 @@ SnapshotInputs collectInputs(const ChartItem& item) {
         item.tradeAmountScale(),
         item.bookOpacityGain(),
         item.bookRenderDetail(),
+        item.bookDepthWindowPct(),
     };
 }
 

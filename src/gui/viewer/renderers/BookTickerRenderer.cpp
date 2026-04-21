@@ -1,40 +1,36 @@
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 
 #include <algorithm>
+#include <vector>
 
 #include <QColor>
 #include <QPainter>
-#include <QPainterPath>
 #include <QPen>
+#include <QPointF>
 
 #include "gui/viewer/ColorScheme.hpp"
 #include "gui/viewer/RenderContext.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
-#include "gui/viewer/detail/Formatters.hpp"
 
 namespace hftrec::gui::viewer::renderers {
 
-void renderBookTicker(const RenderContext& ctx) {
-    if (!ctx.s.bookTickerVisible || ctx.s.bookSegments.empty()) return;
+namespace {
 
-    QPainterPath bidPath;
-    QPainterPath askPath;
-    bool bidStarted = false;
-    bool askStarted = false;
-
-    for (const auto& seg : ctx.s.bookSegments) {
-        const qreal xLeft  = std::clamp(ctx.s.vp.toX(seg.tsStartNs), 0.0, ctx.s.vp.w);
-        const qreal xRight = std::clamp(ctx.s.vp.toX(seg.tsEndNs),   0.0, ctx.s.vp.w);
-        if (xRight <= xLeft) continue;
-        if (seg.tickerBidE8 != 0) {
-            detail::appendStepSegment(bidPath, bidStarted, xLeft, xRight,
-                                      ctx.s.vp.toY(seg.tickerBidE8));
-        }
-        if (seg.tickerAskE8 != 0) {
-            detail::appendStepSegment(askPath, askStarted, xLeft, xRight,
-                                      ctx.s.vp.toY(seg.tickerAskE8));
-        }
+void drawTraceLines(QPainter* painter,
+                    const std::vector<BookTickerLine>& lines,
+                    const QPen& pen) {
+    if (lines.empty()) return;
+    painter->setPen(pen);
+    for (const auto& line : lines) {
+        painter->drawLine(QPointF{line.x0, line.y0}, QPointF{line.x1, line.y1});
     }
+}
+
+}  // namespace
+
+void renderBookTicker(const RenderContext& ctx) {
+    if (!ctx.s.bookTickerVisible) return;
+    if (ctx.s.bookTickerTrace.bidLines.empty() && ctx.s.bookTickerTrace.askLines.empty()) return;
 
     QColor bidCol = bidColor(); bidCol.setAlpha(255);
     QColor askCol = askColor(); askCol.setAlpha(255);
@@ -52,10 +48,8 @@ void renderBookTicker(const RenderContext& ctx) {
     ctx.p->save();
     ctx.p->setRenderHint(QPainter::Antialiasing, false);
     ctx.p->setBrush(Qt::NoBrush);
-    ctx.p->setPen(bidPen);
-    ctx.p->drawPath(bidPath);
-    ctx.p->setPen(askPen);
-    ctx.p->drawPath(askPath);
+    drawTraceLines(ctx.p, ctx.s.bookTickerTrace.bidLines, bidPen);
+    drawTraceLines(ctx.p, ctx.s.bookTickerTrace.askLines, askPen);
     ctx.p->restore();
 }
 
