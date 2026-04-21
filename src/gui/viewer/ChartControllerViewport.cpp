@@ -1,11 +1,14 @@
 #include "gui/viewer/ChartController.hpp"
 
 #include <QDateTime>
+#include <QColor>
 #include <QVariantMap>
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
+#include "gui/viewer/ColorScheme.hpp"
+#include "gui/viewer/detail/BookMath.hpp"
 #include "gui/viewer/detail/Formatters.hpp"
 
 namespace hftrec::gui::viewer {
@@ -76,6 +79,90 @@ std::int64_t niceTimeStepNs(std::int64_t spanNs, int tickCount) {
 std::int64_t usdToE8(qreal usd) noexcept {
     const qreal clamped = std::clamp<qreal>(usd, 100.0, 100000.0);
     return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
+}
+
+qreal normalizedBrightness(std::int64_t amountE8,
+                           std::int64_t minVisibleAmountE8,
+                           std::int64_t brightnessRefE8) noexcept {
+    if (brightnessRefE8 <= 0 || amountE8 <= 0) return 0.0;
+
+    const std::int64_t fullBrightAmountE8 = std::max(brightnessRefE8, minVisibleAmountE8 + 1);
+    const std::int64_t spanE8 = std::max<std::int64_t>(1, fullBrightAmountE8 - minVisibleAmountE8);
+    const std::int64_t shiftedAmountE8 = std::max<std::int64_t>(0, amountE8 - minVisibleAmountE8);
+    const qreal ratio = std::clamp(
+        static_cast<qreal>(shiftedAmountE8) / static_cast<qreal>(spanE8), 0.0, 1.0);
+    return std::pow(ratio, 0.28);
+}
+
+bool prepareVisibleLevelForScreen(const BookLevel& level,
+                                  const ViewportMap& vp,
+                                  std::int64_t minVisibleAmountE8,
+                                  std::int64_t brightnessRefE8,
+                                  int& outYPx,
+                                  std::uint8_t& outAlpha) noexcept {
+    if (level.qtyE8 <= 0) return false;
+    if (level.priceE8 < vp.pMin || level.priceE8 > vp.pMax) return false;
+
+    const int heightPx = static_cast<int>(std::ceil(vp.h));
+    if (heightPx <= 0) return false;
+
+    const auto y = static_cast<int>(std::round(vp.toY(level.priceE8)));
+    if (y < 0 || y >= heightPx) return false;
+
+    const auto amountE8 = detail::multiplyScaledE8(level.qtyE8, level.priceE8);
+    if (amountE8 < minVisibleAmountE8) return false;
+
+    const qreal brightness = normalizedBrightness(amountE8, minVisibleAmountE8, brightnessRefE8);
+    const int alpha = std::clamp(static_cast<int>(std::round(brightness * 255.0)), 0, 255);
+    if (alpha <= 1) return false;
+
+    outYPx = y;
+    outAlpha = static_cast<std::uint8_t>(alpha);
+    return true;
+}
+
+void appendGpuVerticesForSide(std::vector<GpuBookLineVertex>& out,
+                              const std::vector<BookLevel>& levels,
+                              const ViewportMap& vp,
+                              qreal xLeft,
+                              qreal xRight,
+                              const QColor& baseColor,
+                              std::int64_t brightnessRefE8,
+                              std::int64_t minVisibleAmountE8) {
+    if (xRight <= xLeft || levels.empty()) return;
+
+    const int xStart = static_cast<int>(std::floor(xLeft));
+    const int xEnd = std::max(xStart + 1, static_cast<int>(std::ceil(xRight)));
+    if (xEnd <= xStart) return;
+
+    int lastDrawnY = std::numeric_limits<int>::min();
+    for (const auto& level : levels) {
+        int y = 0;
+        std::uint8_t alpha = 0;
+        if (!prepareVisibleLevelForScreen(
+                level, vp, minVisibleAmountE8, brightnessRefE8, y, alpha)) {
+            continue;
+        }
+        if (y == lastDrawnY) continue;
+
+        out.push_back(GpuBookLineVertex{
+            static_cast<float>(xStart),
+            static_cast<float>(y),
+            static_cast<std::uint8_t>(baseColor.red()),
+            static_cast<std::uint8_t>(baseColor.green()),
+            static_cast<std::uint8_t>(baseColor.blue()),
+            alpha,
+        });
+        out.push_back(GpuBookLineVertex{
+            static_cast<float>(xEnd - 1),
+            static_cast<float>(y),
+            static_cast<std::uint8_t>(baseColor.red()),
+            static_cast<std::uint8_t>(baseColor.green()),
+            static_cast<std::uint8_t>(baseColor.blue()),
+            alpha,
+        });
+        lastDrawnY = y;
+    }
 }
 
 void absorbPrice(std::int64_t price, bool& hasPrice, std::int64_t& pMin, std::int64_t& pMax) {
@@ -462,6 +549,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     const auto& tickers = replay_.bookTickers();
 
     const auto tickerMarkerWidthNs = timeSpanPerPixelNs(snap.vp.tMax - snap.vp.tMin, widthPx);
+    const auto brightnessRefE8 = usdToE8(in.bookOpacityGain);
 
     auto emitSegment = [&](std::int64_t tsStart,
                            std::int64_t tsEnd,
@@ -482,30 +570,48 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             std::int64_t maxAsk = 0;
             std::size_t keptBids = 0;
             std::size_t keptAsks = 0;
+            int lastBidYPx = std::numeric_limits<int>::min();
+            int lastAskYPx = std::numeric_limits<int>::min();
             const std::size_t levelsBudget = in.interactiveMode
                 ? kInteractiveBookLevelsBudgetPerSide
                 : kRenderBookLevelsBudgetPerSide;
             for (const auto& [price, qty] : book.bids()) {
-                if (price < snap.vp.pMin || price > snap.vp.pMax || qty <= 0) continue;
                 if (keptBids >= levelsBudget) break;
-                const auto y = snap.vp.toY(price);
-                if (y < 0.0 || y >= heightLimit) continue;
-                const auto amountE8 = detail::multiplyScaledE8(qty, price);
-                if (amountE8 < minVisibleAmountE8) continue;
+                int yPx = 0;
+                std::uint8_t alpha = 0;
+                if (!prepareVisibleLevelForScreen(
+                        BookLevel{price, qty},
+                        snap.vp,
+                        minVisibleAmountE8,
+                        brightnessRefE8,
+                        yPx,
+                        alpha)) {
+                    continue;
+                }
+                if (yPx == lastBidYPx) continue;
                 seg.bids.push_back(BookLevel{price, qty});
                 if (qty > maxBid) maxBid = qty;
                 ++keptBids;
+                lastBidYPx = yPx;
             }
             for (const auto& [price, qty] : book.asks()) {
-                if (price < snap.vp.pMin || price > snap.vp.pMax || qty <= 0) continue;
                 if (keptAsks >= levelsBudget) break;
-                const auto y = snap.vp.toY(price);
-                if (y < 0.0 || y >= heightLimit) continue;
-                const auto amountE8 = detail::multiplyScaledE8(qty, price);
-                if (amountE8 < minVisibleAmountE8) continue;
+                int yPx = 0;
+                std::uint8_t alpha = 0;
+                if (!prepareVisibleLevelForScreen(
+                        BookLevel{price, qty},
+                        snap.vp,
+                        minVisibleAmountE8,
+                        brightnessRefE8,
+                        yPx,
+                        alpha)) {
+                    continue;
+                }
+                if (yPx == lastAskYPx) continue;
                 seg.asks.push_back(BookLevel{price, qty});
                 if (qty > maxAsk) maxAsk = qty;
                 ++keptAsks;
+                lastAskYPx = yPx;
             }
             seg.maxBidQty = std::max<std::int64_t>(maxBid, 1);
             seg.maxAskQty = std::max<std::int64_t>(maxAsk, 1);
@@ -526,6 +632,26 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             }
         }
         if (seg.bids.empty() && seg.asks.empty() && !hasVisibleTicker) return;
+        if (in.orderbookVisible) {
+            appendGpuVerticesForSide(
+                snap.gpuBookVertices,
+                seg.bids,
+                snap.vp,
+                xLeft,
+                xRight,
+                bidColor(),
+                brightnessRefE8,
+                minVisibleAmountE8);
+            appendGpuVerticesForSide(
+                snap.gpuBookVertices,
+                seg.asks,
+                snap.vp,
+                xLeft,
+                xRight,
+                askColor(),
+                brightnessRefE8,
+                minVisibleAmountE8);
+        }
         snap.bookSegments.push_back(std::move(seg));
     };
 

@@ -36,6 +36,10 @@ Pane {
         return chartLoader.item
     }
 
+    function syncRendererDiagnostics() {
+        root.appVm.activeChartRenderer = root.useDedicatedGpuPath ? "gpu-orderbook" : "cpu-chart"
+    }
+
     function syncChannelView() {
         interaction.clearSelectionVisual()
         chart.clearSelection()
@@ -94,7 +98,11 @@ Pane {
         onTriggered: interaction.interactiveMode = false
     }
 
-    Component.onCompleted: Qt.callLater(root.ensureSessionSelection)
+    Component.onCompleted: {
+        Qt.callLater(root.ensureSessionSelection)
+        Qt.callLater(root.syncRendererDiagnostics)
+    }
+    onUseDedicatedGpuPathChanged: root.syncRendererDiagnostics()
 
     Connections {
         target: sessionsModel
@@ -208,6 +216,7 @@ Pane {
                     id: chartLoader
                     anchors.fill: parent
                     sourceComponent: root.useDedicatedGpuPath ? gpuChartComponent : cpuChartComponent
+                    onLoaded: root.syncRendererDiagnostics()
                 }
 
                 MouseArea {

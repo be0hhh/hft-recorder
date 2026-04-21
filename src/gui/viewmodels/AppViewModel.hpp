@@ -12,6 +12,7 @@ class AppViewModel : public QObject {
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(QString requestedRenderMode READ requestedRenderMode NOTIFY renderDiagnosticsChanged)
     Q_PROPERTY(QString actualGraphicsApi READ actualGraphicsApi NOTIFY renderDiagnosticsChanged)
+    Q_PROPERTY(QString activeChartRenderer READ activeChartRenderer WRITE setActiveChartRenderer NOTIFY renderDiagnosticsChanged)
     Q_PROPERTY(QString renderDiagnosticsText READ renderDiagnosticsText NOTIFY renderDiagnosticsChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
     Q_PROPERTY(qreal bookBrightnessUsdRef READ bookBrightnessUsdRef WRITE setBookBrightnessUsdRef NOTIFY bookBrightnessUsdRefChanged)
@@ -23,6 +24,7 @@ class AppViewModel : public QObject {
     QString statusText() const;
     QString requestedRenderMode() const { return requestedRenderMode_; }
     QString actualGraphicsApi() const { return actualGraphicsApi_; }
+    QString activeChartRenderer() const { return activeChartRenderer_; }
     QString renderDiagnosticsText() const { return renderDiagnosticsText_; }
     qreal tradeAmountScale() const noexcept { return tradeAmountScale_; }
     qreal bookBrightnessUsdRef() const noexcept { return bookBrightnessUsdRef_; }
@@ -31,6 +33,7 @@ class AppViewModel : public QObject {
     void setTradeAmountScale(qreal value);
     void setBookBrightnessUsdRef(qreal value);
     void setBookMinVisibleUsd(qreal value);
+    void setActiveChartRenderer(const QString& rendererName);
     Q_INVOKABLE void setRenderDiagnostics(const QString& requestedMode, const QString& actualGraphicsApi);
 
   signals:
@@ -49,7 +52,8 @@ class AppViewModel : public QObject {
     QString statusText_{"Ready for GUI-first capture and compression lab work"};
     QString requestedRenderMode_{"cpu"};
     QString actualGraphicsApi_{"unknown"};
-    QString renderDiagnosticsText_{"CPU requested | backend unknown"};
+    QString activeChartRenderer_{"cpu-chart"};
+    QString renderDiagnosticsText_{"CPU requested | backend unknown | cpu-chart"};
     qreal tradeAmountScale_{0.45};
     qreal bookBrightnessUsdRef_{15000.0};
     qreal bookMinVisibleUsd_{5000.0};

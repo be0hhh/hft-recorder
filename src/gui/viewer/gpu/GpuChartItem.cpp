@@ -1,13 +1,19 @@
 #include "gui/viewer/gpu/GpuChartItem.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 
+#include <QOpenGLBuffer>
+#include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFramebufferObjectFormat>
+#include <QOpenGLFunctions>
 #include <QOpenGLPaintDevice>
+#include <QOpenGLShaderProgram>
 #include <QPainter>
 #include <QQuickWindow>
+#include <QVector2D>
 
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/ColorScheme.hpp"
@@ -15,7 +21,6 @@
 #include "gui/viewer/RenderSnapshot.hpp"
 #include "gui/viewer/detail/Formatters.hpp"
 #include "gui/viewer/hit_test/HoverDetection.hpp"
-#include "gui/viewer/renderers/BookRenderer.hpp"
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
 #include "gui/viewer/renderers/TradeRenderer.hpp"
@@ -42,6 +47,11 @@ SnapshotInputs collectInputs(const GpuChartItem& item) {
 
 class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
   public:
+    GpuChartRenderer() : vbo_(QOpenGLBuffer::VertexBuffer) {}
+    ~GpuChartRenderer() override {
+        if (vbo_.isCreated()) vbo_.destroy();
+    }
+
     QOpenGLFramebufferObject* createFramebufferObject(const QSize& size) override {
         QOpenGLFramebufferObjectFormat format;
         format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
@@ -58,6 +68,25 @@ class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
     void render() override {
         auto* fbo = framebufferObject();
         if (fbo == nullptr) return;
+        auto* gl = QOpenGLContext::currentContext() ? QOpenGLContext::currentContext()->functions() : nullptr;
+        if (gl == nullptr) return;
+
+        gl->glViewport(0, 0, fbo->width(), fbo->height());
+        gl->glDisable(GL_DEPTH_TEST);
+        gl->glDisable(GL_CULL_FACE);
+        gl->glDisable(GL_SCISSOR_TEST);
+        gl->glEnable(GL_BLEND);
+        gl->glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        const auto bg = bgColor();
+        const float clearAlpha = snapshot_.overlayOnly ? 0.0F : 1.0F;
+        gl->glClearColor(
+            static_cast<float>(bg.redF()),
+            static_cast<float>(bg.greenF()),
+            static_cast<float>(bg.blueF()),
+            clearAlpha);
+        gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+        renderOrderbook_();
 
         QOpenGLPaintDevice device(fbo->size());
         QPainter painter(&device);
@@ -77,9 +106,6 @@ class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
             painter.translate(0.0, -snapshot_.vp.h);
         }
 
-        const QRectF rect{0.0, 0.0, snapshot_.vp.w, snapshot_.vp.h};
-        if (!snapshot_.overlayOnly) painter.fillRect(rect, bgColor());
-
         if (!snapshot_.loaded) {
             painter.setPen(axisTextColor());
             painter.drawText(QRectF{8, 8, snapshot_.vp.w - 16, 24},
@@ -87,7 +113,6 @@ class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
                              QStringLiteral("Pick a session, then load Trades."));
         } else if (snapshot_.vp.tMax > snapshot_.vp.tMin && snapshot_.vp.pMax > snapshot_.vp.pMin) {
             RenderContext ctx{&painter, snapshot_, hover_, dpr_};
-            renderers::renderBook(ctx);
             renderers::renderBookTicker(ctx);
             renderers::renderTrades(ctx);
             renderers::renderOverlay(ctx);
@@ -97,9 +122,103 @@ class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
     }
 
   private:
+    void ensureGlResources_() {
+        if (program_ && vbo_.isCreated()) return;
+
+        auto program = std::make_unique<QOpenGLShaderProgram>();
+        // EN: Orderbook geometry is prepacked in logical Qt pixel space.
+        // The shader converts those logical coordinates to clip space so the
+        // GL pass can render the dense book layer in one batched draw. The Y
+        // axis is intentionally inverted here to match the user's expected
+        // vertical orientation for the OpenGL orderbook layer.
+        // RU: Геометрия книги заранее упакована в логических Qt-координатах.
+        // Шейдер переводит их в clip-space, чтобы плотный слой orderbook
+        // рисовался одним батчем без QPainter drawLine на каждый уровень.
+        // Ось Y здесь специально перевёрнута, чтобы GL-слой orderbook имел
+        // ожидаемую вертикальную ориентацию.
+        static constexpr const char* kVertexShader = R"(#version 330
+layout(location = 0) in vec2 aPosition;
+layout(location = 1) in vec4 aColor;
+uniform vec2 uViewportSize;
+out vec4 vColor;
+void main() {
+    vec2 clip = vec2(
+        (aPosition.x / uViewportSize.x) * 2.0 - 1.0,
+        (aPosition.y / uViewportSize.y) * 2.0 - 1.0);
+    gl_Position = vec4(clip, 0.0, 1.0);
+    vColor = aColor;
+}
+)";
+        static constexpr const char* kFragmentShader = R"(#version 330
+in vec4 vColor;
+out vec4 fragColor;
+void main() {
+    fragColor = vColor;
+}
+)";
+        if (!program->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertexShader)) return;
+        if (!program->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragmentShader)) return;
+        if (!program->link()) return;
+
+        if (!vbo_.isCreated()) {
+            if (!vbo_.create()) return;
+            vbo_.setUsagePattern(QOpenGLBuffer::DynamicDraw);
+        }
+
+        program_ = std::move(program);
+    }
+
+    void renderOrderbook_() {
+        if (snapshot_.overlayOnly) return;
+        if (!snapshot_.loaded || !snapshot_.orderbookVisible || snapshot_.gpuBookVertices.empty()) return;
+        if (snapshot_.vp.w <= 0.0 || snapshot_.vp.h <= 0.0) return;
+
+        ensureGlResources_();
+        if (!program_ || !vbo_.isCreated()) return;
+
+        auto* gl = QOpenGLContext::currentContext() ? QOpenGLContext::currentContext()->functions() : nullptr;
+        if (gl == nullptr) return;
+
+        program_->bind();
+        program_->setUniformValue("uViewportSize", QVector2D{
+            static_cast<float>(snapshot_.vp.w),
+            static_cast<float>(snapshot_.vp.h),
+        });
+
+        vbo_.bind();
+        vbo_.allocate(
+            snapshot_.gpuBookVertices.data(),
+            static_cast<int>(snapshot_.gpuBookVertices.size() * sizeof(GpuBookLineVertex)));
+
+        gl->glEnableVertexAttribArray(0);
+        gl->glEnableVertexAttribArray(1);
+        gl->glVertexAttribPointer(
+            0,
+            2,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(GpuBookLineVertex),
+            reinterpret_cast<const void*>(offsetof(GpuBookLineVertex, x)));
+        gl->glVertexAttribPointer(
+            1,
+            4,
+            GL_UNSIGNED_BYTE,
+            GL_TRUE,
+            sizeof(GpuBookLineVertex),
+            reinterpret_cast<const void*>(offsetof(GpuBookLineVertex, r)));
+        gl->glLineWidth(1.0F);
+        gl->glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(snapshot_.gpuBookVertices.size()));
+        gl->glDisableVertexAttribArray(0);
+        gl->glDisableVertexAttribArray(1);
+        vbo_.release();
+        program_->release();
+    }
+
     RenderSnapshot snapshot_{};
     HoverInfo hover_{};
     double dpr_{1.0};
+    std::unique_ptr<QOpenGLShaderProgram> program_{};
+    QOpenGLBuffer vbo_;
 };
 
 GpuChartItem::GpuChartItem(QQuickItem* parent) : QQuickFramebufferObject(parent) {
@@ -117,7 +236,7 @@ void GpuChartItem::setController(ChartController* c) {
         connect(controller_, &ChartController::sessionChanged, this, &GpuChartItem::requestRepaint);
     }
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     emit controllerChanged();
     update();
 }
@@ -127,7 +246,7 @@ void GpuChartItem::setTradesVisible(bool value) {
     tradesVisible_ = value;
     if (!tradesVisible_) clearHover();
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     emit tradesVisibleChanged();
     update();
 }
@@ -136,7 +255,7 @@ void GpuChartItem::setOrderbookVisible(bool value) {
     if (orderbookVisible_ == value) return;
     orderbookVisible_ = value;
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     updateHover_();
     emit orderbookVisibleChanged();
     update();
@@ -146,7 +265,7 @@ void GpuChartItem::setBookTickerVisible(bool value) {
     if (bookTickerVisible_ == value) return;
     bookTickerVisible_ = value;
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     updateHover_();
     emit bookTickerVisibleChanged();
     update();
@@ -157,7 +276,7 @@ void GpuChartItem::setTradeAmountScale(qreal value) {
     if (qFuzzyCompare(tradeAmountScale_ + 1.0, value + 1.0)) return;
     tradeAmountScale_ = value;
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     emit tradeAmountScaleChanged();
     update();
 }
@@ -167,7 +286,7 @@ void GpuChartItem::setBookOpacityGain(qreal value) {
     if (qFuzzyCompare(bookOpacityGain_ + 1.0, value + 1.0)) return;
     bookOpacityGain_ = value;
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     emit bookOpacityGainChanged();
     update();
 }
@@ -177,7 +296,7 @@ void GpuChartItem::setBookRenderDetail(qreal value) {
     if (qFuzzyCompare(bookRenderDetail_ + 1.0, value + 1.0)) return;
     bookRenderDetail_ = value;
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     emit bookRenderDetailChanged();
     update();
 }
@@ -186,7 +305,7 @@ void GpuChartItem::setInteractiveMode(bool value) {
     if (interactiveMode_ == value) return;
     interactiveMode_ = value;
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     emit interactiveModeChanged();
     update();
 }
@@ -195,7 +314,7 @@ void GpuChartItem::setOverlayOnly(bool value) {
     if (overlayOnly_ == value) return;
     overlayOnly_ = value;
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     emit overlayOnlyChanged();
     update();
 }
@@ -250,7 +369,7 @@ void GpuChartItem::updateHover_() {
     hoverInfo_ = std::make_unique<HoverInfo>();
     if (!hoverActive_ || !controller_ || !controller_->loaded() || width() <= 0 || height() <= 0) return;
 
-    rebuildSnapshot_();
+    if (!ensureSnapshot_()) return;
     if (!cachedSnap_ || !cachedSnap_->loaded) return;
 
     HoverInfo hover{};
@@ -265,7 +384,7 @@ void GpuChartItem::updateHover_() {
 
 void GpuChartItem::requestRepaint() {
     invalidateSnapshotCache_();
-    rebuildSnapshot_();
+    ensureSnapshot_();
     updateHover_();
     update();
 }
@@ -274,25 +393,30 @@ void GpuChartItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGe
     QQuickFramebufferObject::geometryChange(newGeometry, oldGeometry);
     if (newGeometry.size() != oldGeometry.size()) {
         invalidateSnapshotCache_();
-        rebuildSnapshot_();
+        ensureSnapshot_();
+        updateHover_();
+        update();
     }
 }
 
 void GpuChartItem::invalidateSnapshotCache_() {
     cachedSnap_.reset();
+    snapshotDirty_ = true;
 }
 
-void GpuChartItem::rebuildSnapshot_() {
-    if (!controller_ || width() <= 0.0 || height() <= 0.0) return;
+bool GpuChartItem::ensureSnapshot_() {
+    if (!controller_ || width() <= 0.0 || height() <= 0.0) return false;
     const qreal w = width();
     const qreal h = height();
-    if (!cachedSnap_ || cachedW_ != w || cachedH_ != h) {
+    if (snapshotDirty_ || !cachedSnap_ || cachedW_ != w || cachedH_ != h) {
         cachedSnap_ = std::make_unique<RenderSnapshot>(
             controller_->buildSnapshot(w, h, collectInputs(*this)));
         cachedW_ = w;
         cachedH_ = h;
+        snapshotDirty_ = false;
     }
     if (!hoverInfo_) hoverInfo_ = std::make_unique<HoverInfo>(buildHoverInfo_());
+    return cachedSnap_ != nullptr;
 }
 
 HoverInfo GpuChartItem::buildHoverInfo_() const {

@@ -76,6 +76,16 @@ void AppViewModel::setBookMinVisibleUsd(qreal value) {
     emit bookMinVisibleUsdChanged();
 }
 
+void AppViewModel::setActiveChartRenderer(const QString& rendererName) {
+    const QString normalized = rendererName.trimmed().toLower().isEmpty()
+        ? QStringLiteral("cpu-chart")
+        : rendererName.trimmed().toLower();
+    if (normalized == activeChartRenderer_) return;
+    activeChartRenderer_ = normalized;
+    refreshRenderDiagnosticsText_();
+    emit renderDiagnosticsChanged();
+}
+
 void AppViewModel::loadSettings_() {
     const auto tradeScale = settings_.value(QStringLiteral("viewer/trade_amount_scale"), tradeAmountScale_).toReal();
     const auto brightnessUsd = settings_.value(QStringLiteral("viewer/book_brightness_usd_ref"), bookBrightnessUsdRef_).toReal();
@@ -98,8 +108,8 @@ void AppViewModel::flushSettings_() {
 }
 
 void AppViewModel::refreshRenderDiagnosticsText_() {
-    renderDiagnosticsText_ = QStringLiteral("%1 requested | %2 backend")
-        .arg(requestedRenderMode_.toUpper(), actualGraphicsApi_);
+    renderDiagnosticsText_ = QStringLiteral("%1 requested | %2 backend | %3")
+        .arg(requestedRenderMode_.toUpper(), actualGraphicsApi_, activeChartRenderer_);
 }
 
 }  // namespace hftrec::gui

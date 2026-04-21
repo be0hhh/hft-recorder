@@ -14,6 +14,15 @@ struct BookLevel {
     std::int64_t qtyE8{0};
 };
 
+struct GpuBookLineVertex {
+    float x{0.0F};
+    float y{0.0F};
+    std::uint8_t r{0};
+    std::uint8_t g{0};
+    std::uint8_t b{0};
+    std::uint8_t a{0};
+};
+
 // One time-slice of the chart: constant book state + optional active
 // bookTicker, covering [tsStartNs, tsEndNs]. Materialized by
 // ChartController::buildSnapshot so the paint path never mutates replay state.
@@ -78,6 +87,7 @@ struct RenderSnapshot {
 
     // Book-history frames (empty if neither orderbook nor bookticker is visible).
     std::vector<BookSegment> bookSegments;
+    std::vector<GpuBookLineVertex> gpuBookVertices;
 
     // Trades pre-filtered to viewport (original order by tsNs).
     std::vector<TradeDot> tradeDots;

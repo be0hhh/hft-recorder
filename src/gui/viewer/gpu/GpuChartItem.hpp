@@ -4,6 +4,7 @@
 #include <memory>
 
 #include <QPointF>
+#include <QRectF>
 #include <QQuickFramebufferObject>
 
 namespace hftrec::gui::viewer {
@@ -80,7 +81,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     bool shouldSkipHoverRecompute_(const QPointF& point, bool contextActive) const noexcept;
     void updateHover_();
     void invalidateSnapshotCache_();
-    void rebuildSnapshot_();
+    bool ensureSnapshot_();
     HoverInfo buildHoverInfo_() const;
     RenderSnapshot snapshotCopy_() const;
     HoverInfo hoverInfoCopy_() const;
@@ -107,6 +108,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     std::unique_ptr<HoverInfo> hoverInfo_{};
     qreal cachedW_{0.0};
     qreal cachedH_{0.0};
+    bool snapshotDirty_{true};
 };
 
 }  // namespace gpu
