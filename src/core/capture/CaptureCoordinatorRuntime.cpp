@@ -34,11 +34,18 @@ std::string snapshotSymbolString(const cxet::composite::OrderBookSnapshot& snaps
 replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
                               const EventSequenceIds& sequenceIds) noexcept {
     replay::TradeRow row{};
+    row.exchangeId = trade.exchangeId;
+    row.tradeId = trade.tradeId;
+    row.firstTradeId = trade.firstTradeId;
+    row.lastTradeId = trade.lastTradeId;
     row.tsNs = static_cast<std::int64_t>(trade.tsNs);
     row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
     row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
     row.priceE8 = trade.priceE8;
     row.qtyE8 = trade.qtyE8;
+    row.quoteQtyE8 = trade.quoteQtyE8;
+    row.side = trade.side;
+    row.isBuyerMaker = trade.isBuyerMaker ? 1u : 0u;
     row.sideBuy = trade.sideBuy ? 1u : 0u;
     return row;
 }
@@ -46,6 +53,7 @@ replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
 replay::BookTickerRow makeBookTickerRow(const cxet_bridge::CapturedBookTickerRow& bookTicker,
                                         const EventSequenceIds& sequenceIds) noexcept {
     replay::BookTickerRow row{};
+    row.exchangeId = bookTicker.exchangeId;
     row.tsNs = static_cast<std::int64_t>(bookTicker.tsNs);
     row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
     row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
@@ -60,7 +68,7 @@ std::vector<replay::PricePair> makePricePairs(const std::vector<cxet_bridge::Cap
     std::vector<replay::PricePair> out;
     out.reserve(levels.size());
     for (const auto& level : levels) {
-        out.push_back(replay::PricePair{level.priceI64, level.qtyI64});
+        out.push_back(replay::PricePair{level.priceI64, level.qtyI64, level.side, level.levelId});
     }
     return out;
 }
@@ -68,6 +76,7 @@ std::vector<replay::PricePair> makePricePairs(const std::vector<cxet_bridge::Cap
 replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth,
                               const EventSequenceIds& sequenceIds) {
     replay::DepthRow row{};
+    row.exchangeId = depth.exchangeId;
     row.tsNs = static_cast<std::int64_t>(depth.tsNs);
     row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
     row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
@@ -81,6 +90,7 @@ replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth,
 replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBookRow& snapshot,
                                               const SnapshotProvenance& provenance) {
     replay::SnapshotDocument document{};
+    document.exchangeId = snapshot.exchangeId;
     document.tsNs = static_cast<std::int64_t>(snapshot.tsNs);
     document.captureSeq = static_cast<std::int64_t>(provenance.sequence.captureSeq);
     document.ingestSeq = static_cast<std::int64_t>(provenance.sequence.ingestSeq);

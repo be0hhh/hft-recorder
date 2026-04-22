@@ -8,6 +8,7 @@
 #include <QPointF>
 #include <QString>
 
+#include "core/storage/EventStorage.hpp"
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/hit_test/HoverDetection.hpp"
 
@@ -17,6 +18,7 @@ namespace {
 
 using hftrec::gui::viewer::ChartController;
 using hftrec::gui::viewer::HoverInfo;
+using hftrec::gui::viewer::LiveDataRegistry;
 using hftrec::gui::viewer::SnapshotInputs;
 
 constexpr std::int64_t kScaleE8 = 100000000ll;
@@ -41,14 +43,39 @@ std::string bookTickerLine(std::int64_t tsNs,
                            std::int64_t captureSeq,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8) {
-    return "{\"tsNs\":" + std::to_string(tsNs)
-        + ",\"captureSeq\":" + std::to_string(captureSeq)
-        + ",\"ingestSeq\":" + std::to_string(captureSeq)
-        + ",\"bidPriceE8\":" + std::to_string(bidPriceE8)
-        + ",\"bidQtyE8\":" + std::to_string(e8(2))
-        + ",\"askPriceE8\":" + std::to_string(askPriceE8)
-        + ",\"askQtyE8\":" + std::to_string(e8(3)) + "}\n";
+    return "[0," + std::to_string(bidPriceE8)
+        + "," + std::to_string(e8(2))
+        + "," + std::to_string(askPriceE8)
+        + "," + std::to_string(e8(3))
+        + "," + std::to_string(tsNs)
+        + "," + std::to_string(captureSeq)
+        + "," + std::to_string(captureSeq) + "]\n";
 }
+
+hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
+                                  std::int64_t captureSeq,
+                                  std::int64_t priceE8,
+                                  std::int64_t qtyE8) {
+    hftrec::replay::TradeRow row{};
+    row.tsNs = tsNs;
+    row.captureSeq = captureSeq;
+    row.ingestSeq = captureSeq;
+    row.priceE8 = priceE8;
+    row.qtyE8 = qtyE8;
+    row.sideBuy = 1u;
+    return row;
+}
+
+class StubIngress final : public hftrec::market_data::IMarketDataIngress {
+  public:
+    explicit StubIngress(const hftrec::storage::IEventSource* source) : source_(source) {}
+
+    const hftrec::storage::IEventSource* eventSource() const noexcept override { return source_; }
+    const hftrec::storage::IHotEventCache* hotCache() const noexcept override { return nullptr; }
+
+  private:
+    const hftrec::storage::IEventSource* source_{nullptr};
+};
 
 SnapshotInputs bookTickerInputs() {
     SnapshotInputs in{};
@@ -134,6 +161,75 @@ TEST(ViewerBookTickerTrace, BreaksTraceAcrossStaleTickerGap) {
 
     std::error_code ec;
     fs::remove_all(dir, ec);
+}
+
+TEST(ViewerLiveSource, RegistrySelectionUsesInMemoryProviderForViewportCache) {
+    hftrec::storage::LiveEventStore store{};
+    ASSERT_EQ(store.appendTrade(tradeRow(100, 1, e8(100), e8(2))), hftrec::Status::Ok);
+    StubIngress ingress(&store);
+
+    auto& registry = LiveDataRegistry::instance();
+    registry.setSources({
+        {"live:test:futures:BTCUSDT", "Test", "Futures", "BTCUSDT", "s1", {}, &ingress},
+    });
+
+    ChartController chart;
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:BTCUSDT"), QString{}));
+    chart.refreshLiveDataWindow(0, 200);
+
+    ASSERT_EQ(chart.liveDataCache().stableRows.trades.size(), 1u);
+    EXPECT_EQ(chart.liveDataCache().stableRows.trades.front().tsNs, 100);
+    EXPECT_TRUE(chart.loaded());
+
+    registry.clear();
+}
+
+TEST(ViewerSelection, IncludesLiveStableRowsInRectangleSummary) {
+    hftrec::storage::LiveEventStore store{};
+    ASSERT_EQ(store.appendTrade(tradeRow(100, 1, e8(100), e8(2))), hftrec::Status::Ok);
+    StubIngress ingress(&store);
+
+    auto& registry = LiveDataRegistry::instance();
+    registry.setSources({
+        {"live:test:futures:ETHUSDT", "Test", "Futures", "ETHUSDT", "s2", {}, &ingress},
+    });
+
+    ChartController chart;
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:ETHUSDT"), QString{}));
+    chart.refreshLiveDataWindow(0, 200);
+    chart.setViewport(0, 200, e8(90), e8(110));
+
+    ASSERT_TRUE(chart.commitSelectionRect(200.0, 200.0, 0.0, 0.0, 200.0, 200.0));
+    EXPECT_TRUE(chart.selectionSummaryText().contains(QStringLiteral("Count  1")));
+
+    registry.clear();
+}
+
+TEST(ViewerTradeHover, HitsTradeAndLeavesEmptySpaceUnmatched) {
+    hftrec::gui::viewer::RenderSnapshot snap{};
+    snap.loaded = true;
+    snap.tradesVisible = true;
+    snap.vp = hftrec::gui::viewer::ViewportMap{0, 200, e8(90), e8(110), 200.0, 200.0};
+    snap.tradeDots.push_back(hftrec::gui::viewer::TradeDot{100, e8(100), e8(2), true, 7});
+
+    HoverInfo hover{};
+    hftrec::gui::viewer::hit_test::computeHover(
+        snap,
+        QPointF{snap.vp.toX(100), snap.vp.toY(e8(100))},
+        true,
+        hover);
+    EXPECT_TRUE(hover.tradeHit);
+    EXPECT_EQ(hover.tradeOrigIndex, 7);
+    EXPECT_EQ(hover.tradePriceE8, e8(100));
+    EXPECT_EQ(hover.tradeQtyE8, e8(2));
+
+    hftrec::gui::viewer::hit_test::computeHover(
+        snap,
+        QPointF{10.0, 10.0},
+        true,
+        hover);
+    EXPECT_FALSE(hover.tradeHit);
+    EXPECT_EQ(hover.bookKind, 0);
 }
 
 }  // namespace

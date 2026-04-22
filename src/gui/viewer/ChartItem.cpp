@@ -30,6 +30,7 @@ void ChartItem::setController(ChartController* c) {
     invalidateSnapshotCache_();
     invalidateBaseImage_();
     cachedLiveSnap_.reset();
+    cachedHitTestSnap_.reset();
     emit controllerChanged();
     update();
 }
@@ -134,6 +135,7 @@ void ChartItem::requestSessionRepaint() {
     invalidateSnapshotCache_();
     invalidateBaseImage_();
     cachedLiveSnap_.reset();
+    cachedHitTestSnap_.reset();
     interactiveDirty_ = false;
     exactDirty_ = false;
     if (hoverActive_) updateHover_();

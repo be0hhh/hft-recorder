@@ -358,6 +358,10 @@ void GpuChartItem::activateContextPoint(qreal x, qreal y) {
     hoverActive_ = true;
     contextActive_ = true;
     updateHover_();
+    if (hoveredTradeIndex_ < 0 && hoveredBookKind_ == 0) {
+        clearHover();
+        return;
+    }
     update();
 }
 

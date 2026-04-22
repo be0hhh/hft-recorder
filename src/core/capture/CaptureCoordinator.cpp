@@ -47,7 +47,11 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.bookTickerPath = "bookticker.jsonl";
     manifest_.depthPath = "depth.jsonl";
     manifest_.canonicalArtifacts = {"manifest.json", manifest_.instrumentMetadataPath};
-    manifest_.captureContractVersion = "hftrec.cxet_capture.v1";
+    manifest_.captureContractVersion = "hftrec.cxet_prefix_json.v2";
+    manifest_.tradesRowSchema = "cxet_trade_prefix_v2";
+    manifest_.bookTickerRowSchema = "cxet_bookticker_prefix_v2";
+    manifest_.depthRowSchema = "cxet_orderbook_prefix_v2";
+    manifest_.snapshotSchema = "cxet_orderbook_snapshot_prefix_v2";
 
     sessionDir_ = config.outputDir / manifest_.sessionId;
     std::error_code ec;

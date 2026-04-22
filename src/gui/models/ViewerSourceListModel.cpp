@@ -172,6 +172,7 @@ void ViewerSourceListModel::rebuildEntries_() {
         entry.sourceKind = QStringLiteral("live");
         entry.group = QStringLiteral("live");
         entry.groupTitle = QStringLiteral("Live");
+        entry.sessionPath = source.value(QStringLiteral("sessionPath")).toString();
         entry.liveAvailable = source.value(QStringLiteral("liveAvailable"), true).toBool();
         entry.label = source.value(QStringLiteral("label")).toString();
         if (entry.label.isEmpty()) entry.label = buildLiveLabel(entry.exchange, entry.market, entry.symbol);
@@ -200,3 +201,4 @@ void ViewerSourceListModel::rebuildEntries_() {
 }
 
 }  // namespace hftrec::gui
+

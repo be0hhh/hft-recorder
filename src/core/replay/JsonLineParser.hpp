@@ -15,8 +15,7 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept;
 Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept;
 Status parseDepthLine(std::string_view line, DepthRow& out) noexcept;
 
-// Snapshot is a pretty-printed multi-line document produced by
-// renderSnapshotJson (single JSON object).
+// Snapshot is the positional JSON array produced by renderSnapshotJson.
 Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexcept;
 
 }  // namespace hftrec::replay

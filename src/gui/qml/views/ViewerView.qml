@@ -40,7 +40,7 @@ Pane {
         chart.clearSelection()
         var sourceKind = sourcesModel.sourceKind(sourceId)
         if (sourceKind === "live") {
-            chart.activateLiveSource(sourceId)
+            chart.activateLiveSource(sourceId, sourcesModel.sessionPath(sourceId))
             return
         }
         if (sourceKind === "recorded") {
@@ -258,7 +258,7 @@ Pane {
                     property real pressX: 0
                     property real pressY: 0
                     property bool dragActive: false
-                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                     hoverEnabled: true
                     preventStealing: true
                     onPressed: function(mouse) {
@@ -266,9 +266,21 @@ Pane {
                             if (root.chartSurface()) root.chartSurface().activateContextPoint(mouse.x, mouse.y)
                             return
                         }
+                        if (mouse.button === Qt.MiddleButton) {
+                            interaction.startInteractiveMode(interactiveModeTimer)
+                            interaction.beginSelection(mouse.x, mouse.y, 'middle_line')
+                            if (root.chartSurface()) root.chartSurface().clearHover()
+                            return
+                        }
                         if ((mouse.modifiers & Qt.ShiftModifier) && mouse.button === Qt.LeftButton) {
                             interaction.startInteractiveMode(interactiveModeTimer)
-                            interaction.beginSelection(mouse.x, mouse.y)
+                            interaction.beginSelection(mouse.x, mouse.y, 'shift_box')
+                            if (root.chartSurface()) root.chartSurface().clearHover()
+                            return
+                        }
+                        if ((mouse.modifiers & Qt.ControlModifier) && mouse.button === Qt.LeftButton) {
+                            interaction.startInteractiveMode(interactiveModeTimer)
+                            interaction.beginSelection(mouse.x, mouse.y, 'ctrl_hilo')
                             if (root.chartSurface()) root.chartSurface().clearHover()
                             return
                         }
@@ -283,6 +295,7 @@ Pane {
                     onPositionChanged: function(mouse) {
                         if (interaction.rangeSelectionActive) {
                             interaction.updateSelection(mouse.x, mouse.y, plotFrame.width, plotFrame.height)
+                            interaction.updateMeasurement(chart, plotFrame.width, plotFrame.height)
                             return
                         }
                         if (mouse.buttons & Qt.LeftButton) {
@@ -307,7 +320,7 @@ Pane {
                     }
                     onReleased: {
                         if (interaction.rangeSelectionActive) {
-                            interaction.commitSelection(chart, plotFrame.width, plotFrame.height)
+                            interaction.finishMeasurement(chart)
                             interaction.stopInteractiveModeSoon(interactiveModeTimer)
                             return
                         }
@@ -316,7 +329,7 @@ Pane {
                         dragActive = false
                     }
                     onCanceled: {
-                        if (interaction.rangeSelectionActive) interaction.clearSelectionVisual()
+                        if (interaction.rangeSelectionActive) interaction.finishMeasurement(chart)
                         interaction.plotDragging = false
                         if (dragActive) interaction.stopInteractiveModeSoon(interactiveModeTimer)
                         dragActive = false

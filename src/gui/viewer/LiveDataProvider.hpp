@@ -153,6 +153,7 @@ class LiveDataRegistry {
         std::string market{};
         std::string symbol{};
         std::string sessionId{};
+        std::filesystem::path sessionPath{};
         const hftrec::market_data::IMarketDataIngress* ingress{nullptr};
     };
 

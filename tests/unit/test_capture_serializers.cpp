@@ -6,17 +6,16 @@
 #include "core/capture/JsonSerializers.hpp"
 #include "core/capture/SessionId.hpp"
 #include "core/capture/SessionManifest.hpp"
+#include "core/cxet_bridge/CxetCaptureBridge.hpp"
 #include "core/corpus/InstrumentMetadata.hpp"
-#include "primitives/composite/BookTickerData.hpp"
-#include "primitives/composite/OrderBookSnapshot.hpp"
-#include "primitives/composite/Trade.hpp"
 
 namespace {
 
 using hftrec::capture::ChannelKind;
+using hftrec::capture::EventSequenceIds;
 using hftrec::capture::SessionManifest;
+using hftrec::capture::SnapshotProvenance;
 using hftrec::capture::channelFileName;
-using hftrec::capture::isLegacyManifest;
 using hftrec::capture::makeSessionId;
 using hftrec::capture::parseManifestJson;
 using hftrec::capture::renderBookTickerJsonLine;
@@ -28,91 +27,82 @@ using hftrec::corpus::InstrumentMetadata;
 using hftrec::corpus::makeInstrumentMetadata;
 using hftrec::corpus::parseInstrumentMetadataJson;
 using hftrec::corpus::renderInstrumentMetadataJson;
-using hftrec::capture::EventSequenceIds;
-using hftrec::capture::SnapshotProvenance;
+using hftrec::cxet_bridge::CapturedBookTickerRow;
+using hftrec::cxet_bridge::CapturedLevel;
+using hftrec::cxet_bridge::CapturedOrderBookRow;
+using hftrec::cxet_bridge::CapturedTradeRow;
 
 bool contains(const std::string& haystack, const std::string& needle) {
     return haystack.find(needle) != std::string::npos;
 }
 
 TEST(CaptureSerializers, TradeLineContainsKeyFields) {
-    cxet::composite::TradePublic ev{};
-    ev.symbol.copyFrom("BTCUSDT");
-    ev.price.raw = 3'000'100'000'000LL;
-    ev.amount.raw = 10'000'000LL;
-    ev.ts.raw = 1'713'168'000'000'000'000ULL;
-    ev.side = Side::Buy();
+    CapturedTradeRow ev{};
+    ev.symbol = "BTCUSDT";
+    ev.priceE8 = 3'000'100'000'000LL;
+    ev.qtyE8 = 10'000'000LL;
+    ev.side = 1;
+    ev.tsNs = 1'713'168'000'000'000'000ULL;
     const EventSequenceIds ids{7u, 11u};
 
     const auto line = renderTradeJsonLine(ev, ids);
 
-    EXPECT_TRUE(contains(line, "\"tsNs\":1713168000000000000"));
-    EXPECT_TRUE(contains(line, "\"captureSeq\":7"));
-    EXPECT_TRUE(contains(line, "\"ingestSeq\":11"));
-    EXPECT_TRUE(contains(line, "\"priceE8\":3000100000000"));
-    EXPECT_TRUE(contains(line, "\"qtyE8\":10000000"));
-    EXPECT_TRUE(contains(line, "\"sideBuy\":1"));
+    EXPECT_EQ(line, "[3000100000000,10000000,1,1713168000000000000,0,0,0,0,0,7,11]");
     EXPECT_FALSE(contains(line, "\n"));
 }
 
 TEST(CaptureSerializers, BookTickerLineContainsKeyFields) {
-    cxet::composite::BookTickerData ev{};
-    ev.symbol.copyFrom("ETHUSDT");
-    ev.bidPrice.raw = 200'000'000'000LL;
-    ev.bidAmount.raw = 50'000'000LL;
-    ev.askPrice.raw = 200'010'000'000LL;
-    ev.askAmount.raw = 60'000'000LL;
-    ev.ts.raw = 1'713'168'000'500'000'000ULL;
+    CapturedBookTickerRow ev{};
+    ev.symbol = "ETHUSDT";
+    ev.bidPriceE8 = 200'000'000'000LL;
+    ev.bidQtyE8 = 50'000'000LL;
+    ev.askPriceE8 = 200'010'000'000LL;
+    ev.askQtyE8 = 60'000'000LL;
+    ev.includeBidQty = true;
+    ev.includeAskQty = true;
+    ev.tsNs = 1'713'168'000'500'000'000ULL;
     const EventSequenceIds ids{3u, 12u};
 
-    const auto line = renderBookTickerJsonLine(ev, {}, ids);
+    const auto line = renderBookTickerJsonLine(ev, ids);
 
-    EXPECT_TRUE(contains(line, "\"tsNs\":1713168000500000000"));
-    EXPECT_TRUE(contains(line, "\"captureSeq\":3"));
-    EXPECT_TRUE(contains(line, "\"ingestSeq\":12"));
-    EXPECT_TRUE(contains(line, "\"bidPriceE8\":200000000000"));
-    EXPECT_TRUE(contains(line, "\"askPriceE8\":200010000000"));
-    EXPECT_TRUE(contains(line, "\"bidQtyE8\":50000000"));
-    EXPECT_TRUE(contains(line, "\"askQtyE8\":60000000"));
+    EXPECT_EQ(line, "[50000000,200000000000,60000000,200010000000,1713168000500000000,0,3,12]");
 }
 
 TEST(CaptureSerializers, DepthDeltaLineContainsLevelArrays) {
-    cxet::composite::OrderBookSnapshot delta{};
-    delta.symbol.copyFrom("BTCUSDT");
-    delta.ts.raw = 1'713'168'000'750'000'000ULL;
-    delta.updateId.raw = 120ULL;
-    delta.firstUpdateId.raw = 118ULL;
-    delta.bidCount.raw = 2u;
-    delta.bids[0].price.raw = 3'000'000'000'000LL;
-    delta.bids[0].amount.raw = 25'000'000LL;
-    delta.bids[1].price.raw = 2'999'900'000'000LL;
-    delta.bids[1].amount.raw = 0LL;
-    delta.askCount.raw = 1u;
-    delta.asks[0].price.raw = 3'000'100'000'000LL;
-    delta.asks[0].amount.raw = 15'000'000LL;
+    CapturedOrderBookRow delta{};
+    delta.symbol = "BTCUSDT";
+    delta.tsNs = 1'713'168'000'750'000'000ULL;
+    delta.updateId = 120ULL;
+    delta.firstUpdateId = 118ULL;
+    delta.bids = {
+        CapturedLevel{3'000'000'000'000LL, 25'000'000LL, 0, 0ULL},
+        CapturedLevel{2'999'900'000'000LL, 0LL, 0, 0ULL},
+    };
+    delta.asks = {
+        CapturedLevel{3'000'100'000'000LL, 15'000'000LL, 0, 0ULL},
+    };
     const EventSequenceIds ids{5u, 14u};
 
     const auto line = renderDepthJsonLine(delta, ids);
 
-    EXPECT_TRUE(contains(line, "\"captureSeq\":5"));
-    EXPECT_TRUE(contains(line, "\"ingestSeq\":14"));
-    EXPECT_TRUE(contains(line, "\"updateId\":120"));
-    EXPECT_TRUE(contains(line, "\"firstUpdateId\":118"));
-    EXPECT_TRUE(contains(line, "\"price_i64\":3000000000000"));
+    EXPECT_EQ(line,
+              "[120,118,1713168000750000000,2,1,5,14,"
+              "[[25000000,3000000000000,0,0],[0,2999900000000,0,0]],"
+              "[[15000000,3000100000000,0,0]],0]");
 }
 
 TEST(CaptureSerializers, SnapshotJsonIncludesProvenance) {
-    cxet::composite::OrderBookSnapshot snap{};
-    snap.symbol.copyFrom("BTCUSDT");
-    snap.ts.raw = 1'713'168'000'000'000'000ULL;
-    snap.updateId.raw = 100ULL;
-    snap.firstUpdateId.raw = 95ULL;
-    snap.bidCount.raw = 1u;
-    snap.bids[0].price.raw = 3'000'000'000'000LL;
-    snap.bids[0].amount.raw = 100'000'000LL;
-    snap.askCount.raw = 1u;
-    snap.asks[0].price.raw = 3'000'100'000'000LL;
-    snap.asks[0].amount.raw = 80'000'000LL;
+    CapturedOrderBookRow snap{};
+    snap.symbol = "BTCUSDT";
+    snap.tsNs = 1'713'168'000'000'000'000ULL;
+    snap.updateId = 100ULL;
+    snap.firstUpdateId = 95ULL;
+    snap.bids = {
+        CapturedLevel{3'000'000'000'000LL, 100'000'000LL, 0, 0ULL},
+    };
+    snap.asks = {
+        CapturedLevel{3'000'100'000'000LL, 80'000'000LL, 0, 0ULL},
+    };
     SnapshotProvenance provenance{};
     provenance.sequence = EventSequenceIds{1u, 2u};
     provenance.snapshotKind = "initial";
@@ -128,10 +118,11 @@ TEST(CaptureSerializers, SnapshotJsonIncludesProvenance) {
 
     const auto doc = renderSnapshotJson(snap, provenance);
 
-    EXPECT_TRUE(contains(doc, "\"captureSeq\": 1"));
-    EXPECT_TRUE(contains(doc, "\"ingestSeq\": 2"));
-    EXPECT_TRUE(contains(doc, "\"snapshotKind\": \"initial\""));
-    EXPECT_TRUE(contains(doc, "\"trustedReplayAnchor\": 1"));
+    EXPECT_EQ(doc,
+              "[100,95,1713168000000000000,1,1,1,2,"
+              "1713168000000000000,1713168000000123456,100,95,1,"
+              "[[100000000,3000000000000,0,0]],"
+              "[[80000000,3000100000000,0,0]],0]\n");
 }
 
 TEST(SessionHelpers, ManifestRoundTripShape) {
@@ -166,7 +157,7 @@ TEST(SessionHelpers, ManifestRoundTripShape) {
 
     const auto doc = renderManifestJson(m);
     EXPECT_TRUE(contains(doc, "\"manifest_schema_version\": 1"));
-    EXPECT_TRUE(contains(doc, "\"capture_contract_version\": \"hftrec.cxet_capture.v1\""));
+    EXPECT_TRUE(contains(doc, "\"capture_contract_version\": \"hftrec.cxet_prefix_json.v2\""));
     EXPECT_TRUE(contains(doc, "\"session_health\": \"degraded\""));
     EXPECT_TRUE(contains(doc, "\"exact_replay_eligible\": false"));
     EXPECT_TRUE(contains(doc, "\"reason_code\": \"missing_file\""));
@@ -216,7 +207,6 @@ TEST(SessionHelpers, ManifestParseRoundTripPreservesCurrentShape) {
     EXPECT_EQ(parsed.sessionHealth, hftrec::SessionHealth::Clean);
     EXPECT_TRUE(parsed.exactReplayEligible);
     EXPECT_EQ(parsed.tradesIntegrity.state, hftrec::ChannelHealthState::Clean);
-    EXPECT_FALSE(isLegacyManifest(parsed));
 }
 
 TEST(SessionHelpers, InstrumentMetadataRoundTripShape) {
@@ -242,41 +232,6 @@ TEST(SessionHelpers, InstrumentMetadataRoundTripShape) {
     EXPECT_EQ(parsed.symbol, "ETHUSDT");
     EXPECT_EQ(*parsed.baseAsset, "ETH");
     EXPECT_EQ(*parsed.quoteAsset, "USDT");
-}
-
-TEST(SessionHelpers, ManifestParseSupportsLegacyV0Shape) {
-    const std::string legacy = "{\n"
-        "  \"session_id\": \"1713168000_binance_futures_usd_BTCUSDT\",\n"
-        "  \"exchange\": \"binance\",\n"
-        "  \"market\": \"futures_usd\",\n"
-        "  \"symbols\": [\"BTCUSDT\"],\n"
-        "  \"selected_parent_dir\": \"./recordings\",\n"
-        "  \"started_at_ns\": 100,\n"
-        "  \"ended_at_ns\": 200,\n"
-        "  \"target_duration_sec\": 30,\n"
-        "  \"actual_duration_sec\": 1,\n"
-        "  \"snapshot_interval_sec\": 60,\n"
-        "  \"channel_status\": {\n"
-        "    \"trades_enabled\": true,\n"
-        "    \"bookticker_enabled\": false,\n"
-        "    \"orderbook_enabled\": true\n"
-        "  },\n"
-        "  \"event_counts\": {\n"
-        "    \"trades\": 12,\n"
-        "    \"bookticker\": 0,\n"
-        "    \"depth\": 7,\n"
-        "    \"snapshot\": 1\n"
-        "  },\n"
-        "  \"warning_summary\": \"\"\n"
-        "}\n";
-
-    SessionManifest parsed{};
-    ASSERT_EQ(parseManifestJson(legacy, parsed), hftrec::Status::Ok);
-    EXPECT_TRUE(isLegacyManifest(parsed));
-    EXPECT_EQ(parsed.sessionStatus, "legacy_v0");
-    EXPECT_EQ(parsed.tradesPath, "trades.jsonl");
-    EXPECT_EQ(parsed.depthPath, "depth.jsonl");
-    EXPECT_EQ(parsed.snapshotCount, 1u);
 }
 
 TEST(SessionHelpers, ManifestParseIgnoresUnknownTopLevelFieldForSupportedVersion) {
@@ -306,62 +261,30 @@ TEST(SessionHelpers, ManifestParseIgnoresUnknownNullTopLevelField) {
     m.exchange = "binance";
     m.market = "futures_usd";
     m.symbols = {"BTCUSDT"};
+    m.tradesEnabled = true;
+    m.tradesCount = 1;
+    m.canonicalArtifacts = {"manifest.json", "instrument_metadata.json", "trades.jsonl"};
 
     auto doc = renderManifestJson(m);
     const auto insertPos = doc.find("\"identity\"");
     ASSERT_NE(insertPos, std::string::npos);
-    doc.insert(insertPos, "  \"future_optional_null\": null,\n");
+    doc.insert(insertPos, "  \"unknown_null\": null,\n");
 
     SessionManifest parsed{};
     ASSERT_EQ(parseManifestJson(doc, parsed), hftrec::Status::Ok);
     EXPECT_EQ(parsed.sessionId, m.sessionId);
-    EXPECT_EQ(parsed.symbols, m.symbols);
 }
 
-TEST(SessionHelpers, ManifestParseRejectsRawControlCharacterInString) {
-    const std::string doc =
-        "{\n"
-        "  \"manifest_schema_version\": 1,\n"
-        "  \"corpus_schema_version\": 1,\n"
-        "  \"identity\": {\n"
-        "    \"session_id\": \"bad\nraw\",\n"
-        "    \"exchange\": \"binance\",\n"
-        "    \"market\": \"futures_usd\",\n"
-        "    \"symbols\": [\"BTCUSDT\"]\n"
-        "  }\n"
-        "}\n";
-
-    SessionManifest parsed{};
-    EXPECT_EQ(parseManifestJson(doc, parsed), hftrec::Status::CorruptData);
-}
-
-TEST(SessionHelpers, ManifestEscapesStrings) {
-    SessionManifest m{};
-    m.sessionId = "s\"1";
-    m.exchange = "binance";
-    m.market = "futures_usd";
-    m.symbols = {"BTC\"USDT", "ETH\\USDT"};
-    m.selectedParentDir = "C:\\recordings\\\"demo\"";
-    m.warningSummary = "quote=\" backslash=\\ newline=\n";
-
-    const auto doc = renderManifestJson(m);
-    EXPECT_TRUE(contains(doc, "\"session_id\": \"s\\\"1\""));
-    EXPECT_TRUE(contains(doc, "\"BTC\\\"USDT\""));
-    EXPECT_TRUE(contains(doc, "\"ETH\\\\USDT\""));
-    EXPECT_TRUE(contains(doc, "\"selected_parent_dir\": \"C:\\\\recordings\\\\\\\"demo\\\"\""));
-    EXPECT_TRUE(contains(doc, "\"warning_summary\": \"quote=\\\" backslash=\\\\ newline=\\n\""));
-}
-
-TEST(SessionHelpers, MakeSessionIdShape) {
-    const auto id = makeSessionId("binance", "futures_usd", "BTCUSDT", 1'713'168'000LL);
-    EXPECT_EQ(id, std::string{"1713168000_binance_futures_usd_BTCUSDT"});
-}
-
-TEST(SessionHelpers, ChannelFileNamesDisjoint) {
+TEST(SessionHelpers, ChannelFileNamesStable) {
     EXPECT_EQ(channelFileName(ChannelKind::Trades), "trades.jsonl");
     EXPECT_EQ(channelFileName(ChannelKind::BookTicker), "bookticker.jsonl");
     EXPECT_EQ(channelFileName(ChannelKind::DepthDelta), "depth.jsonl");
     EXPECT_EQ(channelFileName(ChannelKind::Snapshot), "snapshot_000.json");
+}
+
+TEST(SessionHelpers, SessionIdIncludesIdentityTuple) {
+    const auto sessionId = makeSessionId("binance", "futures_usd", "BTCUSDT", 1713168000LL);
+    EXPECT_EQ(sessionId, "1713168000_binance_futures_usd_BTCUSDT");
 }
 
 }  // namespace

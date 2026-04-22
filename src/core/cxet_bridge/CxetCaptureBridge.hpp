@@ -8,9 +8,7 @@
 
 namespace cxet {
 namespace composite {
-struct TradePublic;
 struct TradeRuntimeV1;
-struct BookTickerData;
 struct BookTickerRuntimeV1;
 struct OrderBookSnapshot;
 struct StreamMeta;
@@ -21,14 +19,22 @@ namespace hftrec::cxet_bridge {
 
 struct CapturedTradeRow {
     std::string symbol{};
+    std::uint64_t exchangeId{0};
+    std::uint64_t tradeId{0};
     std::uint64_t tsNs{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
+    std::uint64_t firstTradeId{0};
+    std::uint64_t lastTradeId{0};
+    std::int64_t quoteQtyE8{0};
+    std::int64_t side{0};
+    bool isBuyerMaker{false};
     bool sideBuy{false};
 };
 
 struct CapturedBookTickerRow {
     std::string symbol{};
+    std::uint64_t exchangeId{0};
     std::uint64_t tsNs{0};
     std::int64_t bidPriceE8{0};
     std::int64_t askPriceE8{0};
@@ -41,10 +47,13 @@ struct CapturedBookTickerRow {
 struct CapturedLevel {
     std::int64_t priceI64{0};
     std::int64_t qtyI64{0};
+    std::int64_t side{0};
+    std::uint64_t levelId{0};
 };
 
 struct CapturedOrderBookRow {
     std::string symbol{};
+    std::uint64_t exchangeId{0};
     std::uint64_t tsNs{0};
     std::uint64_t updateId{0};
     std::uint64_t firstUpdateId{0};
@@ -68,11 +77,8 @@ struct CaptureFailureEvent {
 class CxetCaptureBridge {
   public:
     Status initialize() noexcept;
-    static CapturedTradeRow captureTrade(const cxet::composite::TradePublic& trade);
     static CapturedTradeRow captureTrade(const cxet::composite::TradeRuntimeV1& trade,
                                          const cxet::composite::StreamMeta& meta);
-    static CapturedBookTickerRow captureBookTicker(const cxet::composite::BookTickerData& bookTicker,
-                                                   const std::vector<std::string>& requestedAliases);
     static CapturedBookTickerRow captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
                                                    const cxet::composite::StreamMeta& meta);
     static CapturedOrderBookRow captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot);

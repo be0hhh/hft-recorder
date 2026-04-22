@@ -84,7 +84,7 @@ class ChartController : public QObject {
     QString selectionSummaryText() const { return selectionSummaryText_; }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
-    Q_INVOKABLE bool activateLiveSource(const QString& sourceId);
+    Q_INVOKABLE bool activateLiveSource(const QString& sourceId, const QString& sessionPath = QString{});
     Q_INVOKABLE void activateLiveOnlyMode();
     Q_INVOKABLE void resetSession();
     Q_INVOKABLE bool addTradesFile(const QString& path);
@@ -113,6 +113,12 @@ class ChartController : public QObject {
     Q_INVOKABLE QString formatTimeScaleLabel(int index, int tickCount) const;
     Q_INVOKABLE bool commitSelectionRect(qreal plotWidthPx, qreal plotHeightPx,
                                          qreal x0, qreal y0, qreal x1, qreal y1);
+    Q_INVOKABLE bool measureSelectionRect(qreal plotWidthPx, qreal plotHeightPx,
+                                          qreal x0, qreal y0, qreal x1, qreal y1);
+    Q_INVOKABLE bool measureTradeHighLowRect(qreal plotWidthPx, qreal plotHeightPx,
+                                             qreal x0, qreal y0, qreal x1, qreal y1);
+    Q_INVOKABLE bool measurePointDistance(qreal plotWidthPx, qreal plotHeightPx,
+                                          qreal x0, qreal y0, qreal x1, qreal y1);
     Q_INVOKABLE void clearSelection();
 
     void syncReplayCursorToViewport();

@@ -60,11 +60,8 @@ void ChartController::startLiveData_(const std::filesystem::path& sessionDir) {
     liveDataBatchSeq_ = 0;
     clearLiveDataCache_();
     if (liveDataProvider_ != nullptr) {
-        if (!liveProviderFromRegistry_) {
-            liveDataProvider_->start(LiveDataProviderConfig{sessionDir, {}, {}});
-        } else {
-            liveDataProvider_->start(LiveDataProviderConfig{{}, {}, currentSourceId_.toStdString()});
-        }
+        const auto sourceId = liveProviderFromRegistry_ ? currentSourceId_.toStdString() : std::string{};
+        liveDataProvider_->start(LiveDataProviderConfig{sessionDir, {}, sourceId});
     }
 }
 
@@ -230,7 +227,7 @@ void ChartController::pollLiveData_() {
     }
 }
 
-bool ChartController::activateLiveSource(const QString& sourceId) {
+bool ChartController::activateLiveSource(const QString& sourceId, const QString& sessionPath) {
     if (sourceId.trimmed().isEmpty()) {
         activateLiveOnlyMode();
         return false;
@@ -239,15 +236,30 @@ bool ChartController::activateLiveSource(const QString& sourceId) {
     stopLiveData_();
     replay_.reset();
     loaded_ = false;
-    sessionDir_.clear();
+    sessionDir_ = sessionPath;
     currentSourceId_ = sourceId.trimmed();
     currentSourceKind_ = QStringLiteral("live");
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
     selectionActive_ = false;
     selectionSummaryText_.clear();
+
+    const auto path = std::filesystem::path(stripFileUrl(sessionPath));
+    if (!sessionPath.trimmed().isEmpty()) {
+        const auto st = replay_.open(path);
+        if (isOk(st)) {
+            loaded_ = !replay_.buckets().empty()
+                || !replay_.trades().empty()
+                || !replay_.bookTickers().empty()
+                || !replay_.depths().empty()
+                || !replay_.book().bids().empty()
+                || !replay_.book().asks().empty();
+            if (loaded_) computeInitialViewport_();
+        }
+    }
+
     statusText_ = QStringLiteral("Live source selected");
-    startLiveData_(std::filesystem::path{});
+    startLiveData_(path);
     emit sessionChanged();
     emit statusChanged();
     emit viewportChanged();
@@ -440,6 +452,7 @@ bool ChartController::loadSession(const QString& dir) {
 }
 
 }  // namespace hftrec::gui::viewer
+
 
 
 

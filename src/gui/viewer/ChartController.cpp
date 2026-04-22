@@ -129,14 +129,9 @@ void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsM
         return;
     }
 
-    LiveDataBatch nextStable{};
-    if (!liveProviderFromRegistry_) {
-        nextStable = liveDataProvider_->materializeRange(
-            LiveDataRangeRequest{{}, tsMin, tsMax},
-            liveDataCache_.version + 1u);
-    } else {
-        nextStable.id = liveDataCache_.version + 1u;
-    }
+    LiveDataBatch nextStable = liveDataProvider_->materializeRange(
+        LiveDataRangeRequest{{}, tsMin, tsMax},
+        liveDataCache_.version + 1u);
 
     liveDataCache_.stableRows = std::move(nextStable);
     reconcileOverlayWithStable_();
@@ -147,22 +142,27 @@ void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsM
     liveWindowTsMin_ = tsMin;
     liveWindowTsMax_ = tsMax;
     liveWindowVersion_ = liveDataCache_.version;
+    refreshLoadedStateFromSources_();
 }
 
 void ChartController::refreshProviderFromRegistry_() {
     const bool wantsLiveRegistry = currentSourceKind_ == QStringLiteral("live") && !currentSourceId_.isEmpty();
     if (wantsLiveRegistry && LiveDataRegistry::instance().hasSource(currentSourceId_.toStdString())) {
         if (!liveProviderFromRegistry_ || liveProviderSourceId_ != currentSourceId_) {
-            auto provider = LiveDataRegistry::instance().makeProvider(currentSourceId_.toStdString());
-            if (provider != nullptr) {
-                if (liveDataProvider_ != nullptr) liveDataProvider_->stop();
-                liveDataProvider_ = std::move(provider);
-                liveProviderFromRegistry_ = true;
-                liveProviderSourceId_ = currentSourceId_;
-                liveDataProvider_->start(LiveDataProviderConfig{{}, {}, currentSourceId_.toStdString()});
+            if (liveDataProvider_ != nullptr) liveDataProvider_->stop();
+            liveDataProvider_ = LiveDataRegistry::instance().makeProvider(currentSourceId_.toStdString());
+            if (liveDataProvider_ == nullptr) {
+                liveProviderFromRegistry_ = false;
+                liveProviderSourceId_.clear();
                 clearLiveDataCache_();
                 refreshLoadedStateFromSources_();
+                return;
             }
+            liveProviderFromRegistry_ = true;
+            liveProviderSourceId_ = currentSourceId_;
+            liveDataProvider_->start(LiveDataProviderConfig{{}, {}, currentSourceId_.toStdString()});
+            clearLiveDataCache_();
+            refreshLoadedStateFromSources_();
         }
         return;
     }
@@ -180,17 +180,22 @@ void ChartController::refreshProviderFromRegistry_() {
 }
 
 bool ChartController::appendOverlayBatch_(const LiveDataBatch& batch, QString* failureText) {
-    static constexpr std::size_t kOverlayLimitPerStream = 4096u;
+    LiveDataBatch nextOverlay{};
 
-    if (!appendMonotonicRows(batch.trades, liveOverlayState_.trades, failureText, QStringLiteral("trade"))) return false;
-    if (!appendMonotonicRows(batch.bookTickers, liveOverlayState_.bookTickers, failureText, QStringLiteral("bookticker"))) return false;
-    if (!appendMonotonicRows(batch.depths, liveOverlayState_.depths, failureText, QStringLiteral("depth"))) return false;
-    if (!appendMonotonicRows(batch.snapshots, liveOverlayState_.snapshots, failureText, QStringLiteral("snapshot"))) return false;
+    if (!batch.trades.empty()) nextOverlay.trades.push_back(batch.trades.back());
+    if (!batch.bookTickers.empty()) nextOverlay.bookTickers.push_back(batch.bookTickers.back());
+    if (!batch.depths.empty()) nextOverlay.depths.push_back(batch.depths.back());
+    if (!batch.snapshots.empty()) nextOverlay.snapshots.push_back(batch.snapshots.back());
 
-    trimOverlayRows(liveOverlayState_.trades, kOverlayLimitPerStream);
-    trimOverlayRows(liveOverlayState_.bookTickers, kOverlayLimitPerStream);
-    trimOverlayRows(liveOverlayState_.depths, kOverlayLimitPerStream);
-    trimOverlayRows(liveOverlayState_.snapshots, 8u);
+    if (!appendMonotonicRows(nextOverlay.trades, liveOverlayState_.trades, failureText, QStringLiteral("trade"))) return false;
+    if (!appendMonotonicRows(nextOverlay.bookTickers, liveOverlayState_.bookTickers, failureText, QStringLiteral("bookticker"))) return false;
+    if (!appendMonotonicRows(nextOverlay.depths, liveOverlayState_.depths, failureText, QStringLiteral("depth"))) return false;
+    if (!appendMonotonicRows(nextOverlay.snapshots, liveOverlayState_.snapshots, failureText, QStringLiteral("snapshot"))) return false;
+
+    if (liveOverlayState_.trades.size() > 1u) liveOverlayState_.trades.erase(liveOverlayState_.trades.begin(), liveOverlayState_.trades.end() - 1);
+    if (liveOverlayState_.bookTickers.size() > 1u) liveOverlayState_.bookTickers.erase(liveOverlayState_.bookTickers.begin(), liveOverlayState_.bookTickers.end() - 1);
+    if (liveOverlayState_.depths.size() > 1u) liveOverlayState_.depths.erase(liveOverlayState_.depths.begin(), liveOverlayState_.depths.end() - 1);
+    if (liveOverlayState_.snapshots.size() > 1u) liveOverlayState_.snapshots.erase(liveOverlayState_.snapshots.begin(), liveOverlayState_.snapshots.end() - 1);
     liveOverlayState_.id = batch.id;
     return true;
 }
@@ -285,4 +290,6 @@ void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
 }
 
 }  // namespace hftrec::gui::viewer
+
+
 

@@ -1,17 +1,17 @@
 {
   "manifest_schema_version": 1,
   "corpus_schema_version": 1,
-  "capture_contract_version": "cxet_capture_v1",
+  "capture_contract_version": "hftrec.cxet_pos_json.v1",
   "session_status": "complete",
   "identity": { "session_id": "fixture_corrupt_depth_gap", "exchange": "binance", "market": "futures_usd", "symbols": ["BTCUSDT"] },
   "capture": { "selected_parent_dir": "./recordings", "started_at_ns": 1000, "ended_at_ns": 3000, "target_duration_sec": 3, "actual_duration_sec": 3, "snapshot_interval_sec": 60 },
   "replay": { "structurally_loadable": true, "structural_blockers": [] },
   "channels": {
-    "trades": { "enabled": false, "required_when_enabled": false, "path": "trades.jsonl", "row_schema": "trade_v1", "declared_event_count": 0 },
-    "bookticker": { "enabled": false, "required_when_enabled": false, "path": "bookticker.jsonl", "row_schema": "bookticker_v1", "declared_event_count": 0 },
-    "depth": { "enabled": true, "required_when_enabled": true, "path": "depth.jsonl", "row_schema": "depth_v1", "declared_event_count": 2 }
+    "trades": { "enabled": false, "required_when_enabled": false, "path": "trades.jsonl", "row_schema": "cxet_trade_public_pos_v1", "declared_event_count": 0 },
+    "bookticker": { "enabled": false, "required_when_enabled": false, "path": "bookticker.jsonl", "row_schema": "cxet_bookticker_pos_v1", "declared_event_count": 0 },
+    "depth": { "enabled": true, "required_when_enabled": true, "path": "depth.jsonl", "row_schema": "cxet_orderbook_pos_v1", "declared_event_count": 2 }
   },
-  "snapshots": { "schema": "orderbook_snapshot_v1", "files": ["snapshot_000.json"], "declared_snapshot_count": 1 },
+  "snapshots": { "schema": "cxet_orderbook_snapshot_pos_v1", "files": ["snapshot_000.json"], "declared_snapshot_count": 1 },
   "artifacts": { "instrument_metadata_path": "derived/instrument_metadata.json", "session_audit_path": "reports/session_audit.json", "loader_diagnostics_path": "reports/loader_diagnostics.json", "canonical": ["manifest.json", "depth.jsonl", "snapshot_000.json"], "support": [] },
   "integrity": {
     "session_health": "degraded",

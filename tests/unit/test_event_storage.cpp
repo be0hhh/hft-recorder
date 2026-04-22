@@ -136,10 +136,7 @@ TEST(EventStorage, JsonSessionSinkWritesCurrentTradeSchema) {
     ASSERT_EQ(sink.close(), hftrec::Status::Ok);
 
     const auto text = readFile(dir / "trades.jsonl");
-    EXPECT_NE(text.find("\"tsNs\":100"), std::string::npos);
-    EXPECT_NE(text.find("\"captureSeq\":1"), std::string::npos);
-    EXPECT_NE(text.find("\"ingestSeq\":7"), std::string::npos);
-    EXPECT_NE(text.find("\"priceE8\":30000"), std::string::npos);
+    EXPECT_NE(text.find("[0,0,30000,10,100,0,0,0,0,1,1,7]"), std::string::npos);
 
     EXPECT_STREQ(sink.backendId(), kJsonSessionId);
     EXPECT_EQ(stats.tradesTotal, 1u);
@@ -159,8 +156,8 @@ TEST(EventStorage, InMemoryProviderReadsOnlySelectedLiveSource) {
 
     auto& registry = hftrec::gui::viewer::LiveDataRegistry::instance();
     registry.setSources({
-        {"live:binance:futures:ETHUSDT", "Binance", "Futures", "ETHUSDT", "s1", &ethIngress},
-        {"live:binance:futures:BTCUSDT", "Binance", "Futures", "BTCUSDT", "s2", &btcIngress},
+        {"live:binance:futures:ETHUSDT", "Binance", "Futures", "ETHUSDT", "s1", {}, &ethIngress},
+        {"live:binance:futures:BTCUSDT", "Binance", "Futures", "BTCUSDT", "s2", {}, &btcIngress},
     });
 
     auto provider = registry.makeProvider("live:binance:futures:BTCUSDT");
@@ -180,4 +177,5 @@ TEST(EventStorage, InMemoryProviderReadsOnlySelectedLiveSource) {
     EXPECT_EQ(registry.snapshotSources().size(), 2u);
     registry.clear();
 }
+
 

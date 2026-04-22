@@ -22,6 +22,25 @@ bool hasRows(const LiveDataBatch& batch) noexcept {
     return !batch.trades.empty() || !batch.bookTickers.empty() || !batch.depths.empty() || !batch.snapshots.empty();
 }
 
+template <typename Row>
+void appendSortedRange(const std::vector<Row>& rows,
+                       std::int64_t tsMin,
+                       std::int64_t tsMax,
+                       std::vector<Row>& out) {
+    if (rows.empty() || tsMax < tsMin) return;
+    const auto begin = std::lower_bound(
+        rows.begin(),
+        rows.end(),
+        tsMin,
+        [](const Row& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
+    const auto end = std::upper_bound(
+        begin,
+        rows.end(),
+        tsMax,
+        [](std::int64_t ts, const Row& row) noexcept { return ts < row.tsNs; });
+    out.insert(out.end(), begin, end);
+}
+
 
 template <typename ConsumeLine>
 void tailRows(JsonTailLiveDataProvider::TailFile& file,
@@ -206,6 +225,10 @@ LiveDataBatch JsonTailLiveDataProvider::materializeRange(const LiveDataRangeRequ
     batch.id = batchId;
     if (request.tsMax <= request.tsMin) return batch;
 
+    if (snapshotLoaded_ && snapshot_.tsNs <= request.tsMax) {
+        batch.snapshots.push_back(snapshot_);
+    }
+
     const auto tradesBegin = std::lower_bound(
         tradesHistory_.begin(),
         tradesHistory_.end(),
@@ -230,10 +253,13 @@ LiveDataBatch JsonTailLiveDataProvider::materializeRange(const LiveDataRangeRequ
         [](std::int64_t ts, const hftrec::replay::BookTickerRow& row) noexcept { return ts < row.tsNs; });
     batch.bookTickers.insert(batch.bookTickers.end(), tickerBegin, tickerEnd);
 
+    const std::int64_t depthTsMin = batch.snapshots.empty()
+        ? request.tsMin
+        : batch.snapshots.back().tsNs;
     const auto depthBegin = std::lower_bound(
         depthHistory_.begin(),
         depthHistory_.end(),
-        request.tsMin,
+        depthTsMin,
         [](const hftrec::replay::DepthRow& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
     const auto depthEnd = std::upper_bound(
         depthBegin,
@@ -356,10 +382,22 @@ LiveDataBatch InMemoryLiveDataProvider::materializeRange(const LiveDataRangeRequ
         : std::string_view{request.symbol};
     for (const auto& state : sources_) {
         if (!sourceMatches_(state, activeSourceId_, requestedSymbol)) continue;
-        const auto range = state.ref.source->readRange(request.tsMin, request.tsMax);
-        batch.trades.insert(batch.trades.end(), range.trades.begin(), range.trades.end());
-        batch.bookTickers.insert(batch.bookTickers.end(), range.bookTickers.begin(), range.bookTickers.end());
-        batch.depths.insert(batch.depths.end(), range.depths.begin(), range.depths.end());
+        const auto allRows = state.ref.source->readAll();
+        const auto snapshotIt = std::upper_bound(
+            allRows.snapshots.begin(),
+            allRows.snapshots.end(),
+            request.tsMax,
+            [](std::int64_t ts, const hftrec::replay::SnapshotDocument& row) noexcept { return ts < row.tsNs; });
+        std::int64_t depthTsMin = request.tsMin;
+        if (snapshotIt != allRows.snapshots.begin()) {
+            const auto& snapshot = *std::prev(snapshotIt);
+            batch.snapshots.push_back(snapshot);
+            depthTsMin = snapshot.tsNs;
+        }
+
+        appendSortedRange(allRows.trades, request.tsMin, request.tsMax, batch.trades);
+        appendSortedRange(allRows.bookTickers, request.tsMin, request.tsMax, batch.bookTickers);
+        appendSortedRange(allRows.depths, depthTsMin, request.tsMax, batch.depths);
     }
     return batch;
 }

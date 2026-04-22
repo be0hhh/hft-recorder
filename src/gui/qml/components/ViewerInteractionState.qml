@@ -9,6 +9,7 @@ QtObject {
     property bool timeScaleDragging: false
     property bool rangeSelectionActive: false
     property bool selectionCommitted: false
+    property string measurementMode: 'none'
     property real selectionStartX: 0
     property real selectionStartY: 0
     property real selectionEndX: 0
@@ -17,6 +18,7 @@ QtObject {
     function clearSelectionVisual() {
         state.rangeSelectionActive = false
         state.selectionCommitted = false
+        state.measurementMode = 'none'
         state.selectionStartX = 0
         state.selectionStartY = 0
         state.selectionEndX = 0
@@ -76,9 +78,10 @@ QtObject {
         return Math.abs(state.selectionEndY - state.selectionStartY)
     }
 
-    function beginSelection(x, y) {
+    function beginSelection(x, y, mode) {
         state.rangeSelectionActive = true
         state.selectionCommitted = false
+        state.measurementMode = mode || 'shift_box'
         state.selectionStartX = x
         state.selectionStartY = y
         state.selectionEndX = x
@@ -90,14 +93,18 @@ QtObject {
         state.selectionEndY = Math.max(0, Math.min(plotHeight, y))
     }
 
-    function commitSelection(chart, plotWidth, plotHeight) {
-        state.rangeSelectionActive = false
-        state.selectionCommitted = chart.commitSelectionRect(
-            plotWidth, plotHeight,
-            state.selectionStartX, state.selectionStartY,
-            state.selectionEndX, state.selectionEndY)
-        if (!state.selectionCommitted)
-            state.clearSelectionVisual()
+    function updateMeasurement(chart, plotWidth, plotHeight) {
+        if (state.measurementMode === 'ctrl_hilo')
+            state.selectionCommitted = chart.measureTradeHighLowRect(plotWidth, plotHeight, state.selectionStartX, state.selectionStartY, state.selectionEndX, state.selectionEndY)
+        else if (state.measurementMode === 'middle_line')
+            state.selectionCommitted = chart.measurePointDistance(plotWidth, plotHeight, state.selectionStartX, state.selectionStartY, state.selectionEndX, state.selectionEndY)
+        else
+            state.selectionCommitted = chart.measureSelectionRect(plotWidth, plotHeight, state.selectionStartX, state.selectionStartY, state.selectionEndX, state.selectionEndY)
+    }
+
+    function finishMeasurement(chart) {
+        chart.clearSelection()
+        state.clearSelectionVisual()
     }
 
     function startInteractiveMode(timer) {

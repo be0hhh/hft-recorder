@@ -14,6 +14,9 @@
 #include <QPen>
 #include <QQuickWindow>
 
+#include <core/replay/BookState.hpp>
+#include <gui/viewer/detail/BookMath.hpp>
+
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/ChartItemInternal.hpp"
 #include "gui/viewer/ChartItemPaintInternal.hpp"
@@ -120,10 +123,213 @@ std::int64_t maxBookTickerTs(const RenderSnapshot& snap) noexcept {
     return snap.bookTickerTrace.samples.empty() ? 0 : snap.bookTickerTrace.samples.back().tsNs;
 }
 
-std::int64_t liveHoldNsForViewport(const ViewportMap& vp) noexcept {
-    const auto widthPx = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(vp.w)));
-    const auto pixelSpanNs = std::max<std::int64_t>(1, (vp.tMax - vp.tMin + widthPx - 1) / widthPx);
-    return std::max<std::int64_t>(pixelSpanNs, pixelSpanNs * 12ll);
+constexpr std::size_t kLiveRenderBookLevelsBudgetPerSide = 256;
+constexpr std::size_t kLiveInteractiveBookLevelsBudgetPerSide = 192;
+constexpr std::int64_t kUsdScaleE8 = 100000000ll;
+
+std::int64_t usdToE8(qreal usd) noexcept {
+    const qreal clamped = std::clamp<qreal>(usd, 1000.0, 1000000.0);
+    return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
+}
+
+qreal normalizedBrightness(std::int64_t amountE8,
+                           std::int64_t minVisibleAmountE8,
+                           std::int64_t brightnessRefE8) noexcept {
+    if (brightnessRefE8 <= 0 || amountE8 <= 0) return 0.0;
+
+    const std::int64_t fullBrightAmountE8 = std::max(brightnessRefE8, minVisibleAmountE8 + 1);
+    const std::int64_t spanE8 = std::max<std::int64_t>(1, fullBrightAmountE8 - minVisibleAmountE8);
+    const std::int64_t shiftedAmountE8 = std::max<std::int64_t>(0, amountE8 - minVisibleAmountE8);
+    const qreal ratio = std::clamp(
+        static_cast<qreal>(shiftedAmountE8) / static_cast<qreal>(spanE8), 0.0, 1.0);
+    return std::pow(ratio, 0.28);
+}
+
+std::int64_t windowBidMinE8(std::int64_t bestBidE8, qreal windowPct) noexcept {
+    if (bestBidE8 <= 0) return 0;
+    const qreal clampedPct = std::clamp<qreal>(windowPct, 1.0, 25.0);
+    const long double factor = 1.0L - (static_cast<long double>(clampedPct) / 100.0L);
+    return static_cast<std::int64_t>(std::floor(static_cast<long double>(bestBidE8) * factor));
+}
+
+std::int64_t windowAskMaxE8(std::int64_t bestAskE8, qreal windowPct) noexcept {
+    if (bestAskE8 <= 0) return 0;
+    const qreal clampedPct = std::clamp<qreal>(windowPct, 1.0, 25.0);
+    const long double factor = 1.0L + (static_cast<long double>(clampedPct) / 100.0L);
+    return static_cast<std::int64_t>(std::ceil(static_cast<long double>(bestAskE8) * factor));
+}
+
+bool prepareVisibleLevelForScreen(const BookLevel& level,
+                                  const ViewportMap& vp,
+                                  std::int64_t minVisibleAmountE8,
+                                  std::int64_t brightnessRefE8,
+                                  int& outYPx) noexcept {
+    if (level.qtyE8 <= 0) return false;
+    if (level.priceE8 < vp.pMin || level.priceE8 > vp.pMax) return false;
+
+    const int heightPx = static_cast<int>(std::ceil(vp.h));
+    if (heightPx <= 0) return false;
+
+    const auto y = static_cast<int>(std::round(vp.toY(level.priceE8)));
+    if (y < 0 || y >= heightPx) return false;
+
+    const auto amountE8 = detail::multiplyScaledE8(level.qtyE8, level.priceE8);
+    if (amountE8 < minVisibleAmountE8) return false;
+
+    const qreal brightness = normalizedBrightness(amountE8, minVisibleAmountE8, brightnessRefE8);
+    const int alpha = std::clamp(static_cast<int>(std::round(brightness * 255.0)), 0, 255);
+    if (alpha <= 1) return false;
+
+    outYPx = y;
+    return true;
+}
+
+template <typename BookMap>
+void appendVisibleLiveLevels(const BookMap& levels,
+                             std::vector<BookLevel>& out,
+                             std::int64_t limitMinPriceE8,
+                             std::int64_t limitMaxPriceE8,
+                             const ViewportMap& vp,
+                             std::int64_t minVisibleAmountE8,
+                             std::int64_t brightnessRefE8,
+                             std::size_t levelsBudget,
+                             std::int64_t& outMaxQty) {
+    int lastYPx = std::numeric_limits<int>::min();
+    std::size_t kept = 0;
+    for (const auto& [price, qty] : levels) {
+        if (kept >= levelsBudget) break;
+        if (limitMinPriceE8 > 0 && price < limitMinPriceE8) break;
+        if (limitMaxPriceE8 > 0 && price > limitMaxPriceE8) break;
+
+        int yPx = 0;
+        if (!prepareVisibleLevelForScreen(
+                BookLevel{price, qty},
+                vp,
+                minVisibleAmountE8,
+                brightnessRefE8,
+                yPx)) {
+            continue;
+        }
+        if (yPx == lastYPx) continue;
+        out.push_back(BookLevel{price, qty});
+        outMaxQty = std::max(outMaxQty, qty);
+        lastYPx = yPx;
+        ++kept;
+    }
+}
+
+template <typename Row>
+bool eventKeyLess(const Row& lhs, const Row& rhs) noexcept {
+    if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
+    if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
+    return lhs.ingestSeq < rhs.ingestSeq;
+}
+
+struct LiveBookEventRef {
+    const hftrec::replay::SnapshotDocument* snapshot{nullptr};
+    const hftrec::replay::DepthRow* depth{nullptr};
+};
+
+bool liveBookEventLess(const LiveBookEventRef& lhs, const LiveBookEventRef& rhs) noexcept {
+    if (lhs.snapshot != nullptr && rhs.snapshot != nullptr) return eventKeyLess(*lhs.snapshot, *rhs.snapshot);
+    if (lhs.depth != nullptr && rhs.depth != nullptr) return eventKeyLess(*lhs.depth, *rhs.depth);
+    if (lhs.snapshot != nullptr && rhs.depth != nullptr) {
+        if (lhs.snapshot->tsNs != rhs.depth->tsNs) return lhs.snapshot->tsNs < rhs.depth->tsNs;
+        if (lhs.snapshot->captureSeq != rhs.depth->captureSeq) return lhs.snapshot->captureSeq < rhs.depth->captureSeq;
+        if (lhs.snapshot->ingestSeq != rhs.depth->ingestSeq) return lhs.snapshot->ingestSeq < rhs.depth->ingestSeq;
+        return true;
+    }
+    if (lhs.depth != nullptr && rhs.snapshot != nullptr) {
+        if (lhs.depth->tsNs != rhs.snapshot->tsNs) return lhs.depth->tsNs < rhs.snapshot->tsNs;
+        if (lhs.depth->captureSeq != rhs.snapshot->captureSeq) return lhs.depth->captureSeq < rhs.snapshot->captureSeq;
+        if (lhs.depth->ingestSeq != rhs.snapshot->ingestSeq) return lhs.depth->ingestSeq < rhs.snapshot->ingestSeq;
+        return false;
+    }
+    return false;
+}
+
+void appendLiveBookSegment(std::vector<BookSegment>& out,
+                           const ViewportMap& vp,
+                           const RenderSnapshot& live,
+                           const hftrec::replay::BookState& state,
+                           std::int64_t tsStart,
+                           std::int64_t tsEnd) {
+    if (tsEnd <= tsStart) return;
+    if (state.bids().empty() && state.asks().empty()) return;
+
+    BookSegment seg{};
+    seg.tsStartNs = tsStart;
+    seg.tsEndNs = tsEnd;
+
+    const std::int64_t brightnessRefE8 = usdToE8(live.bookOpacityGain);
+    const std::int64_t minVisibleAmountE8 = usdToE8(live.bookRenderDetail);
+    const std::size_t levelsBudget = live.interactiveMode
+        ? kLiveInteractiveBookLevelsBudgetPerSide
+        : kLiveRenderBookLevelsBudgetPerSide;
+    const std::int64_t bidMinE8 = windowBidMinE8(state.bestBidPrice(), live.bookDepthWindowPct);
+    const std::int64_t askMaxE8 = windowAskMaxE8(state.bestAskPrice(), live.bookDepthWindowPct);
+    std::int64_t maxBid = 0;
+    std::int64_t maxAsk = 0;
+
+    appendVisibleLiveLevels(
+        state.bids(),
+        seg.bids,
+        bidMinE8,
+        0,
+        vp,
+        minVisibleAmountE8,
+        brightnessRefE8,
+        levelsBudget,
+        maxBid);
+    appendVisibleLiveLevels(
+        state.asks(),
+        seg.asks,
+        0,
+        askMaxE8,
+        vp,
+        minVisibleAmountE8,
+        brightnessRefE8,
+        levelsBudget,
+        maxAsk);
+
+    if (seg.bids.empty() && seg.asks.empty()) return;
+    seg.maxBidQty = std::max<std::int64_t>(maxBid, 1);
+    seg.maxAskQty = std::max<std::int64_t>(maxAsk, 1);
+    out.push_back(std::move(seg));
+}
+
+void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataBatch& batch) {
+    if (!live.orderbookVisible) return;
+
+    std::vector<LiveBookEventRef> events;
+    events.reserve(batch.snapshots.size() + batch.depths.size());
+    for (const auto& snapshot : batch.snapshots) events.push_back(LiveBookEventRef{&snapshot, nullptr});
+    for (const auto& depth : batch.depths) events.push_back(LiveBookEventRef{nullptr, &depth});
+    if (events.empty()) return;
+
+    std::sort(events.begin(), events.end(), liveBookEventLess);
+
+    hftrec::replay::BookState state{};
+    bool hasState = false;
+    std::int64_t segmentStartTs = live.vp.tMin;
+
+    for (const auto& event : events) {
+        const std::int64_t eventTs = event.snapshot != nullptr ? event.snapshot->tsNs : event.depth->tsNs;
+        if (hasState && eventTs > segmentStartTs) {
+            appendLiveBookSegment(live.bookSegments, live.vp, live, state, segmentStartTs, std::min(eventTs, live.vp.tMax));
+        }
+
+        if (event.snapshot != nullptr) state.applySnapshot(*event.snapshot);
+        else state.applyDelta(*event.depth);
+
+        hasState = !state.bids().empty() || !state.asks().empty();
+        segmentStartTs = std::max<std::int64_t>(live.vp.tMin, eventTs);
+        if (segmentStartTs >= live.vp.tMax) break;
+    }
+
+    if (hasState && segmentStartTs < live.vp.tMax) {
+        appendLiveBookSegment(live.bookSegments, live.vp, live, state, segmentStartTs, live.vp.tMax);
+    }
 }
 
 struct LiveBookTickerPixelState {
@@ -269,7 +475,6 @@ void buildLiveBookTickerTrace(BookTickerTrace& trace,
 
 RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
                                          const LiveDataBatch& batch,
-                                         const hftrec::replay::BookTickerRow* bookTickerCarry,
                                          int tradeOrigIndexStart) {
     RenderSnapshot live = base;
     live.bookSegments.clear();
@@ -291,59 +496,24 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
 
     if (live.bookTickerVisible && !batch.bookTickers.empty()) {
         std::vector<const hftrec::replay::BookTickerRow*> rows;
-        rows.reserve(batch.bookTickers.size() + 1u);
-        if (bookTickerCarry != nullptr && bookTickerCarry->tsNs < batch.bookTickers.front().tsNs) {
-            rows.push_back(bookTickerCarry);
-        }
+        rows.reserve(batch.bookTickers.size());
         for (const auto& row : batch.bookTickers) rows.push_back(&row);
         buildLiveBookTickerTrace(live.bookTickerTrace, live.vp, rows);
     }
 
-    if (live.orderbookVisible && !batch.depths.empty()) {
-        const std::int64_t holdNs = liveHoldNsForViewport(live.vp);
-        live.bookSegments.reserve(batch.depths.size());
-        for (std::size_t i = 0; i < batch.depths.size(); ++i) {
-            const auto& row = batch.depths[i];
-            if (row.tsNs > live.vp.tMax) break;
-            if (row.tsNs < live.vp.tMin) continue;
-            const std::int64_t nextTs = (i + 1u < batch.depths.size()) ? batch.depths[i + 1u].tsNs : row.tsNs + holdNs;
-            BookSegment seg{};
-            seg.tsStartNs = row.tsNs;
-            seg.tsEndNs = std::min<std::int64_t>(live.vp.tMax, std::max<std::int64_t>(row.tsNs + 1, nextTs));
-            std::int64_t maxBid = 0;
-            std::int64_t maxAsk = 0;
-            for (const auto& level : row.bids) {
-                if (level.qtyE8 <= 0) continue;
-                seg.bids.push_back(BookLevel{level.priceE8, level.qtyE8});
-                if (level.qtyE8 > maxBid) maxBid = level.qtyE8;
-            }
-            for (const auto& level : row.asks) {
-                if (level.qtyE8 <= 0) continue;
-                seg.asks.push_back(BookLevel{level.priceE8, level.qtyE8});
-                if (level.qtyE8 > maxAsk) maxAsk = level.qtyE8;
-            }
-            if (seg.bids.empty() && seg.asks.empty()) continue;
-            seg.maxBidQty = std::max<std::int64_t>(maxBid, 1);
-            seg.maxAskQty = std::max<std::int64_t>(maxAsk, 1);
-            live.bookSegments.push_back(std::move(seg));
-        }
-    }
+    buildLiveOrderbookSegments(live, batch);
 
     return live;
 }
 
-bool hasLiveDataRows(const LiveDataBatch& batch) noexcept {
-    return !batch.trades.empty() || !batch.bookTickers.empty() || !batch.depths.empty();
-}
-
 LiveDataBatch liveDataBaseBatch(const LiveDataCache& cache) {
     LiveDataBatch batch = cache.stableRows;
+    batch.trades.insert(batch.trades.end(), cache.overlayRows.trades.begin(), cache.overlayRows.trades.end());
+    batch.bookTickers.insert(batch.bookTickers.end(), cache.overlayRows.bookTickers.begin(), cache.overlayRows.bookTickers.end());
+    batch.depths.insert(batch.depths.end(), cache.overlayRows.depths.begin(), cache.overlayRows.depths.end());
+    batch.snapshots.insert(batch.snapshots.end(), cache.overlayRows.snapshots.begin(), cache.overlayRows.snapshots.end());
     batch.id = cache.version;
     return batch;
-}
-
-const hftrec::replay::BookTickerRow* liveDataCarryForLastBatch(const LiveDataCache& cache) noexcept {
-    return cache.stableRows.bookTickers.empty() ? nullptr : &cache.stableRows.bookTickers.back();
 }
 
 void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
@@ -367,16 +537,6 @@ void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
         target.tradeDots.end(),
         std::make_move_iterator(rows.tradeDots.begin()),
         std::make_move_iterator(rows.tradeDots.end()));
-}
-
-RenderSnapshot baseSnapshotWithLiveDataCache(const RenderSnapshot& snap,
-                                             const LiveDataCache& cache) {
-    RenderSnapshot base = baseSnapshotForCache(snap);
-    auto batch = liveDataBaseBatch(cache);
-    if (hasLiveDataRows(batch)) {
-        appendSnapshotRows(base, liveSnapshotFromDataBatch(base, batch, nullptr, nextTradeOrigIndex(base)));
-    }
-    return base;
 }
 
 void drawTradeBridge(QPainter* painter, const RenderSnapshot& base, const RenderSnapshot& live) {
@@ -429,6 +589,7 @@ void ChartItem::requestRepaint() {
 void ChartItem::requestLiveRepaint() {
     invalidateBaseImage_();
     cachedLiveSnap_.reset();
+    cachedHitTestSnap_.reset();
     update();
 }
 
@@ -445,6 +606,7 @@ void ChartItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGeome
 void ChartItem::invalidateSnapshotCache_() {
     cachedInteractiveSnap_.reset();
     cachedExactSnap_.reset();
+    cachedHitTestSnap_.reset();
     interactiveDirty_ = false;
     exactDirty_ = false;
 }
@@ -460,6 +622,7 @@ void ChartItem::invalidateBaseImage_() {
     cachedTradesEndTsNs_ = 0;
     cachedLiveDataBatchId_ = 0;
     cachedLiveSnap_.reset();
+    cachedHitTestSnap_.reset();
 }
 
 std::unique_ptr<RenderSnapshot>& ChartItem::activeSnapshotCache_() noexcept {
@@ -505,7 +668,7 @@ void ChartItem::mergeLiveSnapshotIntoBaseImage_() {
         liveTrades.orderbookVisible = false;
         liveTrades.bookTickerVisible = false;
         const RenderSnapshot base = (cachedExactSnap_ && controller_ != nullptr)
-            ? baseSnapshotWithLiveDataCache(*cachedExactSnap_, controller_->liveDataCache())
+            ? baseSnapshotForCache(*cachedExactSnap_)
             : RenderSnapshot{};
         drawTradeBridge(&painter, base, liveTrades);
         RenderContext ctx{&painter, liveTrades, HoverInfo{}, 1.0};
@@ -548,8 +711,7 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
     }
     if (!cachedOrderbookImage_.isNull() && !cachedBookTickerImage_.isNull() && !cachedTradesImage_.isNull()) return;
 
-    const auto& liveCache = controller_->liveDataCache();
-    const RenderSnapshot baseSnap = baseSnapshotWithLiveDataCache(snap, liveCache);
+    const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
     const std::int64_t baseOrderbookEndTsNs = maxOrderbookTs(baseSnap);
     const std::int64_t baseBookTickerEndTsNs = maxBookTickerTs(baseSnap);
     const std::int64_t baseTradesEndTsNs = maxTradeTs(baseSnap);
@@ -626,16 +788,25 @@ void ChartItem::paint(QPainter* painter) {
     controller_->refreshLiveDataWindow(snap.vp.tMin, snap.vp.tMax);
     ensureLayerImages_(layerSnap, w, h);
     const auto& liveCache = controller_->liveDataCache();
-    const RenderSnapshot baseSnap = baseSnapshotWithLiveDataCache(snap, liveCache);
-    const auto& liveBatch = liveCache.overlayRows;
-    if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveBatch.id) {
-        const auto* carry = liveDataCarryForLastBatch(liveCache);
+    const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
+    const LiveDataBatch liveBatch = liveDataBaseBatch(liveCache);
+    if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
         const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
         cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
-            liveSnapshotFromDataBatch(snap, liveBatch, carry, liveTradeOrigIndexStart));
-        cachedLiveDataBatchId_ = liveBatch.id;
+            liveSnapshotFromDataBatch(snap, liveBatch, liveTradeOrigIndexStart));
+        cachedLiveDataBatchId_ = liveCache.version;
     }
+    const auto refreshHitTestSnapshot = [&]() {
+        RenderSnapshot hitTestSnap = baseSnap;
+        if (cachedLiveSnap_ != nullptr && cachedLiveSnap_->loaded) {
+            RenderSnapshot liveRows = *cachedLiveSnap_;
+            appendSnapshotRows(hitTestSnap, std::move(liveRows));
+        }
+        cachedHitTestSnap_ = std::make_unique<RenderSnapshot>(std::move(hitTestSnap));
+    };
+    refreshHitTestSnapshot();
 
+    bool rebuildLayersForCurrentViewport = false;
     if (interactiveMode_ && !cachedOrderbookImage_.isNull() && !cachedBookTickerImage_.isNull()
         && !cachedTradesImage_.isNull() && cachedExactSnap_) {
         const QRectF sourceRect = sourceRectForViewport(
@@ -651,8 +822,13 @@ void ChartItem::paint(QPainter* painter) {
             static_cast<qreal>(cachedOrderbookImage_.height())
         };
         const QRectF clippedSource = sourceRect.intersected(fullSource);
-        if (sourceRect.width() > 0.5 && sourceRect.height() > 0.5
-            && clippedSource.width() > 0.5 && clippedSource.height() > 0.5) {
+        const bool cacheCoversViewport = sourceRect.width() > 0.5 && sourceRect.height() > 0.5
+            && clippedSource.width() > 0.5 && clippedSource.height() > 0.5
+            && std::abs(clippedSource.left() - sourceRect.left()) <= 0.5
+            && std::abs(clippedSource.top() - sourceRect.top()) <= 0.5
+            && std::abs(clippedSource.width() - sourceRect.width()) <= 0.5
+            && std::abs(clippedSource.height() - sourceRect.height()) <= 0.5;
+        if (cacheCoversViewport) {
             const QRectF destRect{
                 rect.left() + ((clippedSource.left() - sourceRect.left()) / sourceRect.width()) * rect.width(),
                 rect.top() + ((clippedSource.top() - sourceRect.top()) / sourceRect.height()) * rect.height(),
@@ -665,6 +841,24 @@ void ChartItem::paint(QPainter* painter) {
             paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
             return;
         }
+
+        // If the user pans/zooms outside the settled snapshot, a transformed
+        // blit can no longer represent the current viewport. Rebuild now;
+        // otherwise the chart image would remain on the old viewport while the
+        // QML scales already reflect the new controller bounds.
+        rebuildLayersForCurrentViewport = true;
+    }
+
+    if (rebuildLayersForCurrentViewport) {
+        invalidateBaseImage_();
+        ensureLayerImages_(snap, w, h);
+        if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
+            const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
+            cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
+                liveSnapshotFromDataBatch(snap, liveBatch, liveTradeOrigIndexStart));
+            cachedLiveDataBatchId_ = liveCache.version;
+        }
+        refreshHitTestSnapshot();
     }
 
     if (!cachedOrderbookImage_.isNull() && !overlayOnly_) {

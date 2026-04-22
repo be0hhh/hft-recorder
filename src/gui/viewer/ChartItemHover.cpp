@@ -30,6 +30,15 @@ RenderSnapshot hoverSnapshotFrom(const RenderSnapshot& snap, const RenderSnapsho
     return merged;
 }
 
+bool sameViewport(const RenderSnapshot& lhs, const RenderSnapshot& rhs) noexcept {
+    return lhs.vp.tMin == rhs.vp.tMin
+        && lhs.vp.tMax == rhs.vp.tMax
+        && lhs.vp.pMin == rhs.vp.pMin
+        && lhs.vp.pMax == rhs.vp.pMax
+        && lhs.vp.w == rhs.vp.w
+        && lhs.vp.h == rhs.vp.h;
+}
+
 }  // namespace
 
 bool ChartItem::shouldSkipHoverRecompute_(const QPointF& point, bool contextActive) const noexcept {
@@ -54,6 +63,10 @@ void ChartItem::activateContextPoint(qreal x, qreal y) {
     hoverActive_ = true;
     contextActive_ = true;
     updateHover_();
+    if (hoveredTradeIndex_ < 0 && hoveredBookKind_ == 0) {
+        clearHover();
+        return;
+    }
     update();
 }
 
@@ -86,10 +99,14 @@ void ChartItem::updateHover_() {
 
     const RenderSnapshot& snap = ensureSnapshot_();
     if (!snap.loaded) return;
-    const RenderSnapshot hoverSnap = hoverSnapshotFrom(snap, cachedLiveSnap_.get());
 
     HoverInfo hover{};
-    hit_test::computeHover(hoverSnap, hoverPoint_, contextActive_, hover);
+    if (cachedHitTestSnap_ != nullptr && cachedHitTestSnap_->loaded && sameViewport(*cachedHitTestSnap_, snap)) {
+        hit_test::computeHover(*cachedHitTestSnap_, hoverPoint_, contextActive_, hover);
+    } else {
+        const RenderSnapshot hoverSnap = hoverSnapshotFrom(snap, cachedLiveSnap_.get());
+        hit_test::computeHover(hoverSnap, hoverPoint_, contextActive_, hover);
+    }
 
     hoveredTradeIndex_ = hover.tradeHit ? hover.tradeOrigIndex : -1;
     hoveredTradeTsNs_ = hover.tradeHit ? hover.tradeTsNs : 0;

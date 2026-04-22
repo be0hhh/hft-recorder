@@ -4,7 +4,9 @@
 #include <QByteArray>
 #include <QStringList>
 #include <algorithm>
+#include <cmath>
 #include <limits>
+#include <vector>
 
 #include "gui/viewer/detail/BookMath.hpp"
 #include "gui/viewer/detail/Formatters.hpp"
@@ -68,6 +70,39 @@ std::int64_t percentScaledE8(std::int64_t firstPriceE8, std::int64_t lastPriceE8
     return whole * kPercentScaleE8 + (rem * kPercentScaleE8) / firstPriceE8;
 }
 
+template <typename Row>
+bool eventKeyLess(const Row& lhs, const Row& rhs) noexcept {
+    if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
+    if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
+    return lhs.ingestSeq < rhs.ingestSeq;
+}
+
+template <typename Row>
+bool stableContainsEvent(const std::vector<Row>& stable, const Row& row) {
+    return std::any_of(stable.begin(), stable.end(), [&row](const Row& candidate) noexcept {
+        return !eventKeyLess(candidate, row) && !eventKeyLess(row, candidate);
+    });
+}
+
+template <typename Row, typename Fn>
+void forEachLiveSelectionRow(const std::vector<Row>& stable,
+                             const std::vector<Row>& overlay,
+                             std::int64_t timeStartNs,
+                             std::int64_t timeEndNs,
+                             Fn&& fn) {
+    for (const auto& row : stable) {
+        if (row.tsNs < timeStartNs) continue;
+        if (row.tsNs > timeEndNs) break;
+        fn(row);
+    }
+    for (const auto& row : overlay) {
+        if (row.tsNs < timeStartNs) continue;
+        if (row.tsNs > timeEndNs) break;
+        if (stableContainsEvent(stable, row)) continue;
+        fn(row);
+    }
+}
+
 }  // namespace
 
 bool ChartController::commitSelectionRect(qreal plotWidthPx,
@@ -76,6 +111,15 @@ bool ChartController::commitSelectionRect(qreal plotWidthPx,
                                           qreal y0,
                                           qreal x1,
                                           qreal y1) {
+    return measureSelectionRect(plotWidthPx, plotHeightPx, x0, y0, x1, y1);
+}
+
+bool ChartController::measureSelectionRect(qreal plotWidthPx,
+                                           qreal plotHeightPx,
+                                           qreal x0,
+                                           qreal y0,
+                                           qreal x1,
+                                           qreal y1) {
     const auto range = selectionFromRect_(plotWidthPx, plotHeightPx, x0, y0, x1, y1);
     if (!range.valid) {
         clearSelection();
@@ -87,6 +131,131 @@ bool ChartController::commitSelectionRect(qreal plotWidthPx,
     selectionActive_ = !selectionSummaryText_.isEmpty();
     emit selectionChanged();
     return selectionActive_;
+}
+
+bool ChartController::measureTradeHighLowRect(qreal plotWidthPx,
+                                              qreal plotHeightPx,
+                                              qreal x0,
+                                              qreal y0,
+                                              qreal x1,
+                                              qreal y1) {
+    const auto outerRange = selectionFromRect_(plotWidthPx, plotHeightPx, x0, y0, x1, y1);
+    if (!outerRange.valid) {
+        clearSelection();
+        return false;
+    }
+
+    bool found = false;
+    std::int64_t highPriceE8 = 0;
+    std::int64_t highTsNs = 0;
+    std::int64_t lowPriceE8 = 0;
+    std::int64_t lowTsNs = 0;
+
+    const auto absorbTrade = [&](const hftrec::replay::TradeRow& trade) {
+        if (trade.tsNs < outerRange.timeStartNs || trade.tsNs > outerRange.timeEndNs) return;
+        if (trade.priceE8 < outerRange.priceMinE8 || trade.priceE8 > outerRange.priceMaxE8) return;
+        if (!found) {
+            found = true;
+            highPriceE8 = lowPriceE8 = trade.priceE8;
+            highTsNs = lowTsNs = trade.tsNs;
+            return;
+        }
+        if (trade.priceE8 > highPriceE8) {
+            highPriceE8 = trade.priceE8;
+            highTsNs = trade.tsNs;
+        }
+        if (trade.priceE8 < lowPriceE8) {
+            lowPriceE8 = trade.priceE8;
+            lowTsNs = trade.tsNs;
+        }
+    };
+
+    for (const auto& trade : replay_.trades()) absorbTrade(trade);
+    forEachLiveSelectionRow(
+        liveDataCache_.stableRows.trades,
+        liveDataCache_.overlayRows.trades,
+        outerRange.timeStartNs,
+        outerRange.timeEndNs,
+        absorbTrade);
+
+    if (!found) {
+        selectionSummaryText_ = QStringList{
+            QStringLiteral("High/Low Trade Range"),
+            QStringLiteral("No trades in range"),
+        }.join(QLatin1Char('\n'));
+        selectionActive_ = true;
+        emit selectionChanged();
+        return true;
+    }
+
+    SelectionRange range{};
+    range.valid = true;
+    range.timeStartNs = std::min(highTsNs, lowTsNs);
+    range.timeEndNs = std::max(highTsNs, lowTsNs);
+    if (range.timeEndNs <= range.timeStartNs) range.timeEndNs = range.timeStartNs + 1;
+    range.priceMinE8 = lowPriceE8;
+    range.priceMaxE8 = highPriceE8;
+    if (range.priceMaxE8 <= range.priceMinE8) range.priceMaxE8 = range.priceMinE8 + 1;
+
+    const auto summary = buildSelectionSummary_(range);
+    QStringList lines;
+    lines << QStringLiteral("High/Low Trade Range");
+    lines << QStringLiteral("High  %1 @ %2")
+                 .arg(detail::formatTrimmedE8(highPriceE8))
+                 .arg(formatShortTimeNs(highTsNs));
+    lines << QStringLiteral("Low   %1 @ %2")
+                 .arg(detail::formatTrimmedE8(lowPriceE8))
+                 .arg(formatShortTimeNs(lowTsNs));
+    lines << QStringLiteral("Order %1")
+                 .arg(highTsNs <= lowTsNs ? QStringLiteral("high -> low") : QStringLiteral("low -> high"));
+    lines << QString{};
+    lines << formatSelectionSummary_(range, summary);
+    selectionSummaryText_ = lines.join(QLatin1Char('\n'));
+    selectionActive_ = true;
+    emit selectionChanged();
+    return true;
+}
+
+bool ChartController::measurePointDistance(qreal plotWidthPx,
+                                           qreal plotHeightPx,
+                                           qreal x0,
+                                           qreal y0,
+                                           qreal x1,
+                                           qreal y1) {
+    if (plotWidthPx <= 1.0 || plotHeightPx <= 1.0 || tsMax_ <= tsMin_ || priceMaxE8_ <= priceMinE8_) {
+        clearSelection();
+        return false;
+    }
+
+    const qreal sx = std::clamp(x0, 0.0, plotWidthPx);
+    const qreal sy = std::clamp(y0, 0.0, plotHeightPx);
+    const qreal ex = std::clamp(x1, 0.0, plotWidthPx);
+    const qreal ey = std::clamp(y1, 0.0, plotHeightPx);
+    if ((std::abs(ex - sx) + std::abs(ey - sy)) < 2.0) {
+        clearSelection();
+        return false;
+    }
+
+    const qreal timeSpan = static_cast<qreal>(std::max<qint64>(1, tsMax_ - tsMin_));
+    const qreal priceSpan = static_cast<qreal>(std::max<qint64>(1, priceMaxE8_ - priceMinE8_));
+    const auto tsA = tsMin_ + static_cast<qint64>((sx / plotWidthPx) * timeSpan);
+    const auto tsB = tsMin_ + static_cast<qint64>((ex / plotWidthPx) * timeSpan);
+    const auto priceA = priceMaxE8_ - static_cast<qint64>((sy / plotHeightPx) * priceSpan);
+    const auto priceB = priceMaxE8_ - static_cast<qint64>((ey / plotHeightPx) * priceSpan);
+
+    QStringList lines;
+    lines << QStringLiteral("Measure");
+    lines << QStringLiteral("DeltaT %1 us").arg((tsB - tsA) / 1000);
+    lines << QStringLiteral("Price  %1 -> %2")
+                 .arg(detail::formatTrimmedE8(priceA))
+                 .arg(detail::formatTrimmedE8(priceB));
+    lines << QStringLiteral("Delta  %1").arg(detail::formatTrimmedE8(priceB - priceA));
+    lines << QStringLiteral("Move   %1")
+                 .arg(priceA > 0 ? formatPctE8(percentScaledE8(priceA, priceB)) : QStringLiteral("n/a"));
+    selectionSummaryText_ = lines.join(QLatin1Char('\n'));
+    selectionActive_ = true;
+    emit selectionChanged();
+    return true;
 }
 
 void ChartController::clearSelection() {
@@ -103,7 +272,14 @@ ChartController::SelectionRange ChartController::selectionFromRect_(qreal plotWi
                                                                     qreal x1,
                                                                     qreal y1) const noexcept {
     SelectionRange range{};
-    if (!loaded_ || plotWidthPx <= 1.0 || plotHeightPx <= 1.0) return range;
+    const bool hasSelectableRows = loaded_
+        || !liveDataCache_.stableRows.trades.empty()
+        || !liveDataCache_.stableRows.bookTickers.empty()
+        || !liveDataCache_.stableRows.depths.empty()
+        || !liveDataCache_.overlayRows.trades.empty()
+        || !liveDataCache_.overlayRows.bookTickers.empty()
+        || !liveDataCache_.overlayRows.depths.empty();
+    if (!hasSelectableRows || plotWidthPx <= 1.0 || plotHeightPx <= 1.0) return range;
 
     const qreal left = std::clamp(std::min(x0, x1), 0.0, plotWidthPx);
     const qreal right = std::clamp(std::max(x0, x1), 0.0, plotWidthPx);
@@ -129,7 +305,7 @@ ChartController::SelectionRange ChartController::selectionFromRect_(qreal plotWi
 
 ChartController::SelectionSummary ChartController::buildSelectionSummary_(const SelectionRange& range) {
     SelectionSummary summary{};
-    if (!range.valid || !loaded_) return summary;
+    if (!range.valid) return summary;
 
     summary.durationUs = std::max<std::int64_t>(0, (range.timeEndNs - range.timeStartNs) / 1000);
 
@@ -159,6 +335,32 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
         lastTradePriceE8 = trade.priceE8;
     }
 
+    const auto absorbTrade = [&](const hftrec::replay::TradeRow& trade) {
+        if (trade.priceE8 < range.priceMinE8 || trade.priceE8 > range.priceMaxE8) return;
+
+        ++summary.tradeCount;
+        const auto notionalE8 = detail::multiplyScaledE8(trade.qtyE8, trade.priceE8);
+        if (trade.sideBuy != 0) {
+            summary.buyQtyE8 += trade.qtyE8;
+            summary.buyNotionalE8 += notionalE8;
+        } else {
+            summary.sellQtyE8 += trade.qtyE8;
+            summary.sellNotionalE8 += notionalE8;
+        }
+
+        if (!firstTradeCaptured) {
+            firstTradeCaptured = true;
+            firstTradePriceE8 = trade.priceE8;
+        }
+        lastTradePriceE8 = trade.priceE8;
+    };
+    forEachLiveSelectionRow(
+        liveDataCache_.stableRows.trades,
+        liveDataCache_.overlayRows.trades,
+        range.timeStartNs,
+        range.timeEndNs,
+        absorbTrade);
+
     if (firstTradeCaptured && summary.tradeCount >= 2 && firstTradePriceE8 > 0) {
         summary.hasMovePct = true;
         summary.movePctE8 = percentScaledE8(firstTradePriceE8, lastTradePriceE8);
@@ -172,6 +374,19 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
         if (!bidInBand && !askInBand) continue;
         ++summary.bookTickerCount;
     }
+
+    const auto absorbTicker = [&](const hftrec::replay::BookTickerRow& ticker) {
+        const bool bidInBand = ticker.bidPriceE8 >= range.priceMinE8 && ticker.bidPriceE8 <= range.priceMaxE8;
+        const bool askInBand = ticker.askPriceE8 >= range.priceMinE8 && ticker.askPriceE8 <= range.priceMaxE8;
+        if (!bidInBand && !askInBand) return;
+        ++summary.bookTickerCount;
+    };
+    forEachLiveSelectionRow(
+        liveDataCache_.stableRows.bookTickers,
+        liveDataCache_.overlayRows.bookTickers,
+        range.timeStartNs,
+        range.timeEndNs,
+        absorbTicker);
 
     for (const auto& depth : replay_.depths()) {
         if (depth.tsNs < range.timeStartNs) continue;
@@ -195,6 +410,33 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
 
         if (rowMatched) ++summary.depthEventCount;
     }
+
+    const auto absorbDepth = [&](const hftrec::replay::DepthRow& depth) {
+        bool rowMatched = false;
+
+        for (const auto& level : depth.bids) {
+            if (level.priceE8 < range.priceMinE8 || level.priceE8 > range.priceMaxE8) continue;
+            rowMatched = true;
+            ++summary.bidLevelUpdates;
+            if (level.qtyE8 == 0) ++summary.bidRemovals;
+            else summary.bidQtyUpdatedE8 += level.qtyE8;
+        }
+        for (const auto& level : depth.asks) {
+            if (level.priceE8 < range.priceMinE8 || level.priceE8 > range.priceMaxE8) continue;
+            rowMatched = true;
+            ++summary.askLevelUpdates;
+            if (level.qtyE8 == 0) ++summary.askRemovals;
+            else summary.askQtyUpdatedE8 += level.qtyE8;
+        }
+
+        if (rowMatched) ++summary.depthEventCount;
+    };
+    forEachLiveSelectionRow(
+        liveDataCache_.stableRows.depths,
+        liveDataCache_.overlayRows.depths,
+        range.timeStartNs,
+        range.timeEndNs,
+        absorbDepth);
 
     replay_.seek(range.timeStartNs);
     auto state = replay_.book();
@@ -250,6 +492,23 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
         captureBookState(hasState, bidE8, askE8, spreadE8);
         if (hasState) updateExtrema(bidE8, askE8, spreadE8);
     }
+
+    const auto absorbBookStateDepth = [&](const hftrec::replay::DepthRow& depth) {
+        state.applyDelta(depth);
+
+        std::int64_t bidE8 = 0;
+        std::int64_t askE8 = 0;
+        std::int64_t spreadE8 = 0;
+        bool hasState = false;
+        captureBookState(hasState, bidE8, askE8, spreadE8);
+        if (hasState) updateExtrema(bidE8, askE8, spreadE8);
+    };
+    forEachLiveSelectionRow(
+        liveDataCache_.stableRows.depths,
+        liveDataCache_.overlayRows.depths,
+        range.timeStartNs,
+        range.timeEndNs,
+        absorbBookStateDepth);
 
     captureBookState(summary.hasBookEnd, summary.bestBidEndE8, summary.bestAskEndE8, summary.spreadEndE8);
     syncReplayCursorToViewport();

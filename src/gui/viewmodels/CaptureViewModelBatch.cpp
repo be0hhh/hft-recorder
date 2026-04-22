@@ -175,6 +175,7 @@ void CaptureViewModel::registerLiveSources_() {
             market.toStdString(),
             symbol.toStdString(),
             manifest.sessionId,
+            coordinator->sessionDirCopy(),
             coordinator.get()});
 
         QVariantMap descriptor;
@@ -184,6 +185,7 @@ void CaptureViewModel::registerLiveSources_() {
         descriptor.insert(QStringLiteral("market"), market);
         descriptor.insert(QStringLiteral("symbol"), symbol);
         descriptor.insert(QStringLiteral("sessionId"), QString::fromStdString(manifest.sessionId));
+        descriptor.insert(QStringLiteral("sessionPath"), QString::fromStdString(coordinator->sessionDirCopy().string()));
         descriptor.insert(QStringLiteral("liveAvailable"), true);
         descriptors.push_back(descriptor);
     }
@@ -239,3 +241,4 @@ QString CaptureViewModel::joinCoordinatorErrors_() const {
 }
 
 }  // namespace hftrec::gui
+

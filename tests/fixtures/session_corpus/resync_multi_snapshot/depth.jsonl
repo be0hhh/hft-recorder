@@ -1,2 +1,2 @@
-{"tsNs":2000,"captureSeq":2,"ingestSeq":2,"updateId":11,"firstUpdateId":11,"bids":[{"price_i64":30000,"qty_i64":7}],"asks":[]}
-{"tsNs":4500,"captureSeq":5,"ingestSeq":5,"updateId":31,"firstUpdateId":31,"bids":[],"asks":[{"price_i64":30110,"qty_i64":5}]}
+[0,11,11,2000,1,0,2,2,[[30000,7,0,0]],[]]
+[0,31,31,4500,0,1,5,5,[],[[30110,5,1,0]]]

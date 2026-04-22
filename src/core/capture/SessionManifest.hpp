@@ -12,8 +12,6 @@ namespace hftrec::capture {
 
 inline constexpr std::int32_t kManifestSchemaVersionCurrent = 1;
 inline constexpr std::int32_t kCorpusSchemaVersionCurrent = 1;
-inline constexpr std::int32_t kManifestSchemaVersionLegacyV0 = 0;
-inline constexpr std::int32_t kCorpusSchemaVersionLegacyV0 = 0;
 
 struct SessionManifest {
     std::string sessionId;
@@ -22,7 +20,7 @@ struct SessionManifest {
     std::vector<std::string> symbols;
     std::int32_t manifestSchemaVersion{kManifestSchemaVersionCurrent};
     std::int32_t corpusSchemaVersion{kCorpusSchemaVersionCurrent};
-    std::string captureContractVersion{"hftrec.cxet_capture.v1"};
+    std::string captureContractVersion{"hftrec.cxet_prefix_json.v2"};
     std::string sessionStatus{"complete"};
     std::string selectedParentDir;
     std::string instrumentMetadataPath{"instrument_metadata.json"};
@@ -44,10 +42,10 @@ struct SessionManifest {
     std::string tradesPath{"trades.jsonl"};
     std::string bookTickerPath{"bookticker.jsonl"};
     std::string depthPath{"depth.jsonl"};
-    std::string tradesRowSchema{"trade_v1"};
-    std::string bookTickerRowSchema{"bookticker_v1"};
-    std::string depthRowSchema{"depth_v1"};
-    std::string snapshotSchema{"orderbook_snapshot_v1"};
+    std::string tradesRowSchema{"cxet_trade_prefix_v2"};
+    std::string bookTickerRowSchema{"cxet_bookticker_prefix_v2"};
+    std::string depthRowSchema{"cxet_orderbook_prefix_v2"};
+    std::string snapshotSchema{"cxet_orderbook_snapshot_prefix_v2"};
     std::vector<std::string> snapshotFiles{};
     std::vector<std::string> canonicalArtifacts{};
     std::vector<std::string> supportArtifacts{};
@@ -71,6 +69,5 @@ std::string renderManifestJson(const SessionManifest& manifest);
 Status parseManifestJson(std::string_view document, SessionManifest& manifest) noexcept;
 bool isSupportedManifestSchemaVersion(std::int32_t version) noexcept;
 bool isSupportedCorpusSchemaVersion(std::int32_t version) noexcept;
-bool isLegacyManifest(const SessionManifest& manifest) noexcept;
 
 }  // namespace hftrec::capture

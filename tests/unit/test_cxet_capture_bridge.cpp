@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <vector>
-
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
 #include "primitives/composite/BookTickerData.hpp"
 #include "primitives/composite/BookTickerRuntimeV1.hpp"
@@ -25,13 +23,12 @@ TEST(CxetCaptureBridge, RuntimeTradeMatchesCompatibilityTradeCapture) {
 
     const auto runtimeRow = hftrec::cxet_bridge::CxetCaptureBridge::captureTrade(runtime, meta);
     const auto publicTrade = cxet::composite::compat::materializeTradePublicV1(runtime, meta);
-    const auto publicRow = hftrec::cxet_bridge::CxetCaptureBridge::captureTrade(publicTrade);
 
-    EXPECT_EQ(runtimeRow.symbol, publicRow.symbol);
-    EXPECT_EQ(runtimeRow.tsNs, publicRow.tsNs);
-    EXPECT_EQ(runtimeRow.priceE8, publicRow.priceE8);
-    EXPECT_EQ(runtimeRow.qtyE8, publicRow.qtyE8);
-    EXPECT_EQ(runtimeRow.sideBuy, publicRow.sideBuy);
+    EXPECT_EQ(runtimeRow.symbol, publicTrade.symbol.data);
+    EXPECT_EQ(runtimeRow.tsNs, static_cast<std::uint64_t>(publicTrade.ts.raw));
+    EXPECT_EQ(runtimeRow.priceE8, static_cast<std::int64_t>(publicTrade.price.raw));
+    EXPECT_EQ(runtimeRow.qtyE8, static_cast<std::int64_t>(publicTrade.amount.raw));
+    EXPECT_EQ(runtimeRow.sideBuy, static_cast<std::uint8_t>(publicTrade.side.raw) == 1u);
 }
 
 TEST(CxetCaptureBridge, RuntimeBookTickerMatchesCompatibilityBookTickerCapture) {
@@ -48,18 +45,15 @@ TEST(CxetCaptureBridge, RuntimeBookTickerMatchesCompatibilityBookTickerCapture) 
 
     const auto runtimeRow = hftrec::cxet_bridge::CxetCaptureBridge::captureBookTicker(runtime, meta);
     const auto publicBookTicker = cxet::composite::compat::materializeBookTickerDataV1(runtime, meta);
-    const auto publicRow = hftrec::cxet_bridge::CxetCaptureBridge::captureBookTicker(
-        publicBookTicker,
-        std::vector<std::string>{});
 
-    EXPECT_EQ(runtimeRow.symbol, publicRow.symbol);
-    EXPECT_EQ(runtimeRow.tsNs, publicRow.tsNs);
-    EXPECT_EQ(runtimeRow.bidPriceE8, publicRow.bidPriceE8);
-    EXPECT_EQ(runtimeRow.askPriceE8, publicRow.askPriceE8);
-    EXPECT_EQ(runtimeRow.bidQtyE8, publicRow.bidQtyE8);
-    EXPECT_EQ(runtimeRow.askQtyE8, publicRow.askQtyE8);
-    EXPECT_EQ(runtimeRow.includeBidQty, publicRow.includeBidQty);
-    EXPECT_EQ(runtimeRow.includeAskQty, publicRow.includeAskQty);
+    EXPECT_EQ(runtimeRow.symbol, publicBookTicker.symbol.data);
+    EXPECT_EQ(runtimeRow.tsNs, static_cast<std::uint64_t>(publicBookTicker.ts.raw));
+    EXPECT_EQ(runtimeRow.bidPriceE8, static_cast<std::int64_t>(publicBookTicker.bidPrice.raw));
+    EXPECT_EQ(runtimeRow.askPriceE8, static_cast<std::int64_t>(publicBookTicker.askPrice.raw));
+    EXPECT_EQ(runtimeRow.bidQtyE8, static_cast<std::int64_t>(publicBookTicker.bidAmount.raw));
+    EXPECT_EQ(runtimeRow.askQtyE8, static_cast<std::int64_t>(publicBookTicker.askAmount.raw));
+    EXPECT_TRUE(runtimeRow.includeBidQty);
+    EXPECT_TRUE(runtimeRow.includeAskQty);
 }
 
 }  // namespace

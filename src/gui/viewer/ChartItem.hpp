@@ -134,6 +134,7 @@ class ChartItem : public QQuickPaintedItem {
     std::unique_ptr<RenderSnapshot> cachedInteractiveSnap_{};
     std::unique_ptr<RenderSnapshot> cachedExactSnap_{};
     std::unique_ptr<RenderSnapshot> cachedLiveSnap_{};
+    std::unique_ptr<RenderSnapshot> cachedHitTestSnap_{};
     qreal cachedW_{0.0};
     qreal cachedH_{0.0};
     bool interactiveDirty_{false};

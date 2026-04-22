@@ -1,2 +1,2 @@
-{"tsNs":1500,"captureSeq":1,"ingestSeq":1,"priceE8":30000,"qtyE8":1,"sideBuy":1}
-{"tsNs":1600,"captureSeq":2,"ingestSeq":2,"priceE8":30001,"qtyE8":1,"sideBuy":"bad"}
+[0,0,30000,1,1500,0,0,0,0,1,1,1]
+[0,0,30001,1,1600,0,0,0,0,"bad",2,2]

@@ -10,15 +10,9 @@ using hftrec::lab::sampleGroundTruthBookFrames;
 
 TEST(BookTickerExactness, GroundTruthSamplerDoesNotCarryTickerAcrossDepthEvents) {
     hftrec::corpus::SessionCorpus corpus{};
-    corpus.bookTickerLines.push_back(
-        "{\"tsNs\":2000,\"captureSeq\":1,\"ingestSeq\":1,"
-        "\"bidPriceE8\":30000,\"bidQtyE8\":7,\"askPriceE8\":30100,\"askQtyE8\":8}");
-    corpus.depthLines.push_back(
-        "{\"tsNs\":3000,\"captureSeq\":2,\"ingestSeq\":2,\"updateId\":11,\"firstUpdateId\":11,"
-        "\"bids\":[{\"price_i64\":30000,\"qty_i64\":9}],\"asks\":[]}");
-    corpus.depthLines.push_back(
-        "{\"tsNs\":4000,\"captureSeq\":3,\"ingestSeq\":3,\"updateId\":12,\"firstUpdateId\":12,"
-        "\"bids\":[],\"asks\":[{\"price_i64\":30100,\"qty_i64\":10}]}");
+    corpus.bookTickerLines.push_back("[7,30000,8,30100,2000,0,1,1]");
+    corpus.depthLines.push_back("[11,11,3000,1,0,2,2,[[9,30000,0,0]],[],0]");
+    corpus.depthLines.push_back("[12,12,4000,0,1,3,3,[],[[10,30100,1,0]],0]");
 
     std::vector<BookFrame> frames;
     ASSERT_EQ(sampleGroundTruthBookFrames(corpus, 8, frames), Status::Ok);

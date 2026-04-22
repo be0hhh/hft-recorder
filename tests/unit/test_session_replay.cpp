@@ -34,25 +34,17 @@ std::string makeSnapshotJson(std::int64_t tsNs,
                              std::int64_t ingestSeq,
                              std::int64_t updateId,
                              std::int64_t firstUpdateId) {
-    return "{\n"
-           "  \"tsNs\": " + std::to_string(tsNs) + ",\n"
-           "  \"captureSeq\": " + std::to_string(captureSeq) + ",\n"
-           "  \"ingestSeq\": " + std::to_string(ingestSeq) + ",\n"
-           "  \"updateId\": " + std::to_string(updateId) + ",\n"
-           "  \"firstUpdateId\": " + std::to_string(firstUpdateId) + ",\n"
-           "  \"snapshotKind\": \"initial\",\n"
-           "  \"source\": \"rest_orderbook_snapshot\",\n"
-           "  \"exchange\": \"binance\",\n"
-           "  \"market\": \"futures_usd\",\n"
-           "  \"symbol\": \"BTCUSDT\",\n"
-           "  \"sourceTsNs\": " + std::to_string(tsNs) + ",\n"
-           "  \"ingestTsNs\": " + std::to_string(tsNs + 10) + ",\n"
-           "  \"anchorUpdateId\": " + std::to_string(updateId) + ",\n"
-           "  \"anchorFirstUpdateId\": " + std::to_string(firstUpdateId) + ",\n"
-           "  \"trustedReplayAnchor\": 1,\n"
-           "  \"bids\": [{\"price_i64\":30000,\"qty_i64\":5},{\"price_i64\":29900,\"qty_i64\":3}],\n"
-           "  \"asks\": [{\"price_i64\":30100,\"qty_i64\":4}]\n"
-           "}\n";
+    return "[0," + std::to_string(updateId)
+        + "," + std::to_string(firstUpdateId)
+        + "," + std::to_string(tsNs)
+        + ",2,1,"
+        + std::to_string(captureSeq)
+        + "," + std::to_string(ingestSeq)
+        + "," + std::to_string(tsNs)
+        + "," + std::to_string(tsNs + 10)
+        + "," + std::to_string(updateId)
+        + "," + std::to_string(firstUpdateId)
+        + ",1,[[30000,5,0,0],[29900,3,0,1]],[[30100,4,1,0]]]\n";
 }
 
 void writeManifest(const fs::path& dir,
@@ -86,12 +78,12 @@ TEST(SessionReplay, EndToEnd) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "{\"tsNs\":2000,\"captureSeq\":2,\"ingestSeq\":2,\"updateId\":11,\"firstUpdateId\":11,\"bids\":[{\"price_i64\":30000,\"qty_i64\":7}],\"asks\":[]}\n"
-              "{\"tsNs\":3500,\"captureSeq\":3,\"ingestSeq\":4,\"updateId\":12,\"firstUpdateId\":12,\"bids\":[],\"asks\":[{\"price_i64\":30100,\"qty_i64\":0},{\"price_i64\":30200,\"qty_i64\":8}]}\n");
+              "[0,11,11,2000,1,0,2,2,[[30000,7,0,0]],[]]\n"
+              "[0,12,12,3500,0,2,3,4,[],[[30100,0,1,0],[30200,8,1,1]]]\n");
 
     writeFile(dir / "trades.jsonl",
-              "{\"tsNs\":2500,\"captureSeq\":4,\"ingestSeq\":3,\"priceE8\":30050,\"qtyE8\":1,\"sideBuy\":1}\n"
-              "{\"tsNs\":4000,\"captureSeq\":5,\"ingestSeq\":5,\"priceE8\":30200,\"qtyE8\":2,\"sideBuy\":0}\n");
+              "[0,0,30050,1,2500,0,0,0,0,1,4,3]\n"
+              "[0,0,30200,2,4000,0,0,0,0,0,5,5]\n");
 
     SessionReplay replay{};
     ASSERT_EQ(replay.open(dir), Status::Ok);
@@ -143,8 +135,8 @@ TEST(SessionReplay, InvalidJsonLineReportsFileAndLine) {
     writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "{\"tsNs\":2500,\"captureSeq\":1,\"ingestSeq\":1,\"priceE8\":30050,\"qtyE8\":1,\"sideBuy\":1}\n"
-              "{\"tsNs\":2600,\"priceE8\":30051,\"qtyE8\":1,\"sideBuy\":\"bad\"}\n");
+              "[0,0,30050,1,2500,0,0,0,0,1,1,1]\n"
+              "[0,0,30051,1,2600,0,0,0,0,\"bad\",2,2]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -162,8 +154,8 @@ TEST(SessionReplay, DetectsDepthGapWhenSequenceIdsPresent) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "{\"tsNs\":2000,\"captureSeq\":2,\"ingestSeq\":2,\"updateId\":11,\"firstUpdateId\":11,\"bids\":[{\"price_i64\":30000,\"qty_i64\":7}],\"asks\":[]}\n"
-              "{\"tsNs\":3000,\"captureSeq\":3,\"ingestSeq\":3,\"updateId\":15,\"firstUpdateId\":15,\"bids\":[],\"asks\":[{\"price_i64\":30100,\"qty_i64\":0}]}\n");
+              "[0,11,11,2000,1,0,2,2,[[30000,7,0,0]],[]]\n"
+              "[0,15,15,3000,0,1,3,3,[],[[30100,0,1,0]]]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -184,7 +176,7 @@ TEST(SessionReplay, DetectsDepthUpdateRangeInversion) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "{\"tsNs\":2000,\"captureSeq\":2,\"ingestSeq\":2,\"updateId\":11,\"firstUpdateId\":12,\"bids\":[{\"price_i64\":30000,\"qty_i64\":7}],\"asks\":[]}\n");
+              "[0,11,12,2000,1,0,2,2,[[30000,7,0,0]],[]]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -202,8 +194,8 @@ TEST(SessionReplay, DetectsNonIncreasingCaptureSequence) {
     writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "{\"tsNs\":2500,\"captureSeq\":2,\"ingestSeq\":1,\"priceE8\":30050,\"qtyE8\":1,\"sideBuy\":1}\n"
-              "{\"tsNs\":2600,\"captureSeq\":2,\"ingestSeq\":2,\"priceE8\":30051,\"qtyE8\":1,\"sideBuy\":0}\n");
+              "[0,0,30050,1,2500,0,0,0,0,1,2,1]\n"
+              "[0,0,30051,1,2600,0,0,0,0,0,2,2]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -219,12 +211,12 @@ TEST(SessionReplay, DetectsMixedIngestSequenceMetadata) {
     writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "{\"tsNs\":2500,\"captureSeq\":1,\"ingestSeq\":1,\"priceE8\":30050,\"qtyE8\":1,\"sideBuy\":1}\n"
-              "{\"tsNs\":2600,\"captureSeq\":2,\"priceE8\":30051,\"qtyE8\":1,\"sideBuy\":0}\n");
+              "[0,0,30050,1,2500,0,0,0,0,1,1,1]\n"
+              "[0,0,30051,1,2600,0,0,0,0,0,2]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
-    EXPECT_NE(std::string{replay.errorDetail()}.find("ingest sequence metadata is missing or inconsistent"), std::string::npos);
+    EXPECT_NE(std::string{replay.errorDetail()}.find("trades.jsonl line 2"), std::string::npos);
     EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Corrupt);
 
     std::error_code ec;
@@ -238,13 +230,13 @@ TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "{\"tsNs\":2000,\"captureSeq\":2,\"ingestSeq\":2,\"updateId\":11,\"firstUpdateId\":11,\"bids\":[{\"price_i64\":30000,\"qty_i64\":7}],\"asks\":[]}\n");
+              "[0,11,11,2000,1,0,2,2,[[30000,7,0,0]],[]]\n");
 
     writeFile(dir / "trades.jsonl",
-              "{\"tsNs\":2000,\"captureSeq\":3,\"ingestSeq\":3,\"priceE8\":30050,\"qtyE8\":1,\"sideBuy\":1}\n");
+              "[0,0,30050,1,2000,0,0,0,0,1,3,3]\n");
 
     writeFile(dir / "bookticker.jsonl",
-              "{\"tsNs\":2000,\"captureSeq\":4,\"ingestSeq\":4,\"bidPriceE8\":30000,\"bidQtyE8\":7,\"askPriceE8\":30100,\"askQtyE8\":4}\n");
+              "[0,30000,7,30100,4,2000,4,4]\n");
 
     SessionReplay replay{};
     ASSERT_EQ(replay.open(dir), Status::Ok);
@@ -281,22 +273,19 @@ TEST(SessionReplay, MissingEnabledChannelDegradesSessionAndWritesIntegrityReport
     fs::remove_all(dir, ec);
 }
 
-TEST(SessionReplay, MissingIngestSequenceDegradesExactness) {
+TEST(SessionReplay, ShortDepthArrayIsCorrupt) {
     const auto dir = makeTmpDir();
     writeManifest(dir, false, false, true, 0u, 0u, 1u, 1u);
 
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "{\"tsNs\":2000,\"captureSeq\":2,\"updateId\":11,\"firstUpdateId\":11,\"bids\":[{\"price_i64\":30000,\"qty_i64\":7}],\"asks\":[]}\n");
+              "[0,11,11,2000,1,0,2,[[30000,7,0,0]],[]]\n");
 
     SessionReplay replay{};
-    EXPECT_EQ(replay.open(dir), Status::Ok);
-    EXPECT_EQ(replay.integritySummary().sessionHealth, hftrec::SessionHealth::Degraded);
-    EXPECT_EQ(replay.integritySummary().depth.state, hftrec::ChannelHealthState::Degraded);
-    EXPECT_FALSE(replay.exactReplayEligible());
-    EXPECT_TRUE(replay.sequenceValidationAvailable());
-    EXPECT_EQ(replay.book().bestBidPrice(), 30000);
+    EXPECT_EQ(replay.open(dir), Status::CorruptData);
+    EXPECT_EQ(replay.integritySummary().sessionHealth, hftrec::SessionHealth::Corrupt);
+    EXPECT_EQ(replay.integritySummary().depth.state, hftrec::ChannelHealthState::Corrupt);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

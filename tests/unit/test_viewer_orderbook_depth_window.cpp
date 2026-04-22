@@ -42,50 +42,50 @@ void writeFile(const fs::path& path, const std::string& data) {
 }
 
 std::string level(std::int64_t priceE8, std::int64_t qtyE8) {
-    return "{\"price_i64\":" + std::to_string(priceE8)
-        + ",\"qty_i64\":" + std::to_string(qtyE8) + "}";
+    return "[" + std::to_string(priceE8) + "," + std::to_string(qtyE8) + ",0,0]";
 }
 
 std::string depthLine(std::int64_t tsNs,
                       std::int64_t updateId,
                       const std::vector<BookLevel>& bids,
                       const std::vector<BookLevel>& asks) {
-    std::string out = "{\"tsNs\":" + std::to_string(tsNs)
-        + ",\"captureSeq\":" + std::to_string(updateId)
-        + ",\"ingestSeq\":" + std::to_string(updateId)
-        + ",\"updateId\":" + std::to_string(updateId)
-        + ",\"firstUpdateId\":" + std::to_string(updateId)
-        + ",\"bids\":[";
+    std::string out = "[0," + std::to_string(updateId)
+        + "," + std::to_string(updateId)
+        + "," + std::to_string(tsNs)
+        + "," + std::to_string(bids.size())
+        + "," + std::to_string(asks.size())
+        + "," + std::to_string(updateId)
+        + "," + std::to_string(updateId)
+        + ",[";
     for (std::size_t i = 0; i < bids.size(); ++i) {
         if (i != 0u) out += ",";
         out += level(bids[i].priceE8, bids[i].qtyE8);
     }
-    out += "],\"asks\":[";
+    out += "],[";
     for (std::size_t i = 0; i < asks.size(); ++i) {
         if (i != 0u) out += ",";
         out += level(asks[i].priceE8, asks[i].qtyE8);
     }
-    out += "]}\n";
+    out += "]]\n";
     return out;
 }
 
 std::string bookTickerLine(std::int64_t tsNs,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8) {
-    return "{\"tsNs\":" + std::to_string(tsNs)
-        + ",\"captureSeq\":100,\"ingestSeq\":100"
-        + ",\"bidPriceE8\":" + std::to_string(bidPriceE8)
-        + ",\"bidQtyE8\":" + std::to_string(e8(2))
-        + ",\"askPriceE8\":" + std::to_string(askPriceE8)
-        + ",\"askQtyE8\":" + std::to_string(e8(2)) + "}\n";
+    return "[0," + std::to_string(bidPriceE8)
+        + "," + std::to_string(e8(2))
+        + "," + std::to_string(askPriceE8)
+        + "," + std::to_string(e8(2))
+        + "," + std::to_string(tsNs)
+        + ",100,100]\n";
 }
 
 std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8) {
-    return "{\"tsNs\":" + std::to_string(tsNs)
-        + ",\"captureSeq\":200,\"ingestSeq\":200"
-        + ",\"priceE8\":" + std::to_string(priceE8)
-        + ",\"qtyE8\":" + std::to_string(e8(1))
-        + ",\"sideBuy\":1}\n";
+    return "[0,0," + std::to_string(priceE8)
+        + "," + std::to_string(e8(1))
+        + "," + std::to_string(tsNs)
+        + ",0,0,0,0,1,200,200]\n";
 }
 
 SnapshotInputs orderbookInputs(qreal depthWindowPct) {

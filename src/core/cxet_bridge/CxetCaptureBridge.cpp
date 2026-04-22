@@ -15,9 +15,16 @@ namespace {
 CapturedTradeRow makeCapturedTradeRow(const cxet::composite::TradePublic& trade) {
     CapturedTradeRow row{};
     row.symbol = trade.symbol.data;
+    row.exchangeId = static_cast<std::uint64_t>(trade.exchangeId.raw);
+    row.tradeId = static_cast<std::uint64_t>(trade.id.raw);
     row.tsNs = static_cast<std::uint64_t>(trade.ts.raw);
     row.priceE8 = static_cast<std::int64_t>(trade.price.raw);
     row.qtyE8 = static_cast<std::int64_t>(trade.amount.raw);
+    row.firstTradeId = static_cast<std::uint64_t>(trade.firstTradeId.raw);
+    row.lastTradeId = static_cast<std::uint64_t>(trade.lastTradeId.raw);
+    row.quoteQtyE8 = static_cast<std::int64_t>(trade.quoteAmount.raw);
+    row.side = static_cast<std::int64_t>(trade.side.raw);
+    row.isBuyerMaker = trade.isBuyerMaker == canon::TriState::True;
     row.sideBuy = static_cast<std::uint8_t>(trade.side.raw) == 1u;
     return row;
 }
@@ -27,6 +34,7 @@ CapturedBookTickerRow makeCapturedBookTickerRow(const cxet::composite::BookTicke
                                                 bool includeAskQty) {
     CapturedBookTickerRow row{};
     row.symbol = bookTicker.symbol.data;
+    row.exchangeId = static_cast<std::uint64_t>(bookTicker.exchangeId.raw);
     row.tsNs = static_cast<std::uint64_t>(bookTicker.ts.raw);
     row.bidPriceE8 = static_cast<std::int64_t>(bookTicker.bidPrice.raw);
     row.askPriceE8 = static_cast<std::int64_t>(bookTicker.askPrice.raw);
@@ -43,19 +51,9 @@ Status CxetCaptureBridge::initialize() noexcept {
     return Status::Ok;
 }
 
-CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradePublic& trade) {
-    return makeCapturedTradeRow(trade);
-}
-
 CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradeRuntimeV1& trade,
                                                  const cxet::composite::StreamMeta& meta) {
     return makeCapturedTradeRow(cxet::composite::compat::materializeTradePublicV1(trade, meta));
-}
-
-CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerData& bookTicker,
-                                                           const std::vector<std::string>& requestedAliases) {
-    (void)requestedAliases;
-    return makeCapturedBookTickerRow(bookTicker, true, true);
 }
 
 CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
@@ -69,6 +67,7 @@ CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite
 CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot) {
     CapturedOrderBookRow row{};
     row.symbol = snapshot.symbol.data;
+    row.exchangeId = static_cast<std::uint64_t>(snapshot.exchangeId.raw);
     row.tsNs = static_cast<std::uint64_t>(snapshot.ts.raw);
     row.updateId = static_cast<std::uint64_t>(snapshot.updateId.raw);
     row.firstUpdateId = static_cast<std::uint64_t>(snapshot.firstUpdateId.raw);
@@ -76,14 +75,18 @@ CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::
     for (std::uint32_t i = 0; i < snapshot.bidCount.raw; ++i) {
         row.bids.push_back(CapturedLevel{
             static_cast<std::int64_t>(snapshot.bids[i].price.raw),
-            static_cast<std::int64_t>(snapshot.bids[i].amount.raw)
+            static_cast<std::int64_t>(snapshot.bids[i].amount.raw),
+            static_cast<std::int64_t>(snapshot.bids[i].side.raw),
+            static_cast<std::uint64_t>(snapshot.bids[i].levelId.raw)
         });
     }
     row.asks.reserve(snapshot.askCount.raw);
     for (std::uint32_t i = 0; i < snapshot.askCount.raw; ++i) {
         row.asks.push_back(CapturedLevel{
             static_cast<std::int64_t>(snapshot.asks[i].price.raw),
-            static_cast<std::int64_t>(snapshot.asks[i].amount.raw)
+            static_cast<std::int64_t>(snapshot.asks[i].amount.raw),
+            static_cast<std::int64_t>(snapshot.asks[i].side.raw),
+            static_cast<std::uint64_t>(snapshot.asks[i].levelId.raw)
         });
     }
     return row;

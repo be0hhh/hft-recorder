@@ -110,6 +110,7 @@ bool parseIdentityObject(JsonParser& parser, SessionManifest& manifest) noexcept
     return parser.parseObjectEnd();
 }
 
+
 bool parseCaptureObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return parser.parseObjectEnd();
@@ -136,6 +137,7 @@ bool parseCaptureObject(JsonParser& parser, SessionManifest& manifest) noexcept 
     return parser.parseObjectEnd();
 }
 
+
 bool parseReplayObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return parser.parseObjectEnd();
@@ -153,6 +155,7 @@ bool parseReplayObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     } while (parser.parseComma());
     return parser.parseObjectEnd();
 }
+
 
 bool parseChannelObject(JsonParser& parser,
                         bool& enabled,
@@ -182,6 +185,7 @@ bool parseChannelObject(JsonParser& parser,
     } while (parser.parseComma());
     return parser.parseObjectEnd();
 }
+
 
 bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
@@ -224,6 +228,7 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
     return parser.parseObjectEnd();
 }
 
+
 bool parseSnapshotsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return parser.parseObjectEnd();
@@ -243,6 +248,7 @@ bool parseSnapshotsObject(JsonParser& parser, SessionManifest& manifest) noexcep
     } while (parser.parseComma());
     return parser.parseObjectEnd();
 }
+
 
 bool parseArtifactsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
@@ -268,6 +274,7 @@ bool parseArtifactsObject(JsonParser& parser, SessionManifest& manifest) noexcep
     return parser.parseObjectEnd();
 }
 
+
 bool parseSummaryObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return parser.parseObjectEnd();
@@ -283,6 +290,7 @@ bool parseSummaryObject(JsonParser& parser, SessionManifest& manifest) noexcept 
     } while (parser.parseComma());
     return parser.parseObjectEnd();
 }
+
 
 bool parseChannelIntegrityObject(JsonParser& parser, ChannelIntegritySummary& summary) noexcept {
     if (!parser.parseObjectStart()) return false;
@@ -322,6 +330,7 @@ bool parseChannelIntegrityObject(JsonParser& parser, ChannelIntegritySummary& su
     return parser.parseObjectEnd();
 }
 
+
 bool parseIntegritySummaryObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return parser.parseObjectEnd();
@@ -342,6 +351,7 @@ bool parseIntegritySummaryObject(JsonParser& parser, SessionManifest& manifest) 
     } while (parser.parseComma());
     return parser.parseObjectEnd();
 }
+
 
 bool parseChannelIntegrityGroupObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
@@ -365,88 +375,26 @@ bool parseChannelIntegrityGroupObject(JsonParser& parser, SessionManifest& manif
     return parser.parseObjectEnd();
 }
 
-bool parseLegacyFlatManifest(JsonParser& parser, SessionManifest& manifest) noexcept {
-    manifest.manifestSchemaVersion = kManifestSchemaVersionLegacyV0;
-    manifest.corpusSchemaVersion = kCorpusSchemaVersionLegacyV0;
-    manifest.sessionStatus = "legacy_v0";
-    manifest.tradesRowSchema = "trade_v0";
-    manifest.bookTickerRowSchema = "bookticker_v0";
-    manifest.depthRowSchema = "depth_v0";
-    manifest.snapshotSchema = "orderbook_snapshot_v0";
 
-    if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
-    std::string key;
-    do {
-        if (!parser.parseKey(key)) return false;
-        if (key == "session_id") {
-            if (!parser.parseString(manifest.sessionId)) return false;
-        } else if (key == "exchange") {
-            if (!parser.parseString(manifest.exchange)) return false;
-        } else if (key == "market") {
-            if (!parser.parseString(manifest.market)) return false;
-        } else if (key == "symbols") {
-            if (!parseStringArray(parser, manifest.symbols)) return false;
-        } else if (key == "selected_parent_dir") {
-            if (!parser.parseString(manifest.selectedParentDir)) return false;
-        } else if (key == "started_at_ns") {
-            if (!parseInt64Field(parser, manifest.startedAtNs)) return false;
-        } else if (key == "ended_at_ns") {
-            if (!parseInt64Field(parser, manifest.endedAtNs)) return false;
-        } else if (key == "target_duration_sec") {
-            if (!parseInt64Field(parser, manifest.targetDurationSec)) return false;
-        } else if (key == "actual_duration_sec") {
-            if (!parseInt64Field(parser, manifest.actualDurationSec)) return false;
-        } else if (key == "snapshot_interval_sec") {
-            if (!parseInt64Field(parser, manifest.snapshotIntervalSec)) return false;
-        } else if (key == "warning_summary") {
-            if (!parser.parseString(manifest.warningSummary)) return false;
-        } else if (key == "channel_status") {
-            if (!parser.parseObjectStart()) return false;
-            if (!parser.peek('}')) {
-                std::string nestedKey;
-                do {
-                    if (!parser.parseKey(nestedKey)) return false;
-                    if (nestedKey == "trades_enabled") {
-                        if (!parser.parseBool(manifest.tradesEnabled)) return false;
-                    } else if (nestedKey == "bookticker_enabled") {
-                        if (!parser.parseBool(manifest.bookTickerEnabled)) return false;
-                    } else if (nestedKey == "orderbook_enabled") {
-                        if (!parser.parseBool(manifest.orderbookEnabled)) return false;
-                    } else {
-                        if (!parser.skipValue()) return false;
-                    }
-                    if (parser.peek('}')) break;
-                } while (parser.parseComma());
-            }
-            if (!parser.parseObjectEnd()) return false;
-        } else if (key == "event_counts") {
-            if (!parser.parseObjectStart()) return false;
-            if (!parser.peek('}')) {
-                std::string nestedKey;
-                do {
-                    if (!parser.parseKey(nestedKey)) return false;
-                    if (nestedKey == "trades") {
-                        if (!parseUint64Field(parser, manifest.tradesCount)) return false;
-                    } else if (nestedKey == "bookticker") {
-                        if (!parseUint64Field(parser, manifest.bookTickerCount)) return false;
-                    } else if (nestedKey == "depth") {
-                        if (!parseUint64Field(parser, manifest.depthCount)) return false;
-                    } else if (nestedKey == "snapshot") {
-                        if (!parseUint64Field(parser, manifest.snapshotCount)) return false;
-                    } else {
-                        if (!parser.skipValue()) return false;
-                    }
-                    if (parser.peek('}')) break;
-                } while (parser.parseComma());
-            }
-            if (!parser.parseObjectEnd()) return false;
-        } else {
-            if (!parser.skipValue()) return false;
-        }
-        if (parser.peek('}')) break;
-    } while (parser.parseComma());
-    return parser.parseObjectEnd();
+
+bool isSupportedCaptureContractVersion(std::string_view version) noexcept {
+    return version == "hftrec.cxet_prefix_json.v2";
+}
+
+bool isSupportedTradesRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_trade_prefix_v2";
+}
+
+bool isSupportedBookTickerRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_bookticker_prefix_v2";
+}
+
+bool isSupportedDepthRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_orderbook_prefix_v2";
+}
+
+bool isSupportedSnapshotSchema(std::string_view schema) noexcept {
+    return schema == "cxet_orderbook_snapshot_prefix_v2";
 }
 
 void populateCanonicalArtifacts(SessionManifest& manifest) {
@@ -468,20 +416,6 @@ void populateSupportArtifacts(SessionManifest& manifest) {
     if (!manifest.loaderDiagnosticsPath.empty()) manifest.supportArtifacts.push_back(manifest.loaderDiagnosticsPath);
 }
 
-void ensureLegacyDefaults(SessionManifest& manifest) {
-    if (manifest.tradesPath.empty()) manifest.tradesPath = "trades.jsonl";
-    if (manifest.bookTickerPath.empty()) manifest.bookTickerPath = "bookticker.jsonl";
-    if (manifest.depthPath.empty()) manifest.depthPath = "depth.jsonl";
-    if (manifest.snapshotCount > 0u && manifest.snapshotFiles.empty()) manifest.snapshotFiles = {"snapshot_000.json"};
-    if (manifest.sessionStatus.empty()) manifest.sessionStatus = "legacy_v0";
-    if (manifest.captureContractVersion.empty()) manifest.captureContractVersion = "legacy_v0";
-    if (manifest.instrumentMetadataPath.empty()) manifest.instrumentMetadataPath = "instrument_metadata.json";
-    if (manifest.sessionAuditPath.empty()) manifest.sessionAuditPath = "reports/session_audit.json";
-    if (manifest.loaderDiagnosticsPath.empty()) manifest.loaderDiagnosticsPath = "reports/loader_diagnostics.json";
-    populateCanonicalArtifacts(manifest);
-    populateSupportArtifacts(manifest);
-}
-
 bool validateStructurally(SessionManifest& manifest) {
     manifest.structuralBlockers.clear();
     if (!isSupportedManifestSchemaVersion(manifest.manifestSchemaVersion)) {
@@ -490,6 +424,9 @@ bool validateStructurally(SessionManifest& manifest) {
     if (!isSupportedCorpusSchemaVersion(manifest.corpusSchemaVersion)) {
         manifest.structuralBlockers.push_back("unsupported corpus schema version");
     }
+    if (!isSupportedCaptureContractVersion(manifest.captureContractVersion)) {
+        manifest.structuralBlockers.push_back("unsupported capture contract version");
+    }
     if (manifest.sessionId.empty()) manifest.structuralBlockers.push_back("missing session_id");
     if (manifest.exchange.empty()) manifest.structuralBlockers.push_back("missing exchange");
     if (manifest.market.empty()) manifest.structuralBlockers.push_back("missing market");
@@ -497,14 +434,26 @@ bool validateStructurally(SessionManifest& manifest) {
     if (manifest.tradesEnabled && manifest.tradesRequiredWhenEnabled && manifest.tradesPath.empty()) {
         manifest.structuralBlockers.push_back("missing trades path");
     }
+    if (manifest.tradesEnabled && !isSupportedTradesRowSchema(manifest.tradesRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported trades row schema");
+    }
     if (manifest.bookTickerEnabled && manifest.bookTickerRequiredWhenEnabled && manifest.bookTickerPath.empty()) {
         manifest.structuralBlockers.push_back("missing bookticker path");
+    }
+    if (manifest.bookTickerEnabled && !isSupportedBookTickerRowSchema(manifest.bookTickerRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported bookticker row schema");
     }
     if (manifest.orderbookEnabled && manifest.orderbookRequiredWhenEnabled && manifest.depthPath.empty()) {
         manifest.structuralBlockers.push_back("missing depth path");
     }
+    if (manifest.orderbookEnabled && !isSupportedDepthRowSchema(manifest.depthRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported depth row schema");
+    }
     if (manifest.snapshotCount > 0u && manifest.snapshotFiles.empty()) {
         manifest.structuralBlockers.push_back("missing snapshot file inventory");
+    }
+    if (manifest.snapshotCount > 0u && !isSupportedSnapshotSchema(manifest.snapshotSchema)) {
+        manifest.structuralBlockers.push_back("unsupported snapshot schema");
     }
     manifest.structurallyLoadable = manifest.structuralBlockers.empty();
     return manifest.structurallyLoadable;
@@ -687,11 +636,7 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
                     || key == "channel_status"
                     || key == "event_counts"
                     || key == "warning_summary") {
-                JsonParser legacyParser{document};
-                if (!parseLegacyFlatManifest(legacyParser, manifest)) return Status::CorruptData;
-                ensureLegacyDefaults(manifest);
-                validateStructurally(manifest);
-                return Status::Ok;
+                return Status::CorruptData;
             } else {
                 if (!parser.skipValue()) return Status::CorruptData;
             }
@@ -709,17 +654,11 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
 }
 
 bool isSupportedManifestSchemaVersion(std::int32_t version) noexcept {
-    return version == kManifestSchemaVersionCurrent || version == kManifestSchemaVersionLegacyV0;
+    return version == kManifestSchemaVersionCurrent;
 }
 
 bool isSupportedCorpusSchemaVersion(std::int32_t version) noexcept {
-    return version == kCorpusSchemaVersionCurrent || version == kCorpusSchemaVersionLegacyV0;
-}
-
-bool isLegacyManifest(const SessionManifest& manifest) noexcept {
-    return manifest.manifestSchemaVersion == kManifestSchemaVersionLegacyV0
-        || manifest.corpusSchemaVersion == kCorpusSchemaVersionLegacyV0
-        || manifest.sessionStatus == "legacy_v0";
+    return version == kCorpusSchemaVersionCurrent;
 }
 
 }  // namespace hftrec::capture
