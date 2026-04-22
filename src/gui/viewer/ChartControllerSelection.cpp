@@ -188,15 +188,7 @@ bool ChartController::measureTradeHighLowRect(qreal plotWidthPx,
         return true;
     }
 
-    SelectionRange range{};
-    range.valid = true;
-    range.timeStartNs = std::min(highTsNs, lowTsNs);
-    range.timeEndNs = std::max(highTsNs, lowTsNs);
-    if (range.timeEndNs <= range.timeStartNs) range.timeEndNs = range.timeStartNs + 1;
-    range.priceMinE8 = lowPriceE8;
-    range.priceMaxE8 = highPriceE8;
-    if (range.priceMaxE8 <= range.priceMinE8) range.priceMaxE8 = range.priceMinE8 + 1;
-
+    SelectionRange range = outerRange;
     const auto summary = buildSelectionSummary_(range);
     QStringList lines;
     lines << QStringLiteral("High/Low Trade Range");

@@ -123,6 +123,25 @@ std::int64_t maxBookTickerTs(const RenderSnapshot& snap) noexcept {
     return snap.bookTickerTrace.samples.empty() ? 0 : snap.bookTickerTrace.samples.back().tsNs;
 }
 
+std::int64_t maxSnapshotTs(const LiveDataBatch& batch) noexcept {
+    return batch.snapshots.empty() ? 0 : batch.snapshots.back().tsNs;
+}
+
+std::int64_t latestBookStateTs(const LiveDataBatch& batch) noexcept {
+    return std::max(
+        batch.depths.empty() ? 0 : batch.depths.back().tsNs,
+        maxSnapshotTs(batch));
+}
+
+std::int64_t latestLiveTs(const LiveDataBatch& batch) noexcept {
+    return std::max({
+        batch.trades.empty() ? 0 : batch.trades.back().tsNs,
+        batch.bookTickers.empty() ? 0 : batch.bookTickers.back().tsNs,
+        batch.depths.empty() ? 0 : batch.depths.back().tsNs,
+        maxSnapshotTs(batch),
+    });
+}
+
 constexpr std::size_t kLiveRenderBookLevelsBudgetPerSide = 256;
 constexpr std::size_t kLiveInteractiveBookLevelsBudgetPerSide = 192;
 constexpr std::int64_t kUsdScaleE8 = 100000000ll;
@@ -301,6 +320,9 @@ void appendLiveBookSegment(std::vector<BookSegment>& out,
 void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataBatch& batch) {
     if (!live.orderbookVisible) return;
 
+    const std::int64_t liveVisibleTsMax = std::min<std::int64_t>(live.vp.tMax, latestBookStateTs(batch));
+    if (liveVisibleTsMax <= live.vp.tMin) return;
+
     std::vector<LiveBookEventRef> events;
     events.reserve(batch.snapshots.size() + batch.depths.size());
     for (const auto& snapshot : batch.snapshots) events.push_back(LiveBookEventRef{&snapshot, nullptr});
@@ -315,8 +337,9 @@ void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataBatch& batch
 
     for (const auto& event : events) {
         const std::int64_t eventTs = event.snapshot != nullptr ? event.snapshot->tsNs : event.depth->tsNs;
+        if (eventTs > liveVisibleTsMax) break;
         if (hasState && eventTs > segmentStartTs) {
-            appendLiveBookSegment(live.bookSegments, live.vp, live, state, segmentStartTs, std::min(eventTs, live.vp.tMax));
+            appendLiveBookSegment(live.bookSegments, live.vp, live, state, segmentStartTs, std::min(eventTs, liveVisibleTsMax));
         }
 
         if (event.snapshot != nullptr) state.applySnapshot(*event.snapshot);
@@ -324,11 +347,11 @@ void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataBatch& batch
 
         hasState = !state.bids().empty() || !state.asks().empty();
         segmentStartTs = std::max<std::int64_t>(live.vp.tMin, eventTs);
-        if (segmentStartTs >= live.vp.tMax) break;
+        if (segmentStartTs >= liveVisibleTsMax) break;
     }
 
-    if (hasState && segmentStartTs < live.vp.tMax) {
-        appendLiveBookSegment(live.bookSegments, live.vp, live, state, segmentStartTs, live.vp.tMax);
+    if (hasState && segmentStartTs < liveVisibleTsMax) {
+        appendLiveBookSegment(live.bookSegments, live.vp, live, state, segmentStartTs, liveVisibleTsMax);
     }
 }
 
@@ -587,9 +610,11 @@ void ChartItem::requestRepaint() {
 }
 
 void ChartItem::requestLiveRepaint() {
-    invalidateBaseImage_();
     cachedLiveSnap_.reset();
     cachedHitTestSnap_.reset();
+    cachedLiveDataBatchId_ = 0;
+    cachedHitTestBatchId_ = 0;
+    if (hoverActive_ && !interactiveMode_) updateHover_();
     update();
 }
 
@@ -607,6 +632,7 @@ void ChartItem::invalidateSnapshotCache_() {
     cachedInteractiveSnap_.reset();
     cachedExactSnap_.reset();
     cachedHitTestSnap_.reset();
+    cachedHitTestBatchId_ = 0;
     interactiveDirty_ = false;
     exactDirty_ = false;
 }
@@ -621,6 +647,7 @@ void ChartItem::invalidateBaseImage_() {
     cachedBookTickerEndTsNs_ = 0;
     cachedTradesEndTsNs_ = 0;
     cachedLiveDataBatchId_ = 0;
+    cachedHitTestBatchId_ = 0;
     cachedLiveSnap_.reset();
     cachedHitTestSnap_.reset();
 }
@@ -803,8 +830,11 @@ void ChartItem::paint(QPainter* painter) {
             appendSnapshotRows(hitTestSnap, std::move(liveRows));
         }
         cachedHitTestSnap_ = std::make_unique<RenderSnapshot>(std::move(hitTestSnap));
+        cachedHitTestBatchId_ = liveCache.version;
     };
-    refreshHitTestSnapshot();
+    if (!cachedHitTestSnap_ || cachedHitTestBatchId_ != liveCache.version) {
+        refreshHitTestSnapshot();
+    }
 
     bool rebuildLayersForCurrentViewport = false;
     if (interactiveMode_ && !cachedOrderbookImage_.isNull() && !cachedBookTickerImage_.isNull()
@@ -858,7 +888,7 @@ void ChartItem::paint(QPainter* painter) {
                 liveSnapshotFromDataBatch(snap, liveBatch, liveTradeOrigIndexStart));
             cachedLiveDataBatchId_ = liveCache.version;
         }
-        refreshHitTestSnapshot();
+        if (!cachedHitTestSnap_ || cachedHitTestBatchId_ != liveCache.version) refreshHitTestSnapshot();
     }
 
     if (!cachedOrderbookImage_.isNull() && !overlayOnly_) {

@@ -140,6 +140,7 @@ class ChartItem : public QQuickPaintedItem {
     bool interactiveDirty_{false};
     bool exactDirty_{false};
     std::uint64_t cachedLiveDataBatchId_{0};
+    std::uint64_t cachedHitTestBatchId_{0};
     // Heavy historical layers are cached here. The latest event is painted as
     // a live overlay, then folded into these images when the next live batch
     // arrives, so active captures avoid repainting the same history twice.
