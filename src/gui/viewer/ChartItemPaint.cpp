@@ -55,13 +55,14 @@ void paintSnapshotLayers(QPainter* painter,
                          const RenderSnapshot& snap,
                          bool drawBackground,
                          bool drawOrderbook,
+                         bool drawBookTicker,
                          bool drawTrades,
                          bool drawOverlay,
                          const HoverInfo& hover,
                          double dpr) {
     RenderSnapshot layerSnap = snap;
     layerSnap.orderbookVisible = drawOrderbook && snap.orderbookVisible;
-    layerSnap.bookTickerVisible = false;
+    layerSnap.bookTickerVisible = drawBookTicker && snap.bookTickerVisible;
     layerSnap.tradesVisible = drawTrades && snap.tradesVisible;
     layerSnap.tradeConnectorsVisible = drawTrades && snap.tradeConnectorsVisible;
     if (drawBackground && !layerSnap.overlayOnly) {
@@ -72,6 +73,7 @@ void paintSnapshotLayers(QPainter* painter,
 
     RenderContext ctx{painter, layerSnap, drawOverlay ? hover : HoverInfo{}, dpr};
     if (layerSnap.orderbookVisible) renderers::renderBook(ctx);
+    if (layerSnap.bookTickerVisible) renderers::renderBookTicker(ctx);
     if (layerSnap.tradesVisible) renderers::renderTrades(ctx);
     if (drawOverlay) renderers::renderOverlay(ctx);
 }
@@ -96,23 +98,214 @@ QRectF sourceRectForViewport(const ViewportMap& cachedVp,
 RenderSnapshot baseSnapshotForCache(const RenderSnapshot& snap) {
     RenderSnapshot base = snap;
     if (!base.tradeDots.empty()) base.tradeDots.pop_back();
+    if (!base.bookSegments.empty()) base.bookSegments.pop_back();
+    if (!base.bookTickerTrace.samples.empty()) {
+        const int liveStartPx = base.bookTickerTrace.samples.back().xPx;
+        auto keepBaseLine = [liveStartPx](const BookTickerLine& line) noexcept {
+            return line.x1 <= static_cast<qreal>(liveStartPx);
+        };
+        auto& bid = base.bookTickerTrace.bidLines;
+        auto& ask = base.bookTickerTrace.askLines;
+        bid.erase(std::remove_if(bid.begin(), bid.end(), [&](const BookTickerLine& line) { return !keepBaseLine(line); }), bid.end());
+        ask.erase(std::remove_if(ask.begin(), ask.end(), [&](const BookTickerLine& line) { return !keepBaseLine(line); }), ask.end());
+        auto& samples = base.bookTickerTrace.samples;
+        samples.erase(std::remove_if(samples.begin(), samples.end(), [liveStartPx](const BookTickerSample& sample) {
+            return sample.xPx >= liveStartPx;
+        }), samples.end());
+    }
     return base;
 }
 
-RenderSnapshot liveSnapshotForLastEvent(const RenderSnapshot& snap) {
-    RenderSnapshot live = snap;
-    if (live.tradeDots.size() > 1u) {
-        const TradeDot last = live.tradeDots.back();
-        live.tradeDots.clear();
-        live.tradeDots.push_back(last);
-    }
-    live.tradeConnectorsVisible = false;
-    live.orderbookVisible = false;
-    live.bookTickerVisible = false;
+std::int64_t maxTradeTs(const RenderSnapshot& snap) noexcept {
+    return snap.tradeDots.empty() ? 0 : snap.tradeDots.back().tsNs;
+}
+
+std::int64_t maxOrderbookTs(const RenderSnapshot& snap) noexcept {
+    return snap.bookSegments.empty() ? 0 : snap.bookSegments.back().tsEndNs;
+}
+
+std::int64_t maxBookTickerTs(const RenderSnapshot& snap) noexcept {
+    return snap.bookTickerTrace.samples.empty() ? 0 : snap.bookTickerTrace.samples.back().tsNs;
+}
+
+std::int64_t liveHoldNsForViewport(const ViewportMap& vp) noexcept {
+    const auto widthPx = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(vp.w)));
+    const auto pixelSpanNs = std::max<std::int64_t>(1, (vp.tMax - vp.tMin + widthPx - 1) / widthPx);
+    return std::max<std::int64_t>(pixelSpanNs, pixelSpanNs * 12ll);
+}
+
+RenderSnapshot liveSnapshotFromJsonBatch(const RenderSnapshot& base,
+                                         const ChartController::LiveJsonBatch& batch,
+                                         const hftrec::replay::BookTickerRow* bookTickerCarry) {
+    RenderSnapshot live = base;
     live.bookSegments.clear();
     live.bookTickerTrace = BookTickerTrace{};
+    live.tradeDots.clear();
     live.gpuBookVertices.clear();
+    live.tradeConnectorsVisible = false;
+
+    if (!live.loaded || live.vp.tMax <= live.vp.tMin || live.vp.pMax <= live.vp.pMin) return live;
+
+    for (const auto& row : batch.trades) {
+        if (row.tsNs < live.vp.tMin || row.tsNs > live.vp.tMax) continue;
+        if (row.priceE8 < live.vp.pMin || row.priceE8 > live.vp.pMax) continue;
+        live.tradeDots.push_back(TradeDot{row.tsNs, row.priceE8, row.qtyE8, row.sideBuy != 0, -1});
+    }
+
+    if (live.bookTickerVisible && !batch.bookTickers.empty()) {
+        auto& trace = live.bookTickerTrace;
+        trace.bidLines.reserve(batch.bookTickers.size() * 3u);
+        trace.askLines.reserve(batch.bookTickers.size() * 3u);
+        trace.samples.reserve(batch.bookTickers.size());
+        const std::int64_t holdNs = liveHoldNsForViewport(live.vp);
+
+        std::vector<const hftrec::replay::BookTickerRow*> rows;
+        rows.reserve(batch.bookTickers.size() + 1u);
+        if (bookTickerCarry != nullptr && bookTickerCarry->tsNs < batch.bookTickers.front().tsNs) {
+            rows.push_back(bookTickerCarry);
+        }
+        for (const auto& row : batch.bookTickers) rows.push_back(&row);
+
+        auto appendHorizontal = [&](const hftrec::replay::BookTickerRow& row, std::int64_t nextTs) {
+            if (nextTs <= row.tsNs) nextTs = row.tsNs + holdNs;
+            if (row.tsNs > live.vp.tMax || nextTs < live.vp.tMin) return;
+            const std::int64_t tsStart = std::max<std::int64_t>(row.tsNs, live.vp.tMin);
+            const std::int64_t tsEnd = std::min<std::int64_t>(live.vp.tMax, nextTs);
+            if (tsEnd <= tsStart) return;
+            const qreal x0 = std::clamp(live.vp.toX(tsStart), 0.0, live.vp.w);
+            const qreal x1 = std::min<qreal>(live.vp.w, std::max<qreal>(x0 + 1.0, live.vp.toX(tsEnd)));
+            const qreal bidY = live.vp.toY(row.bidPriceE8);
+            const qreal askY = live.vp.toY(row.askPriceE8);
+            trace.bidLines.push_back(BookTickerLine{x0, bidY, x1, bidY});
+            trace.askLines.push_back(BookTickerLine{x0, askY, x1, askY});
+            trace.samples.push_back(BookTickerSample{
+                std::clamp(static_cast<int>(std::floor(x0)), 0, std::max(0, static_cast<int>(std::ceil(live.vp.w)) - 1)),
+                row.tsNs,
+                row.bidPriceE8,
+                row.bidQtyE8,
+                row.askPriceE8,
+                row.askQtyE8,
+            });
+        };
+
+        auto appendVerticalStep = [&](const hftrec::replay::BookTickerRow& prev,
+                                      const hftrec::replay::BookTickerRow& next) {
+            if (next.tsNs <= prev.tsNs) return;
+            if (next.tsNs < live.vp.tMin || next.tsNs > live.vp.tMax) return;
+
+            const qreal x = std::clamp(live.vp.toX(next.tsNs), 0.0, live.vp.w);
+            const qreal prevBidY = live.vp.toY(prev.bidPriceE8);
+            const qreal nextBidY = live.vp.toY(next.bidPriceE8);
+            const qreal prevAskY = live.vp.toY(prev.askPriceE8);
+            const qreal nextAskY = live.vp.toY(next.askPriceE8);
+            if (prevBidY != nextBidY) trace.bidLines.push_back(BookTickerLine{x, prevBidY, x, nextBidY});
+            if (prevAskY != nextAskY) trace.askLines.push_back(BookTickerLine{x, prevAskY, x, nextAskY});
+        };
+
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            const auto& row = *rows[i];
+            const std::int64_t nextTs = (i + 1u < rows.size())
+                ? rows[i + 1u]->tsNs
+                : row.tsNs + holdNs;
+            appendHorizontal(row, nextTs);
+            if (i + 1u < rows.size()) appendVerticalStep(row, *rows[i + 1u]);
+        }
+    }
+
+    if (live.orderbookVisible && !batch.depths.empty()) {
+        const std::int64_t holdNs = liveHoldNsForViewport(live.vp);
+        live.bookSegments.reserve(batch.depths.size());
+        for (std::size_t i = 0; i < batch.depths.size(); ++i) {
+            const auto& row = batch.depths[i];
+            if (row.tsNs > live.vp.tMax) break;
+            if (row.tsNs < live.vp.tMin) continue;
+            const std::int64_t nextTs = (i + 1u < batch.depths.size()) ? batch.depths[i + 1u].tsNs : row.tsNs + holdNs;
+            BookSegment seg{};
+            seg.tsStartNs = row.tsNs;
+            seg.tsEndNs = std::min<std::int64_t>(live.vp.tMax, std::max<std::int64_t>(row.tsNs + 1, nextTs));
+            std::int64_t maxBid = 0;
+            std::int64_t maxAsk = 0;
+            for (const auto& level : row.bids) {
+                if (level.qtyE8 <= 0) continue;
+                seg.bids.push_back(BookLevel{level.priceE8, level.qtyE8});
+                if (level.qtyE8 > maxBid) maxBid = level.qtyE8;
+            }
+            for (const auto& level : row.asks) {
+                if (level.qtyE8 <= 0) continue;
+                seg.asks.push_back(BookLevel{level.priceE8, level.qtyE8});
+                if (level.qtyE8 > maxAsk) maxAsk = level.qtyE8;
+            }
+            if (seg.bids.empty() && seg.asks.empty()) continue;
+            seg.maxBidQty = std::max<std::int64_t>(maxBid, 1);
+            seg.maxAskQty = std::max<std::int64_t>(maxAsk, 1);
+            live.bookSegments.push_back(std::move(seg));
+        }
+    }
+
     return live;
+}
+
+bool hasLiveJsonRows(const ChartController::LiveJsonBatch& batch) noexcept {
+    return !batch.trades.empty() || !batch.bookTickers.empty() || !batch.depths.empty();
+}
+
+ChartController::LiveJsonBatch liveJsonBaseBatch(const ChartController::LiveJsonCache& cache) {
+    ChartController::LiveJsonBatch batch{};
+    batch.id = cache.version;
+    batch.trades = cache.allTrades;
+    batch.bookTickers = cache.allBookTickers;
+    batch.depths = cache.allDepths;
+
+    const auto& last = cache.lastBatch;
+    if (last.trades.size() <= batch.trades.size()) {
+        batch.trades.resize(batch.trades.size() - last.trades.size());
+    }
+    if (last.bookTickers.size() <= batch.bookTickers.size()) {
+        batch.bookTickers.resize(batch.bookTickers.size() - last.bookTickers.size());
+    }
+    if (last.depths.size() <= batch.depths.size()) {
+        batch.depths.resize(batch.depths.size() - last.depths.size());
+    }
+    return batch;
+}
+
+const hftrec::replay::BookTickerRow* liveJsonCarryForLastBatch(const ChartController::LiveJsonCache& cache) noexcept {
+    const auto lastCount = cache.lastBatch.bookTickers.size();
+    if (lastCount == 0u || cache.allBookTickers.size() <= lastCount) return nullptr;
+    return &cache.allBookTickers[cache.allBookTickers.size() - lastCount - 1u];
+}
+
+void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
+    target.bookSegments.insert(
+        target.bookSegments.end(),
+        std::make_move_iterator(rows.bookSegments.begin()),
+        std::make_move_iterator(rows.bookSegments.end()));
+    target.bookTickerTrace.bidLines.insert(
+        target.bookTickerTrace.bidLines.end(),
+        std::make_move_iterator(rows.bookTickerTrace.bidLines.begin()),
+        std::make_move_iterator(rows.bookTickerTrace.bidLines.end()));
+    target.bookTickerTrace.askLines.insert(
+        target.bookTickerTrace.askLines.end(),
+        std::make_move_iterator(rows.bookTickerTrace.askLines.begin()),
+        std::make_move_iterator(rows.bookTickerTrace.askLines.end()));
+    target.bookTickerTrace.samples.insert(
+        target.bookTickerTrace.samples.end(),
+        std::make_move_iterator(rows.bookTickerTrace.samples.begin()),
+        std::make_move_iterator(rows.bookTickerTrace.samples.end()));
+    target.tradeDots.insert(
+        target.tradeDots.end(),
+        std::make_move_iterator(rows.tradeDots.begin()),
+        std::make_move_iterator(rows.tradeDots.end()));
+}
+
+RenderSnapshot baseSnapshotWithLiveJsonCache(const RenderSnapshot& snap,
+                                             const ChartController::LiveJsonCache& cache) {
+    RenderSnapshot base = baseSnapshotForCache(snap);
+    auto batch = liveJsonBaseBatch(cache);
+    if (hasLiveJsonRows(batch)) {
+        appendSnapshotRows(base, liveSnapshotFromJsonBatch(base, batch, nullptr));
+    }
+    return base;
 }
 
 void drawTradeBridge(QPainter* painter, const RenderSnapshot& base, const RenderSnapshot& live) {
@@ -140,6 +333,8 @@ void paintLiveSnapshot(QPainter* painter,
                        double dpr) {
     if (!live.loaded) return;
     RenderContext ctx{painter, live, HoverInfo{}, dpr};
+    renderers::renderBook(ctx);
+    renderers::renderBookTicker(ctx);
     drawTradeBridge(painter, base, live);
     renderers::renderTrades(ctx);
 }
@@ -162,12 +357,7 @@ void ChartItem::requestRepaint() {
 
 void ChartItem::requestLiveRepaint() {
     mergeLiveSnapshotIntoBaseImage_();
-    cachedOrderbookImage_ = QImage{};
-    cachedInteractiveSnap_.reset();
-    cachedExactSnap_.reset();
-    interactiveDirty_ = true;
-    exactDirty_ = true;
-    if (hoverActive_ && !interactiveMode_) updateHover_();
+    cachedLiveSnap_.reset();
     update();
 }
 
@@ -190,9 +380,14 @@ void ChartItem::invalidateSnapshotCache_() {
 
 void ChartItem::invalidateBaseImage_() {
     cachedOrderbookImage_ = QImage{};
+    cachedBookTickerImage_ = QImage{};
     cachedTradesImage_ = QImage{};
     cachedLayerImageW_ = 0.0;
     cachedLayerImageH_ = 0.0;
+    cachedOrderbookEndTsNs_ = 0;
+    cachedBookTickerEndTsNs_ = 0;
+    cachedTradesEndTsNs_ = 0;
+    cachedLiveJsonBatchId_ = 0;
     cachedLiveSnap_.reset();
 }
 
@@ -203,6 +398,32 @@ std::unique_ptr<RenderSnapshot>& ChartItem::activeSnapshotCache_() noexcept {
 void ChartItem::mergeLiveSnapshotIntoBaseImage_() {
     if (!cachedLiveSnap_ || cachedLiveSnap_->overlayOnly) return;
     if (cachedLayerImageW_ <= 0.0 || cachedLayerImageH_ <= 0.0) return;
+
+    if (!cachedOrderbookImage_.isNull()) {
+        QPainter painter(&cachedOrderbookImage_);
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        painter.setRenderHint(QPainter::TextAntialiasing, true);
+        RenderSnapshot liveBook = *cachedLiveSnap_;
+        liveBook.tradesVisible = false;
+        liveBook.bookTickerVisible = false;
+        RenderContext ctx{&painter, liveBook, HoverInfo{}, 1.0};
+        renderers::renderBook(ctx);
+        painter.end();
+    }
+
+    if (!cachedBookTickerImage_.isNull()) {
+        QPainter painter(&cachedBookTickerImage_);
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        painter.setRenderHint(QPainter::TextAntialiasing, true);
+        RenderSnapshot liveTicker = *cachedLiveSnap_;
+        liveTicker.tradesVisible = false;
+        liveTicker.orderbookVisible = false;
+        RenderContext ctx{&painter, liveTicker, HoverInfo{}, 1.0};
+        renderers::renderBookTicker(ctx);
+        painter.end();
+    }
 
     if (!cachedTradesImage_.isNull()) {
         QPainter painter(&cachedTradesImage_);
@@ -218,6 +439,9 @@ void ChartItem::mergeLiveSnapshotIntoBaseImage_() {
         renderers::renderTrades(ctx);
         painter.end();
     }
+    cachedOrderbookEndTsNs_ = std::max(cachedOrderbookEndTsNs_, maxOrderbookTs(*cachedLiveSnap_));
+    cachedBookTickerEndTsNs_ = std::max(cachedBookTickerEndTsNs_, maxBookTickerTs(*cachedLiveSnap_));
+    cachedTradesEndTsNs_ = std::max(cachedTradesEndTsNs_, maxTradeTs(*cachedLiveSnap_));
 }
 
 const RenderSnapshot& ChartItem::ensureSnapshot_() {
@@ -243,11 +467,19 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
     const bool sizeMatches = (cachedLayerImageW_ == w && cachedLayerImageH_ == h);
     if (!sizeMatches) {
         cachedOrderbookImage_ = QImage{};
+        cachedBookTickerImage_ = QImage{};
         cachedTradesImage_ = QImage{};
+        cachedOrderbookEndTsNs_ = 0;
+        cachedBookTickerEndTsNs_ = 0;
+        cachedTradesEndTsNs_ = 0;
     }
-    if (!cachedOrderbookImage_.isNull() && !cachedTradesImage_.isNull()) return;
+    if (!cachedOrderbookImage_.isNull() && !cachedBookTickerImage_.isNull() && !cachedTradesImage_.isNull()) return;
 
-    const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
+    const auto& liveCache = controller_->liveJsonCache();
+    const RenderSnapshot baseSnap = baseSnapshotWithLiveJsonCache(snap, liveCache);
+    const std::int64_t baseOrderbookEndTsNs = maxOrderbookTs(baseSnap);
+    const std::int64_t baseBookTickerEndTsNs = maxBookTickerTs(baseSnap);
+    const std::int64_t baseTradesEndTsNs = maxTradeTs(baseSnap);
 
     const int imageW = std::max(1, static_cast<int>(std::ceil(w)));
     const int imageH = std::max(1, static_cast<int>(std::ceil(h)));
@@ -259,9 +491,21 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
         painter.setRenderHint(QPainter::Antialiasing, false);
         painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
         painter.setRenderHint(QPainter::TextAntialiasing, true);
-        paintSnapshotLayers(&painter, baseSnap, false, true, false, false, HoverInfo{}, 1.0);
+        paintSnapshotLayers(&painter, baseSnap, false, true, false, false, false, HoverInfo{}, 1.0);
         painter.end();
         cachedOrderbookImage_ = std::move(orderbookImage);
+    }
+
+    if (cachedBookTickerImage_.isNull()) {
+        QImage bookTickerImage(imageW, imageH, QImage::Format_ARGB32_Premultiplied);
+        bookTickerImage.fill(Qt::transparent);
+        QPainter painter(&bookTickerImage);
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        painter.setRenderHint(QPainter::TextAntialiasing, true);
+        paintSnapshotLayers(&painter, baseSnap, false, false, true, false, false, HoverInfo{}, 1.0);
+        painter.end();
+        cachedBookTickerImage_ = std::move(bookTickerImage);
     }
 
     if (cachedTradesImage_.isNull()) {
@@ -273,13 +517,16 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
         painter.setRenderHint(QPainter::TextAntialiasing, true);
         RenderSnapshot cachedTradesSnap = baseSnap;
         cachedTradesSnap.tradeConnectorsVisible = true;
-        paintSnapshotLayers(&painter, cachedTradesSnap, false, false, true, false, HoverInfo{}, 1.0);
+        paintSnapshotLayers(&painter, cachedTradesSnap, false, false, false, true, false, HoverInfo{}, 1.0);
         painter.end();
         cachedTradesImage_ = std::move(tradesImage);
     }
 
     cachedLayerImageW_ = w;
     cachedLayerImageH_ = h;
+    cachedOrderbookEndTsNs_ = std::max(cachedOrderbookEndTsNs_, baseOrderbookEndTsNs);
+    cachedBookTickerEndTsNs_ = std::max(cachedBookTickerEndTsNs_, baseBookTickerEndTsNs);
+    cachedTradesEndTsNs_ = std::max(cachedTradesEndTsNs_, baseTradesEndTsNs);
 }
 
 void ChartItem::paint(QPainter* painter) {
@@ -305,9 +552,16 @@ void ChartItem::paint(QPainter* painter) {
     const RenderSnapshot& layerSnap = (interactiveMode_ && cachedExactSnap_) ? *cachedExactSnap_ : snap;
     ensureLayerImages_(layerSnap, w, h);
     const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
-    cachedLiveSnap_ = std::make_unique<RenderSnapshot>(liveSnapshotForLastEvent(snap));
+    const auto& liveCache = controller_->liveJsonCache();
+    const auto& liveBatch = liveCache.lastBatch;
+    if (!cachedLiveSnap_ || cachedLiveJsonBatchId_ != liveBatch.id) {
+        const auto* carry = liveJsonCarryForLastBatch(liveCache);
+        cachedLiveSnap_ = std::make_unique<RenderSnapshot>(liveSnapshotFromJsonBatch(snap, liveBatch, carry));
+        cachedLiveJsonBatchId_ = liveBatch.id;
+    }
 
-    if (interactiveMode_ && !cachedOrderbookImage_.isNull() && !cachedTradesImage_.isNull() && cachedExactSnap_) {
+    if (interactiveMode_ && !cachedOrderbookImage_.isNull() && !cachedBookTickerImage_.isNull()
+        && !cachedTradesImage_.isNull() && cachedExactSnap_) {
         const QRectF sourceRect = sourceRectForViewport(
             cachedExactSnap_->vp,
             controller_->tsMin(),
@@ -330,7 +584,7 @@ void ChartItem::paint(QPainter* painter) {
                 (clippedSource.height() / sourceRect.height()) * rect.height(),
             };
             painter->drawImage(destRect, cachedOrderbookImage_, clippedSource);
-            detail::paintBookTickerLayer(painter, *controller_, *this, *cachedExactSnap_, w, h, dpr, true);
+            painter->drawImage(destRect, cachedBookTickerImage_, clippedSource);
             painter->drawImage(destRect, cachedTradesImage_, clippedSource);
             paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
             return;
@@ -340,7 +594,9 @@ void ChartItem::paint(QPainter* painter) {
     if (!cachedOrderbookImage_.isNull() && !overlayOnly_) {
         painter->drawImage(rect, cachedOrderbookImage_);
     }
-    detail::paintBookTickerLayer(painter, *controller_, *this, baseSnap, w, h, dpr, false);
+    if (!cachedBookTickerImage_.isNull()) {
+        painter->drawImage(rect, cachedBookTickerImage_);
+    }
     if (!cachedTradesImage_.isNull()) {
         painter->drawImage(rect, cachedTradesImage_);
     }

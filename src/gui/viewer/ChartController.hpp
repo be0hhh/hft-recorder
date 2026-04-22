@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 
 #include "core/replay/SessionReplay.hpp"
@@ -38,6 +39,21 @@ class ChartController : public QObject {
     Q_PROPERTY(QString selectionSummaryText READ selectionSummaryText NOTIFY selectionChanged)
 
   public:
+    struct LiveJsonBatch {
+        std::uint64_t id{0};
+        std::vector<hftrec::replay::TradeRow> trades{};
+        std::vector<hftrec::replay::BookTickerRow> bookTickers{};
+        std::vector<hftrec::replay::DepthRow> depths{};
+    };
+
+    struct LiveJsonCache {
+        std::vector<hftrec::replay::TradeRow> allTrades{};
+        std::vector<hftrec::replay::BookTickerRow> allBookTickers{};
+        std::vector<hftrec::replay::DepthRow> allDepths{};
+        LiveJsonBatch lastBatch{};
+        std::uint64_t version{0};
+    };
+
     explicit ChartController(QObject* parent = nullptr);
 
     QString sessionDir() const { return sessionDir_; }
@@ -95,6 +111,7 @@ class ChartController : public QObject {
     void syncReplayCursorToViewport();
     std::int64_t viewportCursorTs() const noexcept;
     const hftrec::replay::BookTickerRow* currentBookTicker() const noexcept;
+    const LiveJsonCache& liveJsonCache() const noexcept { return liveJsonCache_; }
 
     // Builds a POD snapshot of what renderers need to draw one frame. Mutates
     // replay cursor internally (advances through events in the viewport), but
@@ -159,6 +176,7 @@ class ChartController : public QObject {
     void startLiveTail_(const std::filesystem::path& sessionDir);
     void stopLiveTail_() noexcept;
     void pollLiveTail_();
+    void clearLiveJsonCache_() noexcept;
     void markUserViewportControl_() noexcept;
     SelectionRange selectionFromRect_(qreal plotWidthPx, qreal plotHeightPx,
                                       qreal x0, qreal y0, qreal x1, qreal y1) const noexcept;
@@ -184,6 +202,8 @@ class ChartController : public QObject {
     bool liveFollowEdge_{true};
     bool liveOrderbookHealthy_{true};
     int liveUpdateIntervalMs_{100};
+    LiveJsonCache liveJsonCache_{};
+    std::uint64_t liveJsonBatchSeq_{0};
 
     qint64 tsMin_{0};
     qint64 tsMax_{0};

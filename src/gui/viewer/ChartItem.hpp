@@ -1,10 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include <QImage>
 #include <QPointF>
 #include <QQuickPaintedItem>
+
+#include <core/replay/EventRows.hpp>
 
 class QPainter;
 
@@ -131,13 +134,18 @@ class ChartItem : public QQuickPaintedItem {
     qreal cachedH_{0.0};
     bool interactiveDirty_{false};
     bool exactDirty_{false};
+    std::uint64_t cachedLiveJsonBatchId_{0};
     // Heavy historical layers are cached here. The latest event is painted as
     // a live overlay, then folded into these images when the next live batch
     // arrives, so active captures avoid repainting the same history twice.
     QImage cachedOrderbookImage_{};
+    QImage cachedBookTickerImage_{};
     QImage cachedTradesImage_{};
     qreal cachedLayerImageW_{0.0};
     qreal cachedLayerImageH_{0.0};
+    std::int64_t cachedOrderbookEndTsNs_{0};
+    std::int64_t cachedBookTickerEndTsNs_{0};
+    std::int64_t cachedTradesEndTsNs_{0};
 };
 
 }  // namespace hftrec::gui::viewer

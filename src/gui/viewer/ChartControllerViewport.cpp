@@ -7,6 +7,7 @@
 #include <cmath>
 #include <iterator>
 #include <limits>
+#include <vector>
 
 #include "gui/viewer/ColorScheme.hpp"
 #include "gui/viewer/detail/BookMath.hpp"
@@ -323,6 +324,27 @@ bool visiblyDifferent(qreal lhs, qreal rhs) noexcept {
 }
 
 constexpr std::int64_t kBookTickerStaleGapNs = 1'000'000'000ll;
+constexpr std::int64_t kOrderbookStaleGapNs = 500'000'000ll;
+constexpr std::int64_t kOrderbookMaxHoldPixels = 12ll;
+
+bool bucketHasDepth(const hftrec::replay::SessionReplay::ReplayBucket& bucket) noexcept {
+    return std::any_of(bucket.items.begin(), bucket.items.end(), [](const auto& item) noexcept {
+        return item.kind == hftrec::replay::SessionReplay::EventKind::Depth;
+    });
+}
+
+std::int64_t latestDepthTsAtOrBefore(const std::vector<hftrec::replay::DepthRow>& depths,
+                                     std::int64_t tsNs) noexcept {
+    const auto it = std::upper_bound(
+        depths.begin(),
+        depths.end(),
+        tsNs,
+        [](std::int64_t ts, const hftrec::replay::DepthRow& row) noexcept {
+            return ts < row.tsNs;
+        });
+    if (it == depths.begin()) return 0;
+    return std::prev(it)->tsNs;
+}
 
 void appendBookTickerSideLines(std::vector<BookTickerLine>& out,
                                const std::vector<BookTickerPixelState>& pixels,
@@ -735,12 +757,27 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
 
     replay_.seek(coverageStart);
     const auto& buckets = replay_.buckets();
+    const auto& depths = replay_.depths();
+    const bool hasDepthRows = !depths.empty();
+    const std::int64_t widthPxInt = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(widthPx)));
+    const std::int64_t pixelSpanNs = std::max<std::int64_t>(
+        1,
+        (snap.vp.tMax - snap.vp.tMin + widthPxInt - 1) / widthPxInt);
+    const std::int64_t orderbookHoldNs = std::min<std::int64_t>(
+        kOrderbookStaleGapNs,
+        std::max<std::int64_t>(pixelSpanNs, pixelSpanNs * kOrderbookMaxHoldPixels));
+    std::int64_t lastDepthTs = latestDepthTsAtOrBefore(depths, coverageStart);
 
     const auto brightnessRefE8 = usdToE8(in.bookOpacityGain);
 
     auto emitSegment = [&](std::int64_t tsStart,
                            std::int64_t tsEnd) {
         if (tsEnd <= tsStart) return;
+        if (hasDepthRows && lastDepthTs > 0) {
+            const std::int64_t staleEnd = lastDepthTs + orderbookHoldNs;
+            tsEnd = std::min(tsEnd, staleEnd);
+            if (tsEnd <= tsStart) return;
+        }
         const qreal xLeft = std::clamp(snap.vp.toX(tsStart), 0.0, snap.vp.w);
         const qreal xRight = std::clamp(snap.vp.toX(tsEnd), 0.0, snap.vp.w);
         const int xStartPx = static_cast<int>(std::floor(xLeft));
@@ -833,6 +870,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     std::int64_t segStart = coverageStart;
     std::size_t bucketCursor = replay_.cursor();
     while (bucketCursor < buckets.size() && buckets[bucketCursor].tsNs <= coverageEnd) {
+        const bool depthBucket = bucketHasDepth(buckets[bucketCursor]);
         const auto stampTs = buckets[bucketCursor].tsNs;
         const double xStart = snap.vp.toX(segStart);
         const double xStamp = snap.vp.toX(stampTs);
@@ -843,6 +881,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             segStart = stampTs;
         }
         replay_.seek(stampTs);
+        if (depthBucket) lastDepthTs = stampTs;
         bucketCursor = replay_.cursor();
     }
     emitSegment(segStart, coverageEnd);
