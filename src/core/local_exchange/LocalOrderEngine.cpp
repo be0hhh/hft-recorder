@@ -36,6 +36,11 @@ void LocalOrderEngine::reset() noexcept {
     acceptedCount_ = 0u;
 }
 
+void LocalOrderEngine::setEventSink(execution::IExecutionEventSink* sink) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    eventSink_ = sink;
+}
+
 bool LocalOrderEngine::submitOrder(
     const cxet::network::local::hftrecorder::OrderRequestFrame& request,
     cxet::network::local::hftrecorder::OrderAckFrame& ack) noexcept {
@@ -50,6 +55,24 @@ bool LocalOrderEngine::submitOrder(
         rejected.status = canon::OrderStatus::Rejected;
         rejected.acceptedTsNs = nowNs_();
         fillAckFromOrder_(rejected, false, validation, ack);
+        if (eventSink_ != nullptr) {
+            eventSink_->onExecutionEvent(execution::ExecutionEvent{
+                execution::ExecutionEventKind::Reject,
+                rejected.symbol,
+                rejected.orderId,
+                rejected.exchangeRaw,
+                rejected.marketRaw,
+                request.sideRaw,
+                request.typeRaw,
+                static_cast<std::uint8_t>(rejected.status),
+                static_cast<std::uint32_t>(validation),
+                request.quantityRaw,
+                request.priceRaw,
+                0,
+                rejected.acceptedTsNs,
+                false,
+            });
+        }
         return false;
     }
 
@@ -75,14 +98,27 @@ bool LocalOrderEngine::submitOrder(
         if (!tryFillMarketOrder_(order, marketData, order.acceptedTsNs)) {
             order.status = canon::OrderStatus::Rejected;
             fillAckFromOrder_(order, false, LocalOrderErrorCode::MissingBookTicker, ack);
+            publishExecutionEventLocked_(order,
+                                         execution::ExecutionEventKind::Reject,
+                                         false,
+                                         LocalOrderErrorCode::MissingBookTicker);
             return false;
         }
     }
 
     ++acceptedCount_;
     fillAckFromOrder_(order, true, LocalOrderErrorCode::None, ack);
+    publishExecutionEventLocked_(order,
+                                 execution::ExecutionEventKind::Ack,
+                                 true,
+                                 LocalOrderErrorCode::None);
     if (order.status != canon::OrderStatus::Closed) {
         pendingOrders_.emplace(order.orderId, std::move(order));
+    } else {
+        publishExecutionEventLocked_(order,
+                                     execution::ExecutionEventKind::StateChange,
+                                     true,
+                                     LocalOrderErrorCode::None);
     }
     return true;
 }
@@ -203,6 +239,10 @@ void LocalOrderEngine::processTradeLocked_(const cxet_bridge::CapturedTradeRow& 
             order.fillPriceE8 = order.priceRaw;
             order.fillTsNs = trade.tsNs;
             order.status = canon::OrderStatus::Closed;
+            publishExecutionEventLocked_(order,
+                                         execution::ExecutionEventKind::StateChange,
+                                         true,
+                                         LocalOrderErrorCode::None);
             closed.push_back(entry.first);
             continue;
         }
@@ -210,6 +250,10 @@ void LocalOrderEngine::processTradeLocked_(const cxet_bridge::CapturedTradeRow& 
             order.status = canon::OrderStatus::Triggered;
             order.waitingForMarketFill = true;
             if (tryFillMarketOrder_(order, marketData, trade.tsNs)) {
+                publishExecutionEventLocked_(order,
+                                             execution::ExecutionEventKind::StateChange,
+                                             true,
+                                             LocalOrderErrorCode::None);
                 closed.push_back(entry.first);
             }
         }
@@ -227,6 +271,10 @@ void LocalOrderEngine::processBookTickerLocked_(const cxet_bridge::CapturedBookT
         LocalOrder& order = entry.second;
         if (order.symbol != bookTicker.symbol || !order.waitingForMarketFill) continue;
         if (tryFillMarketOrder_(order, marketData, bookTicker.tsNs)) {
+            publishExecutionEventLocked_(order,
+                                         execution::ExecutionEventKind::StateChange,
+                                         true,
+                                         LocalOrderErrorCode::None);
             closed.push_back(entry.first);
         }
     }
@@ -249,6 +297,30 @@ void LocalOrderEngine::fillAckFromOrder_(
     ack.tsNs = order.status == canon::OrderStatus::Closed && order.fillTsNs != 0u ? order.fillTsNs : order.acceptedTsNs;
     copyBounded(ack.symbol, sizeof(ack.symbol), order.symbol);
     copyBounded(ack.orderId, sizeof(ack.orderId), order.orderId);
+}
+
+void LocalOrderEngine::publishExecutionEventLocked_(
+    const LocalOrder& order,
+    execution::ExecutionEventKind kind,
+    bool success,
+    LocalOrderErrorCode errorCode) const noexcept {
+    if (eventSink_ == nullptr) return;
+    eventSink_->onExecutionEvent(execution::ExecutionEvent{
+        kind,
+        order.symbol,
+        order.orderId,
+        order.exchangeRaw,
+        order.marketRaw,
+        order.sideRaw,
+        order.typeRaw,
+        static_cast<std::uint8_t>(order.status),
+        static_cast<std::uint32_t>(errorCode),
+        order.quantityRaw,
+        order.priceRaw,
+        order.fillPriceE8,
+        order.status == canon::OrderStatus::Closed && order.fillTsNs != 0u ? order.fillTsNs : order.acceptedTsNs,
+        success,
+    });
 }
 
 LocalOrderEngine& globalLocalOrderEngine() noexcept {

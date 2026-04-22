@@ -110,6 +110,10 @@ class ChartItem : public QQuickPaintedItem {
     bool hoverActive_{false};
     bool contextActive_{false};
     int hoveredTradeIndex_{-1};
+    std::int64_t hoveredTradeTsNs_{0};
+    std::int64_t hoveredTradePriceE8_{0};
+    std::int64_t hoveredTradeQtyE8_{0};
+    bool hoveredTradeSideBuy_{true};
     int hoveredBookKind_{0};
     std::int64_t hoveredBookPriceE8_{0};
     std::int64_t hoveredBookQtyE8_{0};
@@ -134,7 +138,7 @@ class ChartItem : public QQuickPaintedItem {
     qreal cachedH_{0.0};
     bool interactiveDirty_{false};
     bool exactDirty_{false};
-    std::uint64_t cachedLiveJsonBatchId_{0};
+    std::uint64_t cachedLiveDataBatchId_{0};
     // Heavy historical layers are cached here. The latest event is painted as
     // a live overlay, then folded into these images when the next live batch
     // arrives, so active captures avoid repainting the same history twice.
@@ -149,3 +153,4 @@ class ChartItem : public QQuickPaintedItem {
 };
 
 }  // namespace hftrec::gui::viewer
+

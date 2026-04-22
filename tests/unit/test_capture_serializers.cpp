@@ -65,7 +65,7 @@ TEST(CaptureSerializers, BookTickerLineContainsKeyFields) {
     ev.ts.raw = 1'713'168'000'500'000'000ULL;
     const EventSequenceIds ids{3u, 12u};
 
-    const auto line = renderBookTickerJsonLine(ev, {"bidQty", "askQty"}, ids);
+    const auto line = renderBookTickerJsonLine(ev, {}, ids);
 
     EXPECT_TRUE(contains(line, "\"tsNs\":1713168000500000000"));
     EXPECT_TRUE(contains(line, "\"captureSeq\":3"));

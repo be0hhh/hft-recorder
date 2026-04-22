@@ -86,19 +86,12 @@ TEST(JsonLineParser, BookTickerLineRoundTrip) {
     EXPECT_EQ(row.askQtyE8,   60'000'000LL);
 }
 
-TEST(JsonLineParser, BookTickerLineWithoutQtyParses) {
+TEST(JsonLineParser, BookTickerLineWithoutQtyIsCorrupt) {
     const std::string line =
         "{\"tsNs\":123,\"captureSeq\":5,\"ingestSeq\":6,\"bidPriceE8\":456,\"askPriceE8\":789}";
 
     BookTickerRow row{};
-    ASSERT_EQ(parseBookTickerLine(line, row), Status::Ok);
-    EXPECT_EQ(row.tsNs, 123);
-    EXPECT_EQ(row.captureSeq, 5);
-    EXPECT_EQ(row.ingestSeq, 6);
-    EXPECT_EQ(row.bidPriceE8, 456);
-    EXPECT_EQ(row.askPriceE8, 789);
-    EXPECT_EQ(row.bidQtyE8, 0);
-    EXPECT_EQ(row.askQtyE8, 0);
+    EXPECT_EQ(parseBookTickerLine(line, row), Status::CorruptData);
 }
 
 TEST(JsonLineParser, DepthLineRoundTrip) {

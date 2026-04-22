@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/execution/ExecutionVenue.hpp>
+
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -22,11 +24,12 @@ enum class LocalOrderErrorCode : std::uint32_t {
     MissingBookTicker = 8,
 };
 
-class LocalOrderEngine {
+class LocalOrderEngine : public execution::IExecutionVenue {
   public:
     LocalOrderEngine() = default;
 
     void reset() noexcept;
+    void setEventSink(execution::IExecutionEventSink* sink) noexcept override;
 
     bool submitOrder(const cxet::network::local::hftrecorder::OrderRequestFrame& request,
                      cxet::network::local::hftrecorder::OrderAckFrame& ack) noexcept;
@@ -85,12 +88,17 @@ class LocalOrderEngine {
                            bool success,
                            LocalOrderErrorCode errorCode,
                            cxet::network::local::hftrecorder::OrderAckFrame& ack) const noexcept;
+    void publishExecutionEventLocked_(const LocalOrder& order,
+                                      execution::ExecutionEventKind kind,
+                                      bool success,
+                                      LocalOrderErrorCode errorCode) const noexcept;
 
     mutable std::mutex mutex_{};
     std::unordered_map<std::string, SymbolMarketData> marketBySymbol_{};
     std::unordered_map<std::string, LocalOrder> pendingOrders_{};
     std::uint64_t nextOrderSeq_{0};
     std::uint64_t acceptedCount_{0};
+    execution::IExecutionEventSink* eventSink_{nullptr};
 };
 
 LocalOrderEngine& globalLocalOrderEngine() noexcept;

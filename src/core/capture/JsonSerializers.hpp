@@ -18,6 +18,13 @@ struct CapturedBookTickerRow;
 struct CapturedOrderBookRow;
 }
 
+namespace hftrec::replay {
+struct TradeRow;
+struct BookTickerRow;
+struct DepthRow;
+struct SnapshotDocument;
+}
+
 namespace hftrec::capture {
 
 struct EventSequenceIds {
@@ -45,6 +52,8 @@ std::string renderTradeJsonLine(const cxet::composite::TradePublic& trade,
 std::string renderTradeJsonLine(const hftrec::cxet_bridge::CapturedTradeRow& trade,
                                 const EventSequenceIds& sequenceIds);
 
+std::string renderTradeJsonLine(const hftrec::replay::TradeRow& trade);
+
 std::string renderBookTickerJsonLine(const cxet::composite::BookTickerData& bookTicker,
                                      const std::vector<std::string>& requestedAliases,
                                      const EventSequenceIds& sequenceIds);
@@ -52,16 +61,22 @@ std::string renderBookTickerJsonLine(const cxet::composite::BookTickerData& book
 std::string renderBookTickerJsonLine(const hftrec::cxet_bridge::CapturedBookTickerRow& bookTicker,
                                      const EventSequenceIds& sequenceIds);
 
+std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker);
+
 std::string renderDepthJsonLine(const cxet::composite::OrderBookSnapshot& delta,
                                 const EventSequenceIds& sequenceIds);
 
 std::string renderDepthJsonLine(const hftrec::cxet_bridge::CapturedOrderBookRow& delta,
                                 const EventSequenceIds& sequenceIds);
 
+std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta);
+
 std::string renderSnapshotJson(const cxet::composite::OrderBookSnapshot& snapshot,
                                const SnapshotProvenance& provenance);
 
 std::string renderSnapshotJson(const hftrec::cxet_bridge::CapturedOrderBookRow& snapshot,
                                const SnapshotProvenance& provenance);
+
+std::string renderSnapshotJson(const hftrec::replay::SnapshotDocument& snapshot);
 
 }  // namespace hftrec::capture

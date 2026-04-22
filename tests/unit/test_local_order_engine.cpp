@@ -11,7 +11,11 @@
 #include "core/local_exchange/LocalOrderEngine.hpp"
 #include "network/local/hftrecorder/Protocol.hpp"
 
+#include <core/execution/ExecutionVenue.hpp>
+
 namespace {
+
+constexpr char kBtcUsdt[] = {'b', 't', 'c', 'u', 's', 'd', 't', '\0'};
 
 cxet::network::local::hftrecorder::OrderRequestFrame makeRequest(std::uint8_t typeRaw,
                                                                  std::uint8_t sideRaw,
@@ -131,4 +135,23 @@ TEST_F(LocalOrderEngineFixture, RejectsMarketOrderWithoutBookTicker) {
     EXPECT_EQ(ack.success, 0u);
     EXPECT_EQ(ack.statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Rejected));
     EXPECT_EQ(ack.errorCode, static_cast<std::uint32_t>(hftrec::local_exchange::LocalOrderErrorCode::MissingBookTicker));
+}
+
+TEST_F(LocalOrderEngineFixture, PublishesExecutionEventsThroughVenueSeam) {
+    hftrec::execution::LiveExecutionStore store{};
+    hftrec::local_exchange::globalLocalOrderEngine().setEventSink(&store);
+
+    pushBookTicker(kBtcUsdt, 99000000, 101000000, 10u);
+
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    const auto request = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 1u, 100000000, 0, kBtcUsdt);
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(request, ack));
+
+    const auto events = store.readAll();
+    ASSERT_EQ(events.events.size(), 2u);
+    EXPECT_EQ(events.events[0].kind, hftrec::execution::ExecutionEventKind::Ack);
+    EXPECT_EQ(events.events[1].kind, hftrec::execution::ExecutionEventKind::StateChange);
+    EXPECT_EQ(events.events[1].statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Closed));
+
+    hftrec::local_exchange::globalLocalOrderEngine().setEventSink(nullptr);
 }

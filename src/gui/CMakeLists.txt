@@ -1,4 +1,4 @@
-if(NOT Qt6_FOUND)
+﻿if(NOT Qt6_FOUND)
     message(STATUS "Qt6 not found: hft-recorder GUI target is disabled")
     return()
 endif()
@@ -6,6 +6,7 @@ endif()
 qt_add_executable(hft-recorder-gui
     app/main.cpp
     models/SessionListModel.cpp
+    models/ViewerSourceListModel.cpp
     viewmodels/AppViewModel.cpp
     viewmodels/CaptureViewModel.cpp
     viewmodels/CaptureViewModelBatch.cpp
@@ -15,6 +16,7 @@ qt_add_executable(hft-recorder-gui
     viewer/ChartControllerSession.cpp
     viewer/ChartControllerViewport.cpp
     viewer/ChartControllerSelection.cpp
+    viewer/LiveDataProvider.cpp
     viewer/ChartItem.cpp
     viewer/ChartItemHover.cpp
     viewer/ChartItemPaint.cpp

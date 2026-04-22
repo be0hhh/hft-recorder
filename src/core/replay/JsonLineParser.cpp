@@ -105,7 +105,9 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
 
     bool sawTs = false;
     bool sawBidPrice = false;
+    bool sawBidQty = false;
     bool sawAskPrice = false;
+    bool sawAskQty = false;
     std::string key;
 
     if (parser.peek('}')) return Status::CorruptData;
@@ -123,11 +125,13 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
             sawBidPrice = true;
         } else if (key == "bidQtyE8") {
             if (!parser.parseInt64(out.bidQtyE8)) return Status::CorruptData;
+            sawBidQty = true;
         } else if (key == "askPriceE8") {
             if (!parser.parseInt64(out.askPriceE8)) return Status::CorruptData;
             sawAskPrice = true;
         } else if (key == "askQtyE8") {
             if (!parser.parseInt64(out.askQtyE8)) return Status::CorruptData;
+            sawAskQty = true;
         } else if (!parser.skipValue()) {
             return Status::CorruptData;
         }
@@ -135,7 +139,7 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
     } while (parser.parseComma());
 
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
-    if (!sawTs || !sawBidPrice || !sawAskPrice) {
+    if (!sawTs || !sawBidPrice || !sawBidQty || !sawAskPrice || !sawAskQty) {
         return Status::CorruptData;
     }
     return Status::Ok;

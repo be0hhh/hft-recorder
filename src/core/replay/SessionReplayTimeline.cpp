@@ -21,6 +21,11 @@ void SessionReplay::appendDepthRow(DepthRow row) {
     depths_.push_back(std::move(row));
 }
 
+void SessionReplay::appendSnapshotDocument(SnapshotDocument snapshot) {
+    snapshot_ = std::move(snapshot);
+    snapshotLoaded_ = true;
+}
+
 void SessionReplay::refreshLiveTimeline() noexcept {
     status_ = Status::Ok;
     errorDetail_.clear();

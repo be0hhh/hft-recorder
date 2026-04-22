@@ -1,7 +1,5 @@
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
 
-#include <algorithm>
-
 #include "primitives/composite/BookTickerData.hpp"
 #include "primitives/composite/BookTickerRuntimeV1.hpp"
 #include "primitives/composite/OrderBookSnapshot.hpp"
@@ -56,11 +54,8 @@ CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradeRun
 
 CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerData& bookTicker,
                                                            const std::vector<std::string>& requestedAliases) {
-    const bool includeBidQty =
-        std::find(requestedAliases.begin(), requestedAliases.end(), "bidQty") != requestedAliases.end();
-    const bool includeAskQty =
-        std::find(requestedAliases.begin(), requestedAliases.end(), "askQty") != requestedAliases.end();
-    return makeCapturedBookTickerRow(bookTicker, includeBidQty, includeAskQty);
+    (void)requestedAliases;
+    return makeCapturedBookTickerRow(bookTicker, true, true);
 }
 
 CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,

@@ -7,11 +7,12 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
-
 #include "core/replay/SessionReplay.hpp"
+#include "gui/viewer/LiveDataProvider.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
 
 namespace hftrec::gui::viewer {
@@ -19,6 +20,8 @@ namespace hftrec::gui::viewer {
 class ChartController : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString sessionDir READ sessionDir NOTIFY sessionChanged)
+    Q_PROPERTY(QString currentSourceId READ currentSourceId NOTIFY sessionChanged)
+    Q_PROPERTY(QString currentSourceKind READ currentSourceKind NOTIFY sessionChanged)
     Q_PROPERTY(bool loaded READ loaded NOTIFY sessionChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusChanged)
 
@@ -39,24 +42,11 @@ class ChartController : public QObject {
     Q_PROPERTY(QString selectionSummaryText READ selectionSummaryText NOTIFY selectionChanged)
 
   public:
-    struct LiveJsonBatch {
-        std::uint64_t id{0};
-        std::vector<hftrec::replay::TradeRow> trades{};
-        std::vector<hftrec::replay::BookTickerRow> bookTickers{};
-        std::vector<hftrec::replay::DepthRow> depths{};
-    };
-
-    struct LiveJsonCache {
-        std::vector<hftrec::replay::TradeRow> allTrades{};
-        std::vector<hftrec::replay::BookTickerRow> allBookTickers{};
-        std::vector<hftrec::replay::DepthRow> allDepths{};
-        LiveJsonBatch lastBatch{};
-        std::uint64_t version{0};
-    };
-
     explicit ChartController(QObject* parent = nullptr);
 
     QString sessionDir() const { return sessionDir_; }
+    QString currentSourceId() const { return currentSourceId_; }
+    QString currentSourceKind() const { return currentSourceKind_; }
     bool loaded() const { return loaded_; }
     QString statusText() const { return statusText_; }
 
@@ -79,7 +69,8 @@ class ChartController : public QObject {
     QString selectionSummaryText() const { return selectionSummaryText_; }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
-
+    Q_INVOKABLE bool activateLiveSource(const QString& sourceId);
+    Q_INVOKABLE void activateLiveOnlyMode();
     Q_INVOKABLE void resetSession();
     Q_INVOKABLE bool addTradesFile(const QString& path);
     Q_INVOKABLE bool addBookTickerFile(const QString& path);
@@ -88,6 +79,7 @@ class ChartController : public QObject {
     Q_INVOKABLE void finalizeFiles();
     Q_INVOKABLE void setLiveUpdateIntervalMs(int intervalMs);
     Q_INVOKABLE int liveUpdateIntervalMs() const noexcept;
+    void setLiveDataProvider(std::unique_ptr<ILiveDataProvider> provider);
 
     Q_INVOKABLE void setViewport(qint64 tsMin, qint64 tsMax,
                                  qint64 priceMinE8, qint64 priceMaxE8);
@@ -111,11 +103,9 @@ class ChartController : public QObject {
     void syncReplayCursorToViewport();
     std::int64_t viewportCursorTs() const noexcept;
     const hftrec::replay::BookTickerRow* currentBookTicker() const noexcept;
-    const LiveJsonCache& liveJsonCache() const noexcept { return liveJsonCache_; }
+    const LiveDataCache& liveDataCache() const noexcept { return liveDataCache_; }
+    void refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsMax);
 
-    // Builds a POD snapshot of what renderers need to draw one frame. Mutates
-    // replay cursor internally (advances through events in the viewport), but
-    // leaves no Qt-thread-visible state the renderers then observe.
     RenderSnapshot buildSnapshot(qreal widthPx, qreal heightPx, const SnapshotInputs& in);
 
     hftrec::replay::SessionReplay& replay() noexcept { return replay_; }
@@ -173,10 +163,12 @@ class ChartController : public QObject {
     };
 
     void computeInitialViewport_();
-    void startLiveTail_(const std::filesystem::path& sessionDir);
-    void stopLiveTail_() noexcept;
-    void pollLiveTail_();
-    void clearLiveJsonCache_() noexcept;
+    void startLiveData_(const std::filesystem::path& sessionDir);
+    void stopLiveData_() noexcept;
+    void pollLiveData_();
+    void clearLiveDataCache_() noexcept;
+    void refreshProviderFromRegistry_();
+    bool absorbRegistryBatchIntoReplay_(const LiveDataBatch& batch);
     void markUserViewportControl_() noexcept;
     SelectionRange selectionFromRect_(qreal plotWidthPx, qreal plotHeightPx,
                                       qreal x0, qreal y0, qreal x1, qreal y1) const noexcept;
@@ -185,25 +177,23 @@ class ChartController : public QObject {
 
     hftrec::replay::SessionReplay replay_{};
     QString sessionDir_{};
+    QString currentSourceId_{};
+    QString currentSourceKind_{};
     QString statusText_{"No session loaded"};
     bool loaded_{false};
-    struct LiveTailFile {
-        std::filesystem::path path{};
-        std::uintmax_t offset{0};
-        std::string pending{};
-    };
-
-    QTimer* liveTailTimer_{nullptr};
-    LiveTailFile liveTrades_{};
-    LiveTailFile liveBookTicker_{};
-    LiveTailFile liveDepth_{};
-    std::filesystem::path liveSnapshotPath_{};
-    bool liveSnapshotLoaded_{false};
+    QTimer* liveDataTimer_{nullptr};
+    std::unique_ptr<ILiveDataProvider> liveDataProvider_{};
+    bool liveProviderFromRegistry_{false};
+    QString liveProviderSourceId_{};
     bool liveFollowEdge_{true};
     bool liveOrderbookHealthy_{true};
     int liveUpdateIntervalMs_{100};
-    LiveJsonCache liveJsonCache_{};
-    std::uint64_t liveJsonBatchSeq_{0};
+    LiveDataCache liveDataCache_{};
+    std::uint64_t liveDataBatchSeq_{0};
+    LiveDataStats liveDataStats_{};
+    std::int64_t liveWindowTsMin_{0};
+    std::int64_t liveWindowTsMax_{0};
+    std::uint64_t liveWindowVersion_{0};
 
     qint64 tsMin_{0};
     qint64 tsMax_{0};
@@ -216,3 +206,6 @@ class ChartController : public QObject {
 };
 
 }  // namespace hftrec::gui::viewer
+
+
+

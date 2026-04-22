@@ -7,6 +7,31 @@
 
 namespace hftrec::gui::viewer {
 
+namespace {
+
+RenderSnapshot hoverSnapshotFrom(const RenderSnapshot& snap, const RenderSnapshot* liveSnap) {
+    RenderSnapshot merged = snap;
+    if (liveSnap == nullptr || !liveSnap->loaded) return merged;
+
+    merged.bookSegments.insert(merged.bookSegments.end(), liveSnap->bookSegments.begin(), liveSnap->bookSegments.end());
+    merged.bookTickerTrace.bidLines.insert(
+        merged.bookTickerTrace.bidLines.end(),
+        liveSnap->bookTickerTrace.bidLines.begin(),
+        liveSnap->bookTickerTrace.bidLines.end());
+    merged.bookTickerTrace.askLines.insert(
+        merged.bookTickerTrace.askLines.end(),
+        liveSnap->bookTickerTrace.askLines.begin(),
+        liveSnap->bookTickerTrace.askLines.end());
+    merged.bookTickerTrace.samples.insert(
+        merged.bookTickerTrace.samples.end(),
+        liveSnap->bookTickerTrace.samples.begin(),
+        liveSnap->bookTickerTrace.samples.end());
+    merged.tradeDots.insert(merged.tradeDots.end(), liveSnap->tradeDots.begin(), liveSnap->tradeDots.end());
+    return merged;
+}
+
+}  // namespace
+
 bool ChartItem::shouldSkipHoverRecompute_(const QPointF& point, bool contextActive) const noexcept {
     if (!hoverActive_ || contextActive_ != contextActive) return false;
     const qreal dx = point.x() - hoverPoint_.x();
@@ -36,6 +61,10 @@ void ChartItem::clearHover() {
     hoverActive_ = false;
     contextActive_ = false;
     hoveredTradeIndex_ = -1;
+    hoveredTradeTsNs_ = 0;
+    hoveredTradePriceE8_ = 0;
+    hoveredTradeQtyE8_ = 0;
+    hoveredTradeSideBuy_ = true;
     hoveredBookKind_ = 0;
     hoveredBookPriceE8_ = 0;
     hoveredBookQtyE8_ = 0;
@@ -45,6 +74,10 @@ void ChartItem::clearHover() {
 
 void ChartItem::updateHover_() {
     hoveredTradeIndex_ = -1;
+    hoveredTradeTsNs_ = 0;
+    hoveredTradePriceE8_ = 0;
+    hoveredTradeQtyE8_ = 0;
+    hoveredTradeSideBuy_ = true;
     hoveredBookKind_ = 0;
     hoveredBookPriceE8_ = 0;
     hoveredBookQtyE8_ = 0;
@@ -53,11 +86,16 @@ void ChartItem::updateHover_() {
 
     const RenderSnapshot& snap = ensureSnapshot_();
     if (!snap.loaded) return;
+    const RenderSnapshot hoverSnap = hoverSnapshotFrom(snap, cachedLiveSnap_.get());
 
     HoverInfo hover{};
-    hit_test::computeHover(snap, hoverPoint_, contextActive_, hover);
+    hit_test::computeHover(hoverSnap, hoverPoint_, contextActive_, hover);
 
     hoveredTradeIndex_ = hover.tradeHit ? hover.tradeOrigIndex : -1;
+    hoveredTradeTsNs_ = hover.tradeHit ? hover.tradeTsNs : 0;
+    hoveredTradePriceE8_ = hover.tradeHit ? hover.tradePriceE8 : 0;
+    hoveredTradeQtyE8_ = hover.tradeHit ? hover.tradeQtyE8 : 0;
+    hoveredTradeSideBuy_ = hover.tradeSideBuy;
     hoveredBookKind_ = hover.bookKind;
     hoveredBookPriceE8_ = hover.bookPriceE8;
     hoveredBookQtyE8_ = hover.bookQtyE8;
@@ -78,22 +116,16 @@ HoverInfo buildHoverInfo(const ChartItem& item) {
     hover.bookQtyE8 = item.hoveredBookQtyE8_;
     hover.bookTsNs = item.hoveredBookTsNs_;
 
-    if (item.hoveredTradeIndex_ < 0 || item.controller_ == nullptr) {
+    if (item.hoveredTradeIndex_ < 0) {
         return hover;
     }
 
-    const auto& trades = item.controller_->replay().trades();
-    if (item.hoveredTradeIndex_ >= static_cast<int>(trades.size())) {
-        return hover;
-    }
-
-    const auto& trade = trades[static_cast<std::size_t>(item.hoveredTradeIndex_)];
     hover.tradeHit = true;
     hover.tradeOrigIndex = item.hoveredTradeIndex_;
-    hover.tradeTsNs = trade.tsNs;
-    hover.tradePriceE8 = trade.priceE8;
-    hover.tradeQtyE8 = trade.qtyE8;
-    hover.tradeSideBuy = trade.sideBuy;
+    hover.tradeTsNs = item.hoveredTradeTsNs_;
+    hover.tradePriceE8 = item.hoveredTradePriceE8_;
+    hover.tradeQtyE8 = item.hoveredTradeQtyE8_;
+    hover.tradeSideBuy = item.hoveredTradeSideBuy_;
     return hover;
 }
 

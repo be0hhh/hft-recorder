@@ -75,6 +75,7 @@ class SessionReplay {
     void appendTradeRow(TradeRow row);
     void appendBookTickerRow(BookTickerRow row);
     void appendDepthRow(DepthRow row);
+    void appendSnapshotDocument(SnapshotDocument snapshot);
     void refreshLiveTimeline() noexcept;
 
     // Session-wide timestamp bounds (after open). 0 if no events.

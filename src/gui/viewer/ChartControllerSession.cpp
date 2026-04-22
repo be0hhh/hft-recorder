@@ -1,13 +1,10 @@
 #include "gui/viewer/ChartController.hpp"
 
+#include <QFileInfo>
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <string>
-#include <string_view>
 #include <utility>
-
-#include <core/replay/JsonLineParser.hpp>
 
 namespace hftrec::gui::viewer {
 
@@ -28,85 +25,100 @@ QString replayFailureText(const hftrec::replay::SessionReplay& replay, Status st
     return QStringLiteral("%1: %2").arg(prefix, QString::fromUtf8(statusToString(status).data()));
 }
 
-std::filesystem::path findLatestSnapshotPath(const std::filesystem::path& sessionDir) {
-    std::filesystem::path latest{};
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(sessionDir, ec)) {
-        if (ec) break;
-        if (!entry.is_regular_file()) continue;
-        const auto filename = entry.path().filename().string();
-        if (!filename.starts_with("snapshot_") || entry.path().extension() != ".json") continue;
-        if (latest.empty() || filename > latest.filename().string()) latest = entry.path();
-    }
-    return latest;
-}
-
 QString liveModeLabel(int intervalMs) {
     if (intervalMs <= 16) return QStringLiteral("tick");
     return QStringLiteral("%1 ms").arg(intervalMs);
 }
 
-bool hasRows(const ChartController::LiveJsonBatch& batch) noexcept {
+bool hasRows(const LiveDataBatch& batch) noexcept {
     return !batch.trades.empty() || !batch.bookTickers.empty() || !batch.depths.empty();
+}
+
+QString recordedSourceIdFromPath(const QString& dir) {
+    const auto sessionName = QFileInfo(dir).fileName();
+    return sessionName.isEmpty() ? QStringLiteral("recorded") : QStringLiteral("recorded:%1").arg(sessionName);
+}
+
+std::int64_t latestBatchTs(const LiveDataBatch& batch) noexcept {
+    std::int64_t ts = 0;
+    if (!batch.trades.empty()) ts = std::max(ts, batch.trades.back().tsNs);
+    if (!batch.bookTickers.empty()) ts = std::max(ts, batch.bookTickers.back().tsNs);
+    if (!batch.depths.empty()) ts = std::max(ts, batch.depths.back().tsNs);
+    return ts;
 }
 
 }  // namespace
 
-void ChartController::clearLiveJsonCache_() noexcept {
-    liveJsonCache_.allTrades.clear();
-    liveJsonCache_.allBookTickers.clear();
-    liveJsonCache_.allDepths.clear();
-    liveJsonCache_.lastBatch = LiveJsonBatch{};
-    ++liveJsonCache_.version;
+void ChartController::clearLiveDataCache_() noexcept {
+    liveDataCache_.visibleRows = LiveDataBatch{};
+    liveDataCache_.lastBatch = LiveDataBatch{};
+    ++liveDataCache_.version;
+    liveDataStats_ = LiveDataStats{};
+    liveWindowTsMin_ = 0;
+    liveWindowTsMax_ = 0;
+    liveWindowVersion_ = 0;
 }
 
-void ChartController::startLiveTail_(const std::filesystem::path& sessionDir) {
-    liveTrades_ = LiveTailFile{sessionDir / "trades.jsonl", 0, {}};
-    liveBookTicker_ = LiveTailFile{sessionDir / "bookticker.jsonl", 0, {}};
-    liveDepth_ = LiveTailFile{sessionDir / "depth.jsonl", 0, {}};
-    liveSnapshotPath_ = findLatestSnapshotPath(sessionDir);
-    liveSnapshotLoaded_ = !liveSnapshotPath_.empty();
+void ChartController::startLiveData_(const std::filesystem::path& sessionDir) {
+    refreshProviderFromRegistry_();
     liveOrderbookHealthy_ = isOk(replay_.status());
-    liveFollowEdge_ = false;
-    clearLiveJsonCache_();
-    auto syncTailOffset = [](LiveTailFile& file) {
-        std::error_code ec;
-        if (std::filesystem::exists(file.path, ec) && !ec) {
-            file.offset = std::filesystem::file_size(file.path, ec);
-            if (ec) file.offset = 0;
+    liveFollowEdge_ = true;
+    liveDataBatchSeq_ = 0;
+    clearLiveDataCache_();
+    if (liveDataProvider_ != nullptr) {
+        if (!liveProviderFromRegistry_) {
+            liveDataProvider_->start(LiveDataProviderConfig{sessionDir, {}, {}});
         } else {
-            file.offset = 0;
+            liveDataProvider_->start(LiveDataProviderConfig{{}, {}, currentSourceId_.toStdString()});
         }
-        file.pending.clear();
-    };
-
-    syncTailOffset(liveTrades_);
-    syncTailOffset(liveBookTicker_);
-    syncTailOffset(liveDepth_);
-    if (liveTailTimer_ != nullptr) liveTailTimer_->start();
+    }
 }
 
-void ChartController::stopLiveTail_() noexcept {
-    if (liveTailTimer_ != nullptr) liveTailTimer_->stop();
-    liveTrades_ = LiveTailFile{};
-    liveBookTicker_ = LiveTailFile{};
-    liveDepth_ = LiveTailFile{};
-    liveSnapshotPath_.clear();
-    liveSnapshotLoaded_ = false;
+void ChartController::stopLiveData_() noexcept {
+    if (liveDataProvider_ != nullptr) liveDataProvider_->stop();
     liveOrderbookHealthy_ = true;
-    clearLiveJsonCache_();
+    clearLiveDataCache_();
 }
 
 void ChartController::markUserViewportControl_() noexcept {
     liveFollowEdge_ = false;
 }
 
-void ChartController::pollLiveTail_() {
-    if (sessionDir_.isEmpty()) return;
+void ChartController::pollLiveData_() {
+    refreshProviderFromRegistry_();
+    if (liveDataProvider_ == nullptr) return;
 
-    const auto sessionPath = std::filesystem::path(stripFileUrl(sessionDir_));
-    std::error_code ec;
-    if (!std::filesystem::exists(sessionPath, ec) || ec) return;
+    if (currentSourceKind_ == QStringLiteral("live") && !LiveDataRegistry::instance().hasSource(currentSourceId_.toStdString())) {
+        stopLiveData_();
+        replay_.reset();
+        loaded_ = false;
+        currentSourceId_.clear();
+        liveProviderSourceId_.clear();
+        tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
+        currentBookTickerIndex_ = -1;
+        selectionActive_ = false;
+        selectionSummaryText_.clear();
+        const auto nextStatus = QStringLiteral("Live source ended");
+        if (statusText_ != nextStatus) {
+            statusText_ = nextStatus;
+            emit statusChanged();
+        }
+        emit sessionChanged();
+        emit viewportChanged();
+        emit selectionChanged();
+        emit liveDataChanged();
+        return;
+    }
+
+    if (currentSourceKind_ != QStringLiteral("live") && sessionDir_.isEmpty()) return;
+    if (currentSourceKind_ == QStringLiteral("live") && !liveProviderFromRegistry_) return;
+
+    std::filesystem::path sessionPath{};
+    if (!liveProviderFromRegistry_) {
+        sessionPath = std::filesystem::path(stripFileUrl(sessionDir_));
+        std::error_code ec;
+        if (!std::filesystem::exists(sessionPath, ec) || ec) return;
+    }
 
     const auto oldTsMin = tsMin_;
     const auto oldTsMax = tsMax_;
@@ -117,105 +129,17 @@ void ChartController::pollLiveTail_() {
     const auto oldDepthCount = replay_.depths().size();
     const auto oldBookTickerCount = replay_.bookTickers().size();
 
-    bool appendedRows = false;
-    bool needReload = false;
     bool reloadedSession = false;
     QString failureText{};
-    LiveJsonBatch nextLiveBatch{};
-    nextLiveBatch.id = liveJsonBatchSeq_ + 1u;
-
-    const auto latestSnapshotPath = findLatestSnapshotPath(sessionPath);
-    if ((!latestSnapshotPath.empty() && latestSnapshotPath != liveSnapshotPath_)
-        || (!liveSnapshotLoaded_ && !latestSnapshotPath.empty())) {
-        needReload = true;
+    auto pollResult = liveDataProvider_->pollHot(liveDataBatchSeq_ + 1u);
+    auto nextLiveBatch = std::move(pollResult.batch);
+    if (!isOk(pollResult.failureStatus) && !pollResult.failureDetail.empty()) {
+        failureText = QStringLiteral("%1: %2")
+            .arg(QString::fromStdString(pollResult.failureDetail),
+                 QString::fromUtf8(statusToString(pollResult.failureStatus).data()));
     }
 
-    auto tailRows = [&](LiveTailFile& file, auto&& consumeLine, QStringView label) {
-        std::error_code fileEc;
-        if (file.path.empty() || !std::filesystem::exists(file.path, fileEc) || fileEc) return;
-
-        const auto fileSize = std::filesystem::file_size(file.path, fileEc);
-        if (fileEc) return;
-        if (fileSize < file.offset) {
-            needReload = true;
-            return;
-        }
-        if (fileSize == file.offset) return;
-
-        std::ifstream in(file.path, std::ios::binary);
-        if (!in) {
-            failureText = QStringLiteral("Live %1 read failed").arg(label.toString());
-            return;
-        }
-
-        in.seekg(static_cast<std::streamoff>(file.offset), std::ios::beg);
-        std::string chunk(static_cast<std::size_t>(fileSize - file.offset), '\0');
-        in.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
-        const auto bytesRead = static_cast<std::size_t>(in.gcount());
-        chunk.resize(bytesRead);
-        if (bytesRead == 0u) return;
-
-        const std::uintmax_t nextOffset = file.offset + bytesRead;
-        std::string nextPending = file.pending;
-        nextPending += chunk;
-
-        std::size_t lineStart = 0;
-        while (true) {
-            const auto lineEnd = nextPending.find('\n', lineStart);
-            if (lineEnd == std::string::npos) break;
-
-            std::string line = nextPending.substr(lineStart, lineEnd - lineStart);
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (!line.empty()) {
-                const auto st = consumeLine(std::string_view{line});
-                if (!isOk(st)) {
-                    needReload = true;
-                    failureText = QStringLiteral("Live %1 parse failed, scheduling reload: %2")
-                        .arg(label.toString(), QString::fromUtf8(statusToString(st).data()));
-                    return;
-                }
-                appendedRows = true;
-            }
-            lineStart = lineEnd + 1;
-        }
-
-        nextPending.erase(0, lineStart);
-        file.offset = nextOffset;
-        file.pending = std::move(nextPending);
-    };
-
-    if (!needReload) {
-        tailRows(liveTrades_,
-                 [&nextLiveBatch](std::string_view line) {
-                     hftrec::replay::TradeRow row{};
-                     const auto st = hftrec::replay::parseTradeLine(line, row);
-                     if (isOk(st)) nextLiveBatch.trades.push_back(std::move(row));
-                     return st;
-                 },
-                 QStringLiteral("trades"));
-    }
-    if (!needReload && failureText.isEmpty()) {
-        tailRows(liveBookTicker_,
-                 [&nextLiveBatch](std::string_view line) {
-                     hftrec::replay::BookTickerRow row{};
-                     const auto st = hftrec::replay::parseBookTickerLine(line, row);
-                     if (isOk(st)) nextLiveBatch.bookTickers.push_back(std::move(row));
-                     return st;
-                 },
-                 QStringLiteral("bookticker"));
-    }
-    if (!needReload && failureText.isEmpty()) {
-        tailRows(liveDepth_,
-                 [&nextLiveBatch](std::string_view line) {
-                     hftrec::replay::DepthRow row{};
-                     const auto st = hftrec::replay::parseDepthLine(line, row);
-                     if (isOk(st)) nextLiveBatch.depths.push_back(std::move(row));
-                     return st;
-                 },
-                 QStringLiteral("depth"));
-    }
-
-    if (needReload) {
+    if (pollResult.reloadRequired && !liveProviderFromRegistry_) {
         const auto st = replay_.open(sessionPath);
         if (!isOk(st)) {
             const auto nextStatus = replayFailureText(replay_, st, QStringLiteral("Live reload failed"));
@@ -225,11 +149,9 @@ void ChartController::pollLiveTail_() {
             }
             return;
         }
-        startLiveTail_(sessionPath);
-        liveSnapshotPath_ = findLatestSnapshotPath(sessionPath);
-        liveSnapshotLoaded_ = !liveSnapshotPath_.empty();
+        startLiveData_(sessionPath);
         reloadedSession = true;
-        appendedRows = true;
+        pollResult.appendedRows = true;
         failureText.clear();
     }
 
@@ -241,26 +163,47 @@ void ChartController::pollLiveTail_() {
         return;
     }
 
-    if (!appendedRows) return;
+    if (!pollResult.appendedRows) return;
 
-    const bool hasLiveJsonBatch = hasRows(nextLiveBatch);
-    if (hasLiveJsonBatch) {
-        liveJsonBatchSeq_ = nextLiveBatch.id;
-        liveJsonCache_.allTrades.insert(
-            liveJsonCache_.allTrades.end(),
-            nextLiveBatch.trades.begin(),
-            nextLiveBatch.trades.end());
-        liveJsonCache_.allBookTickers.insert(
-            liveJsonCache_.allBookTickers.end(),
-            nextLiveBatch.bookTickers.begin(),
-            nextLiveBatch.bookTickers.end());
-        liveJsonCache_.allDepths.insert(
-            liveJsonCache_.allDepths.end(),
-            nextLiveBatch.depths.begin(),
-            nextLiveBatch.depths.end());
-        liveJsonCache_.lastBatch = std::move(nextLiveBatch);
-        ++liveJsonCache_.version;
+    if (absorbRegistryBatchIntoReplay_(nextLiveBatch)) {
+        if (liveFollowEdge_ && loaded_) {
+            const auto windowNs = std::max<std::int64_t>(1, oldTsMax - oldTsMin);
+            const auto liveTsMax = std::max<std::int64_t>(replay_.lastTsNs(), replay_.firstTsNs());
+            tsMax_ = liveTsMax;
+            tsMin_ = tsMax_ - windowNs;
+        }
+        liveDataStats_ = liveDataProvider_->stats();
+        liveDataCache_.lastBatch = LiveDataBatch{};
+        ++liveDataCache_.version;
+        const auto nextStatus = QStringLiteral("Live memory | trades=%1 depth=%2 bookticker=%3")
+            .arg(replay_.trades().size())
+            .arg(replay_.depths().size())
+            .arg(replay_.bookTickers().size());
+        if (statusText_ != nextStatus) {
+            statusText_ = nextStatus;
+            emit statusChanged();
+        }
+        emit liveDataChanged();
+        emit sessionChanged();
+        emit viewportChanged();
+        return;
     }
+
+    const bool hasLiveDataBatch = hasRows(nextLiveBatch);
+    if (hasLiveDataBatch) {
+        liveDataBatchSeq_ = nextLiveBatch.id;
+        if (liveFollowEdge_) {
+            const auto windowNs = std::max<std::int64_t>(1, oldTsMax - oldTsMin);
+            const auto liveTsMax = std::max<std::int64_t>(replay_.lastTsNs(), latestBatchTs(nextLiveBatch));
+            if (liveTsMax > 0) {
+                tsMax_ = liveTsMax;
+                tsMin_ = tsMax_ - windowNs;
+            }
+        }
+        liveDataCache_.lastBatch = std::move(nextLiveBatch);
+        ++liveDataCache_.version;
+    }
+    liveDataStats_ = liveDataProvider_->stats();
     liveOrderbookHealthy_ = isOk(replay_.status());
     loaded_ = !replay_.buckets().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
     currentBookTickerIndex_ = -1;
@@ -268,9 +211,9 @@ void ChartController::pollLiveTail_() {
     const auto nextStatus = isOk(replay_.status())
         ? QStringLiteral("Live %1 | trades=%2 depth=%3 bookticker=%4")
               .arg(liveModeLabel(liveUpdateIntervalMs_))
-              .arg(replay_.trades().size() + liveJsonCache_.allTrades.size())
-              .arg(replay_.depths().size() + liveJsonCache_.allDepths.size())
-              .arg(replay_.bookTickers().size() + liveJsonCache_.allBookTickers.size())
+              .arg(replay_.trades().size() + liveDataStats_.tradesTotal)
+              .arg(replay_.depths().size() + liveDataStats_.depthsTotal)
+              .arg(replay_.bookTickers().size() + liveDataStats_.bookTickersTotal)
         : replayFailureText(replay_, replay_.status(), QStringLiteral("Live integrity failed"));
     const bool viewportChangedFlag = (tsMin_ != oldTsMin) || (tsMax_ != oldTsMax)
         || (priceMinE8_ != oldPriceMin) || (priceMaxE8_ != oldPriceMax);
@@ -280,7 +223,7 @@ void ChartController::pollLiveTail_() {
         || (replay_.bookTickers().size() != oldBookTickerCount);
 
     if (reloadedSession) emit sessionChanged();
-    else if (sessionChangedFlag || hasLiveJsonBatch) emit liveDataChanged();
+    else if (sessionChangedFlag || hasLiveDataBatch) emit liveDataChanged();
     if (viewportChangedFlag) emit viewportChanged();
     if (statusText_ != nextStatus) {
         statusText_ = nextStatus;
@@ -288,16 +231,63 @@ void ChartController::pollLiveTail_() {
     }
 }
 
-void ChartController::resetSession() {
-    stopLiveTail_();
+bool ChartController::activateLiveSource(const QString& sourceId) {
+    if (sourceId.trimmed().isEmpty()) {
+        activateLiveOnlyMode();
+        return false;
+    }
+
+    stopLiveData_();
     replay_.reset();
     loaded_ = false;
     sessionDir_.clear();
+    currentSourceId_ = sourceId.trimmed();
+    currentSourceKind_ = QStringLiteral("live");
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
     selectionActive_ = false;
     selectionSummaryText_.clear();
-    statusText_ = QStringLiteral("Choose a session.");
+    statusText_ = QStringLiteral("Live source selected");
+    startLiveData_(std::filesystem::path{});
+    emit sessionChanged();
+    emit statusChanged();
+    emit viewportChanged();
+    emit selectionChanged();
+    return true;
+}
+
+void ChartController::activateLiveOnlyMode() {
+    stopLiveData_();
+    replay_.reset();
+    loaded_ = false;
+    sessionDir_.clear();
+    currentSourceId_.clear();
+    liveProviderSourceId_.clear();
+    currentSourceKind_ = QStringLiteral("live");
+    tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
+    currentBookTickerIndex_ = -1;
+    selectionActive_ = false;
+    selectionSummaryText_.clear();
+    statusText_ = QStringLiteral("Choose a live source.");
+    emit sessionChanged();
+    emit statusChanged();
+    emit viewportChanged();
+    emit selectionChanged();
+}
+
+void ChartController::resetSession() {
+    stopLiveData_();
+    replay_.reset();
+    loaded_ = false;
+    sessionDir_.clear();
+    currentSourceId_.clear();
+    liveProviderSourceId_.clear();
+    currentSourceKind_.clear();
+    tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
+    currentBookTickerIndex_ = -1;
+    selectionActive_ = false;
+    selectionSummaryText_.clear();
+    statusText_ = QStringLiteral("Choose a source.");
     emit sessionChanged();
     emit statusChanged();
     emit viewportChanged();
@@ -381,7 +371,7 @@ bool ChartController::addSnapshotFile(const QString& path) {
 }
 
 void ChartController::finalizeFiles() {
-    stopLiveTail_();
+    stopLiveData_();
     clearSelection();
     replay_.finalize();
     if (!isOk(replay_.status())) {
@@ -405,8 +395,11 @@ void ChartController::finalizeFiles() {
 }
 
 bool ChartController::loadSession(const QString& dir) {
-    stopLiveTail_();
+    stopLiveData_();
     sessionDir_ = dir;
+    currentSourceId_ = recordedSourceIdFromPath(dir);
+    liveProviderSourceId_.clear();
+    currentSourceKind_ = QStringLiteral("recorded");
     loaded_ = false;
     replay_ = hftrec::replay::SessionReplay{};
     clearSelection();
@@ -429,10 +422,8 @@ bool ChartController::loadSession(const QString& dir) {
     if (!replay_.errorDetail().empty()) {
         statusText_ += QStringLiteral(" | %1").arg(QString::fromStdString(std::string{replay_.errorDetail()}));
     }
-    if (loaded_) {
-        computeInitialViewport_();
-    }
-    startLiveTail_(path);
+    if (loaded_) computeInitialViewport_();
+    startLiveData_(path);
     emit sessionChanged();
     emit statusChanged();
     emit viewportChanged();
@@ -440,3 +431,8 @@ bool ChartController::loadSession(const QString& dir) {
 }
 
 }  // namespace hftrec::gui::viewer
+
+
+
+
+

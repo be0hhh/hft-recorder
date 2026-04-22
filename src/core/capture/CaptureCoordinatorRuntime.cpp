@@ -31,6 +31,76 @@ std::string snapshotSymbolString(const cxet::composite::OrderBookSnapshot& snaps
     return std::string(snapshot.symbol.data);
 }
 
+replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
+                              const EventSequenceIds& sequenceIds) noexcept {
+    replay::TradeRow row{};
+    row.tsNs = static_cast<std::int64_t>(trade.tsNs);
+    row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
+    row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
+    row.priceE8 = trade.priceE8;
+    row.qtyE8 = trade.qtyE8;
+    row.sideBuy = trade.sideBuy ? 1u : 0u;
+    return row;
+}
+
+replay::BookTickerRow makeBookTickerRow(const cxet_bridge::CapturedBookTickerRow& bookTicker,
+                                        const EventSequenceIds& sequenceIds) noexcept {
+    replay::BookTickerRow row{};
+    row.tsNs = static_cast<std::int64_t>(bookTicker.tsNs);
+    row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
+    row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
+    row.bidPriceE8 = bookTicker.bidPriceE8;
+    row.bidQtyE8 = bookTicker.bidQtyE8;
+    row.askPriceE8 = bookTicker.askPriceE8;
+    row.askQtyE8 = bookTicker.askQtyE8;
+    return row;
+}
+
+std::vector<replay::PricePair> makePricePairs(const std::vector<cxet_bridge::CapturedLevel>& levels) {
+    std::vector<replay::PricePair> out;
+    out.reserve(levels.size());
+    for (const auto& level : levels) {
+        out.push_back(replay::PricePair{level.priceI64, level.qtyI64});
+    }
+    return out;
+}
+
+replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth,
+                              const EventSequenceIds& sequenceIds) {
+    replay::DepthRow row{};
+    row.tsNs = static_cast<std::int64_t>(depth.tsNs);
+    row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
+    row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
+    row.updateId = static_cast<std::int64_t>(depth.updateId);
+    row.firstUpdateId = static_cast<std::int64_t>(depth.firstUpdateId);
+    row.bids = makePricePairs(depth.bids);
+    row.asks = makePricePairs(depth.asks);
+    return row;
+}
+
+replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBookRow& snapshot,
+                                              const SnapshotProvenance& provenance) {
+    replay::SnapshotDocument document{};
+    document.tsNs = static_cast<std::int64_t>(snapshot.tsNs);
+    document.captureSeq = static_cast<std::int64_t>(provenance.sequence.captureSeq);
+    document.ingestSeq = static_cast<std::int64_t>(provenance.sequence.ingestSeq);
+    document.updateId = static_cast<std::int64_t>(snapshot.updateId);
+    document.firstUpdateId = static_cast<std::int64_t>(snapshot.firstUpdateId);
+    document.snapshotKind = provenance.snapshotKind;
+    document.source = provenance.source;
+    document.exchange = provenance.exchange;
+    document.market = provenance.market;
+    document.symbol = provenance.symbol;
+    document.sourceTsNs = provenance.sourceTsNs;
+    document.ingestTsNs = provenance.ingestTsNs;
+    document.anchorUpdateId = static_cast<std::int64_t>(provenance.anchorUpdateId);
+    document.anchorFirstUpdateId = static_cast<std::int64_t>(provenance.anchorFirstUpdateId);
+    document.trustedReplayAnchor = provenance.trustedReplayAnchor ? 1u : 0u;
+    document.bids = makePricePairs(snapshot.bids);
+    document.asks = makePricePairs(snapshot.asks);
+    return document;
+}
+
 }  // namespace
 
 Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
@@ -61,9 +131,9 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
             == manifest_.canonicalArtifacts.end()) {
             manifest_.canonicalArtifacts.push_back(manifest_.tradesPath);
         }
-        if (!isOk(tradesWriter_.open(ChannelKind::Trades, sessionDir_))) {
+        if (!isOk(jsonSink_.ensureChannelFile(ChannelKind::Trades))) {
             tradesRunning_.store(false, std::memory_order_release);
-            lastError_ = "failed to open trades.jsonl";
+            lastError_ = "failed to create trades.jsonl";
             return Status::IoError;
         }
     }
@@ -153,8 +223,9 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                 const auto sequenceIds = nextEventSequenceIds(self->tradesCaptureSeq_, self->ingestSeq_);
                 const auto capturedTrade = cxet_bridge::CxetCaptureBridge::captureTrade(trade, meta);
                 local_exchange::globalLocalOrderEngine().onTrade(capturedTrade);
-                const auto jsonLine = renderTradeJsonLine(capturedTrade, sequenceIds);
-                if (!isOk(self->tradesWriter_.writeLine(jsonLine))) {
+                const auto row = makeTradeRow(capturedTrade, sequenceIds);
+                const auto jsonLine = renderTradeJsonLine(row);
+                if (!isOk(self->eventSink_.appendTrade(row))) {
                     metrics::recordCaptureWriteError("trades");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
                     const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
@@ -234,7 +305,13 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
     }
 
     auto subscribeBuilder = internal::makeBookTickerBuilder(config.symbols.front());
-    if (!internal::applyRequestedAliases(config.bookTickerAliases, subscribeBuilder, lastError_)) {
+    auto bookTickerAliases = config.bookTickerAliases;
+    for (const auto* requiredAlias : {"bidQty", "askQty"}) {
+        if (std::find(bookTickerAliases.begin(), bookTickerAliases.end(), requiredAlias) == bookTickerAliases.end()) {
+            bookTickerAliases.push_back(requiredAlias);
+        }
+    }
+    if (!internal::applyRequestedAliases(bookTickerAliases, subscribeBuilder, lastError_)) {
         return Status::InvalidArgument;
     }
 
@@ -251,9 +328,9 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
             == manifest_.canonicalArtifacts.end()) {
             manifest_.canonicalArtifacts.push_back(manifest_.bookTickerPath);
         }
-        if (!isOk(bookTickerWriter_.open(ChannelKind::BookTicker, sessionDir_))) {
+        if (!isOk(jsonSink_.ensureChannelFile(ChannelKind::BookTicker))) {
             bookTickerRunning_.store(false, std::memory_order_release);
-            lastError_ = "failed to open bookticker.jsonl";
+            lastError_ = "failed to create bookticker.jsonl";
             return Status::IoError;
         }
     }
@@ -283,8 +360,9 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
                 const auto sequenceIds = nextEventSequenceIds(self->bookTickerCaptureSeq_, self->ingestSeq_);
                 const auto capturedBookTicker = cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, meta);
                 local_exchange::globalLocalOrderEngine().onBookTicker(capturedBookTicker);
-                const auto jsonLine = renderBookTickerJsonLine(capturedBookTicker, sequenceIds);
-                if (!isOk(self->bookTickerWriter_.writeLine(jsonLine))) {
+                const auto row = makeBookTickerRow(capturedBookTicker, sequenceIds);
+                const auto jsonLine = renderBookTickerJsonLine(row);
+                if (!isOk(self->eventSink_.appendBookTicker(row))) {
                     metrics::recordCaptureWriteError("bookticker");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
                     const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
@@ -362,9 +440,9 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
             == manifest_.canonicalArtifacts.end()) {
             manifest_.canonicalArtifacts.push_back(manifest_.depthPath);
         }
-        if (!isOk(depthWriter_.open(ChannelKind::DepthDelta, sessionDir_))) {
+        if (!isOk(jsonSink_.ensureChannelFile(ChannelKind::DepthDelta))) {
             orderbookRunning_.store(false, std::memory_order_release);
-            lastError_ = "failed to open depth.jsonl";
+            lastError_ = "failed to create depth.jsonl";
             return Status::IoError;
         }
     }
@@ -428,8 +506,9 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
                 self->depthCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->depthCaptureSeq_, self->ingestSeq_);
                 const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(delta);
-                const auto jsonLine = renderDepthJsonLine(capturedDepth, sequenceIds);
-                if (!isOk(self->depthWriter_.writeLine(jsonLine))) {
+                const auto row = makeDepthRow(capturedDepth, sequenceIds);
+                const auto jsonLine = renderDepthJsonLine(row);
+                if (!isOk(self->eventSink_.appendDepth(row))) {
                     metrics::recordCaptureWriteError("depth");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
                     const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
@@ -492,10 +571,6 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
         fileName += std::to_string(snapshotIndex);
         fileName += ".json";
     }
-    std::ofstream out(sessionDir_ / fileName, std::ios::out | std::ios::trunc);
-    if (!out.is_open()) {
-        return Status::IoError;
-    }
     SnapshotProvenance provenance{};
     provenance.sequence = nextEventSequenceIds(snapshotCaptureSeq_, ingestSeq_);
     provenance.snapshotKind = std::string(snapshotKind);
@@ -508,10 +583,9 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
     provenance.anchorUpdateId = static_cast<std::uint64_t>(snapshot.updateId.raw);
     provenance.anchorFirstUpdateId = static_cast<std::uint64_t>(snapshot.firstUpdateId.raw);
     provenance.trustedReplayAnchor = trustedReplayAnchor;
-    out << renderSnapshotJson(cxet_bridge::CxetCaptureBridge::captureOrderBook(snapshot), provenance);
-    if (!out.good()) {
-        return Status::IoError;
-    }
+    const auto capturedSnapshot = cxet_bridge::CxetCaptureBridge::captureOrderBook(snapshot);
+    const auto document = makeSnapshotDocument(capturedSnapshot, provenance);
+    if (!isOk(eventSink_.appendSnapshot(document, snapshotIndex))) return Status::IoError;
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
         if (std::find(manifest_.snapshotFiles.begin(), manifest_.snapshotFiles.end(), fileName) == manifest_.snapshotFiles.end()) {

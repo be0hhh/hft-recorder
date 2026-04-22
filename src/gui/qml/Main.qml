@@ -1,4 +1,4 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import HftRecorder 1.0
@@ -18,10 +18,8 @@ ApplicationWindow {
     property color mutedTextColor: "#b6b6b6"
     property color accentBuyColor: "#24c2cb"
 
-    AppViewModel {
-        id: appVm
-        objectName: "appVm"
-    }
+    AppViewModel { id: appVm; objectName: "appVm" }
+    CaptureViewModel { id: captureVm; objectName: "captureVm" }
 
     component DarkTabButton: TabButton {
         id: control
@@ -40,25 +38,13 @@ ApplicationWindow {
 
     header: ToolBar {
         contentHeight: 48
-        background: Rectangle {
-            color: root.panelColor
-            border.color: root.borderColor
-            border.width: 1
-        }
-
+        background: Rectangle { color: root.panelColor; border.color: root.borderColor; border.width: 1 }
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 16
             anchors.rightMargin: 16
             spacing: 16
-
-            Label {
-                text: "hft-recorder"
-                font.bold: true
-                font.pixelSize: 20
-                color: root.textColor
-            }
-
+            Label { text: "hft-recorder"; font.bold: true; font.pixelSize: 20; color: root.textColor }
             Item { Layout.fillWidth: true }
         }
     }
@@ -70,12 +56,7 @@ ApplicationWindow {
         TabBar {
             id: tabBar
             Layout.fillWidth: true
-            background: Rectangle {
-                color: root.panelColor
-                border.color: root.borderColor
-                border.width: 1
-            }
-
+            background: Rectangle { color: root.panelColor; border.color: root.borderColor; border.width: 1 }
             DarkTabButton { text: "Capture" }
             DarkTabButton { text: "Viewer" }
         }
@@ -85,12 +66,8 @@ ApplicationWindow {
             Layout.fillHeight: true
             currentIndex: tabBar.currentIndex
 
-            CaptureView { Layout.fillWidth: true; Layout.fillHeight: true }
-            ViewerView {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                appVm: appVm
-            }
+            CaptureView { Layout.fillWidth: true; Layout.fillHeight: true; captureVm: captureVm }
+            ViewerView { Layout.fillWidth: true; Layout.fillHeight: true; appVm: appVm; captureVm: captureVm }
         }
     }
 }

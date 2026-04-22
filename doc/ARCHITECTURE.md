@@ -2,18 +2,34 @@
 
 ## Top-level model
 
-`hft-recorder` has three product layers and two support layers.
+`hft-recorder` has four domain layers and two support layers.
 
-### Product layers
+### Domain layers
 
-1. `Capture`
-2. `Replay / Validation`
-3. `Compression Lab + Dashboard`
+1. `Storage / Corpus`
+2. `Market data ingress / Replay / Validation`
+3. `Execution venue`
+4. `Compression Lab + Dashboard / Presentation`
 
 ### Support layers
 
 1. `CXETCPP bridge`
 2. `Qt/QML presentation`
+
+## Storage / corpus layer
+
+The storage layer owns the canonical session truth:
+- append sinks for normalized rows
+- hot in-memory cache over the same row schema
+- backend-specific durable writers such as JSON session storage
+
+Current thin seams:
+- `storage::IHotEventCache`
+- `storage::IStorageBackend`
+- `storage::LiveEventStore`
+- `storage::JsonSessionSink`
+
+Hot memory is a front-cache, not a separate schema.
 
 ## Capture layer
 
@@ -27,6 +43,11 @@ The capture layer owns:
 The capture layer writes only canonical JSON corpus files.
 
 It does not write experimental compressed formats directly.
+
+Capture is also the first `market_data::IMarketDataIngress` implementation:
+- it owns CXET callbacks
+- it maps them into recorder-owned normalized rows
+- it exposes a hot event source for presentation without binding the UI to file tailing
 
 ## Replay and validation layer
 
@@ -49,6 +70,18 @@ The lab layer runs:
 
 The lab layer does not replace the canonical corpus.
 It consumes it.
+
+## Execution venue layer
+
+The local execution venue is a separate domain from market-data capture.
+
+Current thin seams:
+- `execution::IExecutionVenue`
+- `execution::IExecutionEventSink`
+- `execution::IExecutionEventSource`
+
+`LocalOrderEngine` is the first venue implementation behind these seams.
+It may publish normalized execution events into recorder-owned stores without exposing socket-frame internals upstream.
 
 ## Qt/QML boundary
 

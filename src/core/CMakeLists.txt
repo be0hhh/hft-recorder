@@ -16,6 +16,7 @@ add_library(hftrec_core STATIC
     corpus/CorpusLoader.cpp
     corpus/InstrumentMetadata.cpp
     cxet_bridge/CxetCaptureBridge.cpp
+    execution/ExecutionVenue.cpp
     block/FileHeader.cpp
     block/BlockHeader.cpp
     block/BlockWriter.cpp
@@ -30,6 +31,8 @@ add_library(hftrec_core STATIC
     replay/BookState.cpp
     replay/SessionReplay.cpp
     replay/SessionReplayTimeline.cpp
+    storage/EventStorage.cpp
+    storage/JsonSessionStorage.cpp
     validation/ValidationRunner.cpp
 )
 

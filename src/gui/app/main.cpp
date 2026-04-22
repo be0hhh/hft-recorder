@@ -1,4 +1,4 @@
-#include <QGuiApplication>
+﻿#include <QGuiApplication>
 #include <QObject>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
@@ -8,6 +8,7 @@
 
 #include "core/local_exchange/LocalExchangeServer.hpp"
 #include "gui/models/SessionListModel.hpp"
+#include "gui/models/ViewerSourceListModel.hpp"
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/ChartItem.hpp"
 #include "gui/viewer/gpu/GpuChartItem.hpp"
@@ -39,9 +40,7 @@ void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
 
     const QString requestedMode = qEnvironmentVariable("HFTREC_RENDER_MODE", "cpu").trimmed().toLower();
     QObject::connect(window, &QQuickWindow::sceneGraphInitialized, window, [window, appVm, requestedMode]() {
-        appVm->setRenderDiagnostics(
-            requestedMode,
-            graphicsApiName(window->rendererInterface()->graphicsApi()));
+        appVm->setRenderDiagnostics(requestedMode, graphicsApiName(window->rendererInterface()->graphicsApi()));
     }, Qt::QueuedConnection);
 }
 
@@ -54,12 +53,12 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName(QStringLiteral("hftrec"));
     QCoreApplication::setApplicationName(QStringLiteral("hft-recorder"));
     const QString requestedMode = qEnvironmentVariable("HFTREC_RENDER_MODE", "cpu").trimmed().toLower();
-    QQuickWindow::setGraphicsApi(
-        requestedMode == QStringLiteral("gpu")
-            ? QSGRendererInterface::OpenGL
-            : QSGRendererInterface::Software);
+    QQuickWindow::setGraphicsApi(requestedMode == QStringLiteral("gpu")
+                                     ? QSGRendererInterface::OpenGL
+                                     : QSGRendererInterface::Software);
 
     qmlRegisterType<hftrec::gui::SessionListModel>("HftRecorder", 1, 0, "SessionListModel");
+    qmlRegisterType<hftrec::gui::ViewerSourceListModel>("HftRecorder", 1, 0, "ViewerSourceListModel");
     qmlRegisterType<hftrec::gui::AppViewModel>("HftRecorder", 1, 0, "AppViewModel");
     qmlRegisterType<hftrec::gui::CaptureViewModel>("HftRecorder", 1, 0, "CaptureViewModel");
     qmlRegisterType<hftrec::gui::viewer::ChartController>("HftRecorder", 1, 0, "ChartController");
@@ -68,12 +67,11 @@ int main(int argc, char* argv[]) {
 
     QQmlApplicationEngine engine;
     engine.addImportPath(QStringLiteral("qrc:/"));
-    QObject::connect(
-        &engine,
-        &QQmlApplicationEngine::objectCreationFailed,
-        &app,
-        []() { QCoreApplication::exit(-1); },
-        Qt::QueuedConnection);
+    QObject::connect(&engine,
+                     &QQmlApplicationEngine::objectCreationFailed,
+                     &app,
+                     []() { QCoreApplication::exit(-1); },
+                     Qt::QueuedConnection);
     engine.load(QUrl(QStringLiteral("qrc:/HftRecorder/qml/Main.qml")));
     wireRenderDiagnostics(engine);
 

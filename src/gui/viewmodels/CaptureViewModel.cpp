@@ -1,4 +1,4 @@
-#include "gui/viewmodels/CaptureViewModel.hpp"
+﻿#include "gui/viewmodels/CaptureViewModel.hpp"
 
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
@@ -21,6 +21,7 @@ QString CaptureViewModel::symbolsText() const { return symbolsText_; }
 QString CaptureViewModel::sessionId() const { return lastSessionId_; }
 QString CaptureViewModel::sessionPath() const { return lastSessionPath_; }
 QString CaptureViewModel::statusText() const { return statusText_; }
+QVariantList CaptureViewModel::activeLiveSources() const { return activeLiveSources_; }
 bool CaptureViewModel::sessionOpen() const { return !coordinators_.empty(); }
 bool CaptureViewModel::tradesRunning() const { return lastTradesRunning_; }
 bool CaptureViewModel::bookTickerRunning() const { return lastBookTickerRunning_; }

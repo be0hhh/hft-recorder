@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/execution/ExecutionVenue.hpp>
+
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -18,6 +20,7 @@ class LocalExchangeServer {
 
     bool start() noexcept;
     void stop() noexcept;
+    void setEventSink(execution::IExecutionEventSink* sink) noexcept { globalLocalOrderEngine().setEventSink(sink); }
 
     bool running() const noexcept { return running_.load(std::memory_order_acquire); }
     std::uint64_t acceptedCount() const noexcept { return globalLocalOrderEngine().acceptedCount(); }

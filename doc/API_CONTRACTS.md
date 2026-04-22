@@ -4,6 +4,45 @@
 
 The following backend types are part of the new stable direction.
 
+### `storage::IHotEventCache`
+
+Responsibilities:
+- accept normalized market-data rows on the hot path
+- expose exact in-memory reads by full scan or time range
+- preserve the same row schema used by durable storage
+
+### `storage::IStorageBackend`
+
+Responsibilities:
+- persist normalized rows into a durable backend
+- report backend identity and append stats
+- stay behind the same append contract as the hot cache
+
+### `market_data::IMarketDataIngress`
+
+Responsibilities:
+- represent any live or replay-driven market-data ingress
+- expose a presentation-safe event source
+- expose the current hot cache without leaking transport details
+
+### `execution::IExecutionVenue`
+
+Responsibilities:
+- accept normalized order intents from the CXET local venue seam
+- publish recorder-owned execution events through an event sink
+- keep execution behavior separate from viewer/storage policy
+
+Reserved execution semantic family:
+- `ack`
+- `reject`
+- `state change`
+- future `fill`
+- future `account change`
+- future `position change`
+
+The current socket wire contract may remain `OrderAck`-only, but the internal
+execution domain must remain additive beyond transport ack semantics.
+
 ## Capture
 
 ### `CaptureCoordinator`
@@ -72,6 +111,7 @@ Recorder-owned seam responsibilities:
 - map `CXETCPP` callback payloads into recorder-owned normalized DTOs
 - serialize recorder DTOs into canonical JSON
 - map capture failures into recorder-owned failure events/messages
+- preserve one identity model for live/history consumers: `exchange + market + symbol + sourceId`
 
 The seam does not own:
 - transport internals
@@ -86,8 +126,9 @@ Current v1 contract:
 - algorithm uses existing `sendWs().object(order).exchange(hftrecorder_local)`
 - CXET sends a binary normalized order frame over Unix domain socket
 - hft-recorder owns the local socket server
-- hft-recorder returns only an accepted `OrderAck`
-- no matching, fills, PnL, replay feed, or chart drawing is implied by v1
+- hft-recorder returns `OrderAck` on the socket path
+- internal recorder modules may also consume recorder-owned normalized execution events
+- no matching, PnL, replay feed, or chart drawing is implied by the transport contract alone
 
 Socket path:
 - `CXET_HFTREC_SOCKET` when set
@@ -161,6 +202,9 @@ Future replay/backtest consumers should read:
 - canonical channel files
 - `instrument_metadata.json`
 - optional advisory support artifacts
+
+They should read those through storage/materialization contracts, not through
+hardcoded JSON-tail behavior as the long-term architecture truth.
 
 `SessionReplay` should consume the same structural loader verdict rather than
 re-deriving file-level policy independently.

@@ -1,11 +1,11 @@
 #include "core/capture/JsonSerializers.hpp"
 
-#include <algorithm>
 #include <array>
 #include <sstream>
 
 #include "core/common/JsonString.hpp"
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
+#include "core/replay/EventRows.hpp"
 #include "primitives/composite/BookTickerData.hpp"
 #include "primitives/composite/OrderBookSnapshot.hpp"
 #include "primitives/composite/Trade.hpp"
@@ -13,13 +13,6 @@
 namespace hftrec::capture {
 
 namespace {
-
-bool hasRequestedAlias(const std::vector<std::string>& requestedAliases, std::string_view alias) {
-    return std::any_of(requestedAliases.begin(), requestedAliases.end(),
-                       [alias](const std::string& candidate) noexcept {
-                           return candidate == alias;
-                       });
-}
 
 void appendLevels(std::ostringstream& out,
                   const std::array<cxet::composite::OrderBookLevel, rawdata::kMaxOrderbookLevels>& levels,
@@ -73,6 +66,17 @@ std::string renderTradeJsonLine(const cxet_bridge::CapturedTradeRow& trade,
     return out.str();
 }
 
+std::string renderTradeJsonLine(const replay::TradeRow& trade) {
+    cxet_bridge::CapturedTradeRow captured{};
+    captured.tsNs = static_cast<std::uint64_t>(trade.tsNs);
+    captured.priceE8 = trade.priceE8;
+    captured.qtyE8 = trade.qtyE8;
+    captured.sideBuy = trade.sideBuy != 0u;
+    return renderTradeJsonLine(captured,
+                               EventSequenceIds{static_cast<std::uint64_t>(trade.captureSeq),
+                                                static_cast<std::uint64_t>(trade.ingestSeq)});
+}
+
 std::string renderTradeJsonLine(const cxet::composite::TradePublic& trade) {
     return renderTradeJsonLine(trade, {});
 }
@@ -85,13 +89,9 @@ std::string renderBookTickerJsonLine(const cxet::composite::BookTickerData& book
         << ",\"captureSeq\":" << sequenceIds.captureSeq
         << ",\"ingestSeq\":" << sequenceIds.ingestSeq
         << ",\"bidPriceE8\":" << static_cast<std::int64_t>(bookTicker.bidPrice.raw)
-        << ",\"askPriceE8\":" << static_cast<std::int64_t>(bookTicker.askPrice.raw);
-    if (hasRequestedAlias(requestedAliases, "bidQty")) {
-        out << ",\"bidQtyE8\":" << static_cast<std::int64_t>(bookTicker.bidAmount.raw);
-    }
-    if (hasRequestedAlias(requestedAliases, "askQty")) {
-        out << ",\"askQtyE8\":" << static_cast<std::int64_t>(bookTicker.askAmount.raw);
-    }
+        << ",\"bidQtyE8\":" << static_cast<std::int64_t>(bookTicker.bidAmount.raw)
+        << ",\"askPriceE8\":" << static_cast<std::int64_t>(bookTicker.askPrice.raw)
+        << ",\"askQtyE8\":" << static_cast<std::int64_t>(bookTicker.askAmount.raw);
     out << "}";
     return out.str();
 }
@@ -108,6 +108,20 @@ std::string renderBookTickerJsonLine(const cxet_bridge::CapturedBookTickerRow& b
     if (bookTicker.includeAskQty) out << ",\"askQtyE8\":" << bookTicker.askQtyE8;
     out << "}";
     return out.str();
+}
+
+std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker) {
+    cxet_bridge::CapturedBookTickerRow captured{};
+    captured.tsNs = static_cast<std::uint64_t>(bookTicker.tsNs);
+    captured.bidPriceE8 = bookTicker.bidPriceE8;
+    captured.askPriceE8 = bookTicker.askPriceE8;
+    captured.bidQtyE8 = bookTicker.bidQtyE8;
+    captured.askQtyE8 = bookTicker.askQtyE8;
+    captured.includeBidQty = true;
+    captured.includeAskQty = true;
+    return renderBookTickerJsonLine(captured,
+                                    EventSequenceIds{static_cast<std::uint64_t>(bookTicker.captureSeq),
+                                                     static_cast<std::uint64_t>(bookTicker.ingestSeq)});
 }
 
 std::string renderBookTickerJsonLine(const cxet::composite::BookTickerData& bookTicker,
@@ -145,6 +159,24 @@ std::string renderDepthJsonLine(const cxet_bridge::CapturedOrderBookRow& delta,
     appendCapturedLevels(out, delta.asks);
     out << '}';
     return out.str();
+}
+
+std::string renderDepthJsonLine(const replay::DepthRow& delta) {
+    cxet_bridge::CapturedOrderBookRow captured{};
+    captured.tsNs = static_cast<std::uint64_t>(delta.tsNs);
+    captured.updateId = static_cast<std::uint64_t>(delta.updateId);
+    captured.firstUpdateId = static_cast<std::uint64_t>(delta.firstUpdateId);
+    captured.bids.reserve(delta.bids.size());
+    captured.asks.reserve(delta.asks.size());
+    for (const auto& level : delta.bids) {
+        captured.bids.push_back(cxet_bridge::CapturedLevel{level.priceE8, level.qtyE8});
+    }
+    for (const auto& level : delta.asks) {
+        captured.asks.push_back(cxet_bridge::CapturedLevel{level.priceE8, level.qtyE8});
+    }
+    return renderDepthJsonLine(captured,
+                               EventSequenceIds{static_cast<std::uint64_t>(delta.captureSeq),
+                                                static_cast<std::uint64_t>(delta.ingestSeq)});
 }
 
 std::string renderDepthJsonLine(const cxet::composite::OrderBookSnapshot& delta) {
@@ -203,6 +235,37 @@ std::string renderSnapshotJson(const cxet_bridge::CapturedOrderBookRow& snapshot
     appendCapturedLevels(out, snapshot.asks);
     out << "\n}\n";
     return out.str();
+}
+
+std::string renderSnapshotJson(const replay::SnapshotDocument& snapshot) {
+    cxet_bridge::CapturedOrderBookRow captured{};
+    captured.symbol = snapshot.symbol;
+    captured.tsNs = static_cast<std::uint64_t>(snapshot.tsNs);
+    captured.updateId = static_cast<std::uint64_t>(snapshot.updateId);
+    captured.firstUpdateId = static_cast<std::uint64_t>(snapshot.firstUpdateId);
+    captured.bids.reserve(snapshot.bids.size());
+    captured.asks.reserve(snapshot.asks.size());
+    for (const auto& level : snapshot.bids) {
+        captured.bids.push_back(cxet_bridge::CapturedLevel{level.priceE8, level.qtyE8});
+    }
+    for (const auto& level : snapshot.asks) {
+        captured.asks.push_back(cxet_bridge::CapturedLevel{level.priceE8, level.qtyE8});
+    }
+
+    SnapshotProvenance provenance{};
+    provenance.sequence = EventSequenceIds{static_cast<std::uint64_t>(snapshot.captureSeq),
+                                           static_cast<std::uint64_t>(snapshot.ingestSeq)};
+    provenance.snapshotKind = snapshot.snapshotKind;
+    provenance.source = snapshot.source;
+    provenance.exchange = snapshot.exchange;
+    provenance.market = snapshot.market;
+    provenance.symbol = snapshot.symbol;
+    provenance.sourceTsNs = snapshot.sourceTsNs;
+    provenance.ingestTsNs = snapshot.ingestTsNs;
+    provenance.anchorUpdateId = static_cast<std::uint64_t>(snapshot.anchorUpdateId);
+    provenance.anchorFirstUpdateId = static_cast<std::uint64_t>(snapshot.anchorFirstUpdateId);
+    provenance.trustedReplayAnchor = snapshot.trustedReplayAnchor != 0u;
+    return renderSnapshotJson(captured, provenance);
 }
 
 std::string renderSnapshotJson(const cxet::composite::OrderBookSnapshot& snapshot) {

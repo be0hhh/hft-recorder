@@ -148,7 +148,9 @@ QStringList requiredAliasesForChannel(const QString& channel) {
     if (channel == QStringLiteral("bookticker")) {
         return {
             QStringLiteral("bidPrice"),
+            QStringLiteral("bidQty"),
             QStringLiteral("askPrice"),
+            QStringLiteral("askQty"),
             QStringLiteral("timestamp"),
         };
     }

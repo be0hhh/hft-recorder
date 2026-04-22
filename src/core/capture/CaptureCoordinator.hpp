@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/market_data/MarketDataIngress.hpp>
+
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -12,6 +14,8 @@
 #include "core/capture/ChannelJsonWriter.hpp"
 #include "core/capture/SessionManifest.hpp"
 #include "core/common/Status.hpp"
+#include "core/storage/EventStorage.hpp"
+#include "core/storage/JsonSessionStorage.hpp"
 
 namespace cxet {
 namespace composite {
@@ -36,7 +40,7 @@ struct CaptureConfig {
     std::string orderbookRequestCommand{};
 };
 
-class CaptureCoordinator {
+class CaptureCoordinator : public market_data::IMarketDataIngress {
   public:
     CaptureCoordinator();
     ~CaptureCoordinator();
@@ -61,6 +65,10 @@ class CaptureCoordinator {
     std::uint64_t bookTickerCount() const noexcept { return bookTickerCount_.load(std::memory_order_relaxed); }
     std::uint64_t depthCount() const noexcept { return depthCount_.load(std::memory_order_relaxed); }
     std::string lastError() const;
+    storage::EventBatch liveEventsCopy() const;
+    const storage::IEventSource* liveEventSource() const noexcept { return &liveStore_; }
+    const storage::IEventSource* eventSource() const noexcept override { return &liveStore_; }
+    const storage::IHotEventCache* hotCache() const noexcept override { return &liveStore_; }
 
   private:
     void resetSessionState() noexcept;
@@ -78,6 +86,9 @@ class CaptureCoordinator {
     ChannelJsonWriter tradesWriter_{};
     ChannelJsonWriter bookTickerWriter_{};
     ChannelJsonWriter depthWriter_{};
+    storage::LiveEventStore liveStore_{};
+    storage::JsonSessionSink jsonSink_{};
+    storage::CompositeEventSink eventSink_{};
     CaptureConfig config_{};
     std::atomic<bool> tradesRunning_{false};
     std::atomic<bool> bookTickerRunning_{false};

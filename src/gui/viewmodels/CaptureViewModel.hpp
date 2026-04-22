@@ -1,9 +1,10 @@
-#pragma once
+﻿#pragma once
 
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
+#include <QVariantList>
 #include <memory>
 #include <vector>
 
@@ -32,6 +33,7 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(QString sessionId READ sessionId NOTIFY sessionStateChanged)
     Q_PROPERTY(QString sessionPath READ sessionPath NOTIFY sessionStateChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
+    Q_PROPERTY(QVariantList activeLiveSources READ activeLiveSources NOTIFY activeLiveSourcesChanged)
     Q_PROPERTY(bool sessionOpen READ sessionOpen NOTIFY sessionStateChanged)
     Q_PROPERTY(bool tradesRunning READ tradesRunning NOTIFY channelStateChanged)
     Q_PROPERTY(bool bookTickerRunning READ bookTickerRunning NOTIFY channelStateChanged)
@@ -55,6 +57,7 @@ class CaptureViewModel : public QObject {
     QString sessionId() const;
     QString sessionPath() const;
     QString statusText() const;
+    QVariantList activeLiveSources() const;
     bool sessionOpen() const;
     bool tradesRunning() const;
     bool bookTickerRunning() const;
@@ -84,6 +87,7 @@ class CaptureViewModel : public QObject {
     void requestBuilderChanged();
     void sessionStateChanged();
     void statusTextChanged();
+    void activeLiveSourcesChanged();
     void channelStateChanged();
     void countersChanged();
 
@@ -95,12 +99,14 @@ class CaptureViewModel : public QObject {
     const QStringList* selectedAliasesForChannel_(const QString& channel) const;
     const QStringList* availableAliasesForChannel_(const QString& channel) const;
     bool ensureCoordinatorBatch_();
+    void registerLiveSources_();
     void abortCoordinatorBatch_(const QString& fallbackStatus);
     void clearCoordinatorBatch_();
     void refreshState();
     void setStatusText(const QString& statusText);
     void setStatusFromStatus(hftrec::Status status, const QString& okText);
     QString joinCoordinatorErrors_() const;
+    void publishActiveLiveSources_();
 
     std::vector<std::unique_ptr<capture::CaptureCoordinator>> coordinators_{};
     QTimer refreshTimer_{};
@@ -113,6 +119,7 @@ class CaptureViewModel : public QObject {
     QStringList selectedBookTickerAliases_{};
     QStringList selectedOrderbookAliases_{};
     QString statusText_{"Ready to capture symbols into canonical JSON session folders"};
+    QVariantList activeLiveSources_{};
     QString lastSessionId_{};
     QString lastSessionPath_{};
     bool lastTradesRunning_{false};

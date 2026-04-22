@@ -1,10 +1,32 @@
-#include "gui/viewmodels/CaptureViewModel.hpp"
+﻿#include "gui/viewmodels/CaptureViewModel.hpp"
 
+#include <QVariantMap>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "gui/viewer/LiveDataProvider.hpp"
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
 namespace hftrec::gui {
+
+namespace {
+
+QString buildViewerSourceId(const QString& exchange, const QString& market, const QString& symbol) {
+    return QStringLiteral("live:%1:%2:%3")
+        .arg(exchange.trimmed().toLower(), market.trimmed().toLower(), symbol.trimmed().toUpper());
+}
+
+QString buildLiveLabel(const QString& exchange, const QString& market, const QString& symbol) {
+    const auto normalizedSymbol = symbol.trimmed().toUpper();
+    return QStringLiteral("LIVE | %1 | %2 | %3")
+        .arg(exchange.trimmed().isEmpty() ? QStringLiteral("Unknown Exchange") : exchange.trimmed(),
+             market.trimmed().isEmpty() ? QStringLiteral("Unknown Market") : market.trimmed(),
+             normalizedSymbol.isEmpty() ? QStringLiteral("Unknown Symbol") : normalizedSymbol);
+}
+
+}  // namespace
 
 bool CaptureViewModel::startTrades() {
     if (!ensureCoordinatorBatch_()) {
@@ -23,6 +45,7 @@ bool CaptureViewModel::startTrades() {
     }
 
     setStatusText(QStringLiteral("Trades capture started for %1 symbol(s)").arg(coordinators_.size()));
+    registerLiveSources_();
     refreshState();
     return true;
 }
@@ -32,6 +55,7 @@ void CaptureViewModel::stopTrades() {
         if (coordinator) coordinator->stopTrades();
     }
     setStatusText(QStringLiteral("Trades capture stopped"));
+    registerLiveSources_();
     refreshState();
 }
 
@@ -52,6 +76,7 @@ bool CaptureViewModel::startBookTicker() {
     }
 
     setStatusText(QStringLiteral("BookTicker capture started for %1 symbol(s)").arg(coordinators_.size()));
+    registerLiveSources_();
     refreshState();
     return true;
 }
@@ -61,6 +86,7 @@ void CaptureViewModel::stopBookTicker() {
         if (coordinator) coordinator->stopBookTicker();
     }
     setStatusText(QStringLiteral("BookTicker capture stopped"));
+    registerLiveSources_();
     refreshState();
 }
 
@@ -81,6 +107,7 @@ bool CaptureViewModel::startOrderbook() {
     }
 
     setStatusText(QStringLiteral("Orderbook capture started for %1 symbol(s)").arg(coordinators_.size()));
+    registerLiveSources_();
     refreshState();
     return true;
 }
@@ -90,6 +117,7 @@ void CaptureViewModel::stopOrderbook() {
         if (coordinator) coordinator->stopOrderbook();
     }
     setStatusText(QStringLiteral("Orderbook capture stopped"));
+    registerLiveSources_();
     refreshState();
 }
 
@@ -101,6 +129,8 @@ void CaptureViewModel::finalizeSession() {
         if (!isOk(status)) ok = false;
     }
     setStatusText(ok ? QStringLiteral("Session batch finalized") : joinCoordinatorErrors_());
+    viewer::LiveDataRegistry::instance().clear();
+    publishActiveLiveSources_();
     clearCoordinatorBatch_();
     refreshState();
 }
@@ -120,6 +150,55 @@ bool CaptureViewModel::ensureCoordinatorBatch_() {
         coordinators_.push_back(std::make_unique<capture::CaptureCoordinator>());
     }
     return true;
+}
+
+void CaptureViewModel::registerLiveSources_() {
+    std::vector<viewer::LiveDataRegistry::RegisteredSource> sources;
+    QVariantList descriptors;
+    sources.reserve(coordinators_.size());
+    descriptors.reserve(static_cast<qsizetype>(coordinators_.size()));
+
+    for (const auto& coordinator : coordinators_) {
+        if (!coordinator) continue;
+        const auto manifest = coordinator->manifestCopy();
+        const bool hasLiveChannel = coordinator->tradesRunning() || coordinator->bookTickerRunning() || coordinator->orderbookRunning();
+        if (!hasLiveChannel) continue;
+
+        const QString exchange = QString::fromStdString(manifest.exchange);
+        const QString market = QString::fromStdString(manifest.market);
+        const QString symbol = QString::fromStdString(manifest.symbols.empty() ? std::string{} : manifest.symbols.front()).trimmed().toUpper();
+        const QString sourceId = buildViewerSourceId(exchange, market, symbol);
+
+        sources.push_back(viewer::LiveDataRegistry::RegisteredSource{
+            sourceId.toStdString(),
+            exchange.toStdString(),
+            market.toStdString(),
+            symbol.toStdString(),
+            manifest.sessionId,
+            coordinator.get()});
+
+        QVariantMap descriptor;
+        descriptor.insert(QStringLiteral("id"), sourceId);
+        descriptor.insert(QStringLiteral("label"), buildLiveLabel(exchange, market, symbol));
+        descriptor.insert(QStringLiteral("exchange"), exchange);
+        descriptor.insert(QStringLiteral("market"), market);
+        descriptor.insert(QStringLiteral("symbol"), symbol);
+        descriptor.insert(QStringLiteral("sessionId"), QString::fromStdString(manifest.sessionId));
+        descriptor.insert(QStringLiteral("liveAvailable"), true);
+        descriptors.push_back(descriptor);
+    }
+
+    viewer::LiveDataRegistry::instance().setSources(std::move(sources));
+    if (activeLiveSources_ != descriptors) {
+        activeLiveSources_ = descriptors;
+        emit activeLiveSourcesChanged();
+    }
+}
+
+void CaptureViewModel::publishActiveLiveSources_() {
+    if (activeLiveSources_.isEmpty()) return;
+    activeLiveSources_.clear();
+    emit activeLiveSourcesChanged();
 }
 
 void CaptureViewModel::clearCoordinatorBatch_() {
@@ -142,6 +221,8 @@ void CaptureViewModel::abortCoordinatorBatch_(const QString& fallbackStatus) {
         }
     }
 
+    viewer::LiveDataRegistry::instance().clear();
+    publishActiveLiveSources_();
     clearCoordinatorBatch_();
     setStatusText(errors.isEmpty() ? fallbackStatus : errors.join(QStringLiteral(" | ")));
 }

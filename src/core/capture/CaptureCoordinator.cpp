@@ -66,6 +66,14 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
         lastError_ = "failed to write instrument metadata sidecar";
         return metadataStatus;
     }
+    liveStore_.clear();
+    if (const auto storageStatus = jsonSink_.open(sessionDir_); !isOk(storageStatus)) {
+        lastError_ = "failed to open JSON session storage";
+        return storageStatus;
+    }
+    eventSink_.clearSinks();
+    eventSink_.addSink(&liveStore_);
+    eventSink_.addSink(&jsonSink_);
     manifest_.supportArtifacts = {
         manifest_.sessionAuditPath,
         manifest_.integrityReportPath,
@@ -114,6 +122,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
         return Status::IoError;
     }
 
+    (void)eventSink_.close();
     (void)tradesWriter_.close();
     (void)bookTickerWriter_.close();
     (void)depthWriter_.close();
@@ -136,6 +145,10 @@ std::filesystem::path CaptureCoordinator::sessionDirCopy() const {
     return sessionDir_;
 }
 
+storage::EventBatch CaptureCoordinator::liveEventsCopy() const {
+    return liveStore_.readAll();
+}
+
 void CaptureCoordinator::resetSessionState() noexcept {
     manifest_ = {};
     sessionDir_.clear();
@@ -156,6 +169,8 @@ void CaptureCoordinator::resetSessionState() noexcept {
     depthCaptureSeq_.store(0, std::memory_order_release);
     snapshotCaptureSeq_.store(0, std::memory_order_release);
     ingestSeq_.store(0, std::memory_order_release);
+    liveStore_.clear();
+    eventSink_.clearSinks();
 }
 
 bool CaptureCoordinator::sessionOpen() const noexcept {

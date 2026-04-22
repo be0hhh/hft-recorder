@@ -50,7 +50,7 @@ TEST(CxetCaptureBridge, RuntimeBookTickerMatchesCompatibilityBookTickerCapture) 
     const auto publicBookTicker = cxet::composite::compat::materializeBookTickerDataV1(runtime, meta);
     const auto publicRow = hftrec::cxet_bridge::CxetCaptureBridge::captureBookTicker(
         publicBookTicker,
-        std::vector<std::string>{"bidQty", "askQty"});
+        std::vector<std::string>{});
 
     EXPECT_EQ(runtimeRow.symbol, publicRow.symbol);
     EXPECT_EQ(runtimeRow.tsNs, publicRow.tsNs);

@@ -6,6 +6,11 @@ This document defines the canonical on-disk format for captured sessions.
 
 This is the current source of truth for recording and replay.
 
+Important scope rule:
+- JSON is the current canonical durable backend
+- JSON is not the permanent architecture truth for all future backends
+- consumer semantics must stay defined by session/materialization contracts, not by filename-specific behavior alone
+
 ## Session directory
 
 Each session lives in:
@@ -115,10 +120,8 @@ Current implemented fields:
 - `captureSeq`
 - `ingestSeq`
 - `bidPriceE8`
-- `askPriceE8`
-
-Optional current fields:
 - `bidQtyE8`
+- `askPriceE8`
 - `askQtyE8`
 
 ### `depth.jsonl`

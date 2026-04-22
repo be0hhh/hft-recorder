@@ -12,6 +12,7 @@ add_executable(hftrec_unit_tests
     test_session_replay.cpp
     test_bookticker_exactness.cpp
     test_cxet_capture_bridge.cpp
+    test_event_storage.cpp
     test_local_exchange_server.cpp
     test_local_order_engine.cpp
 )
@@ -25,6 +26,7 @@ if(Qt6_FOUND)
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerSession.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerSelection.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewer/LiveDataProvider.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
     )
