@@ -21,6 +21,25 @@ bool inRange(const Row& row, std::int64_t fromTsNs, std::int64_t toTsNs) noexcep
     return row.tsNs >= fromTsNs && row.tsNs <= toTsNs;
 }
 
+template <typename Row>
+void appendRowsInSortedRange(const std::vector<Row>& src,
+                             std::int64_t fromTsNs,
+                             std::int64_t toTsNs,
+                             std::vector<Row>& out) {
+    if (src.empty() || toTsNs < fromTsNs) return;
+    const auto begin = std::lower_bound(
+        src.begin(),
+        src.end(),
+        fromTsNs,
+        [](const Row& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
+    const auto end = std::upper_bound(
+        begin,
+        src.end(),
+        toTsNs,
+        [](std::int64_t ts, const Row& row) noexcept { return ts < row.tsNs; });
+    out.insert(out.end(), begin, end);
+}
+
 Status mergeStatus(Status current, Status next) noexcept {
     return isOk(current) ? next : current;
 }
@@ -104,14 +123,10 @@ EventBatch LiveEventStore::readAll() const {
 EventBatch LiveEventStore::readRange(std::int64_t fromTsNs, std::int64_t toTsNs) const {
     EventBatch out{};
     std::lock_guard<std::mutex> lock(mutex_);
-    std::copy_if(events_.trades.begin(), events_.trades.end(), std::back_inserter(out.trades),
-                 [fromTsNs, toTsNs](const replay::TradeRow& row) noexcept { return inRange(row, fromTsNs, toTsNs); });
-    std::copy_if(events_.bookTickers.begin(), events_.bookTickers.end(), std::back_inserter(out.bookTickers),
-                 [fromTsNs, toTsNs](const replay::BookTickerRow& row) noexcept { return inRange(row, fromTsNs, toTsNs); });
-    std::copy_if(events_.depths.begin(), events_.depths.end(), std::back_inserter(out.depths),
-                 [fromTsNs, toTsNs](const replay::DepthRow& row) noexcept { return inRange(row, fromTsNs, toTsNs); });
-    std::copy_if(events_.snapshots.begin(), events_.snapshots.end(), std::back_inserter(out.snapshots),
-                 [fromTsNs, toTsNs](const replay::SnapshotDocument& row) noexcept { return inRange(row, fromTsNs, toTsNs); });
+    appendRowsInSortedRange(events_.trades, fromTsNs, toTsNs, out.trades);
+    appendRowsInSortedRange(events_.bookTickers, fromTsNs, toTsNs, out.bookTickers);
+    appendRowsInSortedRange(events_.depths, fromTsNs, toTsNs, out.depths);
+    appendRowsInSortedRange(events_.snapshots, fromTsNs, toTsNs, out.snapshots);
     return out;
 }
 

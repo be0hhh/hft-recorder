@@ -1,4 +1,4 @@
-#include "gui/viewer/ChartController.hpp"
+﻿#include "gui/viewer/ChartController.hpp"
 
 #include <QFileInfo>
 #include <algorithm>
@@ -39,19 +39,13 @@ QString recordedSourceIdFromPath(const QString& dir) {
     return sessionName.isEmpty() ? QStringLiteral("recorded") : QStringLiteral("recorded:%1").arg(sessionName);
 }
 
-std::int64_t latestBatchTs(const LiveDataBatch& batch) noexcept {
-    std::int64_t ts = 0;
-    if (!batch.trades.empty()) ts = std::max(ts, batch.trades.back().tsNs);
-    if (!batch.bookTickers.empty()) ts = std::max(ts, batch.bookTickers.back().tsNs);
-    if (!batch.depths.empty()) ts = std::max(ts, batch.depths.back().tsNs);
-    return ts;
-}
-
 }  // namespace
 
 void ChartController::clearLiveDataCache_() noexcept {
-    liveDataCache_.visibleRows = LiveDataBatch{};
-    liveDataCache_.lastBatch = LiveDataBatch{};
+    liveDataCache_.stableRows = LiveDataBatch{};
+    liveDataCache_.overlayRows = LiveDataBatch{};
+    liveOverlayState_ = LiveDataBatch{};
+    liveInitialViewportApplied_ = false;
     ++liveDataCache_.version;
     liveDataStats_ = LiveDataStats{};
     liveWindowTsMin_ = 0;
@@ -62,7 +56,7 @@ void ChartController::clearLiveDataCache_() noexcept {
 void ChartController::startLiveData_(const std::filesystem::path& sessionDir) {
     refreshProviderFromRegistry_();
     liveOrderbookHealthy_ = isOk(replay_.status());
-    liveFollowEdge_ = true;
+    liveFollowEdge_ = false;
     liveDataBatchSeq_ = 0;
     clearLiveDataCache_();
     if (liveDataProvider_ != nullptr) {
@@ -125,6 +119,9 @@ void ChartController::pollLiveData_() {
     const auto oldPriceMin = priceMinE8_;
     const auto oldPriceMax = priceMaxE8_;
     const auto oldLoaded = loaded_;
+    const bool oldHasTrades = hasTrades();
+    const bool oldHasBookTicker = hasBookTicker();
+    const bool oldHasOrderbook = hasOrderbook();
     const auto oldTradeCount = replay_.trades().size();
     const auto oldDepthCount = replay_.depths().size();
     const auto oldBookTickerCount = replay_.bookTickers().size();
@@ -165,47 +162,46 @@ void ChartController::pollLiveData_() {
 
     if (!pollResult.appendedRows) return;
 
-    if (absorbRegistryBatchIntoReplay_(nextLiveBatch)) {
-        if (liveFollowEdge_ && loaded_ && oldLoaded && oldTsMax > oldTsMin) {
-            const auto windowNs = std::max<std::int64_t>(1, oldTsMax - oldTsMin);
-            const auto liveTsMax = std::max<std::int64_t>(replay_.lastTsNs(), replay_.firstTsNs());
-            tsMax_ = liveTsMax;
-            tsMin_ = tsMax_ - windowNs;
-        }
-        liveDataStats_ = liveDataProvider_->stats();
-        liveDataCache_.lastBatch = LiveDataBatch{};
-        ++liveDataCache_.version;
-        const auto nextStatus = QStringLiteral("Live memory | trades=%1 depth=%2 bookticker=%3")
-            .arg(replay_.trades().size())
-            .arg(replay_.depths().size())
-            .arg(replay_.bookTickers().size());
-        if (statusText_ != nextStatus) {
-            statusText_ = nextStatus;
-            emit statusChanged();
-        }
-        emit liveDataChanged();
-        emit sessionChanged();
-        emit viewportChanged();
-        return;
-    }
-
     const bool hasLiveDataBatch = hasRows(nextLiveBatch);
     if (hasLiveDataBatch) {
         liveDataBatchSeq_ = nextLiveBatch.id;
-        if (liveFollowEdge_ && oldLoaded && oldTsMax > oldTsMin) {
-            const auto windowNs = std::max<std::int64_t>(1, oldTsMax - oldTsMin);
-            const auto liveTsMax = std::max<std::int64_t>(replay_.lastTsNs(), latestBatchTs(nextLiveBatch));
-            if (liveTsMax > 0) {
-                tsMax_ = liveTsMax;
-                tsMin_ = tsMax_ - windowNs;
+        if (liveProviderFromRegistry_) {
+            if (!appendOverlayBatch_(nextLiveBatch, &failureText)) {
+                liveOverlayState_ = LiveDataBatch{};
+                liveDataCache_.overlayRows = LiveDataBatch{};
+                ++liveDataCache_.version;
+                if (statusText_ != failureText) {
+                    statusText_ = failureText;
+                    emit statusChanged();
+                }
+                emit liveDataChanged();
+                return;
             }
+            liveDataCache_.overlayRows = liveOverlayState_;
+            liveDataCache_.overlayRows.id = liveDataCache_.version + 1u;
+            ++liveDataCache_.version;
+        } else {
+            if (!appendOverlayBatch_(nextLiveBatch, &failureText)) {
+                liveOverlayState_ = LiveDataBatch{};
+                liveDataCache_.overlayRows = LiveDataBatch{};
+                ++liveDataCache_.version;
+                if (statusText_ != failureText) {
+                    statusText_ = failureText;
+                    emit statusChanged();
+                }
+                emit liveDataChanged();
+                return;
+            }
+            liveDataCache_.overlayRows = liveOverlayState_;
+            liveDataCache_.overlayRows.id = liveDataCache_.version + 1u;
+            ++liveDataCache_.version;
         }
-        liveDataCache_.lastBatch = std::move(nextLiveBatch);
-        ++liveDataCache_.version;
     }
+
     liveDataStats_ = liveDataProvider_->stats();
     liveOrderbookHealthy_ = isOk(replay_.status());
-    loaded_ = !replay_.buckets().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
+    refreshLoadedStateFromSources_();
+    initializeViewportFromLiveDataOnce_();
     currentBookTickerIndex_ = -1;
 
     const auto nextStatus = isOk(replay_.status())
@@ -218,12 +214,15 @@ void ChartController::pollLiveData_() {
     const bool viewportChangedFlag = (tsMin_ != oldTsMin) || (tsMax_ != oldTsMax)
         || (priceMinE8_ != oldPriceMin) || (priceMaxE8_ != oldPriceMax);
     const bool sessionChangedFlag = (loaded_ != oldLoaded)
+        || (hasTrades() != oldHasTrades)
+        || (hasBookTicker() != oldHasBookTicker)
+        || (hasOrderbook() != oldHasOrderbook)
         || (replay_.trades().size() != oldTradeCount)
         || (replay_.depths().size() != oldDepthCount)
         || (replay_.bookTickers().size() != oldBookTickerCount);
 
-    if (reloadedSession) emit sessionChanged();
-    else if (sessionChangedFlag || hasLiveDataBatch) emit liveDataChanged();
+    if (reloadedSession || sessionChangedFlag) emit sessionChanged();
+    else if (hasLiveDataBatch) emit liveDataChanged();
     if (viewportChangedFlag) emit viewportChanged();
     if (statusText_ != nextStatus) {
         statusText_ = nextStatus;
@@ -441,6 +440,11 @@ bool ChartController::loadSession(const QString& dir) {
 }
 
 }  // namespace hftrec::gui::viewer
+
+
+
+
+
 
 
 

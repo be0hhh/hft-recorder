@@ -1,4 +1,4 @@
-#include "gui/viewer/ChartItem.hpp"
+﻿#include "gui/viewer/ChartItem.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -336,44 +336,14 @@ bool hasLiveDataRows(const LiveDataBatch& batch) noexcept {
     return !batch.trades.empty() || !batch.bookTickers.empty() || !batch.depths.empty();
 }
 
-template <typename Row>
-bool sameEventKey(const Row& lhs, const Row& rhs) noexcept {
-    return lhs.tsNs == rhs.tsNs
-        && lhs.captureSeq == rhs.captureSeq
-        && lhs.ingestSeq == rhs.ingestSeq;
-}
-
-template <typename Row>
-void removeMatchingTail(std::vector<Row>& rows, const std::vector<Row>& tail) {
-    if (tail.empty() || tail.size() > rows.size()) return;
-    const auto offset = rows.size() - tail.size();
-    for (std::size_t i = 0; i < tail.size(); ++i) {
-        if (!sameEventKey(rows[offset + i], tail[i])) return;
-    }
-    rows.resize(offset);
-}
-
 LiveDataBatch liveDataBaseBatch(const LiveDataCache& cache) {
-    LiveDataBatch batch = cache.visibleRows;
+    LiveDataBatch batch = cache.stableRows;
     batch.id = cache.version;
-
-    const auto& last = cache.lastBatch;
-    removeMatchingTail(batch.trades, last.trades);
-    removeMatchingTail(batch.bookTickers, last.bookTickers);
-    removeMatchingTail(batch.depths, last.depths);
     return batch;
 }
 
 const hftrec::replay::BookTickerRow* liveDataCarryForLastBatch(const LiveDataCache& cache) noexcept {
-    const auto lastCount = cache.lastBatch.bookTickers.size();
-    if (lastCount == 0u || cache.visibleRows.bookTickers.size() <= lastCount) return nullptr;
-    const auto offset = cache.visibleRows.bookTickers.size() - lastCount;
-    for (std::size_t i = 0; i < lastCount; ++i) {
-        if (!sameEventKey(cache.visibleRows.bookTickers[offset + i], cache.lastBatch.bookTickers[i])) {
-            return nullptr;
-        }
-    }
-    return offset == 0u ? nullptr : &cache.visibleRows.bookTickers[offset - 1u];
+    return cache.stableRows.bookTickers.empty() ? nullptr : &cache.stableRows.bookTickers.back();
 }
 
 void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
@@ -407,23 +377,6 @@ RenderSnapshot baseSnapshotWithLiveDataCache(const RenderSnapshot& snap,
         appendSnapshotRows(base, liveSnapshotFromDataBatch(base, batch, nullptr, nextTradeOrigIndex(base)));
     }
     return base;
-}
-
-int liveDataLastBatchTradeStart(const LiveDataCache& cache) noexcept {
-    const auto allCount = cache.visibleRows.trades.size();
-    const auto lastCount = cache.lastBatch.trades.size();
-    if (lastCount > allCount) return 0;
-    const auto start = allCount - lastCount;
-    for (std::size_t i = 0; i < lastCount; ++i) {
-        if (!sameEventKey(cache.visibleRows.trades[start + i], cache.lastBatch.trades[i])) {
-            return allCount > static_cast<std::size_t>(std::numeric_limits<int>::max())
-                ? std::numeric_limits<int>::max()
-                : static_cast<int>(allCount);
-        }
-    }
-    return start > static_cast<std::size_t>(std::numeric_limits<int>::max())
-        ? std::numeric_limits<int>::max()
-        : static_cast<int>(start);
 }
 
 void drawTradeBridge(QPainter* painter, const RenderSnapshot& base, const RenderSnapshot& live) {
@@ -474,7 +427,7 @@ void ChartItem::requestRepaint() {
 }
 
 void ChartItem::requestLiveRepaint() {
-    mergeLiveSnapshotIntoBaseImage_();
+    invalidateBaseImage_();
     cachedLiveSnap_.reset();
     update();
 }
@@ -674,17 +627,10 @@ void ChartItem::paint(QPainter* painter) {
     ensureLayerImages_(layerSnap, w, h);
     const auto& liveCache = controller_->liveDataCache();
     const RenderSnapshot baseSnap = baseSnapshotWithLiveDataCache(snap, liveCache);
-    const auto& liveBatch = liveCache.lastBatch;
+    const auto& liveBatch = liveCache.overlayRows;
     if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveBatch.id) {
         const auto* carry = liveDataCarryForLastBatch(liveCache);
-        const int liveTradeOrigIndexStart = [&]() noexcept {
-            const auto baseTradeOrigIndex = nextTradeOrigIndex(baseSnap);
-            const auto lastBatchOffset = liveDataLastBatchTradeStart(liveCache);
-            if (baseTradeOrigIndex >= std::numeric_limits<int>::max() - lastBatchOffset) {
-                return std::numeric_limits<int>::max();
-            }
-            return baseTradeOrigIndex + lastBatchOffset;
-        }();
+        const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
         cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
             liveSnapshotFromDataBatch(snap, liveBatch, carry, liveTradeOrigIndexStart));
         cachedLiveDataBatchId_ = liveBatch.id;
@@ -739,3 +685,7 @@ void ChartItem::paint(QPainter* painter) {
 }
 
 }  // namespace hftrec::gui::viewer
+
+
+
+

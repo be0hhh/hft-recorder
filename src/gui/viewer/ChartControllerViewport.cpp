@@ -1,4 +1,4 @@
-#include "gui/viewer/ChartController.hpp"
+﻿#include "gui/viewer/ChartController.hpp"
 
 #include <QDateTime>
 #include <QColor>
@@ -692,7 +692,13 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     RenderSnapshot snap{};
     snap.vp = ViewportMap{tsMin_, tsMax_, priceMinE8_, priceMaxE8_,
                           static_cast<double>(widthPx), static_cast<double>(heightPx)};
-    snap.loaded = loaded_;
+    snap.loaded = loaded_
+        || !liveDataCache_.stableRows.trades.empty()
+        || !liveDataCache_.stableRows.bookTickers.empty()
+        || !liveDataCache_.stableRows.depths.empty()
+        || !liveDataCache_.overlayRows.trades.empty()
+        || !liveDataCache_.overlayRows.bookTickers.empty()
+        || !liveDataCache_.overlayRows.depths.empty();
     snap.tradesVisible = in.tradesVisible;
     snap.orderbookVisible = in.orderbookVisible;
     snap.bookTickerVisible = in.bookTickerVisible;
@@ -704,7 +710,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     snap.bookRenderDetail = in.bookRenderDetail;
     snap.bookDepthWindowPct = std::clamp<qreal>(in.bookDepthWindowPct, 1.0, 25.0);
 
-    if (!loaded_ || widthPx <= 0.0 || heightPx <= 0.0) return snap;
+    if (!snap.loaded || widthPx <= 0.0 || heightPx <= 0.0) return snap;
     if (snap.vp.tMax <= snap.vp.tMin || snap.vp.pMax <= snap.vp.pMin) return snap;
 
     const auto minVisibleAmountE8 = usdToE8(in.bookRenderDetail);
@@ -907,3 +913,5 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
 }
 
 }  // namespace hftrec::gui::viewer
+
+

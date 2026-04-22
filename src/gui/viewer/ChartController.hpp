@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QObject>
 #include <QString>
@@ -56,10 +56,25 @@ class ChartController : public QObject {
     qint64 tsMax() const { return tsMax_; }
     qint64 priceMinE8() const { return priceMinE8_; }
     qint64 priceMaxE8() const { return priceMaxE8_; }
-    bool hasTrades() const noexcept { return !replay_.trades().empty(); }
-    bool hasBookTicker() const noexcept { return !replay_.bookTickers().empty(); }
+    bool hasTrades() const noexcept {
+        return !replay_.trades().empty()
+            || !liveDataCache_.stableRows.trades.empty()
+            || !liveDataCache_.overlayRows.trades.empty()
+            || !liveOverlayState_.trades.empty();
+    }
+    bool hasBookTicker() const noexcept {
+        return !replay_.bookTickers().empty()
+            || !liveDataCache_.stableRows.bookTickers.empty()
+            || !liveDataCache_.overlayRows.bookTickers.empty()
+            || !liveOverlayState_.bookTickers.empty();
+    }
     bool hasOrderbook() const noexcept {
-        return !replay_.depths().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
+        return !replay_.depths().empty()
+            || !replay_.book().bids().empty()
+            || !replay_.book().asks().empty()
+            || !liveDataCache_.stableRows.depths.empty()
+            || !liveDataCache_.overlayRows.depths.empty()
+            || !liveOverlayState_.depths.empty();
     }
     bool gpuRendererAvailable() const noexcept { return gpuRendererAvailable_; }
 
@@ -168,7 +183,10 @@ class ChartController : public QObject {
     void pollLiveData_();
     void clearLiveDataCache_() noexcept;
     void refreshProviderFromRegistry_();
-    bool absorbRegistryBatchIntoReplay_(const LiveDataBatch& batch);
+    bool appendOverlayBatch_(const LiveDataBatch& batch, QString* failureText = nullptr);
+    void reconcileOverlayWithStable_();
+    void refreshLoadedStateFromSources_() noexcept;
+    void initializeViewportFromLiveDataOnce_() noexcept;
     void markUserViewportControl_() noexcept;
     SelectionRange selectionFromRect_(qreal plotWidthPx, qreal plotHeightPx,
                                       qreal x0, qreal y0, qreal x1, qreal y1) const noexcept;
@@ -189,6 +207,8 @@ class ChartController : public QObject {
     bool liveOrderbookHealthy_{true};
     int liveUpdateIntervalMs_{100};
     LiveDataCache liveDataCache_{};
+    LiveDataBatch liveOverlayState_{};
+    bool liveInitialViewportApplied_{false};
     std::uint64_t liveDataBatchSeq_{0};
     LiveDataStats liveDataStats_{};
     std::int64_t liveWindowTsMin_{0};
@@ -206,6 +226,8 @@ class ChartController : public QObject {
 };
 
 }  // namespace hftrec::gui::viewer
+
+
 
 
 

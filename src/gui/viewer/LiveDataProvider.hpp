@@ -28,8 +28,8 @@ struct LiveDataBatch {
 };
 
 struct LiveDataCache {
-    LiveDataBatch visibleRows{};
-    LiveDataBatch lastBatch{};
+    LiveDataBatch stableRows{};
+    LiveDataBatch overlayRows{};
     std::uint64_t version{0};
 };
 

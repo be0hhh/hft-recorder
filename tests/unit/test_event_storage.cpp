@@ -73,6 +73,20 @@ TEST(EventStorage, LiveStoreKeepsExactRowsAndRanges) {
     EXPECT_GE(stats.version, 2u);
 }
 
+
+TEST(EventStorage, LiveStoreRangeHandlesEmptyAndSingleRowWindows) {
+    hftrec::storage::LiveEventStore store{};
+    ASSERT_EQ(store.appendTrade(tradeRow(100, 1, 1)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendTrade(tradeRow(200, 2, 2)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendTrade(tradeRow(300, 3, 3)), hftrec::Status::Ok);
+
+    const auto empty = store.readRange(201, 299);
+    EXPECT_TRUE(empty.trades.empty());
+
+    const auto single = store.readRange(200, 200);
+    ASSERT_EQ(single.trades.size(), 1u);
+    EXPECT_EQ(single.trades[0].tsNs, 200);
+}
 TEST(EventStorage, LiveStoreReadsOnlyDeltaRowsFromOffsets) {
     hftrec::storage::LiveEventStore store{};
     ASSERT_EQ(store.appendTrade(tradeRow(100, 1, 1)), hftrec::Status::Ok);
@@ -166,3 +180,4 @@ TEST(EventStorage, InMemoryProviderReadsOnlySelectedLiveSource) {
     EXPECT_EQ(registry.snapshotSources().size(), 2u);
     registry.clear();
 }
+

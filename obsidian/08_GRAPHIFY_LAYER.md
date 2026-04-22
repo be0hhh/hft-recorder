@@ -7,12 +7,13 @@ Purpose:
 
 Generated corpus summary:
 
-- `graphify` run date: `2026-04-21`
+- `graphify` raw graph refresh date: `2026-04-22`
 - scope: `apps/hft-recorder`
 - mode: local AST-only for code graph
-- detected corpus: 158 files total, ~79,630 words
-- AST extraction scope: 158 files
-- extracted code graph: 704 nodes, 889 edges
+- detected corpus: 176 files total, ~92,175 words
+- AST extraction scope: 176 files
+- extracted code graph: 927 nodes, 1247 edges
+- detected communities: 159
 
 Locations:
 
@@ -32,6 +33,12 @@ What it is not good at:
 - distinguishing active code from scaffold
 - understanding docs semantics in this run
 
+Freshness status:
+
+- `graphify-out/` was refreshed on `2026-04-22`
+- `graphify-generated/` in this workspace still has `2026-04-21` timestamps
+- treat generated symbol pages and `graph.canvas` as potentially stale until the Obsidian export step is rerun from the refreshed `graphify-out/graph.json`
+
 How to use it:
 
 1. read the curated notes in this vault first
@@ -44,4 +51,5 @@ Regeneration intent:
 - regenerate raw graph when code shape changes materially
 - regenerate `graphify-generated/` from the refreshed `graphify-out/graph.json` when symbol navigation is expected to stay aligned with the current code
 - do not overwrite curated root notes with generated output
-- current raw graph and generated vault were refreshed on `2026-04-21`
+- current raw graph was refreshed on `2026-04-22`
+- current generated vault snapshot in this workspace is still from `2026-04-21`

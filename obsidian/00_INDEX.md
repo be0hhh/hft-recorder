@@ -27,6 +27,7 @@ Read in this order:
 21. [[15_VECTOR_RETRIEVAL]]
 22. [[16_MCP_STACK]]
 23. [[08_GRAPHIFY_LAYER]]
+24. [[18_GRAPHIFY_ENTRYPOINTS]]
 
 Core idea:
 
@@ -58,6 +59,7 @@ Canonical docs outside this vault:
 Machine layer:
 
 - [[08_GRAPHIFY_LAYER]]
+- [[18_GRAPHIFY_ENTRYPOINTS]]
 
 Workflow layer:
 
