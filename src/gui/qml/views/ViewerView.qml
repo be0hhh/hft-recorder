@@ -258,11 +258,13 @@ Pane {
                     property real pressX: 0
                     property real pressY: 0
                     property bool dragActive: false
+                    property bool contextHoldActive: false
                     acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                     hoverEnabled: true
                     preventStealing: true
                     onPressed: function(mouse) {
                         if (mouse.button === Qt.RightButton) {
+                            contextHoldActive = true
                             if (root.chartSurface()) root.chartSurface().activateContextPoint(mouse.x, mouse.y)
                             return
                         }
@@ -298,6 +300,11 @@ Pane {
                             interaction.updateMeasurement(chart, plotFrame.width, plotFrame.height)
                             return
                         }
+                        if (contextHoldActive || (mouse.buttons & Qt.RightButton)) {
+                            contextHoldActive = true
+                            if (root.chartSurface()) root.chartSurface().activateContextPoint(mouse.x, mouse.y)
+                            return
+                        }
                         if (mouse.buttons & Qt.LeftButton) {
                             if (!dragActive) {
                                 var distance = Math.abs(mouse.x - pressX) + Math.abs(mouse.y - pressY)
@@ -324,17 +331,24 @@ Pane {
                             interaction.stopInteractiveModeSoon(interactiveModeTimer)
                             return
                         }
+                        if (contextHoldActive) {
+                            contextHoldActive = false
+                            if (root.chartSurface()) root.chartSurface().clearHover()
+                        }
                         interaction.plotDragging = false
                         if (dragActive) interaction.stopInteractiveModeSoon(interactiveModeTimer)
                         dragActive = false
                     }
                     onCanceled: {
                         if (interaction.rangeSelectionActive) interaction.finishMeasurement(chart)
+                        contextHoldActive = false
+                        if (root.chartSurface()) root.chartSurface().clearHover()
                         interaction.plotDragging = false
                         if (dragActive) interaction.stopInteractiveModeSoon(interactiveModeTimer)
                         dragActive = false
                     }
                     onExited: {
+                        contextHoldActive = false
                         if (!interaction.rangeSelectionActive && root.chartSurface()) root.chartSurface().clearHover()
                     }
                     onWheel: function(wheel) {

@@ -20,18 +20,63 @@ std::int64_t timestampAtX(const ViewportMap& vp, qreal x) noexcept {
     return vp.tMin + static_cast<std::int64_t>(std::llround((clampedX / vp.w) * span));
 }
 
-const BookSegment* activeSegmentAt(const RenderSnapshot& snap, qreal x) noexcept {
-    if (snap.bookSegments.empty()) return nullptr;
+std::ptrdiff_t activeSegmentIndexAt(const RenderSnapshot& snap, qreal x) noexcept {
+    if (snap.bookSegments.empty()) return -1;
     const std::int64_t cursor = timestampAtX(snap.vp, x);
     const auto it = std::upper_bound(
         snap.bookSegments.begin(),
         snap.bookSegments.end(),
         cursor,
         [](std::int64_t ts, const BookSegment& seg) noexcept { return ts < seg.tsStartNs; });
-    if (it == snap.bookSegments.begin()) return nullptr;
-    const auto& seg = *(it - 1);
-    if (cursor < seg.tsStartNs || cursor > seg.tsEndNs) return nullptr;
-    return &seg;
+    if (it == snap.bookSegments.begin()) return -1;
+    const auto index = static_cast<std::ptrdiff_t>((it - snap.bookSegments.begin()) - 1);
+    const auto& seg = snap.bookSegments[static_cast<std::size_t>(index)];
+    if (cursor < seg.tsStartNs || cursor > seg.tsEndNs) return -1;
+    return index;
+}
+
+std::int64_t minVisibleAmountE8(const RenderSnapshot& snap) noexcept {
+    constexpr std::int64_t kUsdScaleE8 = 100000000ll;
+    const qreal clampedUsd = std::clamp<qreal>(snap.bookRenderDetail, 1000.0, 1000000.0);
+    return static_cast<std::int64_t>(std::llround(clampedUsd * static_cast<qreal>(kUsdScaleE8)));
+}
+
+const BookLevel* findVisibleLevelByPrice(const std::vector<BookLevel>& levels,
+                                         const ViewportMap& vp,
+                                         std::int64_t minVisibleLevelAmountE8,
+                                         std::int64_t priceE8) noexcept {
+    for (const auto& level : levels) {
+        if (level.priceE8 != priceE8) continue;
+        if (level.qtyE8 <= 0 || level.priceE8 < vp.pMin || level.priceE8 > vp.pMax) return nullptr;
+        const auto amountE8 = detail::multiplyScaledE8(level.qtyE8, level.priceE8);
+        return amountE8 >= minVisibleLevelAmountE8 ? &level : nullptr;
+    }
+    return nullptr;
+}
+
+void expandBookSpan(const RenderSnapshot& snap,
+                    std::ptrdiff_t segmentIndex,
+                    bool bidSide,
+                    std::int64_t priceE8,
+                    std::int64_t& outStartNs,
+                    std::int64_t& outEndNs) noexcept {
+    const auto& segments = snap.bookSegments;
+    const auto minVisibleLevelAmountE8 = minVisibleAmountE8(snap);
+    outStartNs = segments[static_cast<std::size_t>(segmentIndex)].tsStartNs;
+    outEndNs = segments[static_cast<std::size_t>(segmentIndex)].tsEndNs;
+
+    for (std::ptrdiff_t i = segmentIndex - 1; i >= 0; --i) {
+        const auto& seg = segments[static_cast<std::size_t>(i)];
+        const auto& levels = bidSide ? seg.bids : seg.asks;
+        if (findVisibleLevelByPrice(levels, snap.vp, minVisibleLevelAmountE8, priceE8) == nullptr) break;
+        outStartNs = seg.tsStartNs;
+    }
+    for (std::ptrdiff_t i = segmentIndex + 1; i < static_cast<std::ptrdiff_t>(segments.size()); ++i) {
+        const auto& seg = segments[static_cast<std::size_t>(i)];
+        const auto& levels = bidSide ? seg.bids : seg.asks;
+        if (findVisibleLevelByPrice(levels, snap.vp, minVisibleLevelAmountE8, priceE8) == nullptr) break;
+        outEndNs = seg.tsEndNs;
+    }
 }
 
 const BookTickerSample* nearestBookTickerSample(const RenderSnapshot& snap, qreal x) noexcept {
@@ -108,7 +153,9 @@ void computeHover(const RenderSnapshot& snap,
     }
 
     if (out.bookKind == 0 && snap.orderbookVisible) {
-        if (const auto* seg = activeSegmentAt(snap, point.x()); seg != nullptr) {
+        const auto segIndex = activeSegmentIndexAt(snap, point.x());
+        if (segIndex >= 0) {
+            const auto* seg = &snap.bookSegments[static_cast<std::size_t>(segIndex)];
             constexpr double kBookHitPx = 8.0;
             std::int64_t priceE8 = 0;
             std::int64_t qtyE8 = 0;
@@ -117,6 +164,7 @@ void computeHover(const RenderSnapshot& snap,
                 out.bookPriceE8 = priceE8;
                 out.bookQtyE8 = qtyE8;
                 out.bookTsNs = seg->tsStartNs;
+                expandBookSpan(snap, segIndex, true, priceE8, out.bookTsStartNs, out.bookTsEndNs);
             }
 
             std::int64_t askPriceE8 = 0;
@@ -131,6 +179,7 @@ void computeHover(const RenderSnapshot& snap,
                     out.bookPriceE8 = askPriceE8;
                     out.bookQtyE8 = askQtyE8;
                     out.bookTsNs = seg->tsStartNs;
+                    expandBookSpan(snap, segIndex, false, askPriceE8, out.bookTsStartNs, out.bookTsEndNs);
                 }
             }
         }

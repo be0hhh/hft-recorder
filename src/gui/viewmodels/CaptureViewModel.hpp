@@ -79,6 +79,8 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE void stopBookTicker();
     Q_INVOKABLE bool startOrderbook();
     Q_INVOKABLE void stopOrderbook();
+    Q_INVOKABLE bool startAllChannels();
+    Q_INVOKABLE void stopAllChannels();
     Q_INVOKABLE void finalizeSession();
 
   signals:

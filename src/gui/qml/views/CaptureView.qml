@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import HftRecorder 1.0
@@ -7,6 +7,7 @@ Pane {
     id: root
 
     required property CaptureViewModel captureVm
+    property bool anyChannelRunning: root.captureVm.tradesRunning || root.captureVm.bookTickerRunning || root.captureVm.orderbookRunning
 
     property color windowColor: "#161616"
     property color panelColor: "#2c2c2f"
@@ -58,6 +59,18 @@ Pane {
 
                     Label { text: "Capture Controls"; font.bold: true; color: root.textColor }
 
+                    CaptureAccentActionButton {
+                        Layout.fillWidth: true
+                        text: root.anyChannelRunning ? "Stop All" : "Start All"
+                        accentColor: root.anyChannelRunning ? root.accentSellColor : root.accentRequiredColor
+                        actionTextColor: root.anyChannelRunning ? "#fff4f5" : "#071419"
+                        mutedTextColor: root.mutedTextColor
+                        onClicked: {
+                            if (root.anyChannelRunning) root.captureVm.stopAllChannels()
+                            else root.captureVm.startAllChannels()
+                        }
+                    }
+
                     CaptureChannelCard {
                         captureVm: root.captureVm
                         channelKey: "trades"
@@ -78,10 +91,9 @@ Pane {
                         accentSellColor: root.accentSellColor
                         actionAccentColor: root.captureVm.tradesRunning ? root.accentSellColor : root.accentRequiredColor
                         actionTextColor: root.captureVm.tradesRunning ? "#fff4f5" : "#071419"
-                        onActionTriggered: {
-                            if (root.captureVm.tradesRunning) root.captureVm.stopTrades()
-                            else root.captureVm.startTrades()
-                        }
+
+                        actionVisible: false
+
                     }
 
                     CaptureChannelCard {
@@ -104,10 +116,9 @@ Pane {
                         accentSellColor: root.accentSellColor
                         actionAccentColor: root.captureVm.bookTickerRunning ? root.accentSellColor : root.accentRequiredColor
                         actionTextColor: root.captureVm.bookTickerRunning ? "#fff4f5" : "#071419"
-                        onActionTriggered: {
-                            if (root.captureVm.bookTickerRunning) root.captureVm.stopBookTicker()
-                            else root.captureVm.startBookTicker()
-                        }
+
+                        actionVisible: false
+
                     }
 
                     CaptureChannelCard {
@@ -130,10 +141,9 @@ Pane {
                         accentSellColor: root.accentSellColor
                         actionAccentColor: root.captureVm.orderbookRunning ? root.accentSellColor : root.accentRequiredColor
                         actionTextColor: root.captureVm.orderbookRunning ? "#fff4f5" : "#071419"
-                        onActionTriggered: {
-                            if (root.captureVm.orderbookRunning) root.captureVm.stopOrderbook()
-                            else root.captureVm.startOrderbook()
-                        }
+
+                        actionVisible: false
+
                     }
 
                     CaptureDarkButton {

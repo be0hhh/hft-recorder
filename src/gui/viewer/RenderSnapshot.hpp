@@ -83,6 +83,8 @@ struct HoverInfo {
     std::int64_t bookPriceE8{0};
     std::int64_t bookQtyE8{0};
     std::int64_t bookTsNs{0};
+    std::int64_t bookTsStartNs{0};
+    std::int64_t bookTsEndNs{0};
 };
 
 // Everything renderers need to draw one frame. Plain POD; owned by whoever

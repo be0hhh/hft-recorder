@@ -99,6 +99,8 @@ class GpuChartItem : public QQuickFramebufferObject {
     std::int64_t hoveredBookPriceE8_{0};
     std::int64_t hoveredBookQtyE8_{0};
     std::int64_t hoveredBookTsNs_{0};
+    std::int64_t hoveredBookTsStartNs_{0};
+    std::int64_t hoveredBookTsEndNs_{0};
     bool tradesVisible_{true};
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};

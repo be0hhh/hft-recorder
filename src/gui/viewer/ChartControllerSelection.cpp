@@ -60,6 +60,14 @@ QString formatPctE8(std::int64_t pctE8) {
     return detail::formatTrimmedE8(pctE8) + QStringLiteral("%");
 }
 
+QString formatDurationAdaptive(std::int64_t durationNs) {
+    const std::int64_t clampedNs = std::max<std::int64_t>(0, durationNs);
+    return QStringLiteral("%1 s | %2 ms | %3 us")
+        .arg(clampedNs / 1000000000ll)
+        .arg(clampedNs / 1000000ll)
+        .arg(clampedNs / 1000ll);
+}
+
 std::int64_t percentScaledE8(std::int64_t firstPriceE8, std::int64_t lastPriceE8) {
     if (firstPriceE8 <= 0) return 0;
 
@@ -188,7 +196,15 @@ bool ChartController::measureTradeHighLowRect(qreal plotWidthPx,
         return true;
     }
 
-    SelectionRange range = outerRange;
+    SelectionRange range{};
+    range.valid = true;
+    range.timeStartNs = std::min(highTsNs, lowTsNs);
+    range.timeEndNs = std::max(highTsNs, lowTsNs);
+    if (range.timeEndNs <= range.timeStartNs) range.timeEndNs = range.timeStartNs + 1;
+    range.priceMinE8 = lowPriceE8;
+    range.priceMaxE8 = highPriceE8;
+    if (range.priceMaxE8 <= range.priceMinE8) range.priceMaxE8 = range.priceMinE8 + 1;
+
     const auto summary = buildSelectionSummary_(range);
     QStringList lines;
     lines << QStringLiteral("High/Low Trade Range");
@@ -201,7 +217,35 @@ bool ChartController::measureTradeHighLowRect(qreal plotWidthPx,
     lines << QStringLiteral("Order %1")
                  .arg(highTsNs <= lowTsNs ? QStringLiteral("high -> low") : QStringLiteral("low -> high"));
     lines << QString{};
-    lines << formatSelectionSummary_(range, summary);
+    lines << QStringLiteral("Selection");
+    lines << QStringLiteral("Time   %1 -> %2")
+                 .arg(formatShortTimeNs(range.timeStartNs))
+                 .arg(formatShortTimeNs(range.timeEndNs));
+    lines << QStringLiteral("DeltaT %1").arg(formatDurationAdaptive(range.timeEndNs - range.timeStartNs));
+    lines << QStringLiteral("Price  %1 .. %2")
+                 .arg(detail::formatTrimmedE8(range.priceMinE8))
+                 .arg(detail::formatTrimmedE8(range.priceMaxE8));
+    lines << QString{};
+    lines << QStringLiteral("Trades");
+    lines << QStringLiteral("Count  %1").arg(summary.tradeCount);
+    lines << QStringLiteral("Buy    %1 coin | $%2")
+                 .arg(detail::formatTrimmedE8(summary.buyQtyE8))
+                 .arg(detail::formatTrimmedE8(summary.buyNotionalE8));
+    lines << QStringLiteral("Sell   %1 coin | $%2")
+                 .arg(detail::formatTrimmedE8(summary.sellQtyE8))
+                 .arg(detail::formatTrimmedE8(summary.sellNotionalE8));
+    lines << QStringLiteral("Total  %1 coin | $%2")
+                 .arg(detail::formatTrimmedE8(summary.buyQtyE8 + summary.sellQtyE8))
+                 .arg(detail::formatTrimmedE8(summary.buyNotionalE8 + summary.sellNotionalE8));
+    lines << QStringLiteral("Delta  %1 coin | $%2")
+                 .arg(detail::formatTrimmedE8(summary.buyQtyE8 - summary.sellQtyE8))
+                 .arg(detail::formatTrimmedE8(summary.buyNotionalE8 - summary.sellNotionalE8));
+    lines << QStringLiteral("Move   %1")
+                 .arg((highTsNs <= lowTsNs ? highPriceE8 : lowPriceE8) > 0
+                          ? formatPctE8(percentScaledE8(
+                                highTsNs <= lowTsNs ? highPriceE8 : lowPriceE8,
+                                highTsNs <= lowTsNs ? lowPriceE8 : highPriceE8))
+                          : QStringLiteral("n/a"));
     selectionSummaryText_ = lines.join(QLatin1Char('\n'));
     selectionActive_ = true;
     emit selectionChanged();
@@ -237,7 +281,7 @@ bool ChartController::measurePointDistance(qreal plotWidthPx,
 
     QStringList lines;
     lines << QStringLiteral("Measure");
-    lines << QStringLiteral("DeltaT %1 us").arg((tsB - tsA) / 1000);
+    lines << QStringLiteral("DeltaT %1").arg(formatDurationAdaptive(std::llabs(tsB - tsA)));
     lines << QStringLiteral("Price  %1 -> %2")
                  .arg(detail::formatTrimmedE8(priceA))
                  .arg(detail::formatTrimmedE8(priceB));
@@ -516,7 +560,7 @@ QString ChartController::formatSelectionSummary_(const SelectionRange& range,
     lines << QStringLiteral("Time   %1 -> %2")
                  .arg(formatShortTimeNs(range.timeStartNs))
                  .arg(formatShortTimeNs(range.timeEndNs));
-    lines << QStringLiteral("DeltaT %1 us").arg(summary.durationUs);
+    lines << QStringLiteral("DeltaT %1").arg(formatDurationAdaptive(range.timeEndNs - range.timeStartNs));
     lines << QStringLiteral("Price  %1 .. %2")
                  .arg(detail::formatTrimmedE8(range.priceMinE8))
                  .arg(detail::formatTrimmedE8(range.priceMaxE8));

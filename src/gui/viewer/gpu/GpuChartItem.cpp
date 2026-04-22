@@ -344,6 +344,7 @@ bool GpuChartItem::shouldSkipHoverRecompute_(const QPointF& point, bool contextA
 }
 
 void GpuChartItem::setHoverPoint(qreal x, qreal y) {
+    if (contextActive_) return;
     if (shouldSkipHoverRecompute_(QPointF{x, y}, false)) return;
     hoverPoint_ = QPointF{x, y};
     hoverActive_ = true;
@@ -373,6 +374,8 @@ void GpuChartItem::clearHover() {
     hoveredBookPriceE8_ = 0;
     hoveredBookQtyE8_ = 0;
     hoveredBookTsNs_ = 0;
+    hoveredBookTsStartNs_ = 0;
+    hoveredBookTsEndNs_ = 0;
     hoverInfo_ = std::make_unique<HoverInfo>();
     update();
 }
@@ -383,6 +386,8 @@ void GpuChartItem::updateHover_() {
     hoveredBookPriceE8_ = 0;
     hoveredBookQtyE8_ = 0;
     hoveredBookTsNs_ = 0;
+    hoveredBookTsStartNs_ = 0;
+    hoveredBookTsEndNs_ = 0;
     hoverInfo_ = std::make_unique<HoverInfo>();
     if (!hoverActive_ || !controller_ || !controller_->loaded() || width() <= 0 || height() <= 0) return;
 
@@ -396,6 +401,8 @@ void GpuChartItem::updateHover_() {
     hoveredBookPriceE8_ = hover.bookPriceE8;
     hoveredBookQtyE8_ = hover.bookQtyE8;
     hoveredBookTsNs_ = hover.bookTsNs;
+    hoveredBookTsStartNs_ = hover.bookTsStartNs;
+    hoveredBookTsEndNs_ = hover.bookTsEndNs;
     *hoverInfo_ = buildHoverInfo_();
 }
 
@@ -445,6 +452,8 @@ HoverInfo GpuChartItem::buildHoverInfo_() const {
     hover.bookPriceE8 = hoveredBookPriceE8_;
     hover.bookQtyE8 = hoveredBookQtyE8_;
     hover.bookTsNs = hoveredBookTsNs_;
+    hover.bookTsStartNs = hoveredBookTsStartNs_;
+    hover.bookTsEndNs = hoveredBookTsEndNs_;
 
     if (hoveredTradeIndex_ < 0 || controller_ == nullptr) {
         return hover;

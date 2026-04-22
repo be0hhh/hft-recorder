@@ -1,4 +1,4 @@
-﻿#include "gui/viewmodels/CaptureViewModel.hpp"
+#include "gui/viewmodels/CaptureViewModel.hpp"
 
 #include <QVariantMap>
 #include <memory>
@@ -117,6 +117,54 @@ void CaptureViewModel::stopOrderbook() {
         if (coordinator) coordinator->stopOrderbook();
     }
     setStatusText(QStringLiteral("Orderbook capture stopped"));
+    registerLiveSources_();
+    refreshState();
+}
+
+bool CaptureViewModel::startAllChannels() {
+    if (!ensureCoordinatorBatch_()) {
+        refreshState();
+        return false;
+    }
+
+    const auto configs = makeConfigs();
+    for (std::size_t i = 0; i < coordinators_.size() && i < configs.size(); ++i) {
+        const auto tradesStatus = coordinators_[i]->startTrades(configs[i]);
+        if (!isOk(tradesStatus)) {
+            abortCoordinatorBatch_(joinCoordinatorErrors_());
+            refreshState();
+            return false;
+        }
+
+        const auto bookTickerStatus = coordinators_[i]->startBookTicker(configs[i]);
+        if (!isOk(bookTickerStatus)) {
+            abortCoordinatorBatch_(joinCoordinatorErrors_());
+            refreshState();
+            return false;
+        }
+
+        const auto orderbookStatus = coordinators_[i]->startOrderbook(configs[i]);
+        if (!isOk(orderbookStatus)) {
+            abortCoordinatorBatch_(joinCoordinatorErrors_());
+            refreshState();
+            return false;
+        }
+    }
+
+    setStatusText(QStringLiteral("All capture channels started for %1 symbol(s)").arg(coordinators_.size()));
+    registerLiveSources_();
+    refreshState();
+    return true;
+}
+
+void CaptureViewModel::stopAllChannels() {
+    for (auto& coordinator : coordinators_) {
+        if (!coordinator) continue;
+        coordinator->stopTrades();
+        coordinator->stopBookTicker();
+        coordinator->stopOrderbook();
+    }
+    setStatusText(QStringLiteral("All capture channels stopped"));
     registerLiveSources_();
     refreshState();
 }

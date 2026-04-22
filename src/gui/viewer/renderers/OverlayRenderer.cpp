@@ -63,6 +63,21 @@ QRectF layoutCard(const QStringList& lines, const QFontMetrics& metrics,
     return QRectF{x, y, w, h};
 }
 
+void renderObjectCard(QPainter* painter,
+                      const QStringList& lines,
+                      const QColor& accent,
+                      qreal anchorX,
+                      qreal anchorY,
+                      qreal vpW,
+                      qreal vpH) {
+    QFont f = painter->font();
+    f.setPixelSize(12);
+    painter->setFont(f);
+    const QFontMetrics metrics(f);
+    const QRectF card = layoutCard(lines, metrics, anchorX, anchorY, vpW, vpH);
+    drawTextCard(painter, card, accent, lines);
+}
+
 void renderBookOverlay(const RenderContext& ctx) {
     const auto& snap = ctx.s;
     const auto& hov  = ctx.hov;
@@ -77,6 +92,16 @@ void renderBookOverlay(const RenderContext& ctx) {
         std::clamp<qreal>(snap.vp.toY(hov.bookPriceE8), 0.0, snap.vp.h)
     };
     const QColor accent = isBid ? bidColor() : askColor();
+
+    if (hov.bookKind >= 3 && hov.bookTsEndNs > hov.bookTsStartNs) {
+        QPen spanPen(accent);
+        spanPen.setWidthF(1.6);
+        ctx.p->setPen(spanPen);
+        ctx.p->setBrush(Qt::NoBrush);
+        ctx.p->drawLine(
+            QPointF{snap.vp.toX(hov.bookTsStartNs), center.y()},
+            QPointF{snap.vp.toX(hov.bookTsEndNs), center.y()});
+    }
 
     QPen focusPen(accent);
     focusPen.setWidthF(1.4);
@@ -98,13 +123,15 @@ void renderBookOverlay(const RenderContext& ctx) {
     lines << QStringLiteral("Qty    %1").arg(detail::formatTrimmedE8(hov.bookQtyE8));
     lines << QStringLiteral("Amount %1")
                  .arg(detail::formatTrimmedE8(detail::multiplyScaledE8(hov.bookQtyE8, hov.bookPriceE8)));
-    lines << QStringLiteral("Time   %1").arg(detail::formatTimeNs(hov.bookTsNs));
+    if (hov.bookKind >= 3 && hov.bookTsEndNs > hov.bookTsStartNs) {
+        lines << QStringLiteral("Time   %1 -> %2")
+                     .arg(detail::formatTimeNs(hov.bookTsStartNs))
+                     .arg(detail::formatTimeNs(hov.bookTsEndNs));
+    } else {
+        lines << QStringLiteral("Time   %1").arg(detail::formatTimeNs(hov.bookTsNs));
+    }
 
-    QFont f = ctx.p->font();
-    f.setPixelSize(12);
-    const QFontMetrics metrics(f);
-    const QRectF card = layoutCard(lines, metrics, center.x(), center.y(), snap.vp.w, snap.vp.h);
-    drawTextCard(ctx.p, card, accent, lines);
+    renderObjectCard(ctx.p, lines, accent, center.x(), center.y(), snap.vp.w, snap.vp.h);
 }
 
 void renderTradeOverlay(const RenderContext& ctx) {
@@ -139,11 +166,7 @@ void renderTradeOverlay(const RenderContext& ctx) {
     lines << QStringLiteral("Amount %1").arg(detail::formatTrimmedE8(amountE8));
     lines << QStringLiteral("Time   %1").arg(detail::formatTimeNs(hov.tradeTsNs));
 
-    QFont f = ctx.p->font();
-    f.setPixelSize(12);
-    const QFontMetrics metrics(f);
-    const QRectF card = layoutCard(lines, metrics, center.x(), center.y(), snap.vp.w, snap.vp.h);
-    drawTextCard(ctx.p, card, accent, lines);
+    renderObjectCard(ctx.p, lines, accent, center.x(), center.y(), snap.vp.w, snap.vp.h);
 }
 
 }  // namespace

@@ -24,6 +24,7 @@ Rectangle {
     required property color accentSellColor
     required property color actionAccentColor
     required property color actionTextColor
+    property bool actionVisible: true
 
     signal actionTriggered()
 
@@ -100,6 +101,7 @@ Rectangle {
         }
 
         CaptureAccentActionButton {
+            visible: card.actionVisible
             text: card.actionText
             accentColor: card.actionAccentColor
             actionTextColor: card.actionTextColor

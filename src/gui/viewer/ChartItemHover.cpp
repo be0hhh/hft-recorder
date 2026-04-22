@@ -49,6 +49,7 @@ bool ChartItem::shouldSkipHoverRecompute_(const QPointF& point, bool contextActi
 }
 
 void ChartItem::setHoverPoint(qreal x, qreal y) {
+    if (contextActive_) return;
     if (shouldSkipHoverRecompute_(QPointF{x, y}, false)) return;
     hoverPoint_ = QPointF{x, y};
     hoverActive_ = true;
@@ -82,6 +83,8 @@ void ChartItem::clearHover() {
     hoveredBookPriceE8_ = 0;
     hoveredBookQtyE8_ = 0;
     hoveredBookTsNs_ = 0;
+    hoveredBookTsStartNs_ = 0;
+    hoveredBookTsEndNs_ = 0;
     update();
 }
 
@@ -95,7 +98,9 @@ void ChartItem::updateHover_() {
     hoveredBookPriceE8_ = 0;
     hoveredBookQtyE8_ = 0;
     hoveredBookTsNs_ = 0;
-    if (!hoverActive_ || !controller_ || !controller_->loaded() || width() <= 0 || height() <= 0) return;
+    hoveredBookTsStartNs_ = 0;
+    hoveredBookTsEndNs_ = 0;
+    if (!hoverActive_ || !controller_ || width() <= 0 || height() <= 0) return;
 
     const RenderSnapshot& snap = ensureSnapshot_();
     if (!snap.loaded) return;
@@ -117,6 +122,8 @@ void ChartItem::updateHover_() {
     hoveredBookPriceE8_ = hover.bookPriceE8;
     hoveredBookQtyE8_ = hover.bookQtyE8;
     hoveredBookTsNs_ = hover.bookTsNs;
+    hoveredBookTsStartNs_ = hover.bookTsStartNs;
+    hoveredBookTsEndNs_ = hover.bookTsEndNs;
 }
 
 }  // namespace hftrec::gui::viewer
@@ -132,6 +139,8 @@ HoverInfo buildHoverInfo(const ChartItem& item) {
     hover.bookPriceE8 = item.hoveredBookPriceE8_;
     hover.bookQtyE8 = item.hoveredBookQtyE8_;
     hover.bookTsNs = item.hoveredBookTsNs_;
+    hover.bookTsStartNs = item.hoveredBookTsStartNs_;
+    hover.bookTsEndNs = item.hoveredBookTsEndNs_;
 
     if (item.hoveredTradeIndex_ < 0) {
         return hover;

@@ -611,10 +611,12 @@ void ChartItem::requestRepaint() {
 
 void ChartItem::requestLiveRepaint() {
     cachedLiveSnap_.reset();
-    cachedHitTestSnap_.reset();
     cachedLiveDataBatchId_ = 0;
-    cachedHitTestBatchId_ = 0;
-    if (hoverActive_ && !interactiveMode_) updateHover_();
+    if (!contextActive_) {
+        cachedHitTestSnap_.reset();
+        cachedHitTestBatchId_ = 0;
+        if (hoverActive_ && !interactiveMode_) updateHover_();
+    }
     update();
 }
 
@@ -816,7 +818,15 @@ void ChartItem::paint(QPainter* painter) {
     ensureLayerImages_(layerSnap, w, h);
     const auto& liveCache = controller_->liveDataCache();
     const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
-    const LiveDataBatch liveBatch = liveDataBaseBatch(liveCache);
+    if (!cachedLiveBatch_ || cachedLiveBatchVersion_ != liveCache.version) {
+        cachedLiveBatch_ = std::make_unique<LiveDataBatch>(liveDataBaseBatch(liveCache));
+        cachedLiveBatchVersion_ = liveCache.version;
+        cachedLiveDataBatchId_ = 0;
+        cachedHitTestBatchId_ = 0;
+        cachedLiveSnap_.reset();
+        cachedHitTestSnap_.reset();
+    }
+    const LiveDataBatch& liveBatch = *cachedLiveBatch_;
     if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
         const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
         cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
@@ -882,6 +892,10 @@ void ChartItem::paint(QPainter* painter) {
     if (rebuildLayersForCurrentViewport) {
         invalidateBaseImage_();
         ensureLayerImages_(snap, w, h);
+        if (!cachedLiveBatch_ || cachedLiveBatchVersion_ != liveCache.version) {
+            cachedLiveBatch_ = std::make_unique<LiveDataBatch>(liveDataBaseBatch(liveCache));
+            cachedLiveBatchVersion_ = liveCache.version;
+        }
         if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
             const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
             cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
