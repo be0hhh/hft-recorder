@@ -27,6 +27,9 @@ Pane {
     property bool showBookTickerLayer: false
     property bool effectiveBookTickerLayer: showBookTickerLayer || showOrderbookLayer
     property bool useDedicatedGpuPath: root.appVm.requestedRenderMode === "gpu"
+                                       && chart.gpuRendererAvailable
+                                       && root.appVm.actualGraphicsApi !== "software"
+                                       && root.appVm.actualGraphicsApi !== "unknown"
     // Legacy compatibility flag. The active viewer item is still `ChartItem`
     // (`QQuickPaintedItem`), so current GPU mode means hardware-backed Qt
     // Quick compositing, not a dedicated GPU-native chart renderer.
@@ -38,6 +41,10 @@ Pane {
 
     function syncRendererDiagnostics() {
         root.appVm.activeChartRenderer = root.useDedicatedGpuPath ? "gpu-orderbook" : "cpu-chart"
+    }
+
+    function syncLiveUpdateMode() {
+        chart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs)
     }
 
     function syncChannelView() {
@@ -101,8 +108,16 @@ Pane {
     Component.onCompleted: {
         Qt.callLater(root.ensureSessionSelection)
         Qt.callLater(root.syncRendererDiagnostics)
+        Qt.callLater(root.syncLiveUpdateMode)
     }
     onUseDedicatedGpuPathChanged: root.syncRendererDiagnostics()
+
+    Connections {
+        target: root.appVm
+        function onLiveUpdateModeChanged() {
+            root.syncLiveUpdateMode()
+        }
+    }
 
     Connections {
         target: sessionsModel

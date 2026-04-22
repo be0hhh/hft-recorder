@@ -7,6 +7,31 @@
 
 namespace hftrec::gui {
 
+namespace {
+
+QString normalizeLiveUpdateMode(QString mode) {
+    mode = mode.trimmed().toLower();
+    if (mode == QStringLiteral("tick") || mode == QStringLiteral("tick-by-tick") || mode == QStringLiteral("16ms")) {
+        return QStringLiteral("tick");
+    }
+    if (mode == QStringLiteral("250") || mode == QStringLiteral("250ms")) {
+        return QStringLiteral("250ms");
+    }
+    if (mode == QStringLiteral("500") || mode == QStringLiteral("500ms")) {
+        return QStringLiteral("500ms");
+    }
+    return QStringLiteral("100ms");
+}
+
+int liveUpdateIntervalFromMode(QStringView mode) noexcept {
+    if (mode == QStringLiteral("tick")) return 16;
+    if (mode == QStringLiteral("250ms")) return 250;
+    if (mode == QStringLiteral("500ms")) return 500;
+    return 100;
+}
+
+}  // namespace
+
 AppViewModel::AppViewModel(QObject* parent)
     : QObject(parent) {
     requestedRenderMode_ = QProcessEnvironment::systemEnvironment().value(
@@ -84,6 +109,18 @@ void AppViewModel::setBookDepthWindowPct(qreal value) {
     emit bookDepthWindowPctChanged();
 }
 
+int AppViewModel::liveUpdateIntervalMs() const noexcept {
+    return liveUpdateIntervalFromMode(liveUpdateMode_);
+}
+
+void AppViewModel::setLiveUpdateMode(const QString& mode) {
+    const QString normalized = normalizeLiveUpdateMode(mode);
+    if (normalized == liveUpdateMode_) return;
+    liveUpdateMode_ = normalized;
+    markDirty_();
+    emit liveUpdateModeChanged();
+}
+
 void AppViewModel::setActiveChartRenderer(const QString& rendererName) {
     const QString normalized = rendererName.trimmed().toLower().isEmpty()
         ? QStringLiteral("cpu-chart")
@@ -99,11 +136,13 @@ void AppViewModel::loadSettings_() {
     const auto brightnessUsd = settings_.value(QStringLiteral("viewer/book_brightness_usd_ref"), bookBrightnessUsdRef_).toReal();
     const auto minVisibleUsd = settings_.value(QStringLiteral("viewer/book_min_visible_usd"), bookMinVisibleUsd_).toReal();
     const auto depthWindowPct = settings_.value(QStringLiteral("viewer/book_depth_window_pct"), bookDepthWindowPct_).toReal();
+    const auto liveMode = settings_.value(QStringLiteral("viewer/live_update_mode"), liveUpdateMode_).toString();
 
     tradeAmountScale_ = std::clamp<qreal>(tradeScale, 0.0, 1.0);
     bookBrightnessUsdRef_ = std::clamp<qreal>(brightnessUsd, 1000.0, 1000000.0);
     bookMinVisibleUsd_ = std::clamp<qreal>(minVisibleUsd, 1000.0, 1000000.0);
     bookDepthWindowPct_ = std::clamp<qreal>(depthWindowPct, 1.0, 25.0);
+    liveUpdateMode_ = normalizeLiveUpdateMode(liveMode);
     settingsDirty_ = false;
 }
 
@@ -114,6 +153,7 @@ void AppViewModel::flushSettings_() {
     settings_.setValue(QStringLiteral("viewer/book_brightness_usd_ref"), bookBrightnessUsdRef_);
     settings_.setValue(QStringLiteral("viewer/book_min_visible_usd"), bookMinVisibleUsd_);
     settings_.setValue(QStringLiteral("viewer/book_depth_window_pct"), bookDepthWindowPct_);
+    settings_.setValue(QStringLiteral("viewer/live_update_mode"), liveUpdateMode_);
     settings_.sync();
     settingsDirty_ = false;
 }

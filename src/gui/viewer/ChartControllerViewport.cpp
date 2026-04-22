@@ -20,7 +20,6 @@ constexpr std::int64_t kOneMsNs = 1000000ll;
 constexpr std::size_t kViewportBookLevelsPerSide = 24;
 constexpr std::size_t kRenderBookLevelsBudgetPerSide = 256;
 constexpr std::size_t kInteractiveBookLevelsBudgetPerSide = 192;
-constexpr std::size_t kBookTickerAnchorCheckpointStride = 1000;
 constexpr std::int64_t kUsdScaleE8 = 100000000ll;
 constexpr double kTradeDenseMultiplierInteractive = 2.25;
 constexpr double kTradeDenseMultiplierStatic = 5.0;
@@ -293,45 +292,6 @@ std::int64_t windowAskMaxE8(std::int64_t bestAskE8, qreal windowPct) noexcept {
     return static_cast<std::int64_t>(std::ceil(static_cast<long double>(bestAskE8) * factor));
 }
 
-struct BookDepthWindowCheckpoint {
-    std::int64_t tsNs{0};
-    std::int64_t bidMinE8{0};
-    std::int64_t askMaxE8{0};
-};
-
-std::vector<BookDepthWindowCheckpoint> buildBookDepthWindowCheckpoints(
-    const std::vector<hftrec::replay::BookTickerRow>& tickers,
-    qreal windowPct) {
-    std::vector<BookDepthWindowCheckpoint> checkpoints;
-    if (tickers.empty()) return checkpoints;
-    checkpoints.reserve((tickers.size() + kBookTickerAnchorCheckpointStride - 1u)
-                        / kBookTickerAnchorCheckpointStride);
-    for (std::size_t i = 0; i < tickers.size(); i += kBookTickerAnchorCheckpointStride) {
-        const auto& ticker = tickers[i];
-        checkpoints.push_back(BookDepthWindowCheckpoint{
-            ticker.tsNs,
-            windowBidMinE8(ticker.bidPriceE8, windowPct),
-            windowAskMaxE8(ticker.askPriceE8, windowPct),
-        });
-    }
-    return checkpoints;
-}
-
-const BookDepthWindowCheckpoint* findBookDepthWindowCheckpoint(
-    const std::vector<BookDepthWindowCheckpoint>& checkpoints,
-    std::int64_t tsNs) noexcept {
-    if (checkpoints.empty()) return nullptr;
-    const auto it = std::upper_bound(
-        checkpoints.begin(),
-        checkpoints.end(),
-        tsNs,
-        [](std::int64_t ts, const BookDepthWindowCheckpoint& checkpoint) noexcept {
-            return ts < checkpoint.tsNs;
-        });
-    if (it == checkpoints.begin()) return nullptr;
-    return &*(it - 1);
-}
-
 struct BookTickerPixelState {
     bool has{false};
     std::int64_t firstPriceE8{0};
@@ -540,6 +500,7 @@ void ChartController::computeInitialViewport_() {
 
 void ChartController::setViewport(qint64 tsMin, qint64 tsMax, qint64 priceMinE8, qint64 priceMaxE8) {
     if (tsMax <= tsMin || priceMaxE8 <= priceMinE8) return;
+    markUserViewportControl_();
     tsMin_ = tsMin;
     tsMax_ = tsMax;
     priceMinE8_ = priceMinE8;
@@ -549,6 +510,7 @@ void ChartController::setViewport(qint64 tsMin, qint64 tsMax, qint64 priceMinE8,
 }
 
 void ChartController::panTime(double fraction) {
+    markUserViewportControl_();
     const qint64 w = tsMax_ - tsMin_;
     const qint64 dt = static_cast<qint64>(static_cast<double>(w) * fraction);
     tsMin_ += dt;
@@ -558,6 +520,7 @@ void ChartController::panTime(double fraction) {
 }
 
 void ChartController::panPrice(double fraction) {
+    markUserViewportControl_();
     const qint64 h = priceMaxE8_ - priceMinE8_;
     const qint64 dp = static_cast<qint64>(static_cast<double>(h) * fraction);
     priceMinE8_ += dp;
@@ -567,6 +530,7 @@ void ChartController::panPrice(double fraction) {
 
 void ChartController::zoomTime(double factor) {
     if (factor <= 0.0) return;
+    markUserViewportControl_();
     const qint64 centre = (tsMin_ + tsMax_) / 2;
     const qint64 halfW = static_cast<qint64>(static_cast<double>(tsMax_ - tsMin_) / (2.0 * factor));
     tsMin_ = centre - halfW;
@@ -578,6 +542,7 @@ void ChartController::zoomTime(double factor) {
 
 void ChartController::zoomPrice(double factor) {
     if (factor <= 0.0) return;
+    markUserViewportControl_();
     const qint64 centre = (priceMinE8_ + priceMaxE8_) / 2;
     const qint64 halfH = static_cast<qint64>(static_cast<double>(priceMaxE8_ - priceMinE8_) / (2.0 * factor));
     priceMinE8_ = centre - halfH;
@@ -588,12 +553,14 @@ void ChartController::zoomPrice(double factor) {
 
 void ChartController::autoFit() {
     if (!loaded_) return;
+    liveFollowEdge_ = false;
     computeInitialViewport_();
     currentBookTickerIndex_ = -1;
     emit viewportChanged();
 }
 
 void ChartController::jumpToStart() {
+    markUserViewportControl_();
     const qint64 w = tsMax_ - tsMin_;
     tsMin_ = replay_.firstTsNs();
     tsMax_ = tsMin_ + w;
@@ -602,6 +569,7 @@ void ChartController::jumpToStart() {
 }
 
 void ChartController::jumpToEnd() {
+    liveFollowEdge_ = false;
     const qint64 w = tsMax_ - tsMin_;
     tsMax_ = replay_.lastTsNs();
     tsMin_ = tsMax_ - w;
@@ -769,7 +737,6 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     const auto& buckets = replay_.buckets();
 
     const auto brightnessRefE8 = usdToE8(in.bookOpacityGain);
-    const auto depthWindowCheckpoints = buildBookDepthWindowCheckpoints(tickers, snap.bookDepthWindowPct);
 
     auto emitSegment = [&](std::int64_t tsStart,
                            std::int64_t tsEnd) {
@@ -787,11 +754,8 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         if (in.orderbookVisible) {
             std::int64_t maxBid = 0;
             std::int64_t maxAsk = 0;
-            const auto* depthWindowCheckpoint = findBookDepthWindowCheckpoint(depthWindowCheckpoints, tsStart);
-            std::int64_t bidMinE8 = depthWindowCheckpoint ? depthWindowCheckpoint->bidMinE8 : 0;
-            std::int64_t askMaxE8 = depthWindowCheckpoint ? depthWindowCheckpoint->askMaxE8 : 0;
-            if (bidMinE8 <= 0) bidMinE8 = windowBidMinE8(book.bestBidPrice(), snap.bookDepthWindowPct);
-            if (askMaxE8 <= 0) askMaxE8 = windowAskMaxE8(book.bestAskPrice(), snap.bookDepthWindowPct);
+            const std::int64_t bidMinE8 = windowBidMinE8(book.bestBidPrice(), snap.bookDepthWindowPct);
+            const std::int64_t askMaxE8 = windowAskMaxE8(book.bestAskPrice(), snap.bookDepthWindowPct);
             std::size_t keptBids = 0;
             std::size_t keptAsks = 0;
             int lastBidYPx = std::numeric_limits<int>::min();

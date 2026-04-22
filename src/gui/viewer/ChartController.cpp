@@ -20,6 +20,23 @@ bool envForcesSoftwareRenderer() {
 
 ChartController::ChartController(QObject* parent) : QObject(parent) {
     gpuRendererAvailable_ = !envForcesSoftwareRenderer();
+    liveTailTimer_ = new QTimer(this);
+    liveTailTimer_->setInterval(liveUpdateIntervalMs_);
+    liveTailTimer_->setTimerType(Qt::PreciseTimer);
+    connect(liveTailTimer_, &QTimer::timeout, this, [this]() { pollLiveTail_(); });
+}
+
+void ChartController::setLiveUpdateIntervalMs(int intervalMs) {
+    const int clamped = intervalMs <= 16 ? 16
+        : (intervalMs <= 100 ? 100
+        : (intervalMs <= 250 ? 250 : 500));
+    if (liveUpdateIntervalMs_ == clamped) return;
+    liveUpdateIntervalMs_ = clamped;
+    if (liveTailTimer_ != nullptr) liveTailTimer_->setInterval(liveUpdateIntervalMs_);
+}
+
+int ChartController::liveUpdateIntervalMs() const noexcept {
+    return liveUpdateIntervalMs_;
 }
 
 }  // namespace hftrec::gui::viewer

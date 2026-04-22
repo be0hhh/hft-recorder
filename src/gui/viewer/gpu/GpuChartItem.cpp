@@ -234,6 +234,7 @@ void GpuChartItem::setController(ChartController* c) {
     controller_ = c;
     if (controller_) {
         connect(controller_, &ChartController::viewportChanged, this, &GpuChartItem::requestRepaint);
+        connect(controller_, &ChartController::liveDataChanged, this, &GpuChartItem::requestRepaint);
         connect(controller_, &ChartController::sessionChanged, this, &GpuChartItem::requestRepaint);
     }
     invalidateSnapshotCache_();

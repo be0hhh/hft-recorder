@@ -24,8 +24,25 @@ Rectangle {
     signal toggleOrderbook()
     signal toggleBookTicker()
 
+    property color liveControlBg: '#050505'
+    property color liveControlBorder: '#6e6e75'
+    property color liveControlGlow: '#101214'
+    property color liveControlPopup: '#090909'
+    property color liveControlActive: '#1fd0d8'
+    property color liveControlActiveText: '#031114'
+
     function clamp(value, lo, hi) {
         return Math.max(lo, Math.min(hi, value))
+    }
+
+    function liveModeIndex() {
+        if (bar.appVm.liveUpdateMode === "tick")
+            return 0
+        if (bar.appVm.liveUpdateMode === "250ms")
+            return 2
+        if (bar.appVm.liveUpdateMode === "500ms")
+            return 3
+        return 1
     }
 
     Layout.fillWidth: true
@@ -79,6 +96,124 @@ Rectangle {
         }
 
         Item { Layout.fillWidth: true }
+
+        Label {
+            text: "Live"
+            color: bar.mutedTextColor
+            font.pixelSize: 12
+        }
+
+        ComboBox {
+            id: liveModeCombo
+            Layout.preferredWidth: 108
+            model: ["Tick", "100 ms", "250 ms", "500 ms"]
+            currentIndex: bar.liveModeIndex()
+            font.pixelSize: 12
+
+            background: Rectangle {
+                radius: 9
+                color: bar.liveControlBg
+                border.color: liveModeCombo.popup.visible || liveModeCombo.hovered ? bar.liveControlActive : bar.liveControlBorder
+                border.width: liveModeCombo.visualFocus || liveModeCombo.popup.visible ? 2 : 1
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    radius: parent.radius - 1
+                    color: 'transparent'
+                    border.color: bar.liveControlGlow
+                    border.width: 1
+                    opacity: 0.9
+                }
+            }
+
+            contentItem: Text {
+                leftPadding: 12
+                rightPadding: 28
+                text: liveModeCombo.displayText
+                color: bar.textColor
+                verticalAlignment: Text.AlignVCenter
+                font.pixelSize: 12
+                font.bold: true
+                elide: Text.ElideRight
+            }
+
+            indicator: Canvas {
+                x: liveModeCombo.width - width - 10
+                y: (liveModeCombo.height - height) / 2
+                width: 12
+                height: 8
+                contextType: '2d'
+                onPaint: {
+                    context.reset()
+                    context.fillStyle = bar.liveControlActive
+                    context.beginPath()
+                    context.moveTo(0, 0)
+                    context.lineTo(width, 0)
+                    context.lineTo(width / 2, height)
+                    context.closePath()
+                    context.fill()
+                }
+            }
+
+            delegate: ItemDelegate {
+                id: liveModeDelegate
+                required property int index
+                width: liveModeCombo.width - 8
+                height: 34
+                highlighted: liveModeCombo.highlightedIndex === index
+                background: Rectangle {
+                    radius: 7
+                    color: liveModeCombo.currentIndex === liveModeDelegate.index ? bar.liveControlActive : (liveModeDelegate.highlighted ? '#191b1e' : 'transparent')
+                    border.color: liveModeCombo.currentIndex === liveModeDelegate.index ? '#8cf3f6' : 'transparent'
+                    border.width: liveModeCombo.currentIndex === liveModeDelegate.index ? 1 : 0
+                }
+                contentItem: Text {
+                    text: liveModeCombo.textAt(liveModeDelegate.index)
+                    color: liveModeCombo.currentIndex === liveModeDelegate.index ? bar.liveControlActiveText : bar.textColor
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 12
+                    rightPadding: 12
+                    font.pixelSize: 12
+                    font.bold: liveModeCombo.currentIndex === liveModeDelegate.index
+                    elide: Text.ElideRight
+                }
+            }
+
+            popup: Popup {
+                y: liveModeCombo.height + 6
+                width: liveModeCombo.width
+                padding: 4
+                background: Rectangle {
+                    radius: 10
+                    color: bar.liveControlPopup
+                    border.color: bar.liveControlBorder
+                    border.width: 1
+                }
+                contentItem: ListView {
+                    clip: true
+                    spacing: 4
+                    implicitHeight: contentHeight
+                    model: liveModeCombo.popup.visible ? liveModeCombo.delegateModel : null
+                    currentIndex: liveModeCombo.highlightedIndex
+                }
+            }
+            onActivated: function(index) {
+                if (index === 0)
+                    bar.appVm.liveUpdateMode = "tick"
+                else if (index === 1)
+                    bar.appVm.liveUpdateMode = "100ms"
+                else if (index === 2)
+                    bar.appVm.liveUpdateMode = "250ms"
+                else
+                    bar.appVm.liveUpdateMode = "500ms"
+            }
+        }
+
+        Label {
+            text: bar.appVm.liveUpdateMode === "tick" ? "JSON aggressive polling" : "JSON polling"
+            color: bar.mutedTextColor
+            font.pixelSize: 12
+        }
 
         Label {
             text: "Trades Size"

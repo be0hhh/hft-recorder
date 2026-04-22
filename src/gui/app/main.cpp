@@ -6,6 +6,7 @@
 #include <QMetaObject>
 #include <QUrl>
 
+#include "core/local_exchange/LocalExchangeServer.hpp"
 #include "gui/models/SessionListModel.hpp"
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/ChartItem.hpp"
@@ -48,9 +49,15 @@ void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
 
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
+    hftrec::local_exchange::LocalExchangeServer localExchangeServer;
+    localExchangeServer.start();
     QCoreApplication::setOrganizationName(QStringLiteral("hftrec"));
     QCoreApplication::setApplicationName(QStringLiteral("hft-recorder"));
-    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+    const QString requestedMode = qEnvironmentVariable("HFTREC_RENDER_MODE", "cpu").trimmed().toLower();
+    QQuickWindow::setGraphicsApi(
+        requestedMode == QStringLiteral("gpu")
+            ? QSGRendererInterface::OpenGL
+            : QSGRendererInterface::Software);
 
     qmlRegisterType<hftrec::gui::SessionListModel>("HftRecorder", 1, 0, "SessionListModel");
     qmlRegisterType<hftrec::gui::AppViewModel>("HftRecorder", 1, 0, "AppViewModel");
@@ -70,5 +77,7 @@ int main(int argc, char* argv[]) {
     engine.load(QUrl(QStringLiteral("qrc:/HftRecorder/qml/Main.qml")));
     wireRenderDiagnostics(engine);
 
-    return app.exec();
+    const int rc = app.exec();
+    localExchangeServer.stop();
+    return rc;
 }

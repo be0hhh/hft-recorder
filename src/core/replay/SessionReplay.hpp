@@ -72,6 +72,11 @@ class SessionReplay {
     const std::vector<Event>&         events()      const noexcept { return events_;      }
     const std::vector<ReplayBucket>&  buckets()     const noexcept { return buckets_;     }
 
+    void appendTradeRow(TradeRow row);
+    void appendBookTickerRow(BookTickerRow row);
+    void appendDepthRow(DepthRow row);
+    void refreshLiveTimeline() noexcept;
+
     // Session-wide timestamp bounds (after open). 0 if no events.
     std::int64_t firstTsNs() const noexcept { return firstTsNs_; }
     std::int64_t lastTsNs()  const noexcept { return lastTsNs_;  }

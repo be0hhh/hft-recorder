@@ -95,6 +95,7 @@ struct RenderSnapshot {
 
     // Visibility + tuning knobs (snapshot of ChartItem state at build time).
     bool  tradesVisible{true};
+    bool  tradeConnectorsVisible{true};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
     bool  interactiveMode{false};

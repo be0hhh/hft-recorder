@@ -86,6 +86,8 @@ class ChartItem : public QQuickPaintedItem {
 
   private slots:
     void requestRepaint();
+    void requestLiveRepaint();
+    void requestSessionRepaint();
 
   private:
     friend SnapshotInputs detail::collectInputs(const ChartItem& item);
@@ -96,6 +98,7 @@ class ChartItem : public QQuickPaintedItem {
     void invalidateBaseImage_();
     const RenderSnapshot& ensureSnapshot_();
     std::unique_ptr<RenderSnapshot>& activeSnapshotCache_() noexcept;
+    void mergeLiveSnapshotIntoBaseImage_();
     void ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h);
     bool shouldSkipHoverRecompute_(const QPointF& point, bool contextActive) const noexcept;
 
@@ -123,11 +126,14 @@ class ChartItem : public QQuickPaintedItem {
     // current mode without rebuilding.
     std::unique_ptr<RenderSnapshot> cachedInteractiveSnap_{};
     std::unique_ptr<RenderSnapshot> cachedExactSnap_{};
+    std::unique_ptr<RenderSnapshot> cachedLiveSnap_{};
     qreal cachedW_{0.0};
     qreal cachedH_{0.0};
-    bool snapshotDirty_{false};
-    // Only heavy image layers are cached here. BookTicker is intentionally
-    // excluded and is always painted live from the dedicated ticker paint path.
+    bool interactiveDirty_{false};
+    bool exactDirty_{false};
+    // Heavy historical layers are cached here. The latest event is painted as
+    // a live overlay, then folded into these images when the next live batch
+    // arrives, so active captures avoid repainting the same history twice.
     QImage cachedOrderbookImage_{};
     QImage cachedTradesImage_{};
     qreal cachedLayerImageW_{0.0};

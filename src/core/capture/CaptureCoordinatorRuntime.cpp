@@ -1,16 +1,18 @@
 #include "core/capture/CaptureCoordinator.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
-#include <algorithm>
 #include <string>
 #include <thread>
+
 
 #include "api/run/RunByConfig.hpp"
 #include "composite/level_0/GetObject.hpp"
 #include "core/capture/CaptureCoordinatorInternal.hpp"
 #include "core/capture/JsonSerializers.hpp"
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
+#include "core/local_exchange/LocalOrderEngine.hpp"
 #include "core/metrics/Metrics.hpp"
 
 namespace hftrec::capture {
@@ -150,6 +152,7 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                 self->tradesCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->tradesCaptureSeq_, self->ingestSeq_);
                 const auto capturedTrade = cxet_bridge::CxetCaptureBridge::captureTrade(trade, meta);
+                local_exchange::globalLocalOrderEngine().onTrade(capturedTrade);
                 const auto jsonLine = renderTradeJsonLine(capturedTrade, sequenceIds);
                 if (!isOk(self->tradesWriter_.writeLine(jsonLine))) {
                     metrics::recordCaptureWriteError("trades");
@@ -279,6 +282,7 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
                 self->bookTickerCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->bookTickerCaptureSeq_, self->ingestSeq_);
                 const auto capturedBookTicker = cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, meta);
+                local_exchange::globalLocalOrderEngine().onBookTicker(capturedBookTicker);
                 const auto jsonLine = renderBookTickerJsonLine(capturedBookTicker, sequenceIds);
                 if (!isOk(self->bookTickerWriter_.writeLine(jsonLine))) {
                     metrics::recordCaptureWriteError("bookticker");

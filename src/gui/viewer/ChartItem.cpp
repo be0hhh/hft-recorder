@@ -24,10 +24,12 @@ void ChartItem::setController(ChartController* c) {
     controller_ = c;
     if (controller_) {
         connect(controller_, &ChartController::viewportChanged, this, &ChartItem::requestRepaint);
-        connect(controller_, &ChartController::sessionChanged, this, &ChartItem::requestRepaint);
+        connect(controller_, &ChartController::liveDataChanged, this, &ChartItem::requestLiveRepaint);
+        connect(controller_, &ChartController::sessionChanged, this, &ChartItem::requestSessionRepaint);
     }
     invalidateSnapshotCache_();
     invalidateBaseImage_();
+    cachedLiveSnap_.reset();
     emit controllerChanged();
     update();
 }
@@ -106,10 +108,15 @@ void ChartItem::setBookDepthWindowPct(qreal value) {
 void ChartItem::setInteractiveMode(bool value) {
     if (interactiveMode_ == value) return;
     interactiveMode_ = value;
-    if (!interactiveMode_ && snapshotDirty_) {
-        invalidateSnapshotCache_();
+    if (interactiveMode_) {
+        cachedInteractiveSnap_.reset();
+        interactiveDirty_ = true;
+    } else {
+        cachedExactSnap_.reset();
+        cachedInteractiveSnap_.reset();
         invalidateBaseImage_();
-        snapshotDirty_ = false;
+        interactiveDirty_ = false;
+        exactDirty_ = true;
     }
     emit interactiveModeChanged();
     update();
@@ -120,6 +127,16 @@ void ChartItem::setOverlayOnly(bool value) {
     overlayOnly_ = value;
     setOpaquePainting(!overlayOnly_);
     emit overlayOnlyChanged();
+    update();
+}
+
+void ChartItem::requestSessionRepaint() {
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    cachedLiveSnap_.reset();
+    interactiveDirty_ = false;
+    exactDirty_ = false;
+    if (hoverActive_) updateHover_();
     update();
 }
 
@@ -134,7 +151,7 @@ SnapshotInputs collectInputs(const ChartItem& item) {
         item.bookTickerVisible(),
         item.interactiveMode(),
         item.overlayOnly(),
-        !item.interactiveMode(),
+        true,
         item.tradeAmountScale(),
         item.bookOpacityGain(),
         item.bookRenderDetail(),

@@ -15,12 +15,14 @@ Status ChannelJsonWriter::open(ChannelKind channel, const std::filesystem::path&
 Status ChannelJsonWriter::writeLine(const std::string& jsonLine) noexcept {
     if (!stream_.is_open()) return Status::InvalidArgument;
     stream_ << jsonLine << '\n';
+    stream_.flush();
     return stream_.good() ? Status::Ok : Status::IoError;
 }
 
 Status ChannelJsonWriter::writeJson(const std::string& jsonDocument) noexcept {
     if (!stream_.is_open()) return Status::InvalidArgument;
     stream_ << jsonDocument;
+    stream_.flush();
     return stream_.good() ? Status::Ok : Status::IoError;
 }
 

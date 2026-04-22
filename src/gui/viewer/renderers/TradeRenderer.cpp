@@ -23,32 +23,34 @@ void renderTrades(const RenderContext& ctx) {
     const auto& dots = ctx.s.tradeDots;
     const bool denseApproximation = ctx.s.tradeDecimated;
 
-    ctx.p->save();
-    ctx.p->setRenderHint(QPainter::Antialiasing, false);
-    QPen connectorPen(tradeConnectorColor());
-    connectorPen.setWidth(1);
-    connectorPen.setCapStyle(Qt::SquareCap);
-    if (denseApproximation) {
-        QColor connector = tradeConnectorColor();
-        connector.setAlpha(160);
-        connectorPen.setColor(connector);
-    }
-    ctx.p->setPen(connectorPen);
-
-    QPointF prev;
-    int prevOrig = -2;
-    for (std::size_t i = 0; i < dots.size(); ++i) {
-        const auto& dot = dots[i];
-        const int x = static_cast<int>(std::round(vp.toX(dot.tsNs)));
-        const int y = static_cast<int>(std::round(vp.toY(dot.priceE8)));
-        const QPointF pt{static_cast<qreal>(x), static_cast<qreal>(y)};
-        if (prevOrig == dot.origIndex - 1 && prev != pt) {
-            ctx.p->drawLine(prev, pt);
+    if (ctx.s.tradeConnectorsVisible) {
+        ctx.p->save();
+        ctx.p->setRenderHint(QPainter::Antialiasing, false);
+        QPen connectorPen(tradeConnectorColor());
+        connectorPen.setWidth(1);
+        connectorPen.setCapStyle(Qt::SquareCap);
+        if (denseApproximation) {
+            QColor connector = tradeConnectorColor();
+            connector.setAlpha(160);
+            connectorPen.setColor(connector);
         }
-        prev = pt;
-        prevOrig = dot.origIndex;
+        ctx.p->setPen(connectorPen);
+
+        QPointF prev;
+        int prevOrig = -2;
+        for (std::size_t i = 0; i < dots.size(); ++i) {
+            const auto& dot = dots[i];
+            const int x = static_cast<int>(std::round(vp.toX(dot.tsNs)));
+            const int y = static_cast<int>(std::round(vp.toY(dot.priceE8)));
+            const QPointF pt{static_cast<qreal>(x), static_cast<qreal>(y)};
+            if (prevOrig == dot.origIndex - 1 && prev != pt) {
+                ctx.p->drawLine(prev, pt);
+            }
+            prev = pt;
+            prevOrig = dot.origIndex;
+        }
+        ctx.p->restore();
     }
-    ctx.p->restore();
 
     ctx.p->save();
     ctx.p->setRenderHint(QPainter::Antialiasing, !denseApproximation);

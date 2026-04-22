@@ -2,17 +2,49 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 
 #include "core/corpus/LoadReport.hpp"
 #include "core/metrics/Metrics.hpp"
 
 namespace hftrec::replay {
 
+void SessionReplay::appendTradeRow(TradeRow row) {
+    trades_.push_back(std::move(row));
+}
+
+void SessionReplay::appendBookTickerRow(BookTickerRow row) {
+    bookTickers_.push_back(std::move(row));
+}
+
+void SessionReplay::appendDepthRow(DepthRow row) {
+    depths_.push_back(std::move(row));
+}
+
+void SessionReplay::refreshLiveTimeline() noexcept {
+    status_ = Status::Ok;
+    errorDetail_.clear();
+    gapDetected_ = false;
+    sequenceValidationAvailable_ = false;
+    integrityFailureCount_ = 0;
+    resetIntegrity_();
+    rebuildEvents_();
+    rebuildBuckets_();
+    const bool depthValid = validateDepthStream_();
+    const bool sequenceMetadataValid = validateSequenceMetadata_();
+    refreshHealthSummary_();
+    if (!depthValid || !sequenceMetadataValid || integritySummary_.sessionHealth == SessionHealth::Corrupt) {
+        status_ = Status::CorruptData;
+    }
+}
+
 void SessionReplay::finalize() noexcept {
     status_ = Status::Ok;
     errorDetail_.clear();
     gapDetected_ = false;
     sequenceValidationAvailable_ = false;
+    integrityFailureCount_ = 0;
+    resetIntegrity_();
     rebuildEvents_();
     rebuildBuckets_();
     const bool depthValid = validateDepthStream_();

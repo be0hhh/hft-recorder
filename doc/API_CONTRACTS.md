@@ -78,6 +78,24 @@ The seam does not own:
 - exchange-specific runtime behavior
 - replay ordering or integrity policy
 
+## Local CXET venue seam
+
+`hftrecorder_local` is a CXET exchange id used for local algorithm order intents.
+
+Current v1 contract:
+- algorithm uses existing `sendWs().object(order).exchange(hftrecorder_local)`
+- CXET sends a binary normalized order frame over Unix domain socket
+- hft-recorder owns the local socket server
+- hft-recorder returns only an accepted `OrderAck`
+- no matching, fills, PnL, replay feed, or chart drawing is implied by v1
+
+Socket path:
+- `CXET_HFTREC_SOCKET` when set
+- `/tmp/cxet-hftrecorder-local.sock` by default
+
+This path is intentionally local-only and must not be used as a real exchange
+transport replacement for production venues.
+
 ## Validation
 
 ### `ValidationRunner`

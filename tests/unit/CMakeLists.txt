@@ -12,6 +12,8 @@ add_executable(hftrec_unit_tests
     test_session_replay.cpp
     test_bookticker_exactness.cpp
     test_cxet_capture_bridge.cpp
+    test_local_exchange_server.cpp
+    test_local_order_engine.cpp
 )
 
 if(Qt6_FOUND)

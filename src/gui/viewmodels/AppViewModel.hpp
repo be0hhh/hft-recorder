@@ -18,6 +18,8 @@ class AppViewModel : public QObject {
     Q_PROPERTY(qreal bookBrightnessUsdRef READ bookBrightnessUsdRef WRITE setBookBrightnessUsdRef NOTIFY bookBrightnessUsdRefChanged)
     Q_PROPERTY(qreal bookMinVisibleUsd READ bookMinVisibleUsd WRITE setBookMinVisibleUsd NOTIFY bookMinVisibleUsdChanged)
     Q_PROPERTY(qreal bookDepthWindowPct READ bookDepthWindowPct WRITE setBookDepthWindowPct NOTIFY bookDepthWindowPctChanged)
+    Q_PROPERTY(QString liveUpdateMode READ liveUpdateMode WRITE setLiveUpdateMode NOTIFY liveUpdateModeChanged)
+    Q_PROPERTY(int liveUpdateIntervalMs READ liveUpdateIntervalMs NOTIFY liveUpdateModeChanged)
 
   public:
     explicit AppViewModel(QObject* parent = nullptr);
@@ -31,11 +33,14 @@ class AppViewModel : public QObject {
     qreal bookBrightnessUsdRef() const noexcept { return bookBrightnessUsdRef_; }
     qreal bookMinVisibleUsd() const noexcept { return bookMinVisibleUsd_; }
     qreal bookDepthWindowPct() const noexcept { return bookDepthWindowPct_; }
+    QString liveUpdateMode() const { return liveUpdateMode_; }
+    int liveUpdateIntervalMs() const noexcept;
 
     void setTradeAmountScale(qreal value);
     void setBookBrightnessUsdRef(qreal value);
     void setBookMinVisibleUsd(qreal value);
     void setBookDepthWindowPct(qreal value);
+    void setLiveUpdateMode(const QString& mode);
     void setActiveChartRenderer(const QString& rendererName);
     Q_INVOKABLE void setRenderDiagnostics(const QString& requestedMode, const QString& actualGraphicsApi);
 
@@ -46,6 +51,7 @@ class AppViewModel : public QObject {
     void bookBrightnessUsdRefChanged();
     void bookMinVisibleUsdChanged();
     void bookDepthWindowPctChanged();
+    void liveUpdateModeChanged();
 
   private:
     void loadSettings_();
@@ -62,6 +68,7 @@ class AppViewModel : public QObject {
     qreal bookBrightnessUsdRef_{15000.0};
     qreal bookMinVisibleUsd_{5000.0};
     qreal bookDepthWindowPct_{5.0};
+    QString liveUpdateMode_{"100ms"};
     bool settingsDirty_{false};
     QSettings settings_{};
     QTimer saveTimer_{};

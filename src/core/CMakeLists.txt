@@ -1,4 +1,4 @@
-# src/core/ — stable shared library for hft-recorder.
+# src/core/ - stable shared library for hft-recorder.
 # Compiled as a STATIC lib so the app and variants can link against it.
 
 add_library(hftrec_core STATIC
@@ -23,6 +23,8 @@ add_library(hftrec_core STATIC
     lab/BookFrameSampler.cpp
     lab/LabRunner.cpp
     lab/RankingEngine.cpp
+    local_exchange/LocalExchangeServer.cpp
+    local_exchange/LocalOrderEngine.cpp
     metrics/Metrics.cpp
     replay/JsonLineParser.cpp
     replay/BookState.cpp

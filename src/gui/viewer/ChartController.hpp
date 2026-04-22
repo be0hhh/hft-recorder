@@ -2,7 +2,13 @@
 
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
+
+#include <cstdint>
+#include <filesystem>
+#include <string>
+
 
 #include "core/replay/SessionReplay.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
@@ -64,6 +70,8 @@ class ChartController : public QObject {
     Q_INVOKABLE bool addDepthFile(const QString& path);
     Q_INVOKABLE bool addSnapshotFile(const QString& path);
     Q_INVOKABLE void finalizeFiles();
+    Q_INVOKABLE void setLiveUpdateIntervalMs(int intervalMs);
+    Q_INVOKABLE int liveUpdateIntervalMs() const noexcept;
 
     Q_INVOKABLE void setViewport(qint64 tsMin, qint64 tsMax,
                                  qint64 priceMinE8, qint64 priceMaxE8);
@@ -98,6 +106,7 @@ class ChartController : public QObject {
 
   signals:
     void sessionChanged();
+    void liveDataChanged();
     void viewportChanged();
     void statusChanged();
     void selectionChanged();
@@ -147,6 +156,10 @@ class ChartController : public QObject {
     };
 
     void computeInitialViewport_();
+    void startLiveTail_(const std::filesystem::path& sessionDir);
+    void stopLiveTail_() noexcept;
+    void pollLiveTail_();
+    void markUserViewportControl_() noexcept;
     SelectionRange selectionFromRect_(qreal plotWidthPx, qreal plotHeightPx,
                                       qreal x0, qreal y0, qreal x1, qreal y1) const noexcept;
     SelectionSummary buildSelectionSummary_(const SelectionRange& range);
@@ -156,6 +169,21 @@ class ChartController : public QObject {
     QString sessionDir_{};
     QString statusText_{"No session loaded"};
     bool loaded_{false};
+    struct LiveTailFile {
+        std::filesystem::path path{};
+        std::uintmax_t offset{0};
+        std::string pending{};
+    };
+
+    QTimer* liveTailTimer_{nullptr};
+    LiveTailFile liveTrades_{};
+    LiveTailFile liveBookTicker_{};
+    LiveTailFile liveDepth_{};
+    std::filesystem::path liveSnapshotPath_{};
+    bool liveSnapshotLoaded_{false};
+    bool liveFollowEdge_{true};
+    bool liveOrderbookHealthy_{true};
+    int liveUpdateIntervalMs_{100};
 
     qint64 tsMin_{0};
     qint64 tsMax_{0};

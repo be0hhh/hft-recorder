@@ -1,9 +1,16 @@
 #include "gui/viewer/ChartItem.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <iterator>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include <QImage>
 #include <QPainter>
+#include <QPen>
 #include <QQuickWindow>
 
 #include "gui/viewer/ChartController.hpp"
@@ -13,6 +20,7 @@
 #include "gui/viewer/RenderContext.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
 #include "gui/viewer/renderers/BookRenderer.hpp"
+#include "gui/viewer/renderers/BookTickerRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
 #include "gui/viewer/renderers/TradeRenderer.hpp"
 
@@ -55,6 +63,7 @@ void paintSnapshotLayers(QPainter* painter,
     layerSnap.orderbookVisible = drawOrderbook && snap.orderbookVisible;
     layerSnap.bookTickerVisible = false;
     layerSnap.tradesVisible = drawTrades && snap.tradesVisible;
+    layerSnap.tradeConnectorsVisible = drawTrades && snap.tradeConnectorsVisible;
     if (drawBackground && !layerSnap.overlayOnly) {
         painter->fillRect(QRectF{0.0, 0.0, layerSnap.vp.w, layerSnap.vp.h}, bgColor());
     }
@@ -84,16 +93,80 @@ QRectF sourceRectForViewport(const ViewportMap& cachedVp,
     };
 }
 
+RenderSnapshot baseSnapshotForCache(const RenderSnapshot& snap) {
+    RenderSnapshot base = snap;
+    if (!base.tradeDots.empty()) base.tradeDots.pop_back();
+    return base;
+}
+
+RenderSnapshot liveSnapshotForLastEvent(const RenderSnapshot& snap) {
+    RenderSnapshot live = snap;
+    if (live.tradeDots.size() > 1u) {
+        const TradeDot last = live.tradeDots.back();
+        live.tradeDots.clear();
+        live.tradeDots.push_back(last);
+    }
+    live.tradeConnectorsVisible = false;
+    live.orderbookVisible = false;
+    live.bookTickerVisible = false;
+    live.bookSegments.clear();
+    live.bookTickerTrace = BookTickerTrace{};
+    live.gpuBookVertices.clear();
+    return live;
+}
+
+void drawTradeBridge(QPainter* painter, const RenderSnapshot& base, const RenderSnapshot& live) {
+    if (!base.tradesVisible || base.tradeDots.empty() || live.tradeDots.empty()) return;
+    const auto& prev = base.tradeDots.back();
+    const auto& last = live.tradeDots.front();
+    if (prev.origIndex + 1 != last.origIndex) return;
+
+    const QPointF p0{base.vp.toX(prev.tsNs), base.vp.toY(prev.priceE8)};
+    const QPointF p1{base.vp.toX(last.tsNs), base.vp.toY(last.priceE8)};
+    if (p0 == p1) return;
+
+    painter->save();
+    QPen pen(tradeConnectorColor());
+    pen.setWidth(1);
+    pen.setCapStyle(Qt::SquareCap);
+    painter->setPen(pen);
+    painter->drawLine(p0, p1);
+    painter->restore();
+}
+
+void paintLiveSnapshot(QPainter* painter,
+                       const RenderSnapshot& base,
+                       const RenderSnapshot& live,
+                       double dpr) {
+    if (!live.loaded) return;
+    RenderContext ctx{painter, live, HoverInfo{}, dpr};
+    drawTradeBridge(painter, base, live);
+    renderers::renderTrades(ctx);
+}
+
 }  // namespace
 
 void ChartItem::requestRepaint() {
     if (interactiveMode_ && cachedExactSnap_) {
-        snapshotDirty_ = true;
+        cachedInteractiveSnap_.reset();
+        interactiveDirty_ = true;
     } else {
         invalidateSnapshotCache_();
         invalidateBaseImage_();
-        snapshotDirty_ = false;
+        interactiveDirty_ = false;
+        exactDirty_ = false;
     }
+    if (hoverActive_ && !interactiveMode_) updateHover_();
+    update();
+}
+
+void ChartItem::requestLiveRepaint() {
+    mergeLiveSnapshotIntoBaseImage_();
+    cachedOrderbookImage_ = QImage{};
+    cachedInteractiveSnap_.reset();
+    cachedExactSnap_.reset();
+    interactiveDirty_ = true;
+    exactDirty_ = true;
     if (hoverActive_ && !interactiveMode_) updateHover_();
     update();
 }
@@ -103,13 +176,16 @@ void ChartItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGeome
     if (newGeometry.size() != oldGeometry.size()) {
         invalidateSnapshotCache_();
         invalidateBaseImage_();
-        snapshotDirty_ = false;
+        interactiveDirty_ = false;
+        exactDirty_ = false;
     }
 }
 
 void ChartItem::invalidateSnapshotCache_() {
     cachedInteractiveSnap_.reset();
     cachedExactSnap_.reset();
+    interactiveDirty_ = false;
+    exactDirty_ = false;
 }
 
 void ChartItem::invalidateBaseImage_() {
@@ -117,27 +193,46 @@ void ChartItem::invalidateBaseImage_() {
     cachedTradesImage_ = QImage{};
     cachedLayerImageW_ = 0.0;
     cachedLayerImageH_ = 0.0;
+    cachedLiveSnap_.reset();
 }
 
 std::unique_ptr<RenderSnapshot>& ChartItem::activeSnapshotCache_() noexcept {
     return interactiveMode_ ? cachedInteractiveSnap_ : cachedExactSnap_;
 }
 
+void ChartItem::mergeLiveSnapshotIntoBaseImage_() {
+    if (!cachedLiveSnap_ || cachedLiveSnap_->overlayOnly) return;
+    if (cachedLayerImageW_ <= 0.0 || cachedLayerImageH_ <= 0.0) return;
+
+    if (!cachedTradesImage_.isNull()) {
+        QPainter painter(&cachedTradesImage_);
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        painter.setRenderHint(QPainter::TextAntialiasing, true);
+        RenderSnapshot liveTrades = *cachedLiveSnap_;
+        liveTrades.orderbookVisible = false;
+        liveTrades.bookTickerVisible = false;
+        const RenderSnapshot base = cachedExactSnap_ ? baseSnapshotForCache(*cachedExactSnap_) : RenderSnapshot{};
+        drawTradeBridge(&painter, base, liveTrades);
+        RenderContext ctx{&painter, liveTrades, HoverInfo{}, 1.0};
+        renderers::renderTrades(ctx);
+        painter.end();
+    }
+}
+
 const RenderSnapshot& ChartItem::ensureSnapshot_() {
     const qreal w = width();
     const qreal h = height();
     auto& activeCache = activeSnapshotCache_();
+    bool& activeDirty = interactiveMode_ ? interactiveDirty_ : exactDirty_;
     const bool sizeChanged = (cachedW_ != w || cachedH_ != h);
+    const bool rebuildActive = activeDirty || !activeCache || sizeChanged;
 
-    if (interactiveMode_ && !sizeChanged && cachedExactSnap_) {
-        return *cachedExactSnap_;
-    }
-
-    if (!activeCache || sizeChanged) {
+    if (rebuildActive) {
         activeCache = std::make_unique<RenderSnapshot>(controller_->buildSnapshot(w, h, detail::collectInputs(*this)));
         cachedW_ = w;
         cachedH_ = h;
-        snapshotDirty_ = false;
+        activeDirty = false;
     }
     return *activeCache;
 }
@@ -145,35 +240,44 @@ const RenderSnapshot& ChartItem::ensureSnapshot_() {
 void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h) {
     if (overlayOnly_) return;
     if (!snap.loaded) return;
-    if (!cachedOrderbookImage_.isNull() && !cachedTradesImage_.isNull()
-        && cachedLayerImageW_ == w && cachedLayerImageH_ == h) return;
+    const bool sizeMatches = (cachedLayerImageW_ == w && cachedLayerImageH_ == h);
+    if (!sizeMatches) {
+        cachedOrderbookImage_ = QImage{};
+        cachedTradesImage_ = QImage{};
+    }
+    if (!cachedOrderbookImage_.isNull() && !cachedTradesImage_.isNull()) return;
+
+    const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
 
     const int imageW = std::max(1, static_cast<int>(std::ceil(w)));
     const int imageH = std::max(1, static_cast<int>(std::ceil(h)));
-    QImage orderbookImage(imageW, imageH, QImage::Format_ARGB32_Premultiplied);
-    orderbookImage.fill(bgColor().rgba());
-    QImage tradesImage(imageW, imageH, QImage::Format_ARGB32_Premultiplied);
-    tradesImage.fill(Qt::transparent);
 
-    {
+    if (cachedOrderbookImage_.isNull()) {
+        QImage orderbookImage(imageW, imageH, QImage::Format_ARGB32_Premultiplied);
+        orderbookImage.fill(bgColor().rgba());
         QPainter painter(&orderbookImage);
         painter.setRenderHint(QPainter::Antialiasing, false);
         painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
         painter.setRenderHint(QPainter::TextAntialiasing, true);
-        paintSnapshotLayers(&painter, snap, false, true, false, false, HoverInfo{}, 1.0);
+        paintSnapshotLayers(&painter, baseSnap, false, true, false, false, HoverInfo{}, 1.0);
         painter.end();
+        cachedOrderbookImage_ = std::move(orderbookImage);
     }
-    {
+
+    if (cachedTradesImage_.isNull()) {
+        QImage tradesImage(imageW, imageH, QImage::Format_ARGB32_Premultiplied);
+        tradesImage.fill(Qt::transparent);
         QPainter painter(&tradesImage);
         painter.setRenderHint(QPainter::Antialiasing, false);
         painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
         painter.setRenderHint(QPainter::TextAntialiasing, true);
-        paintSnapshotLayers(&painter, snap, false, false, true, false, HoverInfo{}, 1.0);
+        RenderSnapshot cachedTradesSnap = baseSnap;
+        cachedTradesSnap.tradeConnectorsVisible = true;
+        paintSnapshotLayers(&painter, cachedTradesSnap, false, false, true, false, HoverInfo{}, 1.0);
         painter.end();
+        cachedTradesImage_ = std::move(tradesImage);
     }
 
-    cachedOrderbookImage_ = std::move(orderbookImage);
-    cachedTradesImage_ = std::move(tradesImage);
     cachedLayerImageW_ = w;
     cachedLayerImageH_ = h;
 }
@@ -198,7 +302,10 @@ void ChartItem::paint(QPainter* painter) {
         return;
     }
 
-    ensureLayerImages_(snap, w, h);
+    const RenderSnapshot& layerSnap = (interactiveMode_ && cachedExactSnap_) ? *cachedExactSnap_ : snap;
+    ensureLayerImages_(layerSnap, w, h);
+    const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
+    cachedLiveSnap_ = std::make_unique<RenderSnapshot>(liveSnapshotForLastEvent(snap));
 
     if (interactiveMode_ && !cachedOrderbookImage_.isNull() && !cachedTradesImage_.isNull() && cachedExactSnap_) {
         const QRectF sourceRect = sourceRectForViewport(
@@ -225,6 +332,7 @@ void ChartItem::paint(QPainter* painter) {
             painter->drawImage(destRect, cachedOrderbookImage_, clippedSource);
             detail::paintBookTickerLayer(painter, *controller_, *this, *cachedExactSnap_, w, h, dpr, true);
             painter->drawImage(destRect, cachedTradesImage_, clippedSource);
+            paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
             return;
         }
     }
@@ -232,10 +340,11 @@ void ChartItem::paint(QPainter* painter) {
     if (!cachedOrderbookImage_.isNull() && !overlayOnly_) {
         painter->drawImage(rect, cachedOrderbookImage_);
     }
-    detail::paintBookTickerLayer(painter, *controller_, *this, snap, w, h, dpr, false);
+    detail::paintBookTickerLayer(painter, *controller_, *this, baseSnap, w, h, dpr, false);
     if (!cachedTradesImage_.isNull()) {
         painter->drawImage(rect, cachedTradesImage_);
     }
+    paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
 
     if (!interactiveMode_) {
         RenderContext ctx{painter, snap, detail::buildHoverInfo(*this), dpr};
