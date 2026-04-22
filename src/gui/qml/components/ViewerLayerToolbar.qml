@@ -60,6 +60,7 @@ Rectangle {
         ViewerChannelButton {
             text: "Trades"
             active: bar.showTradesLayer
+            enabled: bar.chart.hasTrades
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor

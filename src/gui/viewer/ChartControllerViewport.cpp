@@ -201,11 +201,27 @@ QString formatScaledE8(std::int64_t value) {
         .arg(fractionPart, 8, 10, QLatin1Char('0'));
 }
 
-QString formatShortTimeNs(std::int64_t tsNs) {
+QString formatShortTimeNs(std::int64_t tsNs, std::int64_t spanNs = 1000000ll) {
     const qint64 ms = static_cast<qint64>(tsNs / 1000000ll);
     const auto dt = QDateTime::fromMSecsSinceEpoch(ms, Qt::UTC);
     if (!dt.isValid()) return QString::number(tsNs);
-    return dt.toString(QStringLiteral("HH:mm:ss.zzz"));
+
+    const auto absTsNs = tsNs >= 0 ? tsNs : -tsNs;
+    const auto usPart = static_cast<int>((absTsNs / 1000ll) % 1000ll);
+    const auto nsPart = static_cast<int>(absTsNs % 1000ll);
+    const QString base = dt.toString(QStringLiteral("HH:mm:ss.zzz"));
+    if (spanNs < 1000ll) {
+        return QStringLiteral("%1.%2.%3")
+            .arg(base)
+            .arg(usPart, 3, 10, QLatin1Char('0'))
+            .arg(nsPart, 3, 10, QLatin1Char('0'));
+    }
+    if (spanNs < 1000000ll) {
+        return QStringLiteral("%1.%2")
+            .arg(base)
+            .arg(usPart, 3, 10, QLatin1Char('0'));
+    }
+    return base;
 }
 
 QVariantList buildAxisTicks(int tickCount, const auto& formatter) {
@@ -612,7 +628,7 @@ QString ChartController::formatTimeAt(double ratio) const {
     if (ratio > 1.0) ratio = 1.0;
     const auto span = tsMax_ - tsMin_;
     const auto value = tsMin_ + static_cast<qint64>(static_cast<double>(span) * ratio);
-    return formatShortTimeNs(value);
+    return formatShortTimeNs(value, std::max<std::int64_t>(span, 1));
 }
 
 QVariantList ChartController::priceScaleTicks(int tickCount) const {
@@ -637,10 +653,11 @@ QString ChartController::formatPriceScaleLabel(int index, int tickCount) const {
 
 QString ChartController::formatTimeScaleLabel(int index, int tickCount) const {
     const auto safeTicks = std::max(2, tickCount);
-    const auto step = niceTimeStepNs(std::max<std::int64_t>(tsMax_ - tsMin_, 1), safeTicks);
+    const auto span = std::max<std::int64_t>(tsMax_ - tsMin_, 1);
+    const auto step = niceTimeStepNs(span, safeTicks);
     const auto start = floorToStep(tsMin_, step);
     const auto value = start + static_cast<std::int64_t>(index) * step;
-    return formatShortTimeNs(value);
+    return formatShortTimeNs(value, span);
 }
 
 std::int64_t ChartController::viewportCursorTs() const noexcept {

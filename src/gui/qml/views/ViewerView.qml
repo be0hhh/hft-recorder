@@ -59,6 +59,31 @@ Pane {
         return -1
     }
 
+    function ensureVisibleLayerSelection() {
+        if (chart.hasTrades) {
+            if (!root.showTradesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer)
+                root.showTradesLayer = true
+            return
+        }
+
+        if (root.showTradesLayer) {
+            root.showTradesLayer = false
+            if (chart.hasOrderbook)
+                root.showOrderbookLayer = true
+            else if (chart.hasBookTicker)
+                root.showBookTickerLayer = true
+        }
+
+        if (!root.showTradesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
+            if (chart.hasOrderbook)
+                root.showOrderbookLayer = true
+            else if (chart.hasBookTicker)
+                root.showBookTickerLayer = true
+            else
+                root.showTradesLayer = true
+        }
+    }
+
     function ensureSourceSelection() {
         if (sessionToolbar.count() <= 0) {
             if (!root.userHasExplicitSelection) {
@@ -121,6 +146,12 @@ Pane {
     Connections {
         target: sourcesModel
         function onModelReset() { Qt.callLater(root.ensureSourceSelection) }
+    }
+
+    Connections {
+        target: chart
+        function onSessionChanged() { Qt.callLater(root.ensureVisibleLayerSelection) }
+        function onLiveDataChanged() { Qt.callLater(root.ensureVisibleLayerSelection) }
     }
 
     Keys.onEscapePressed: {

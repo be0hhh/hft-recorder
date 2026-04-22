@@ -166,7 +166,7 @@ void ChartController::pollLiveData_() {
     if (!pollResult.appendedRows) return;
 
     if (absorbRegistryBatchIntoReplay_(nextLiveBatch)) {
-        if (liveFollowEdge_ && loaded_) {
+        if (liveFollowEdge_ && loaded_ && oldLoaded && oldTsMax > oldTsMin) {
             const auto windowNs = std::max<std::int64_t>(1, oldTsMax - oldTsMin);
             const auto liveTsMax = std::max<std::int64_t>(replay_.lastTsNs(), replay_.firstTsNs());
             tsMax_ = liveTsMax;
@@ -192,7 +192,7 @@ void ChartController::pollLiveData_() {
     const bool hasLiveDataBatch = hasRows(nextLiveBatch);
     if (hasLiveDataBatch) {
         liveDataBatchSeq_ = nextLiveBatch.id;
-        if (liveFollowEdge_) {
+        if (liveFollowEdge_ && oldLoaded && oldTsMax > oldTsMin) {
             const auto windowNs = std::max<std::int64_t>(1, oldTsMax - oldTsMin);
             const auto liveTsMax = std::max<std::int64_t>(replay_.lastTsNs(), latestBatchTs(nextLiveBatch));
             if (liveTsMax > 0) {
@@ -384,7 +384,12 @@ void ChartController::finalizeFiles() {
         return;
     }
 
-    loaded_ = (!replay_.buckets().empty()) || (replay_.book().bids().size() + replay_.book().asks().size() > 0);
+    loaded_ = !replay_.buckets().empty()
+        || !replay_.trades().empty()
+        || !replay_.bookTickers().empty()
+        || !replay_.depths().empty()
+        || !replay_.book().bids().empty()
+        || !replay_.book().asks().empty();
     if (loaded_) computeInitialViewport_();
     currentBookTickerIndex_ = -1;
 
@@ -413,7 +418,12 @@ bool ChartController::loadSession(const QString& dir) {
         return false;
     }
 
-    loaded_ = !replay_.buckets().empty() || !replay_.book().bids().empty() || !replay_.book().asks().empty();
+    loaded_ = !replay_.buckets().empty()
+        || !replay_.trades().empty()
+        || !replay_.bookTickers().empty()
+        || !replay_.depths().empty()
+        || !replay_.book().bids().empty()
+        || !replay_.book().asks().empty();
     currentBookTickerIndex_ = -1;
     statusText_ = QStringLiteral("Loaded trades=%1 depth=%2 bookticker=%3")
                       .arg(replay_.trades().size())
