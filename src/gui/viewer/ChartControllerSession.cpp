@@ -5,6 +5,9 @@
 #include <filesystem>
 #include <string>
 #include <utility>
+#include <chrono>
+
+#include "core/metrics/Metrics.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -125,7 +128,10 @@ void ChartController::pollLiveData_() {
 
     bool reloadedSession = false;
     QString failureText{};
+    const auto pollStart = std::chrono::steady_clock::now();
     auto pollResult = liveDataProvider_->pollHot(liveDataBatchSeq_ + 1u);
+    hftrec::metrics::recordLivePoll(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - pollStart).count()));
     auto nextLiveBatch = std::move(pollResult.batch);
     if (!isOk(pollResult.failureStatus) && !pollResult.failureDetail.empty()) {
         failureText = QStringLiteral("%1: %2")

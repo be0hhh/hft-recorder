@@ -88,6 +88,8 @@ set -euo pipefail
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_DIR="${HOME}/.local/cxet"
 export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${LD_LIBRARY_PATH:-}"
+export HFTREC_METRICS_PORT="${HFTREC_METRICS_PORT:-8080}"
+export HFTREC_METRICS_MODE="${HFTREC_METRICS_MODE:-full}"
 
 MODE="cpu"
 if [ "${1:-}" = "--gpu" ]; then

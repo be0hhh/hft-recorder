@@ -1,7 +1,11 @@
 #include "core/metrics/Metrics.hpp"
 
 #include <algorithm>
+#include <cstdio>
+#include <fstream>
+#include <sstream>
 #include <mutex>
+#include <string>
 
 namespace hftrec::metrics {
 
@@ -32,6 +36,34 @@ StreamRuntimeMetrics& streamMetrics_(std::string_view stream) {
     }
     streams.push_back(StreamRuntimeMetrics{std::string{stream}});
     return streams.back();
+}
+
+std::uint64_t maxOf(std::uint64_t lhs, std::uint64_t rhs) noexcept {
+    return lhs > rhs ? lhs : rhs;
+}
+
+void addLatency(std::uint64_t ns,
+                std::uint64_t& count,
+                std::uint64_t& total,
+                std::uint64_t& max) noexcept {
+    ++count;
+    total += ns;
+    max = maxOf(max, ns);
+}
+
+std::uint64_t parseStatusBytes(std::string_view key) noexcept {
+    std::ifstream in{"/proc/self/status"};
+    if (!in) return 0;
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream iss{line};
+        std::string name;
+        std::uint64_t valueKb = 0;
+        std::string unit;
+        if (!(iss >> name >> valueKb >> unit)) continue;
+        if (name == key) return valueKb * 1024ull;
+    }
+    return 0;
 }
 
 }  // namespace
@@ -131,9 +163,208 @@ void recordLabRun(std::size_t inputBytes,
     }
 }
 
+void setLiveRows(std::uint64_t trades,
+                 std::uint64_t bookTickers,
+                 std::uint64_t depths,
+                 std::uint64_t snapshots) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& live = state().snapshot.live;
+    live.tradesRows = trades;
+    live.bookTickerRows = bookTickers;
+    live.depthRows = depths;
+    live.snapshotRows = snapshots;
+}
+
+void recordLivePoll(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& live = state().snapshot.live;
+    addLatency(ns, live.pollCountTotal, live.pollNsTotal, live.pollNsMax);
+}
+
+void recordLiveMaterialize(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& live = state().snapshot.live;
+    addLatency(ns, live.materializeCountTotal, live.materializeNsTotal, live.materializeNsMax);
+}
+
+void recordLiveJsonTailParse(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& live = state().snapshot.live;
+    addLatency(ns, live.jsonTailParseCountTotal, live.jsonTailParseNsTotal, live.jsonTailParseNsMax);
+}
+
+void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndNs) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    ++gui.frameTotal;
+    gui.paintNsTotal += ns;
+    gui.paintNsMax = maxOf(gui.paintNsMax, ns);
+    if (gui.lastFrameNs != 0u && frameEndNs > gui.lastFrameNs) {
+        const std::uint64_t delta = frameEndNs - gui.lastFrameNs;
+        gui.fps = delta > 0u ? 1000000000ull / delta : 0u;
+    }
+    gui.lastFrameNs = frameEndNs;
+}
+
+void recordGuiSnapshotBuild(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    addLatency(ns, gui.snapshotBuildCountTotal, gui.snapshotBuildNsTotal, gui.snapshotBuildNsMax);
+}
+
+void recordGuiLiveSnapshotBuild(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    addLatency(ns, gui.liveSnapshotBuildCountTotal, gui.liveSnapshotBuildNsTotal, gui.liveSnapshotBuildNsMax);
+}
+
+void recordGuiRenderOrderbook(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    addLatency(ns, gui.renderOrderbookCountTotal, gui.renderOrderbookNsTotal, gui.renderOrderbookNsMax);
+}
+
+void recordGuiRenderBookTicker(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    addLatency(ns, gui.renderBookTickerCountTotal, gui.renderBookTickerNsTotal, gui.renderBookTickerNsMax);
+}
+
+void recordGuiRenderTrades(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    addLatency(ns, gui.renderTradesCountTotal, gui.renderTradesNsTotal, gui.renderTradesNsMax);
+}
+
+void incGuiLayerCacheHit() noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    ++state().snapshot.gui.layerCacheHitTotal;
+}
+
+void incGuiLayerCacheRebuild() noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    ++state().snapshot.gui.layerCacheRebuildTotal;
+}
+
+void setGuiObjectCounts(std::uint64_t orderbookSegments,
+                        std::uint64_t bookTickerLines,
+                        std::uint64_t bookTickerSamples,
+                        std::uint64_t tradeDots) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    gui.orderbookSegments = orderbookSegments;
+    gui.bookTickerLines = bookTickerLines;
+    gui.bookTickerSamples = bookTickerSamples;
+    gui.tradeDots = tradeDots;
+}
+
 MetricsSnapshot snapshot() noexcept {
     std::lock_guard<std::mutex> lock(stateMutex());
     return state().snapshot;
 }
 
+void renderPrometheus(std::string& out) noexcept {
+    const MetricsSnapshot snap = snapshot();
+    const std::uint64_t rssBytes = parseStatusBytes("VmRSS:");
+    const std::uint64_t vmSizeBytes = parseStatusBytes("VmSize:");
+    const auto avg = [](std::uint64_t total, std::uint64_t count) noexcept -> std::uint64_t {
+        return count == 0u ? 0u : total / count;
+    };
+
+    const auto appendMetric = [&out](const char* name, std::uint64_t value) noexcept {
+        out += name;
+        out.push_back(' ');
+        out += std::to_string(value);
+        out.push_back('\n');
+    };
+
+    char buf[1024];
+    for (const auto& stream : snap.streams) {
+        std::snprintf(buf, sizeof(buf),
+                      "hftrec_stream_events_captured_total{stream=\"%s\"} %llu\n"
+                      "hftrec_stream_events_dropped_total{stream=\"%s\"} %llu\n"
+                      "hftrec_stream_bytes_written_total{stream=\"%s\"} %llu\n"
+                      "hftrec_stream_write_errors_total{stream=\"%s\"} %llu\n"
+                      "hftrec_stream_snapshot_fetch_failures_total{stream=\"%s\"} %llu\n"
+                      "hftrec_stream_ws_reconnects_total{stream=\"%s\"} %llu\n"
+                      "hftrec_stream_last_event_ts_ns{stream=\"%s\"} %llu\n"
+                      "hftrec_stream_last_write_ts_ns{stream=\"%s\"} %llu\n",
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.eventsCapturedTotal),
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.eventsDroppedTotal),
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.bytesWrittenTotal),
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.writeErrorsTotal),
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.snapshotFetchFailuresTotal),
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.wsReconnectsTotal),
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.lastEventTsNs),
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.lastWriteTsNs));
+        out += buf;
+    }
+
+    appendMetric("hftrec_replay_session_loads_total", snap.replay.sessionLoadsTotal);
+    appendMetric("hftrec_replay_rows_loaded_total", snap.replay.rowsLoadedTotal);
+    appendMetric("hftrec_replay_seek_total", snap.replay.replaySeekCountTotal);
+    appendMetric("hftrec_replay_parse_failures_total", snap.replay.replayParseFailuresTotal);
+    appendMetric("hftrec_replay_last_session_load_ns", snap.replay.lastSessionLoadNs);
+    appendMetric("hftrec_validation_runs_total", snap.validation.runsTotal);
+    appendMetric("hftrec_validation_events_total", snap.validation.eventsTotal);
+    appendMetric("hftrec_validation_events_exact_match_total", snap.validation.eventsExactMatch);
+    appendMetric("hftrec_validation_events_mismatch_total", snap.validation.eventsMismatch);
+    appendMetric("hftrec_validation_last_run_ns", snap.validation.lastRunNs);
+    appendMetric("hftrec_lab_runs_total", snap.lab.runsTotal);
+    appendMetric("hftrec_lab_input_bytes_total", snap.lab.inputBytes);
+    appendMetric("hftrec_lab_output_bytes_total", snap.lab.outputBytes);
+    appendMetric("hftrec_lab_encode_ns_total", snap.lab.encodeNs);
+    appendMetric("hftrec_lab_decode_ns_total", snap.lab.decodeNs);
+    appendMetric("hftrec_lab_roundtrip_failed_total", snap.lab.roundtripFailedTotal);
+    appendMetric("hftrec_process_rss_bytes", rssBytes);
+    appendMetric("hftrec_process_virtual_memory_bytes", vmSizeBytes);
+    appendMetric("hftrec_live_trades_rows", snap.live.tradesRows);
+    appendMetric("hftrec_live_book_ticker_rows", snap.live.bookTickerRows);
+    appendMetric("hftrec_live_depth_rows", snap.live.depthRows);
+    appendMetric("hftrec_live_snapshot_rows", snap.live.snapshotRows);
+    appendMetric("hftrec_live_poll_total", snap.live.pollCountTotal);
+    appendMetric("hftrec_live_poll_ns_total", snap.live.pollNsTotal);
+    appendMetric("hftrec_live_poll_ns_avg", avg(snap.live.pollNsTotal, snap.live.pollCountTotal));
+    appendMetric("hftrec_live_poll_ns_max", snap.live.pollNsMax);
+    appendMetric("hftrec_live_materialize_total", snap.live.materializeCountTotal);
+    appendMetric("hftrec_live_materialize_ns_total", snap.live.materializeNsTotal);
+    appendMetric("hftrec_live_materialize_ns_avg", avg(snap.live.materializeNsTotal, snap.live.materializeCountTotal));
+    appendMetric("hftrec_live_materialize_ns_max", snap.live.materializeNsMax);
+    appendMetric("hftrec_live_json_tail_parse_total", snap.live.jsonTailParseCountTotal);
+    appendMetric("hftrec_live_json_tail_parse_ns_total", snap.live.jsonTailParseNsTotal);
+    appendMetric("hftrec_live_json_tail_parse_ns_avg", avg(snap.live.jsonTailParseNsTotal, snap.live.jsonTailParseCountTotal));
+    appendMetric("hftrec_live_json_tail_parse_ns_max", snap.live.jsonTailParseNsMax);
+    appendMetric("hftrec_gui_frames_total", snap.gui.frameTotal);
+    appendMetric("hftrec_gui_fps", snap.gui.fps);
+    appendMetric("hftrec_gui_paint_ns_total", snap.gui.paintNsTotal);
+    appendMetric("hftrec_gui_paint_ns_avg", avg(snap.gui.paintNsTotal, snap.gui.frameTotal));
+    appendMetric("hftrec_gui_paint_ns_max", snap.gui.paintNsMax);
+    appendMetric("hftrec_gui_snapshot_build_total", snap.gui.snapshotBuildCountTotal);
+    appendMetric("hftrec_gui_snapshot_build_ns_total", snap.gui.snapshotBuildNsTotal);
+    appendMetric("hftrec_gui_snapshot_build_ns_avg", avg(snap.gui.snapshotBuildNsTotal, snap.gui.snapshotBuildCountTotal));
+    appendMetric("hftrec_gui_snapshot_build_ns_max", snap.gui.snapshotBuildNsMax);
+    appendMetric("hftrec_gui_live_snapshot_build_total", snap.gui.liveSnapshotBuildCountTotal);
+    appendMetric("hftrec_gui_live_snapshot_build_ns_total", snap.gui.liveSnapshotBuildNsTotal);
+    appendMetric("hftrec_gui_live_snapshot_build_ns_avg", avg(snap.gui.liveSnapshotBuildNsTotal, snap.gui.liveSnapshotBuildCountTotal));
+    appendMetric("hftrec_gui_live_snapshot_build_ns_max", snap.gui.liveSnapshotBuildNsMax);
+    appendMetric("hftrec_gui_render_orderbook_total", snap.gui.renderOrderbookCountTotal);
+    appendMetric("hftrec_gui_render_orderbook_ns_total", snap.gui.renderOrderbookNsTotal);
+    appendMetric("hftrec_gui_render_orderbook_ns_avg", avg(snap.gui.renderOrderbookNsTotal, snap.gui.renderOrderbookCountTotal));
+    appendMetric("hftrec_gui_render_orderbook_ns_max", snap.gui.renderOrderbookNsMax);
+    appendMetric("hftrec_gui_render_book_ticker_total", snap.gui.renderBookTickerCountTotal);
+    appendMetric("hftrec_gui_render_book_ticker_ns_total", snap.gui.renderBookTickerNsTotal);
+    appendMetric("hftrec_gui_render_book_ticker_ns_avg", avg(snap.gui.renderBookTickerNsTotal, snap.gui.renderBookTickerCountTotal));
+    appendMetric("hftrec_gui_render_book_ticker_ns_max", snap.gui.renderBookTickerNsMax);
+    appendMetric("hftrec_gui_render_trades_total", snap.gui.renderTradesCountTotal);
+    appendMetric("hftrec_gui_render_trades_ns_total", snap.gui.renderTradesNsTotal);
+    appendMetric("hftrec_gui_render_trades_ns_avg", avg(snap.gui.renderTradesNsTotal, snap.gui.renderTradesCountTotal));
+    appendMetric("hftrec_gui_render_trades_ns_max", snap.gui.renderTradesNsMax);
+    appendMetric("hftrec_gui_layer_cache_hit_total", snap.gui.layerCacheHitTotal);
+    appendMetric("hftrec_gui_layer_cache_rebuild_total", snap.gui.layerCacheRebuildTotal);
+    appendMetric("hftrec_gui_orderbook_segments", snap.gui.orderbookSegments);
+    appendMetric("hftrec_gui_book_ticker_lines", snap.gui.bookTickerLines);
+    appendMetric("hftrec_gui_book_ticker_samples", snap.gui.bookTickerSamples);
+    appendMetric("hftrec_gui_trade_dots", snap.gui.tradeDots);
+    appendMetric("hftrec_gui_last_frame_ts_ns", snap.gui.lastFrameNs);
+}
 }  // namespace hftrec::metrics

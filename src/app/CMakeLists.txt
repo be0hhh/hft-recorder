@@ -6,6 +6,7 @@
 
 add_executable(hft-recorder
     main.cpp
+    metrics_bootstrap.cpp
     capture_cli.cpp
     analyze_cli.cpp
     report_export.cpp

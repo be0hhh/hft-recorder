@@ -10,7 +10,9 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <chrono>
 
+#include "core/metrics/Metrics.hpp"
 #include "core/replay/JsonLineParser.hpp"
 #include "core/storage/EventStorage.hpp"
 
@@ -84,7 +86,11 @@ void tailRows(JsonTailLiveDataProvider::TailFile& file,
         std::string line = nextPending.substr(lineStart, lineEnd - lineStart);
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (!line.empty()) {
+            const auto parseStart = std::chrono::steady_clock::now();
             const auto st = consumeLine(std::string_view{line});
+            const auto parseNs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - parseStart).count());
+            hftrec::metrics::recordLiveJsonTailParse(parseNs);
             if (!isOk(st)) {
                 result.reloadRequired = true;
                 result.failureStatus = st;

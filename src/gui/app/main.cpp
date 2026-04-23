@@ -6,6 +6,7 @@
 #include <QMetaObject>
 #include <QUrl>
 
+#include "app/metrics_bootstrap.hpp"
 #include "core/local_exchange/LocalExchangeServer.hpp"
 #include "gui/models/SessionListModel.hpp"
 #include "gui/models/ViewerSourceListModel.hpp"
@@ -48,6 +49,7 @@ void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
 
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
+    hftrec::app::MetricsBootstrap metricsBootstrap{};
     hftrec::local_exchange::LocalExchangeServer localExchangeServer;
     localExchangeServer.start();
     QCoreApplication::setOrganizationName(QStringLiteral("hftrec"));

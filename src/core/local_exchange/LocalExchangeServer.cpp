@@ -1,7 +1,10 @@
 #include "core/local_exchange/LocalExchangeServer.hpp"
 
 #include "core/local_exchange/LocalOrderEngine.hpp"
+#include "metrics/MetricsControl.hpp"
+#include "metrics/Probes.hpp"
 #include "network/local/hftrecorder/Protocol.hpp"
+#include "probes/TimeDelta.hpp"
 
 #include <cerrno>
 #include <cstddef>
@@ -136,16 +139,45 @@ void LocalExchangeServer::handleClient_(int clientFd) noexcept {
 
     OrderRequestFrame request{};
     OrderAckFrame ack{};
-    if (!readAll(clientFd, &request, sizeof(request)) || !isValidRequest(request)) {
+    const bool captureMetrics = cxet::metrics::shouldCaptureLatency();
+    TscTick recvStartTsc{};
+    if (captureMetrics) recvStartTsc = cxet::probes::captureTsc();
+    const bool readOk = readAll(clientFd, &request, sizeof(request));
+    TscTick recvEndTsc{};
+    if (captureMetrics) recvEndTsc = cxet::probes::captureTsc();
+    cxet::metrics::recordIfEnabled(cxet::metrics::recorderVenueRecv, recvStartTsc, recvEndTsc, captureMetrics);
+
+    TscTick validateStartTsc{};
+    if (captureMetrics) validateStartTsc = cxet::probes::captureTsc();
+    const bool validRequest = readOk && isValidRequest(request);
+    TscTick validateEndTsc{};
+    if (captureMetrics) validateEndTsc = cxet::probes::captureTsc();
+    cxet::metrics::recordIfEnabled(cxet::metrics::recorderVenueValidate, validateStartTsc, validateEndTsc, captureMetrics);
+    if (!validRequest) {
         ack.success = 0u;
         ack.statusRaw = static_cast<std::uint8_t>(canon::OrderStatus::Rejected);
         ack.errorCode = static_cast<std::uint32_t>(LocalOrderErrorCode::InvalidRequest);
+        TscTick ackWriteStartTsc{};
+        if (captureMetrics) ackWriteStartTsc = cxet::probes::captureTsc();
         writeAll(clientFd, &ack, sizeof(ack));
+        TscTick ackWriteEndTsc{};
+        if (captureMetrics) ackWriteEndTsc = cxet::probes::captureTsc();
+        cxet::metrics::recordIfEnabled(cxet::metrics::recorderVenueAckWrite, ackWriteStartTsc, ackWriteEndTsc, captureMetrics);
         return;
     }
 
+    TscTick processStartTsc{};
+    if (captureMetrics) processStartTsc = cxet::probes::captureTsc();
     globalLocalOrderEngine().submitOrder(request, ack);
+    TscTick processEndTsc{};
+    if (captureMetrics) processEndTsc = cxet::probes::captureTsc();
+    cxet::metrics::recordIfEnabled(cxet::metrics::recorderVenueProcess, processStartTsc, processEndTsc, captureMetrics);
+    TscTick ackWriteStartTsc{};
+    if (captureMetrics) ackWriteStartTsc = cxet::probes::captureTsc();
     writeAll(clientFd, &ack, sizeof(ack));
+    TscTick ackWriteEndTsc{};
+    if (captureMetrics) ackWriteEndTsc = cxet::probes::captureTsc();
+    cxet::metrics::recordIfEnabled(cxet::metrics::recorderVenueAckWrite, ackWriteStartTsc, ackWriteEndTsc, captureMetrics);
 }
 
 }  // namespace hftrec::local_exchange

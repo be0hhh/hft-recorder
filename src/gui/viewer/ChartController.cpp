@@ -4,6 +4,9 @@
 #include <filesystem>
 #include <memory>
 #include <utility>
+#include <chrono>
+
+#include "core/metrics/Metrics.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -129,9 +132,12 @@ void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsM
         return;
     }
 
+    const auto materializeStart = std::chrono::steady_clock::now();
     LiveDataBatch nextStable = liveDataProvider_->materializeRange(
         LiveDataRangeRequest{{}, tsMin, tsMax},
         liveDataCache_.version + 1u);
+    hftrec::metrics::recordLiveMaterialize(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - materializeStart).count()));
 
     liveDataCache_.stableRows = std::move(nextStable);
     reconcileOverlayWithStable_();
@@ -139,6 +145,10 @@ void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsM
     ++liveDataCache_.version;
     liveDataCache_.stableRows.id = liveDataCache_.version;
     liveDataCache_.overlayRows.id = liveDataCache_.version;
+    hftrec::metrics::setLiveRows(static_cast<std::uint64_t>(liveDataCache_.stableRows.trades.size() + liveDataCache_.overlayRows.trades.size()),
+                         static_cast<std::uint64_t>(liveDataCache_.stableRows.bookTickers.size() + liveDataCache_.overlayRows.bookTickers.size()),
+                         static_cast<std::uint64_t>(liveDataCache_.stableRows.depths.size() + liveDataCache_.overlayRows.depths.size()),
+                         static_cast<std::uint64_t>(liveDataCache_.stableRows.snapshots.size() + liveDataCache_.overlayRows.snapshots.size()));
     liveWindowTsMin_ = tsMin;
     liveWindowTsMax_ = tsMax;
     liveWindowVersion_ = liveDataCache_.version;

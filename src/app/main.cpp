@@ -2,6 +2,7 @@
 #include <cstring>
 #include <string_view>
 
+#include "app/metrics_bootstrap.hpp"
 #include "hftrec/version.hpp"
 
 namespace hftrec::app {
@@ -35,6 +36,7 @@ void printVersion() {
 }  // namespace
 
 int main(int argc, char** argv) {
+    hftrec::app::MetricsBootstrap metricsBootstrap{};
     if (argc < 2) {
         printUsage();
         return 0;

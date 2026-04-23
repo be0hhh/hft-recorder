@@ -1,6 +1,7 @@
 ﻿#include "gui/viewer/ChartItem.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iterator>
@@ -15,6 +16,7 @@
 #include <QQuickWindow>
 
 #include <core/replay/BookState.hpp>
+#include <core/metrics/Metrics.hpp>
 #include <gui/viewer/detail/BookMath.hpp>
 
 #include "gui/viewer/ChartController.hpp"
@@ -718,7 +720,10 @@ const RenderSnapshot& ChartItem::ensureSnapshot_() {
     const bool rebuildActive = activeDirty || !activeCache || sizeChanged;
 
     if (rebuildActive) {
+        const auto snapshotBuildStart = std::chrono::steady_clock::now();
         activeCache = std::make_unique<RenderSnapshot>(controller_->buildSnapshot(w, h, detail::collectInputs(*this)));
+        metrics::recordGuiSnapshotBuild(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - snapshotBuildStart).count()));
         cachedW_ = w;
         cachedH_ = h;
         activeDirty = false;
@@ -729,6 +734,10 @@ const RenderSnapshot& ChartItem::ensureSnapshot_() {
 void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h) {
     if (overlayOnly_) return;
     if (!snap.loaded) return;
+    metrics::setGuiObjectCounts(static_cast<std::uint64_t>(snap.bookSegments.size()),
+                                static_cast<std::uint64_t>(snap.bookTickerTrace.bidLines.size() + snap.bookTickerTrace.askLines.size()),
+                                static_cast<std::uint64_t>(snap.bookTickerTrace.samples.size()),
+                                static_cast<std::uint64_t>(snap.tradeDots.size()));
     const bool sizeMatches = (cachedLayerImageW_ == w && cachedLayerImageH_ == h);
     if (!sizeMatches) {
         cachedOrderbookImage_ = QImage{};
@@ -738,7 +747,11 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
         cachedBookTickerEndTsNs_ = 0;
         cachedTradesEndTsNs_ = 0;
     }
-    if (!cachedOrderbookImage_.isNull() && !cachedBookTickerImage_.isNull() && !cachedTradesImage_.isNull()) return;
+    if (!cachedOrderbookImage_.isNull() && !cachedBookTickerImage_.isNull() && !cachedTradesImage_.isNull()) {
+        metrics::incGuiLayerCacheHit();
+        return;
+    }
+    metrics::incGuiLayerCacheRebuild();
 
     const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
     const std::int64_t baseOrderbookEndTsNs = maxOrderbookTs(baseSnap);
@@ -794,6 +807,7 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
 }
 
 void ChartItem::paint(QPainter* painter) {
+    const auto paintStart = std::chrono::steady_clock::now();
     painter->setRenderHint(QPainter::Antialiasing, false);
     painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter->setRenderHint(QPainter::TextAntialiasing, true);
@@ -829,8 +843,11 @@ void ChartItem::paint(QPainter* painter) {
     const LiveDataBatch& liveBatch = *cachedLiveBatch_;
     if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
         const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
+        const auto liveSnapshotStart = std::chrono::steady_clock::now();
         cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
             liveSnapshotFromDataBatch(snap, liveBatch, liveTradeOrigIndexStart));
+        metrics::recordGuiLiveSnapshotBuild(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - liveSnapshotStart).count()));
         cachedLiveDataBatchId_ = liveCache.version;
     }
     const auto refreshHitTestSnapshot = [&]() {
@@ -875,10 +892,22 @@ void ChartItem::paint(QPainter* painter) {
                 (clippedSource.width() / sourceRect.width()) * rect.width(),
                 (clippedSource.height() / sourceRect.height()) * rect.height(),
             };
+            const auto orderbookRenderStart = std::chrono::steady_clock::now();
             painter->drawImage(destRect, cachedOrderbookImage_, clippedSource);
+            metrics::recordGuiRenderOrderbook(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - orderbookRenderStart).count()));
+            const auto bookTickerRenderStart = std::chrono::steady_clock::now();
             painter->drawImage(destRect, cachedBookTickerImage_, clippedSource);
+            metrics::recordGuiRenderBookTicker(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - bookTickerRenderStart).count()));
+            const auto tradesRenderStart = std::chrono::steady_clock::now();
             painter->drawImage(destRect, cachedTradesImage_, clippedSource);
+            metrics::recordGuiRenderTrades(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - tradesRenderStart).count()));
             paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
+            const auto frameEnd = std::chrono::steady_clock::now();
+            metrics::recordGuiPaint(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(frameEnd - paintStart).count()),
+                                    static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(frameEnd.time_since_epoch()).count()));
             return;
         }
 
@@ -906,13 +935,22 @@ void ChartItem::paint(QPainter* painter) {
     }
 
     if (!cachedOrderbookImage_.isNull() && !overlayOnly_) {
+        const auto orderbookRenderStart = std::chrono::steady_clock::now();
         painter->drawImage(rect, cachedOrderbookImage_);
+        metrics::recordGuiRenderOrderbook(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - orderbookRenderStart).count()));
     }
     if (!cachedBookTickerImage_.isNull()) {
+        const auto bookTickerRenderStart = std::chrono::steady_clock::now();
         painter->drawImage(rect, cachedBookTickerImage_);
+        metrics::recordGuiRenderBookTicker(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - bookTickerRenderStart).count()));
     }
     if (!cachedTradesImage_.isNull()) {
+        const auto tradesRenderStart = std::chrono::steady_clock::now();
         painter->drawImage(rect, cachedTradesImage_);
+        metrics::recordGuiRenderTrades(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - tradesRenderStart).count()));
     }
     paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
 
@@ -920,6 +958,9 @@ void ChartItem::paint(QPainter* painter) {
         RenderContext ctx{painter, snap, detail::buildHoverInfo(*this), dpr};
         renderers::renderOverlay(ctx);
     }
+    const auto frameEnd = std::chrono::steady_clock::now();
+    metrics::recordGuiPaint(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(frameEnd - paintStart).count()),
+                            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(frameEnd.time_since_epoch()).count()));
 }
 
 }  // namespace hftrec::gui::viewer
