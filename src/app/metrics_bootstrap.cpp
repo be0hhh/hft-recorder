@@ -28,7 +28,7 @@ std::uint16_t metricsPort() noexcept {
 
 cxet::metrics::Mode metricsMode() noexcept {
     const char* raw = std::getenv("HFTREC_METRICS_MODE");
-    if (raw == nullptr || raw[0] == '\0') return cxet::metrics::Mode::FullLatency;
+    if (raw == nullptr || raw[0] == '\0') return cxet::metrics::Mode::CountersOnly;
     if (std::strcmp(raw, "off") == 0) return cxet::metrics::Mode::Off;
     if (std::strcmp(raw, "counters") == 0) return cxet::metrics::Mode::CountersOnly;
     if (std::strcmp(raw, "sampled") == 0) return cxet::metrics::Mode::SampledLatency;
@@ -44,6 +44,10 @@ struct MetricsBootstrap::Impl {
 };
 
 MetricsBootstrap::MetricsBootstrap() noexcept {
+    if (metricsMode() == cxet::metrics::Mode::Off) {
+        cxet::metrics::setMode(cxet::metrics::Mode::Off);
+        return;
+    }
     impl_ = new Impl();
     hftrec::metrics::init();
     cxet::metrics::ProbeRegistry::setExtraRenderHook(&renderHftrecMetrics);

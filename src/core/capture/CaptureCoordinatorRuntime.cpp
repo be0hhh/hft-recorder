@@ -1,4 +1,4 @@
-#include "core/capture/CaptureCoordinator.hpp"
+﻿#include "core/capture/CaptureCoordinator.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -14,6 +14,9 @@
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
 #include "core/local_exchange/LocalOrderEngine.hpp"
 #include "core/metrics/Metrics.hpp"
+
+#include "metrics/Probes.hpp"
+#include "probes/TimeDelta.hpp"
 
 namespace hftrec::capture {
 
@@ -231,11 +234,23 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                 auto* self = context->self;
                 self->tradesCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->tradesCaptureSeq_, self->ingestSeq_);
+
+                const auto bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedTrade = cxet_bridge::CxetCaptureBridge::captureTrade(trade, meta);
-                local_exchange::globalLocalOrderEngine().onTrade(capturedTrade);
                 const auto row = makeTradeRow(capturedTrade, sequenceIds);
+                cxet::metrics::recorderBridgeMaterialize.record(bridgeStartTsc, cxet::probes::captureTsc());
+
+                const auto localEngineStartTsc = cxet::probes::captureTsc();
+                local_exchange::globalLocalOrderEngine().onTrade(capturedTrade);
+                cxet::metrics::recorderLocalEngine.record(localEngineStartTsc, cxet::probes::captureTsc());
+
+                const auto jsonRenderStartTsc = cxet::probes::captureTsc();
                 const auto jsonLine = renderTradeJsonLine(row);
+                cxet::metrics::recorderJsonRender.record(jsonRenderStartTsc, cxet::probes::captureTsc());
+
+                const auto eventSinkStartTsc = cxet::probes::captureTsc();
                 if (!isOk(self->eventSink_.appendTrade(row))) {
+                    cxet::metrics::recorderEventSink.record(eventSinkStartTsc, cxet::probes::captureTsc());
                     metrics::recordCaptureWriteError("trades");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
                     const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
@@ -246,10 +261,14 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                     self->lastError_ = failure.channel + ": " + failure.detail;
                     return false;
                 }
+                cxet::metrics::recorderEventSink.record(eventSinkStartTsc, cxet::probes::captureTsc());
+
+                const auto recorderMetricsStartTsc = cxet::probes::captureTsc();
                 metrics::recordCaptureEvent("trades",
                                             capturedTrade.tsNs,
                                             static_cast<std::uint64_t>(jsonLine.size() + 1u),
                                             static_cast<std::uint64_t>(internal::nowNs()));
+                cxet::metrics::recorderMetrics.record(recorderMetricsStartTsc, cxet::probes::captureTsc());
                 return !self->tradesStop_.load(std::memory_order_acquire);
             },
             &callbackContext,
@@ -368,11 +387,23 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
                 auto* self = context->self;
                 self->bookTickerCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->bookTickerCaptureSeq_, self->ingestSeq_);
+
+                const auto bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedBookTicker = cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, meta);
-                local_exchange::globalLocalOrderEngine().onBookTicker(capturedBookTicker);
                 const auto row = makeBookTickerRow(capturedBookTicker, sequenceIds);
+                cxet::metrics::recorderBridgeMaterialize.record(bridgeStartTsc, cxet::probes::captureTsc());
+
+                const auto localEngineStartTsc = cxet::probes::captureTsc();
+                local_exchange::globalLocalOrderEngine().onBookTicker(capturedBookTicker);
+                cxet::metrics::recorderLocalEngine.record(localEngineStartTsc, cxet::probes::captureTsc());
+
+                const auto jsonRenderStartTsc = cxet::probes::captureTsc();
                 const auto jsonLine = renderBookTickerJsonLine(row);
+                cxet::metrics::recorderJsonRender.record(jsonRenderStartTsc, cxet::probes::captureTsc());
+
+                const auto eventSinkStartTsc = cxet::probes::captureTsc();
                 if (!isOk(self->eventSink_.appendBookTicker(row))) {
+                    cxet::metrics::recorderEventSink.record(eventSinkStartTsc, cxet::probes::captureTsc());
                     metrics::recordCaptureWriteError("bookticker");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
                     const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
@@ -383,10 +414,14 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
                     self->lastError_ = failure.channel + ": " + failure.detail;
                     return false;
                 }
+                cxet::metrics::recorderEventSink.record(eventSinkStartTsc, cxet::probes::captureTsc());
+
+                const auto recorderMetricsStartTsc = cxet::probes::captureTsc();
                 metrics::recordCaptureEvent("bookticker",
                                             capturedBookTicker.tsNs,
                                             static_cast<std::uint64_t>(jsonLine.size() + 1u),
                                             static_cast<std::uint64_t>(internal::nowNs()));
+                cxet::metrics::recorderMetrics.record(recorderMetricsStartTsc, cxet::probes::captureTsc());
                 return !self->bookTickerStop_.load(std::memory_order_acquire);
             },
             &callbackContext,
@@ -515,10 +550,19 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
                 auto* self = context->self;
                 self->depthCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->depthCaptureSeq_, self->ingestSeq_);
+
+                const auto bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(delta);
                 const auto row = makeDepthRow(capturedDepth, sequenceIds);
+                cxet::metrics::recorderBridgeMaterialize.record(bridgeStartTsc, cxet::probes::captureTsc());
+
+                const auto jsonRenderStartTsc = cxet::probes::captureTsc();
                 const auto jsonLine = renderDepthJsonLine(row);
+                cxet::metrics::recorderJsonRender.record(jsonRenderStartTsc, cxet::probes::captureTsc());
+
+                const auto eventSinkStartTsc = cxet::probes::captureTsc();
                 if (!isOk(self->eventSink_.appendDepth(row))) {
+                    cxet::metrics::recorderEventSink.record(eventSinkStartTsc, cxet::probes::captureTsc());
                     metrics::recordCaptureWriteError("depth");
                     std::lock_guard<std::mutex> lock(self->stateMutex_);
                     const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
@@ -529,10 +573,14 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
                     self->lastError_ = failure.channel + ": " + failure.detail;
                     return false;
                 }
+                cxet::metrics::recorderEventSink.record(eventSinkStartTsc, cxet::probes::captureTsc());
+
+                const auto recorderMetricsStartTsc = cxet::probes::captureTsc();
                 metrics::recordCaptureEvent("depth",
                                             capturedDepth.tsNs,
                                             static_cast<std::uint64_t>(jsonLine.size() + 1u),
                                             static_cast<std::uint64_t>(internal::nowNs()));
+                cxet::metrics::recorderMetrics.record(recorderMetricsStartTsc, cxet::probes::captureTsc());
                 return !self->orderbookStop_.load(std::memory_order_acquire);
             },
             &callbackContext,
@@ -610,3 +658,9 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
 }
 
 }  // namespace hftrec::capture
+
+
+
+
+
+

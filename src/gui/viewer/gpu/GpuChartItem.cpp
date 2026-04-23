@@ -350,7 +350,6 @@ void GpuChartItem::setHoverPoint(qreal x, qreal y) {
     hoverActive_ = true;
     contextActive_ = false;
     updateHover_();
-    update();
 }
 
 void GpuChartItem::activateContextPoint(qreal x, qreal y) {
@@ -367,6 +366,7 @@ void GpuChartItem::activateContextPoint(qreal x, qreal y) {
 }
 
 void GpuChartItem::clearHover() {
+    const bool hadHoverState = hoverActive_ || contextActive_ || hoveredTradeIndex_ >= 0 || hoveredBookKind_ != 0;
     hoverActive_ = false;
     contextActive_ = false;
     hoveredTradeIndex_ = -1;
@@ -377,7 +377,7 @@ void GpuChartItem::clearHover() {
     hoveredBookTsStartNs_ = 0;
     hoveredBookTsEndNs_ = 0;
     hoverInfo_ = std::make_unique<HoverInfo>();
-    update();
+    if (hadHoverState) update();
 }
 
 void GpuChartItem::updateHover_() {

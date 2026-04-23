@@ -114,7 +114,64 @@ else
     echo ">>> hft-recorder launcher: CPU-safe software mode"
 fi
 
-exec "$APP_DIR/build/bin/hft-recorder-gui" "$@"
+restore_cursor() {
+    if command -v tput >/dev/null 2>&1; then
+        tput cnorm 2>/dev/null || true
+    fi
+    printf '\e[?25h' || true
+}
+
+restore_cursor_tty() {
+    if [ -w /dev/tty ]; then
+        if command -v tput >/dev/null 2>&1; then
+            tput cnorm >/dev/tty 2>/dev/null || true
+        fi
+        printf '\e[?25h' >/dev/tty 2>/dev/null || true
+    else
+        restore_cursor
+    fi
+}
+
+nudge_cursor_after_spawn() {
+    (
+        sleep 0.2
+        restore_cursor_tty
+        sleep 0.5
+        restore_cursor_tty
+        sleep 1
+        restore_cursor_tty
+        sleep 2
+        restore_cursor_tty
+    ) >/dev/null 2>&1 &
+}
+
+trap restore_cursor_tty EXIT INT TERM
+LOG_DIR="$APP_DIR/build/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/gui.log"
+
+: > "$LOG_FILE"
+{
+    printf '=== hft-recorder launch ===\n'
+    printf 'mode=%s\n' "$MODE"
+    printf 'HFTREC_RENDER_MODE=%s\n' "${HFTREC_RENDER_MODE:-}"
+    printf 'HFTREC_METRICS_MODE=%s\n' "${HFTREC_METRICS_MODE:-}"
+    printf 'HFTREC_METRICS_PORT=%s\n' "${HFTREC_METRICS_PORT:-}"
+    printf 'QSG_RHI_BACKEND=%s\n' "${QSG_RHI_BACKEND:-}"
+    printf 'QT_QUICK_BACKEND=%s\n' "${QT_QUICK_BACKEND:-}"
+    printf 'QT_XCB_GL_INTEGRATION=%s\n' "${QT_XCB_GL_INTEGRATION:-}"
+    printf 'LIBGL_ALWAYS_SOFTWARE=%s\n' "${LIBGL_ALWAYS_SOFTWARE:-}"
+    printf '\n'
+} >>"$LOG_FILE"
+if command -v setsid >/dev/null 2>&1; then
+    setsid "$APP_DIR/build/bin/hft-recorder-gui" "$@" </dev/null >>"$LOG_FILE" 2>&1 &
+else
+    nohup "$APP_DIR/build/bin/hft-recorder-gui" "$@" </dev/null >>"$LOG_FILE" 2>&1 &
+fi
+
+disown 2>/dev/null || true
+nudge_cursor_after_spawn
+echo ">>> hft-recorder gui started, log: $LOG_FILE"
 EOF
     chmod +x "$APP/build/start"
 }

@@ -130,6 +130,16 @@ Pane {
     ChartController { id: chart }
     ViewerInteractionState { id: interaction }
     Timer { id: interactiveModeTimer; interval: 120; repeat: false; onTriggered: interaction.interactiveMode = false }
+    Timer {
+        id: hoverUpdateTimer
+        interval: 33
+        repeat: false
+        onTriggered: {
+            if (root.chartSurface() && hoverMouseArea.hoverPending)
+                root.chartSurface().setHoverPoint(hoverMouseArea.pendingHoverX, hoverMouseArea.pendingHoverY)
+            hoverMouseArea.hoverPending = false
+        }
+    }
 
     Component.onCompleted: {
         Qt.callLater(root.ensureSourceSelection)
@@ -252,6 +262,7 @@ Pane {
                 }
                 Loader { id: chartLoader; anchors.fill: parent; sourceComponent: root.useDedicatedGpuPath ? gpuChartComponent : cpuChartComponent; onLoaded: root.syncRendererDiagnostics() }
                 MouseArea {
+                    id: hoverMouseArea
                     anchors.fill: parent
                     property real lastX: 0
                     property real lastY: 0
@@ -259,28 +270,39 @@ Pane {
                     property real pressY: 0
                     property bool dragActive: false
                     property bool contextHoldActive: false
+                    property real pendingHoverX: 0
+                    property real pendingHoverY: 0
+                    property bool hoverPending: false
                     acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                     hoverEnabled: true
                     preventStealing: true
                     onPressed: function(mouse) {
                         if (mouse.button === Qt.RightButton) {
+                            hoverUpdateTimer.stop()
+                            hoverPending = false
                             contextHoldActive = true
                             if (root.chartSurface()) root.chartSurface().activateContextPoint(mouse.x, mouse.y)
                             return
                         }
                         if (mouse.button === Qt.MiddleButton) {
+                            hoverUpdateTimer.stop()
+                            hoverPending = false
                             interaction.startInteractiveMode(interactiveModeTimer)
                             interaction.beginSelection(mouse.x, mouse.y, 'middle_line')
                             if (root.chartSurface()) root.chartSurface().clearHover()
                             return
                         }
                         if ((mouse.modifiers & Qt.ShiftModifier) && mouse.button === Qt.LeftButton) {
+                            hoverUpdateTimer.stop()
+                            hoverPending = false
                             interaction.startInteractiveMode(interactiveModeTimer)
                             interaction.beginSelection(mouse.x, mouse.y, 'shift_box')
                             if (root.chartSurface()) root.chartSurface().clearHover()
                             return
                         }
                         if ((mouse.modifiers & Qt.ControlModifier) && mouse.button === Qt.LeftButton) {
+                            hoverUpdateTimer.stop()
+                            hoverPending = false
                             interaction.startInteractiveMode(interactiveModeTimer)
                             interaction.beginSelection(mouse.x, mouse.y, 'ctrl_hilo')
                             if (root.chartSurface()) root.chartSurface().clearHover()
@@ -310,6 +332,8 @@ Pane {
                                 var distance = Math.abs(mouse.x - pressX) + Math.abs(mouse.y - pressY)
                                 if (distance < 4) return
                                 dragActive = true
+                                hoverUpdateTimer.stop()
+                                hoverPending = false
                                 interaction.startInteractiveMode(interactiveModeTimer)
                                 if (root.chartSurface()) root.chartSurface().clearHover()
                             }
@@ -323,7 +347,10 @@ Pane {
                         }
                         if (interaction.priceScaleDragging || interaction.timeScaleDragging) return
                         if (!interaction.anyHoverableLayerVisible(root.showTradesLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) return
-                        if (root.chartSurface()) root.chartSurface().setHoverPoint(mouse.x, mouse.y)
+                        pendingHoverX = mouse.x
+                        pendingHoverY = mouse.y
+                        hoverPending = true
+                        hoverUpdateTimer.restart()
                     }
                     onReleased: {
                         if (interaction.rangeSelectionActive) {
@@ -333,6 +360,8 @@ Pane {
                         }
                         if (contextHoldActive) {
                             contextHoldActive = false
+                            hoverUpdateTimer.stop()
+                            hoverPending = false
                             if (root.chartSurface()) root.chartSurface().clearHover()
                         }
                         interaction.plotDragging = false
@@ -342,6 +371,8 @@ Pane {
                     onCanceled: {
                         if (interaction.rangeSelectionActive) interaction.finishMeasurement(chart)
                         contextHoldActive = false
+                        hoverUpdateTimer.stop()
+                        hoverPending = false
                         if (root.chartSurface()) root.chartSurface().clearHover()
                         interaction.plotDragging = false
                         if (dragActive) interaction.stopInteractiveModeSoon(interactiveModeTimer)
@@ -349,10 +380,14 @@ Pane {
                     }
                     onExited: {
                         contextHoldActive = false
+                        hoverUpdateTimer.stop()
+                        hoverPending = false
                         if (!interaction.rangeSelectionActive && root.chartSurface()) root.chartSurface().clearHover()
                     }
                     onWheel: function(wheel) {
                         interaction.startInteractiveMode(interactiveModeTimer)
+                        hoverUpdateTimer.stop()
+                        hoverPending = false
                         if (root.chartSurface()) root.chartSurface().clearHover()
                         var factor = wheel.angleDelta.y > 0 ? 1.18 : 0.84
                         chart.zoomTime(factor)

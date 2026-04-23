@@ -55,7 +55,6 @@ void ChartItem::setHoverPoint(qreal x, qreal y) {
     hoverActive_ = true;
     contextActive_ = false;
     updateHover_();
-    update();
 }
 
 void ChartItem::activateContextPoint(qreal x, qreal y) {
@@ -72,6 +71,7 @@ void ChartItem::activateContextPoint(qreal x, qreal y) {
 }
 
 void ChartItem::clearHover() {
+    const bool hadHoverState = hoverActive_ || contextActive_ || hoveredTradeIndex_ >= 0 || hoveredBookKind_ != 0;
     hoverActive_ = false;
     contextActive_ = false;
     hoveredTradeIndex_ = -1;
@@ -85,7 +85,7 @@ void ChartItem::clearHover() {
     hoveredBookTsNs_ = 0;
     hoveredBookTsStartNs_ = 0;
     hoveredBookTsEndNs_ = 0;
-    update();
+    if (hadHoverState) update();
 }
 
 void ChartItem::updateHover_() {
