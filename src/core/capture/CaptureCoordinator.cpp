@@ -8,6 +8,7 @@
 #include "core/capture/SessionId.hpp"
 #include "core/capture/SupportArtifacts.hpp"
 #include "core/corpus/InstrumentMetadata.hpp"
+#include "core/replay/SessionReplay.hpp"
 
 namespace hftrec::capture {
 
@@ -110,6 +111,26 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     manifest_.structuralBlockers.clear();
     manifest_.structurallyLoadable = true;
 
+    (void)eventSink_.close();
+    (void)tradesWriter_.close();
+    (void)bookTickerWriter_.close();
+    (void)depthWriter_.close();
+
+    {
+        std::ofstream manifestSeed(sessionDir_ / "manifest.json", std::ios::out | std::ios::trunc);
+        if (!manifestSeed.is_open()) {
+            lastError_ = "failed to seed manifest.json for integrity sync";
+            return Status::IoError;
+        }
+        manifestSeed << renderManifestJson(manifest_);
+        if (!manifestSeed.good()) {
+            lastError_ = "failed to seed manifest.json for integrity sync";
+            return Status::IoError;
+        }
+    }
+
+    syncManifestIntegrityFromReplay_();
+
     if (const auto supportStatus = writeSupportArtifacts(); !isOk(supportStatus)) {
         lastError_ = "failed to write support artifacts";
         return supportStatus;
@@ -126,10 +147,6 @@ Status CaptureCoordinator::finalizeSession() noexcept {
         return Status::IoError;
     }
 
-    (void)eventSink_.close();
-    (void)tradesWriter_.close();
-    (void)bookTickerWriter_.close();
-    (void)depthWriter_.close();
     resetSessionState();
     return Status::Ok;
 }
@@ -181,6 +198,28 @@ bool CaptureCoordinator::sessionOpen() const noexcept {
     return !sessionDir_.empty();
 }
 
+void CaptureCoordinator::syncManifestIntegrityFromReplay_() noexcept {
+    replay::SessionReplay replay;
+    const auto replayStatus = replay.open(sessionDir_);
+    const auto& summary = replay.integritySummary();
+
+    manifest_.sessionHealth = summary.sessionHealth;
+    manifest_.exactReplayEligible = summary.exactReplayEligible;
+    manifest_.tradesIntegrity = summary.trades;
+    manifest_.bookTickerIntegrity = summary.bookTicker;
+    manifest_.depthIntegrity = summary.depth;
+    manifest_.snapshotIntegrity = summary.snapshot;
+    manifest_.totalIntegrityIncidents = summary.totalIncidents;
+    manifest_.highestIntegritySeverity = summary.highestSeverity;
+
+    if (!isOk(replayStatus) && !replay.errorDetail().empty()) {
+        if (!manifest_.warningSummary.empty()) {
+            manifest_.warningSummary += " | ";
+        }
+        manifest_.warningSummary += std::string{replay.errorDetail()};
+    }
+}
+
 Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
     if (config_.symbols.empty()) return Status::InvalidArgument;
     const auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
@@ -202,7 +241,6 @@ Status CaptureCoordinator::writeSupportArtifacts() noexcept {
     };
     const ArtifactSpec artifacts[] = {
         {sessionDir_ / manifest_.sessionAuditPath, renderSessionAuditJson(manifest_, generatedAtNs)},
-        {sessionDir_ / manifest_.integrityReportPath, renderIntegrityReportJson(manifest_, generatedAtNs)},
         {sessionDir_ / manifest_.loaderDiagnosticsPath, renderLoaderDiagnosticsJson(manifest_, generatedAtNs)},
     };
     for (const auto& artifact : artifacts) {

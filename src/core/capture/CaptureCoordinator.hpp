@@ -78,6 +78,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
                              std::string_view snapshotKind,
                              std::string_view source,
                              bool trustedReplayAnchor) noexcept;
+    void syncManifestIntegrityFromReplay_() noexcept;
     Status writeInstrumentMetadataFile() noexcept;
     Status writeSupportArtifacts() noexcept;
 

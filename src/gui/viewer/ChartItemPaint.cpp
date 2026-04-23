@@ -1,7 +1,6 @@
 ﻿#include "gui/viewer/ChartItem.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iterator>
@@ -29,6 +28,7 @@
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
 #include "gui/viewer/renderers/TradeRenderer.hpp"
+#include "probes/TimeDelta.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -319,16 +319,21 @@ void appendLiveBookSegment(std::vector<BookSegment>& out,
     out.push_back(std::move(seg));
 }
 
-void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataBatch& batch) {
+void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataCache& cache) {
     if (!live.orderbookVisible) return;
 
-    const std::int64_t liveVisibleTsMax = std::min<std::int64_t>(live.vp.tMax, latestBookStateTs(batch));
+    const std::int64_t liveVisibleTsMax = std::min<std::int64_t>(
+        live.vp.tMax,
+        std::max(latestBookStateTs(cache.stableRows), latestBookStateTs(cache.overlayRows)));
     if (liveVisibleTsMax <= live.vp.tMin) return;
 
     std::vector<LiveBookEventRef> events;
-    events.reserve(batch.snapshots.size() + batch.depths.size());
-    for (const auto& snapshot : batch.snapshots) events.push_back(LiveBookEventRef{&snapshot, nullptr});
-    for (const auto& depth : batch.depths) events.push_back(LiveBookEventRef{nullptr, &depth});
+    events.reserve(cache.stableRows.snapshots.size() + cache.stableRows.depths.size()
+                   + cache.overlayRows.snapshots.size() + cache.overlayRows.depths.size());
+    for (const auto& snapshot : cache.stableRows.snapshots) events.push_back(LiveBookEventRef{&snapshot, nullptr});
+    for (const auto& depth : cache.stableRows.depths) events.push_back(LiveBookEventRef{nullptr, &depth});
+    for (const auto& snapshot : cache.overlayRows.snapshots) events.push_back(LiveBookEventRef{&snapshot, nullptr});
+    for (const auto& depth : cache.overlayRows.depths) events.push_back(LiveBookEventRef{nullptr, &depth});
     if (events.empty()) return;
 
     std::sort(events.begin(), events.end(), liveBookEventLess);
@@ -499,7 +504,7 @@ void buildLiveBookTickerTrace(BookTickerTrace& trace,
 }
 
 RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
-                                         const LiveDataBatch& batch,
+                                         const LiveDataCache& cache,
                                          int tradeOrigIndexStart) {
     RenderSnapshot live = base;
     live.bookSegments.clear();
@@ -511,34 +516,29 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     if (!live.loaded || live.vp.tMax <= live.vp.tMin || live.vp.pMax <= live.vp.pMin) return live;
 
     int tradeOrigIndex = tradeOrigIndexStart;
-    for (const auto& row : batch.trades) {
-        const int rowOrigIndex = tradeOrigIndex;
-        if (tradeOrigIndex < std::numeric_limits<int>::max()) ++tradeOrigIndex;
-        if (row.tsNs < live.vp.tMin || row.tsNs > live.vp.tMax) continue;
-        if (row.priceE8 < live.vp.pMin || row.priceE8 > live.vp.pMax) continue;
-        live.tradeDots.push_back(TradeDot{row.tsNs, row.priceE8, row.qtyE8, row.sideBuy != 0, rowOrigIndex});
-    }
+    const auto appendTradeRows = [&](const auto& rows) {
+        for (const auto& row : rows) {
+            const int rowOrigIndex = tradeOrigIndex;
+            if (tradeOrigIndex < std::numeric_limits<int>::max()) ++tradeOrigIndex;
+            if (row.tsNs < live.vp.tMin || row.tsNs > live.vp.tMax) continue;
+            if (row.priceE8 < live.vp.pMin || row.priceE8 > live.vp.pMax) continue;
+            live.tradeDots.push_back(TradeDot{row.tsNs, row.priceE8, row.qtyE8, row.sideBuy != 0, rowOrigIndex});
+        }
+    };
+    appendTradeRows(cache.stableRows.trades);
+    appendTradeRows(cache.overlayRows.trades);
 
-    if (live.bookTickerVisible && !batch.bookTickers.empty()) {
+    if (live.bookTickerVisible) {
         std::vector<const hftrec::replay::BookTickerRow*> rows;
-        rows.reserve(batch.bookTickers.size());
-        for (const auto& row : batch.bookTickers) rows.push_back(&row);
-        buildLiveBookTickerTrace(live.bookTickerTrace, live.vp, rows);
+        rows.reserve(cache.stableRows.bookTickers.size() + cache.overlayRows.bookTickers.size());
+        for (const auto& row : cache.stableRows.bookTickers) rows.push_back(&row);
+        for (const auto& row : cache.overlayRows.bookTickers) rows.push_back(&row);
+        if (!rows.empty()) buildLiveBookTickerTrace(live.bookTickerTrace, live.vp, rows);
     }
 
-    buildLiveOrderbookSegments(live, batch);
+    buildLiveOrderbookSegments(live, cache);
 
     return live;
-}
-
-LiveDataBatch liveDataBaseBatch(const LiveDataCache& cache) {
-    LiveDataBatch batch = cache.stableRows;
-    batch.trades.insert(batch.trades.end(), cache.overlayRows.trades.begin(), cache.overlayRows.trades.end());
-    batch.bookTickers.insert(batch.bookTickers.end(), cache.overlayRows.bookTickers.begin(), cache.overlayRows.bookTickers.end());
-    batch.depths.insert(batch.depths.end(), cache.overlayRows.depths.begin(), cache.overlayRows.depths.end());
-    batch.snapshots.insert(batch.snapshots.end(), cache.overlayRows.snapshots.begin(), cache.overlayRows.snapshots.end());
-    batch.id = cache.version;
-    return batch;
 }
 
 void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
@@ -720,10 +720,9 @@ const RenderSnapshot& ChartItem::ensureSnapshot_() {
     const bool rebuildActive = activeDirty || !activeCache || sizeChanged;
 
     if (rebuildActive) {
-        const auto snapshotBuildStart = std::chrono::steady_clock::now();
+        const TscTick snapshotBuildStart = cxet::probes::captureTsc();
         activeCache = std::make_unique<RenderSnapshot>(controller_->buildSnapshot(w, h, detail::collectInputs(*this)));
-        metrics::recordGuiSnapshotBuild(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - snapshotBuildStart).count()));
+        metrics::recordGuiSnapshotBuild(cxet::probes::deltaNs(snapshotBuildStart, cxet::probes::captureTsc()).raw);
         cachedW_ = w;
         cachedH_ = h;
         activeDirty = false;
@@ -807,7 +806,7 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
 }
 
 void ChartItem::paint(QPainter* painter) {
-    const auto paintStart = std::chrono::steady_clock::now();
+    const TscTick paintStart = cxet::probes::captureTsc();
     painter->setRenderHint(QPainter::Antialiasing, false);
     painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter->setRenderHint(QPainter::TextAntialiasing, true);
@@ -832,22 +831,18 @@ void ChartItem::paint(QPainter* painter) {
     ensureLayerImages_(layerSnap, w, h);
     const auto& liveCache = controller_->liveDataCache();
     const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
-    if (!cachedLiveBatch_ || cachedLiveBatchVersion_ != liveCache.version) {
-        cachedLiveBatch_ = std::make_unique<LiveDataBatch>(liveDataBaseBatch(liveCache));
-        cachedLiveBatchVersion_ = liveCache.version;
+    if (cachedLiveDataBatchId_ != liveCache.version) {
         cachedLiveDataBatchId_ = 0;
         cachedHitTestBatchId_ = 0;
         cachedLiveSnap_.reset();
         cachedHitTestSnap_.reset();
     }
-    const LiveDataBatch& liveBatch = *cachedLiveBatch_;
     if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
         const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
-        const auto liveSnapshotStart = std::chrono::steady_clock::now();
+        const TscTick liveSnapshotStart = cxet::probes::captureTsc();
         cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
-            liveSnapshotFromDataBatch(snap, liveBatch, liveTradeOrigIndexStart));
-        metrics::recordGuiLiveSnapshotBuild(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - liveSnapshotStart).count()));
+            liveSnapshotFromDataBatch(snap, liveCache, liveTradeOrigIndexStart));
+        metrics::recordGuiLiveSnapshotBuild(cxet::probes::deltaNs(liveSnapshotStart, cxet::probes::captureTsc()).raw);
         cachedLiveDataBatchId_ = liveCache.version;
     }
     const auto refreshHitTestSnapshot = [&]() {
@@ -892,22 +887,20 @@ void ChartItem::paint(QPainter* painter) {
                 (clippedSource.width() / sourceRect.width()) * rect.width(),
                 (clippedSource.height() / sourceRect.height()) * rect.height(),
             };
-            const auto orderbookRenderStart = std::chrono::steady_clock::now();
+            const TscTick orderbookRenderStart = cxet::probes::captureTsc();
             painter->drawImage(destRect, cachedOrderbookImage_, clippedSource);
-            metrics::recordGuiRenderOrderbook(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now() - orderbookRenderStart).count()));
-            const auto bookTickerRenderStart = std::chrono::steady_clock::now();
+            metrics::recordGuiRenderOrderbook(cxet::probes::deltaNs(orderbookRenderStart, cxet::probes::captureTsc()).raw);
+            const TscTick bookTickerRenderStart = cxet::probes::captureTsc();
             painter->drawImage(destRect, cachedBookTickerImage_, clippedSource);
-            metrics::recordGuiRenderBookTicker(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now() - bookTickerRenderStart).count()));
-            const auto tradesRenderStart = std::chrono::steady_clock::now();
+            metrics::recordGuiRenderBookTicker(cxet::probes::deltaNs(bookTickerRenderStart, cxet::probes::captureTsc()).raw);
+            const TscTick tradesRenderStart = cxet::probes::captureTsc();
             painter->drawImage(destRect, cachedTradesImage_, clippedSource);
-            metrics::recordGuiRenderTrades(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now() - tradesRenderStart).count()));
+            metrics::recordGuiRenderTrades(cxet::probes::deltaNs(tradesRenderStart, cxet::probes::captureTsc()).raw);
+            const TscTick liveSnapshotDrawStart = cxet::probes::captureTsc();
             paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
-            const auto frameEnd = std::chrono::steady_clock::now();
-            metrics::recordGuiPaint(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(frameEnd - paintStart).count()),
-                                    static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(frameEnd.time_since_epoch()).count()));
+            metrics::recordGuiLiveSnapshotDraw(cxet::probes::deltaNs(liveSnapshotDrawStart, cxet::probes::captureTsc()).raw);
+            const TscTick frameEnd = cxet::probes::captureTsc();
+            metrics::recordGuiPaint(cxet::probes::deltaNs(paintStart, frameEnd).raw, frameEnd.raw);
             return;
         }
 
@@ -921,49 +914,46 @@ void ChartItem::paint(QPainter* painter) {
     if (rebuildLayersForCurrentViewport) {
         invalidateBaseImage_();
         ensureLayerImages_(snap, w, h);
-        if (!cachedLiveBatch_ || cachedLiveBatchVersion_ != liveCache.version) {
-            cachedLiveBatch_ = std::make_unique<LiveDataBatch>(liveDataBaseBatch(liveCache));
-            cachedLiveBatchVersion_ = liveCache.version;
-        }
         if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
             const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
             cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
-                liveSnapshotFromDataBatch(snap, liveBatch, liveTradeOrigIndexStart));
+                liveSnapshotFromDataBatch(snap, liveCache, liveTradeOrigIndexStart));
             cachedLiveDataBatchId_ = liveCache.version;
         }
         if (!cachedHitTestSnap_ || cachedHitTestBatchId_ != liveCache.version) refreshHitTestSnapshot();
     }
 
     if (!cachedOrderbookImage_.isNull() && !overlayOnly_) {
-        const auto orderbookRenderStart = std::chrono::steady_clock::now();
+        const TscTick orderbookRenderStart = cxet::probes::captureTsc();
         painter->drawImage(rect, cachedOrderbookImage_);
-        metrics::recordGuiRenderOrderbook(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - orderbookRenderStart).count()));
+        metrics::recordGuiRenderOrderbook(cxet::probes::deltaNs(orderbookRenderStart, cxet::probes::captureTsc()).raw);
     }
     if (!cachedBookTickerImage_.isNull()) {
-        const auto bookTickerRenderStart = std::chrono::steady_clock::now();
+        const TscTick bookTickerRenderStart = cxet::probes::captureTsc();
         painter->drawImage(rect, cachedBookTickerImage_);
-        metrics::recordGuiRenderBookTicker(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - bookTickerRenderStart).count()));
+        metrics::recordGuiRenderBookTicker(cxet::probes::deltaNs(bookTickerRenderStart, cxet::probes::captureTsc()).raw);
     }
     if (!cachedTradesImage_.isNull()) {
-        const auto tradesRenderStart = std::chrono::steady_clock::now();
+        const TscTick tradesRenderStart = cxet::probes::captureTsc();
         painter->drawImage(rect, cachedTradesImage_);
-        metrics::recordGuiRenderTrades(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - tradesRenderStart).count()));
+        metrics::recordGuiRenderTrades(cxet::probes::deltaNs(tradesRenderStart, cxet::probes::captureTsc()).raw);
     }
+    const TscTick liveSnapshotDrawStart = cxet::probes::captureTsc();
     paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
+    metrics::recordGuiLiveSnapshotDraw(cxet::probes::deltaNs(liveSnapshotDrawStart, cxet::probes::captureTsc()).raw);
 
     if (!interactiveMode_) {
+        const TscTick overlayRenderStart = cxet::probes::captureTsc();
         RenderContext ctx{painter, snap, detail::buildHoverInfo(*this), dpr};
         renderers::renderOverlay(ctx);
+        metrics::recordGuiOverlayRender(cxet::probes::deltaNs(overlayRenderStart, cxet::probes::captureTsc()).raw);
     }
-    const auto frameEnd = std::chrono::steady_clock::now();
-    metrics::recordGuiPaint(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(frameEnd - paintStart).count()),
-                            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(frameEnd.time_since_epoch()).count()));
+    const TscTick frameEnd = cxet::probes::captureTsc();
+    metrics::recordGuiPaint(cxet::probes::deltaNs(paintStart, frameEnd).raw, frameEnd.raw);
 }
 
 }  // namespace hftrec::gui::viewer
+
 
 
 

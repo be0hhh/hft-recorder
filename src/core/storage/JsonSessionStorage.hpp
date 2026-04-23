@@ -23,6 +23,9 @@ class JsonSessionSink final : public IStorageBackend {
     Status appendTrade(const replay::TradeRow& row) noexcept override;
     Status appendBookTicker(const replay::BookTickerRow& row) noexcept override;
     Status appendDepth(const replay::DepthRow& row) noexcept override;
+    Status appendTradeLine(const replay::TradeRow& row, const std::string& line) noexcept;
+    Status appendBookTickerLine(const replay::BookTickerRow& row, const std::string& line) noexcept;
+    Status appendDepthLine(const replay::DepthRow& row, const std::string& line) noexcept;
     Status appendSnapshot(const replay::SnapshotDocument& snapshot,
                           std::uint64_t snapshotIndex) noexcept override;
     Status flush() noexcept override;

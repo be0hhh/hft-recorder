@@ -30,6 +30,7 @@ TEST(JsonLineParser, TradeLineRoundTrip) {
     ev.symbol = "BTCUSDT";
     ev.priceE8 = 3'000'100'000'000LL;
     ev.qtyE8 = 10'000'000LL;
+    ev.quoteQtyE8 = 30'001'000'000LL;
     ev.tsNs = 1'713'168'000'000'000'000ULL;
     ev.side = 1;
     const EventSequenceIds ids{7u, 11u};
@@ -41,6 +42,7 @@ TEST(JsonLineParser, TradeLineRoundTrip) {
     EXPECT_EQ(row.ingestSeq, 11);
     EXPECT_EQ(row.priceE8, 3'000'100'000'000LL);
     EXPECT_EQ(row.qtyE8, 10'000'000LL);
+    EXPECT_EQ(row.quoteQtyE8, 30'001'000'000LL);
     EXPECT_EQ(row.sideBuy, 1u);
 }
 

@@ -4,7 +4,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <sstream>
 #include <string>
 #include <utility>
 
@@ -60,10 +59,13 @@ void applyLoadIssueToIntegritySummary(const hftrec::corpus::LoadIssue& issue,
 bool readWholeFile(const std::filesystem::path& path, std::string& out) noexcept {
     std::ifstream in(path, std::ios::binary);
     if (!in) return false;
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    out = ss.str();
-    return true;
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec) return false;
+    out.resize(static_cast<std::size_t>(size));
+    if (out.empty()) return true;
+    in.read(out.data(), static_cast<std::streamsize>(out.size()));
+    return in.good() || in.eof();
 }
 
 template <typename RowT, typename Parser>
@@ -387,6 +389,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         return status_;
     }
 
+    trades_.reserve(corpus.tradeLines.size());
     for (const auto& line : corpus.tradeLines) {
         if (line.empty()) continue;
         TradeRow row{};
@@ -403,6 +406,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         trades_.push_back(std::move(row));
     }
 
+    bookTickers_.reserve(corpus.bookTickerLines.size());
     for (const auto& line : corpus.bookTickerLines) {
         if (line.empty()) continue;
         BookTickerRow row{};
@@ -419,6 +423,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         bookTickers_.push_back(std::move(row));
     }
 
+    depths_.reserve(corpus.depthLines.size());
     for (const auto& line : corpus.depthLines) {
         if (line.empty()) continue;
         DepthRow row{};

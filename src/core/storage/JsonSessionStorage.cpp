@@ -60,13 +60,24 @@ Status JsonSessionSink::writeLine_(capture::ChannelKind channel,
                                    const std::string& line) noexcept {
     if (const auto openStatus = ensureLineStream_(channel, stream); !isOk(openStatus)) return openStatus;
     stream << line << '\n';
-    stream.flush();
     return stream.good() ? Status::Ok : Status::IoError;
 }
 
 Status JsonSessionSink::appendTrade(const replay::TradeRow& row) noexcept {
+    return appendTradeLine(row, capture::renderTradeJsonLine(row));
+}
+
+Status JsonSessionSink::appendBookTicker(const replay::BookTickerRow& row) noexcept {
+    return appendBookTickerLine(row, capture::renderBookTickerJsonLine(row));
+}
+
+Status JsonSessionSink::appendDepth(const replay::DepthRow& row) noexcept {
+    return appendDepthLine(row, capture::renderDepthJsonLine(row));
+}
+
+Status JsonSessionSink::appendTradeLine(const replay::TradeRow&, const std::string& line) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto status = writeLine_(capture::ChannelKind::Trades, trades_, capture::renderTradeJsonLine(row));
+    const auto status = writeLine_(capture::ChannelKind::Trades, trades_, line);
     if (isOk(status)) {
         ++stats_.tradesTotal;
         ++stats_.version;
@@ -74,9 +85,9 @@ Status JsonSessionSink::appendTrade(const replay::TradeRow& row) noexcept {
     return status;
 }
 
-Status JsonSessionSink::appendBookTicker(const replay::BookTickerRow& row) noexcept {
+Status JsonSessionSink::appendBookTickerLine(const replay::BookTickerRow&, const std::string& line) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto status = writeLine_(capture::ChannelKind::BookTicker, bookTicker_, capture::renderBookTickerJsonLine(row));
+    const auto status = writeLine_(capture::ChannelKind::BookTicker, bookTicker_, line);
     if (isOk(status)) {
         ++stats_.bookTickersTotal;
         ++stats_.version;
@@ -84,9 +95,9 @@ Status JsonSessionSink::appendBookTicker(const replay::BookTickerRow& row) noexc
     return status;
 }
 
-Status JsonSessionSink::appendDepth(const replay::DepthRow& row) noexcept {
+Status JsonSessionSink::appendDepthLine(const replay::DepthRow&, const std::string& line) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto status = writeLine_(capture::ChannelKind::DepthDelta, depth_, capture::renderDepthJsonLine(row));
+    const auto status = writeLine_(capture::ChannelKind::DepthDelta, depth_, line);
     if (isOk(status)) {
         ++stats_.depthsTotal;
         ++stats_.version;

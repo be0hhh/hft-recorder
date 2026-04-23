@@ -34,7 +34,7 @@ std::string makeSnapshotJson(std::int64_t tsNs,
                              std::int64_t ingestSeq,
                              std::int64_t updateId,
                              std::int64_t firstUpdateId) {
-    return "[0," + std::to_string(updateId)
+    return "[" + std::to_string(updateId)
         + "," + std::to_string(firstUpdateId)
         + "," + std::to_string(tsNs)
         + ",2,1,"
@@ -44,7 +44,7 @@ std::string makeSnapshotJson(std::int64_t tsNs,
         + "," + std::to_string(tsNs + 10)
         + "," + std::to_string(updateId)
         + "," + std::to_string(firstUpdateId)
-        + ",1,[[30000,5,0,0],[29900,3,0,1]],[[30100,4,1,0]]]\n";
+        + ",1,[[5,30000,0,0],[3,29900,0,1]],[[4,30100,1,0]],0]\n";
 }
 
 void writeManifest(const fs::path& dir,
@@ -78,12 +78,12 @@ TEST(SessionReplay, EndToEnd) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "[0,11,11,2000,1,0,2,2,[[30000,7,0,0]],[]]\n"
-              "[0,12,12,3500,0,2,3,4,[],[[30100,0,1,0],[30200,8,1,1]]]\n");
+              "[11,11,2000,1,0,2,2,[[7,30000,0,0]],[],0]\n"
+              "[12,12,3500,0,2,3,4,[],[[0,30100,1,0],[8,30200,1,1]],0]\n");
 
     writeFile(dir / "trades.jsonl",
-              "[0,0,30050,1,2500,0,0,0,0,1,4,3]\n"
-              "[0,0,30200,2,4000,0,0,0,0,0,5,5]\n");
+              "[30050,1,1,2500,0,0,0,0,0,0,4,3]\n"
+              "[30200,2,0,4000,0,0,0,0,0,0,5,5]\n");
 
     SessionReplay replay{};
     ASSERT_EQ(replay.open(dir), Status::Ok);
@@ -135,8 +135,8 @@ TEST(SessionReplay, InvalidJsonLineReportsFileAndLine) {
     writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "[0,0,30050,1,2500,0,0,0,0,1,1,1]\n"
-              "[0,0,30051,1,2600,0,0,0,0,\"bad\",2,2]\n");
+              "[30050,1,1,2500,0,0,0,0,0,0,1,1]\n"
+              "[30051,1,1,2600,0,0,0,0,0,\"bad\",2,2]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -154,8 +154,8 @@ TEST(SessionReplay, DetectsDepthGapWhenSequenceIdsPresent) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "[0,11,11,2000,1,0,2,2,[[30000,7,0,0]],[]]\n"
-              "[0,15,15,3000,0,1,3,3,[],[[30100,0,1,0]]]\n");
+              "[11,11,2000,1,0,2,2,[[7,30000,0,0]],[],0]\n"
+              "[15,15,3000,0,1,3,3,[],[[0,30100,1,0]],0]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -176,7 +176,7 @@ TEST(SessionReplay, DetectsDepthUpdateRangeInversion) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "[0,11,12,2000,1,0,2,2,[[30000,7,0,0]],[]]\n");
+              "[11,12,2000,1,0,2,2,[[7,30000,0,0]],[],0]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -194,8 +194,8 @@ TEST(SessionReplay, DetectsNonIncreasingCaptureSequence) {
     writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "[0,0,30050,1,2500,0,0,0,0,1,2,1]\n"
-              "[0,0,30051,1,2600,0,0,0,0,0,2,2]\n");
+              "[30050,1,1,2500,0,0,0,0,0,0,2,1]\n"
+              "[30051,1,1,2600,0,0,0,0,0,0,2,2]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -211,8 +211,8 @@ TEST(SessionReplay, DetectsMixedIngestSequenceMetadata) {
     writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "[0,0,30050,1,2500,0,0,0,0,1,1,1]\n"
-              "[0,0,30051,1,2600,0,0,0,0,0,2]\n");
+              "[30050,1,1,2500,0,0,0,0,0,0,1,1]\n"
+              "[30051,1,1,2600,0,0,0,0,0,0,2]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -230,13 +230,13 @@ TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "[0,11,11,2000,1,0,2,2,[[30000,7,0,0]],[]]\n");
+              "[11,11,2000,1,0,2,2,[[7,30000,0,0]],[],0]\n");
 
     writeFile(dir / "trades.jsonl",
-              "[0,0,30050,1,2000,0,0,0,0,1,3,3]\n");
+              "[30050,1,1,2000,0,0,0,0,0,0,3,3]\n");
 
     writeFile(dir / "bookticker.jsonl",
-              "[0,30000,7,30100,4,2000,4,4]\n");
+              "[7,30000,4,30100,2000,0,4,4]\n");
 
     SessionReplay replay{};
     ASSERT_EQ(replay.open(dir), Status::Ok);
@@ -254,6 +254,30 @@ TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
     EXPECT_EQ(replay.book().bestBidPrice(), 30000);
     EXPECT_EQ(replay.book().bestBidQty(), 7);
     EXPECT_EQ(replay.book().bestAskPrice(), 30100);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(SessionReplay, CrossChannelIngestSequenceDoesNotDegradeWhenTimestampOrderDiffers) {
+    const auto dir = makeTmpDir();
+    writeManifest(dir, true, true, true, 1u, 1u, 1u, 1u);
+
+    writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 4, 10, 10));
+    writeFile(dir / "depth.jsonl",
+              "[11,11,3000,1,0,1,5,[[7,30000,0,0]],[],0]\n");
+    writeFile(dir / "trades.jsonl",
+              "[30050,1,1,2000,0,0,0,0,0,0,1,6]\n");
+    writeFile(dir / "bookticker.jsonl",
+              "[7,30000,4,30100,1500,0,1,7]\n");
+
+    SessionReplay replay{};
+    ASSERT_EQ(replay.open(dir), Status::Ok);
+    EXPECT_EQ(replay.integritySummary().sessionHealth, hftrec::SessionHealth::Clean);
+    EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Clean);
+    EXPECT_EQ(replay.integritySummary().bookTicker.state, hftrec::ChannelHealthState::Clean);
+    EXPECT_EQ(replay.integritySummary().depth.state, hftrec::ChannelHealthState::Clean);
+    EXPECT_TRUE(replay.integritySummary().incidents.empty());
 
     std::error_code ec;
     fs::remove_all(dir, ec);
@@ -280,7 +304,7 @@ TEST(SessionReplay, ShortDepthArrayIsCorrupt) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "[0,11,11,2000,1,0,2,[[30000,7,0,0]],[]]\n");
+              "[11,11,2000,1,0,2,[[7,30000,0,0]],[],0]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);

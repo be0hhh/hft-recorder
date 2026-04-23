@@ -1,4 +1,4 @@
-#include "core/metrics/Metrics.hpp"
+﻿#include "core/metrics/Metrics.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -6,6 +6,8 @@
 #include <sstream>
 #include <mutex>
 #include <string>
+
+#include "probes/TimeDelta.hpp"
 
 namespace hftrec::metrics {
 
@@ -68,7 +70,9 @@ std::uint64_t parseStatusBytes(std::string_view key) noexcept {
 
 }  // namespace
 
-void init() noexcept {}
+void init() noexcept {
+    (void)cxet::probes::ensureCalibrated();
+}
 
 void shutdown() noexcept {}
 
@@ -193,17 +197,21 @@ void recordLiveJsonTailParse(std::uint64_t ns) noexcept {
     addLatency(ns, live.jsonTailParseCountTotal, live.jsonTailParseNsTotal, live.jsonTailParseNsMax);
 }
 
-void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndNs) noexcept {
+void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndTsc) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     ++gui.frameTotal;
     gui.paintNsTotal += ns;
     gui.paintNsMax = maxOf(gui.paintNsMax, ns);
-    if (gui.lastFrameNs != 0u && frameEndNs > gui.lastFrameNs) {
-        const std::uint64_t delta = frameEndNs - gui.lastFrameNs;
-        gui.fps = delta > 0u ? 1000000000ull / delta : 0u;
+    if (gui.lastFrameTsc != 0u && frameEndTsc > gui.lastFrameTsc) {
+        TscTick start{};
+        TscTick end{};
+        start.raw = gui.lastFrameTsc;
+        end.raw = frameEndTsc;
+        const DurationNs deltaNs = cxet::probes::deltaNs(start, end);
+        gui.fps = deltaNs.raw > 0u ? 1000000000ull / deltaNs.raw : 0u;
     }
-    gui.lastFrameNs = frameEndNs;
+    gui.lastFrameTsc = frameEndTsc;
 }
 
 void recordGuiSnapshotBuild(std::uint64_t ns) noexcept {
@@ -216,6 +224,12 @@ void recordGuiLiveSnapshotBuild(std::uint64_t ns) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.liveSnapshotBuildCountTotal, gui.liveSnapshotBuildNsTotal, gui.liveSnapshotBuildNsMax);
+}
+
+void recordGuiLiveSnapshotDraw(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    addLatency(ns, gui.liveSnapshotDrawCountTotal, gui.liveSnapshotDrawNsTotal, gui.liveSnapshotDrawNsMax);
 }
 
 void recordGuiRenderOrderbook(std::uint64_t ns) noexcept {
@@ -234,6 +248,12 @@ void recordGuiRenderTrades(std::uint64_t ns) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.renderTradesCountTotal, gui.renderTradesNsTotal, gui.renderTradesNsMax);
+}
+
+void recordGuiOverlayRender(std::uint64_t ns) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    auto& gui = state().snapshot.gui;
+    addLatency(ns, gui.overlayRenderCountTotal, gui.overlayRenderNsTotal, gui.overlayRenderNsMax);
 }
 
 void incGuiLayerCacheHit() noexcept {
@@ -347,6 +367,10 @@ void renderPrometheus(std::string& out) noexcept {
     appendMetric("hftrec_gui_live_snapshot_build_ns_total", snap.gui.liveSnapshotBuildNsTotal);
     appendMetric("hftrec_gui_live_snapshot_build_ns_avg", avg(snap.gui.liveSnapshotBuildNsTotal, snap.gui.liveSnapshotBuildCountTotal));
     appendMetric("hftrec_gui_live_snapshot_build_ns_max", snap.gui.liveSnapshotBuildNsMax);
+    appendMetric("hftrec_gui_live_snapshot_draw_total", snap.gui.liveSnapshotDrawCountTotal);
+    appendMetric("hftrec_gui_live_snapshot_draw_ns_total", snap.gui.liveSnapshotDrawNsTotal);
+    appendMetric("hftrec_gui_live_snapshot_draw_ns_avg", avg(snap.gui.liveSnapshotDrawNsTotal, snap.gui.liveSnapshotDrawCountTotal));
+    appendMetric("hftrec_gui_live_snapshot_draw_ns_max", snap.gui.liveSnapshotDrawNsMax);
     appendMetric("hftrec_gui_render_orderbook_total", snap.gui.renderOrderbookCountTotal);
     appendMetric("hftrec_gui_render_orderbook_ns_total", snap.gui.renderOrderbookNsTotal);
     appendMetric("hftrec_gui_render_orderbook_ns_avg", avg(snap.gui.renderOrderbookNsTotal, snap.gui.renderOrderbookCountTotal));
@@ -359,12 +383,18 @@ void renderPrometheus(std::string& out) noexcept {
     appendMetric("hftrec_gui_render_trades_ns_total", snap.gui.renderTradesNsTotal);
     appendMetric("hftrec_gui_render_trades_ns_avg", avg(snap.gui.renderTradesNsTotal, snap.gui.renderTradesCountTotal));
     appendMetric("hftrec_gui_render_trades_ns_max", snap.gui.renderTradesNsMax);
+    appendMetric("hftrec_gui_overlay_render_total", snap.gui.overlayRenderCountTotal);
+    appendMetric("hftrec_gui_overlay_render_ns_total", snap.gui.overlayRenderNsTotal);
+    appendMetric("hftrec_gui_overlay_render_ns_avg", avg(snap.gui.overlayRenderNsTotal, snap.gui.overlayRenderCountTotal));
+    appendMetric("hftrec_gui_overlay_render_ns_max", snap.gui.overlayRenderNsMax);
     appendMetric("hftrec_gui_layer_cache_hit_total", snap.gui.layerCacheHitTotal);
     appendMetric("hftrec_gui_layer_cache_rebuild_total", snap.gui.layerCacheRebuildTotal);
     appendMetric("hftrec_gui_orderbook_segments", snap.gui.orderbookSegments);
     appendMetric("hftrec_gui_book_ticker_lines", snap.gui.bookTickerLines);
     appendMetric("hftrec_gui_book_ticker_samples", snap.gui.bookTickerSamples);
     appendMetric("hftrec_gui_trade_dots", snap.gui.tradeDots);
-    appendMetric("hftrec_gui_last_frame_ts_ns", snap.gui.lastFrameNs);
+    appendMetric("hftrec_gui_last_frame_tsc", snap.gui.lastFrameTsc);
 }
 }  // namespace hftrec::metrics
+
+

@@ -18,14 +18,6 @@ const char* healthToString(SessionHealth health) noexcept {
     return "unknown";
 }
 
-const char* severityToString(IntegritySeverity severity) noexcept {
-    switch (severity) {
-        case IntegritySeverity::Info: return "info";
-        case IntegritySeverity::Warning: return "warning";
-        case IntegritySeverity::Error: return "error";
-    }
-    return "unknown";
-}
 
 }  // namespace
 
@@ -46,20 +38,6 @@ std::string renderSessionAuditJson(const SessionManifest& manifest, std::int64_t
     return out.str();
 }
 
-std::string renderIntegrityReportJson(const SessionManifest& manifest, std::int64_t generatedAtNs) {
-    std::ostringstream out;
-    out << "{\n";
-    out << "  \"schema_version\": \"hftrec.support_artifact.integrity_report.v1\",\n";
-    out << "  \"producer\": \"hft-recorder\",\n";
-    out << "  \"generated_at_ns\": " << generatedAtNs << ",\n";
-    out << "  \"session_id\": " << json::quote(manifest.sessionId) << ",\n";
-    out << "  \"session_health\": " << json::quote(healthToString(manifest.sessionHealth)) << ",\n";
-    out << "  \"incident_count\": " << manifest.totalIntegrityIncidents << ",\n";
-    out << "  \"highest_severity\": " << json::quote(severityToString(manifest.highestIntegritySeverity)) << ",\n";
-    out << "  \"summary\": " << json::quote("integrity report is advisory and mirrors manifest-derived health") << '\n';
-    out << "}\n";
-    return out.str();
-}
 
 std::string renderLoaderDiagnosticsJson(const SessionManifest& manifest, std::int64_t generatedAtNs) {
     std::ostringstream out;

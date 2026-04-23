@@ -41,13 +41,14 @@ TEST(CaptureSerializers, TradeLineContainsKeyFields) {
     ev.symbol = "BTCUSDT";
     ev.priceE8 = 3'000'100'000'000LL;
     ev.qtyE8 = 10'000'000LL;
+    ev.quoteQtyE8 = 30'001'000'000LL;
     ev.side = 1;
     ev.tsNs = 1'713'168'000'000'000'000ULL;
     const EventSequenceIds ids{7u, 11u};
 
     const auto line = renderTradeJsonLine(ev, ids);
 
-    EXPECT_EQ(line, "[3000100000000,10000000,1,1713168000000000000,0,0,0,0,0,7,11]");
+    EXPECT_EQ(line, "[3000100000000,10000000,1,1713168000000000000,0,0,0,0,0,30001000000,7,11]");
     EXPECT_FALSE(contains(line, "\n"));
 }
 

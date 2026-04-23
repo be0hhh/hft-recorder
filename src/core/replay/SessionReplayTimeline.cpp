@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "core/corpus/LoadReport.hpp"
 #include "core/metrics/Metrics.hpp"
@@ -396,16 +397,18 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
     // ingestSeq. Он может быть записан позже уже сохранённых trades/bookticker,
     // поэтому начинать merged-проверку с snapshot_.ingestSeq нельзя: это даёт
     // ложные ошибки non-increasing на валидных сессиях.
-    std::int64_t previousIngestSeq = 0;
-    for (std::size_t i = 0; i < events_.size(); ++i) {
-        if (events_[i].ingestSeq <= 0) {
+    std::vector<std::int64_t> mergedIngestSeqs;
+    mergedIngestSeqs.reserve(events_.size());
+    for (const auto& event : events_) {
+        if (event.ingestSeq <= 0) {
             return true;
         }
-        if (previousIngestSeq <= 0) {
-            previousIngestSeq = events_[i].ingestSeq;
-            continue;
-        }
-        if (previousIngestSeq != 0 && events_[i].ingestSeq <= previousIngestSeq) {
+        mergedIngestSeqs.push_back(event.ingestSeq);
+    }
+
+    std::sort(mergedIngestSeqs.begin(), mergedIngestSeqs.end());
+    for (std::size_t i = 1; i < mergedIngestSeqs.size(); ++i) {
+        if (mergedIngestSeqs[i] <= mergedIngestSeqs[i - 1]) {
             auto& tradesSummary = summaryFor_(IntegrityChannel::Trades);
             auto& bookTickerSummary = summaryFor_(IntegrityChannel::BookTicker);
             auto& depthSummary = summaryFor_(IntegrityChannel::Depth);
@@ -416,17 +419,16 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
                 IntegrityChannel::Trades,
                 IntegrityIncidentKind::ExactnessUnprovable,
                 IntegritySeverity::Warning,
-                "non_monotonic_merged_ingest_seq",
-                "merged event ingest sequence is non-monotonic across channels; replay order falls back to timestamp ordering",
-                events_[i].tsNs,
+                "duplicate_merged_ingest_seq",
+                "merged event ingest sequence contains duplicates across channels; exact ordering is unprovable",
+                0,
                 i,
-                "strictly increasing ingestSeq across all channels",
-                std::to_string(events_[i].ingestSeq),
+                "unique ingestSeq across all channels",
+                std::to_string(mergedIngestSeqs[i]),
                 true
             });
             return true;
         }
-        previousIngestSeq = events_[i].ingestSeq;
     }
 
     return true;

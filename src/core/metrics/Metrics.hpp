@@ -72,6 +72,9 @@ struct GuiRuntimeMetrics {
     std::uint64_t liveSnapshotBuildNsTotal{0};
     std::uint64_t liveSnapshotBuildNsMax{0};
     std::uint64_t liveSnapshotBuildCountTotal{0};
+    std::uint64_t liveSnapshotDrawNsTotal{0};
+    std::uint64_t liveSnapshotDrawNsMax{0};
+    std::uint64_t liveSnapshotDrawCountTotal{0};
     std::uint64_t renderOrderbookNsTotal{0};
     std::uint64_t renderOrderbookNsMax{0};
     std::uint64_t renderOrderbookCountTotal{0};
@@ -81,13 +84,16 @@ struct GuiRuntimeMetrics {
     std::uint64_t renderTradesNsTotal{0};
     std::uint64_t renderTradesNsMax{0};
     std::uint64_t renderTradesCountTotal{0};
+    std::uint64_t overlayRenderNsTotal{0};
+    std::uint64_t overlayRenderNsMax{0};
+    std::uint64_t overlayRenderCountTotal{0};
     std::uint64_t layerCacheHitTotal{0};
     std::uint64_t layerCacheRebuildTotal{0};
     std::uint64_t orderbookSegments{0};
     std::uint64_t bookTickerLines{0};
     std::uint64_t bookTickerSamples{0};
     std::uint64_t tradeDots{0};
-    std::uint64_t lastFrameNs{0};
+    std::uint64_t lastFrameTsc{0};
 };
 
 struct MetricsSnapshot {
@@ -138,12 +144,14 @@ void recordLivePoll(std::uint64_t ns) noexcept;
 void recordLiveMaterialize(std::uint64_t ns) noexcept;
 void recordLiveJsonTailParse(std::uint64_t ns) noexcept;
 
-void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndNs) noexcept;
+void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndTsc) noexcept;
 void recordGuiSnapshotBuild(std::uint64_t ns) noexcept;
 void recordGuiLiveSnapshotBuild(std::uint64_t ns) noexcept;
+void recordGuiLiveSnapshotDraw(std::uint64_t ns) noexcept;
 void recordGuiRenderOrderbook(std::uint64_t ns) noexcept;
 void recordGuiRenderBookTicker(std::uint64_t ns) noexcept;
 void recordGuiRenderTrades(std::uint64_t ns) noexcept;
+void recordGuiOverlayRender(std::uint64_t ns) noexcept;
 void incGuiLayerCacheHit() noexcept;
 void incGuiLayerCacheRebuild() noexcept;
 void setGuiObjectCounts(std::uint64_t orderbookSegments,
