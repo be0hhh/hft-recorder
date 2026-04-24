@@ -69,6 +69,8 @@ CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::
     row.symbol = snapshot.symbol.data;
     row.exchangeId = static_cast<std::uint64_t>(snapshot.exchangeId.raw);
     row.tsNs = static_cast<std::uint64_t>(snapshot.ts.raw);
+    row.hasUpdateId = snapshot.updateId.raw > 0u;
+    row.hasFirstUpdateId = snapshot.firstUpdateId.raw > 0u;
     row.updateId = static_cast<std::uint64_t>(snapshot.updateId.raw);
     row.firstUpdateId = static_cast<std::uint64_t>(snapshot.firstUpdateId.raw);
     row.bids.reserve(snapshot.bidCount.raw);

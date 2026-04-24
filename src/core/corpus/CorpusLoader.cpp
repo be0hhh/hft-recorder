@@ -17,6 +17,18 @@ namespace hftrec::corpus {
 
 namespace {
 
+Status parseTradeCanonicalLine(std::string_view line, hftrec::replay::TradeRow& row) noexcept {
+    return hftrec::replay::parseTradeLine(line, row);
+}
+
+Status parseBookTickerCanonicalLine(std::string_view line, hftrec::replay::BookTickerRow& row) noexcept {
+    return hftrec::replay::parseBookTickerLine(line, row);
+}
+
+Status parseDepthCanonicalLine(std::string_view line, hftrec::replay::DepthRow& row) noexcept {
+    return hftrec::replay::parseDepthLine(line, row);
+}
+
 constexpr std::int64_t kSeekIndexVersionCurrent = 1;
 
 using JsonParser = hftrec::json::MiniJsonParser;
@@ -462,10 +474,10 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     const auto bookTickerPath = sessionDir / (report.manifestPresent ? out.manifest.bookTickerPath : "bookticker.jsonl");
     const auto depthPath = sessionDir / (report.manifestPresent ? out.manifest.depthPath : "depth.jsonl");
 
-    if (!isOk(loadJsonLines<decltype(hftrec::replay::parseTradeLine), hftrec::replay::TradeRow>(
+    if (!isOk(loadJsonLines<decltype(&parseTradeCanonicalLine), hftrec::replay::TradeRow>(
                             tradesPath,
                             out.tradeLines,
-                            hftrec::replay::parseTradeLine,
+                            parseTradeCanonicalLine,
                             report,
                             "trades",
                             tradesPath.filename().string(),
@@ -474,10 +486,10 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(hftrec::replay::parseBookTickerLine), hftrec::replay::BookTickerRow>(
+    if (!isOk(loadJsonLines<decltype(&parseBookTickerCanonicalLine), hftrec::replay::BookTickerRow>(
                             bookTickerPath,
                             out.bookTickerLines,
-                            hftrec::replay::parseBookTickerLine,
+                            parseBookTickerCanonicalLine,
                             report,
                             "bookticker",
                             bookTickerPath.filename().string(),
@@ -486,10 +498,10 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(hftrec::replay::parseDepthLine), hftrec::replay::DepthRow>(
+    if (!isOk(loadJsonLines<decltype(&parseDepthCanonicalLine), hftrec::replay::DepthRow>(
                             depthPath,
                             out.depthLines,
-                            hftrec::replay::parseDepthLine,
+                            parseDepthCanonicalLine,
                             report,
                             "depth",
                             depthPath.filename().string(),

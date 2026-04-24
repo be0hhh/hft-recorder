@@ -11,10 +11,12 @@ namespace hftrec::replay {
 // values the capture wrote.
 
 struct TradeRow {
-    std::uint64_t exchangeId{0};
     std::uint64_t tradeId{0};
     std::uint64_t firstTradeId{0};
     std::uint64_t lastTradeId{0};
+    std::string symbol{};
+    std::string exchange{};
+    std::string market{};
     std::int64_t tsNs{0};
     std::int64_t captureSeq{0};
     std::int64_t ingestSeq{0};
@@ -27,7 +29,9 @@ struct TradeRow {
 };
 
 struct BookTickerRow {
-    std::uint64_t exchangeId{0};
+    std::string symbol{};
+    std::string exchange{};
+    std::string market{};
     std::int64_t tsNs{0};
     std::int64_t captureSeq{0};
     std::int64_t ingestSeq{0};
@@ -45,10 +49,14 @@ struct PricePair {
 };
 
 struct DepthRow {
-    std::uint64_t exchangeId{0};
+    std::string symbol{};
+    std::string exchange{};
+    std::string market{};
     std::int64_t tsNs{0};
     std::int64_t captureSeq{0};
     std::int64_t ingestSeq{0};
+    bool hasUpdateId{false};
+    bool hasFirstUpdateId{false};
     std::int64_t updateId{0};
     std::int64_t firstUpdateId{0};
     std::vector<PricePair> bids;
@@ -56,10 +64,11 @@ struct DepthRow {
 };
 
 struct SnapshotDocument {
-    std::uint64_t exchangeId{0};
     std::int64_t tsNs{0};
     std::int64_t captureSeq{0};
     std::int64_t ingestSeq{0};
+    bool hasUpdateId{false};
+    bool hasFirstUpdateId{false};
     std::int64_t updateId{0};
     std::int64_t firstUpdateId{0};
     std::string snapshotKind{};
@@ -69,6 +78,8 @@ struct SnapshotDocument {
     std::string symbol{};
     std::int64_t sourceTsNs{0};
     std::int64_t ingestTsNs{0};
+    bool hasAnchorUpdateId{false};
+    bool hasAnchorFirstUpdateId{false};
     std::int64_t anchorUpdateId{0};
     std::int64_t anchorFirstUpdateId{0};
     std::uint8_t trustedReplayAnchor{1};

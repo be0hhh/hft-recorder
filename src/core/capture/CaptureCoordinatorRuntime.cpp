@@ -44,12 +44,16 @@ std::string snapshotSymbolString(const cxet::composite::OrderBookSnapshot& snaps
 }
 
 replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
+                              std::string_view exchange,
+                              std::string_view market,
                               const EventSequenceIds& sequenceIds) noexcept {
     replay::TradeRow row{};
-    row.exchangeId = trade.exchangeId;
     row.tradeId = trade.tradeId;
     row.firstTradeId = trade.firstTradeId;
     row.lastTradeId = trade.lastTradeId;
+    row.symbol = trade.symbol;
+    row.exchange = std::string(exchange);
+    row.market = std::string(market);
     row.tsNs = static_cast<std::int64_t>(trade.tsNs);
     row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
     row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
@@ -63,9 +67,13 @@ replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
 }
 
 replay::BookTickerRow makeBookTickerRow(const cxet_bridge::CapturedBookTickerRow& bookTicker,
+                                        std::string_view exchange,
+                                        std::string_view market,
                                         const EventSequenceIds& sequenceIds) noexcept {
     replay::BookTickerRow row{};
-    row.exchangeId = bookTicker.exchangeId;
+    row.symbol = bookTicker.symbol;
+    row.exchange = std::string(exchange);
+    row.market = std::string(market);
     row.tsNs = static_cast<std::int64_t>(bookTicker.tsNs);
     row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
     row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
@@ -86,12 +94,18 @@ std::vector<replay::PricePair> makePricePairs(const std::vector<cxet_bridge::Cap
 }
 
 replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth,
+                              std::string_view exchange,
+                              std::string_view market,
                               const EventSequenceIds& sequenceIds) {
     replay::DepthRow row{};
-    row.exchangeId = depth.exchangeId;
+    row.symbol = depth.symbol;
+    row.exchange = std::string(exchange);
+    row.market = std::string(market);
     row.tsNs = static_cast<std::int64_t>(depth.tsNs);
     row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
     row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
+    row.hasUpdateId = depth.hasUpdateId;
+    row.hasFirstUpdateId = depth.hasFirstUpdateId;
     row.updateId = static_cast<std::int64_t>(depth.updateId);
     row.firstUpdateId = static_cast<std::int64_t>(depth.firstUpdateId);
     row.bids = makePricePairs(depth.bids);
@@ -102,10 +116,11 @@ replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth,
 replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBookRow& snapshot,
                                               const SnapshotProvenance& provenance) {
     replay::SnapshotDocument document{};
-    document.exchangeId = snapshot.exchangeId;
     document.tsNs = static_cast<std::int64_t>(snapshot.tsNs);
     document.captureSeq = static_cast<std::int64_t>(provenance.sequence.captureSeq);
     document.ingestSeq = static_cast<std::int64_t>(provenance.sequence.ingestSeq);
+    document.hasUpdateId = snapshot.hasUpdateId;
+    document.hasFirstUpdateId = snapshot.hasFirstUpdateId;
     document.updateId = static_cast<std::int64_t>(snapshot.updateId);
     document.firstUpdateId = static_cast<std::int64_t>(snapshot.firstUpdateId);
     document.snapshotKind = provenance.snapshotKind;
@@ -115,6 +130,8 @@ replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBo
     document.symbol = provenance.symbol;
     document.sourceTsNs = provenance.sourceTsNs;
     document.ingestTsNs = provenance.ingestTsNs;
+    document.hasAnchorUpdateId = provenance.hasAnchorUpdateId;
+    document.hasAnchorFirstUpdateId = provenance.hasAnchorFirstUpdateId;
     document.anchorUpdateId = static_cast<std::int64_t>(provenance.anchorUpdateId);
     document.anchorFirstUpdateId = static_cast<std::int64_t>(provenance.anchorFirstUpdateId);
     document.trustedReplayAnchor = provenance.trustedReplayAnchor ? 1u : 0u;
@@ -163,7 +180,8 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
     const auto sessionId = manifest_.sessionId;
     const auto exchange = manifest_.exchange;
     const auto market = manifest_.market;
-    tradesThread_ = std::thread([this, subscribeBuilder, sessionId, exchange, market]() mutable noexcept {
+    const auto tradesAliases = config.tradesAliases;
+    tradesThread_ = std::thread([this, subscribeBuilder, sessionId, exchange, market, tradesAliases]() mutable noexcept {
         MessageBuffer payloadBuf{};
         MessageBuffer combinedPayloadBuf{};
         MessageBuffer recvBuf{};
@@ -173,7 +191,8 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
             std::string sessionId;
             std::string exchange;
             std::string market;
-        } callbackContext{this, sessionId, exchange, market};
+            std::vector<std::string> aliases;
+        } callbackContext{this, sessionId, exchange, market, tradesAliases};
 
         struct TradesDiagContext {
             bool sawConnectOk{false};
@@ -248,7 +267,7 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                 TscTick bridgeStartTsc{};
                 if (captureMetrics) bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedTrade = cxet_bridge::CxetCaptureBridge::captureTrade(trade, meta);
-                const auto row = makeTradeRow(capturedTrade, sequenceIds);
+                const auto row = makeTradeRow(capturedTrade, context->exchange, context->market, sequenceIds);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
 
                 TscTick localEngineStartTsc{};
@@ -258,7 +277,7 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
 
                 TscTick jsonRenderStartTsc{};
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
-                const auto jsonLine = renderTradeJsonLine(row);
+                const auto jsonLine = renderTradeJsonLine(row, context->aliases);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
 
                 TscTick eventSinkStartTsc{};
@@ -383,7 +402,10 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
         }
     }
 
-    bookTickerThread_ = std::thread([this, subscribeBuilder]() mutable noexcept {
+    const auto exchange = manifest_.exchange;
+    const auto market = manifest_.market;
+    const auto persistedBookTickerAliases = config.bookTickerAliases;
+    bookTickerThread_ = std::thread([this, subscribeBuilder, exchange, market, persistedBookTickerAliases]() mutable noexcept {
         MessageBuffer payloadBuf{};
         MessageBuffer recvBuf{};
         std::FILE* debugOut = std::fopen("/dev/null", "w");
@@ -393,7 +415,10 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
 
         struct CallbackContext {
             CaptureCoordinator* self;
-        } callbackContext{this};
+            std::string exchange;
+            std::string market;
+            std::vector<std::string> aliases;
+        } callbackContext{this, exchange, market, persistedBookTickerAliases};
 
         const bool subscribeOk = cxet::api::runSubscribeBookTickerRuntimeByConfig(
             subscribeBuilder,
@@ -411,7 +436,7 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
                 TscTick bridgeStartTsc{};
                 if (captureMetrics) bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedBookTicker = cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, meta);
-                const auto row = makeBookTickerRow(capturedBookTicker, sequenceIds);
+                const auto row = makeBookTickerRow(capturedBookTicker, context->exchange, context->market, sequenceIds);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
 
                 TscTick localEngineStartTsc{};
@@ -421,7 +446,7 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
 
                 TscTick jsonRenderStartTsc{};
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
-                const auto jsonLine = renderBookTickerJsonLine(row);
+                const auto jsonLine = renderBookTickerJsonLine(row, context->aliases);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
 
                 TscTick eventSinkStartTsc{};
@@ -524,7 +549,8 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
     const auto sessionId = manifest_.sessionId;
     const auto exchange = manifest_.exchange;
     const auto market = manifest_.market;
-    orderbookThread_ = std::thread([this, subscribeBuilder, sessionId, exchange, market]() mutable noexcept {
+    const auto orderbookAliases = config.orderbookAliases;
+    orderbookThread_ = std::thread([this, subscribeBuilder, sessionId, exchange, market, orderbookAliases]() mutable noexcept {
         MessageBuffer requestBuf{};
         MessageBuffer recvBuf{};
         cxet::composite::OrderBookSnapshot snapshot{};
@@ -568,7 +594,8 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
             std::string sessionId;
             std::string exchange;
             std::string market;
-        } callbackContext{this, sessionId, exchange, market};
+            std::vector<std::string> aliases;
+        } callbackContext{this, sessionId, exchange, market, orderbookAliases};
 
         const bool subscribeOk = cxet::api::runSubscribeOrderBookDeltaByConfig(
             subscribeBuilder,
@@ -584,12 +611,12 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
                 TscTick bridgeStartTsc{};
                 if (captureMetrics) bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(delta);
-                const auto row = makeDepthRow(capturedDepth, sequenceIds);
+                const auto row = makeDepthRow(capturedDepth, context->exchange, context->market, sequenceIds);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
 
                 TscTick jsonRenderStartTsc{};
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
-                const auto jsonLine = renderDepthJsonLine(row);
+                const auto jsonLine = renderDepthJsonLine(row, context->aliases);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
 
                 TscTick eventSinkStartTsc{};
@@ -676,6 +703,8 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
     provenance.symbol = snapshotSymbolString(snapshot);
     provenance.sourceTsNs = static_cast<std::int64_t>(snapshot.ts.raw);
     provenance.ingestTsNs = internal::nowNs();
+    provenance.hasAnchorUpdateId = snapshot.updateId.raw > 0u;
+    provenance.hasAnchorFirstUpdateId = snapshot.firstUpdateId.raw > 0u;
     provenance.anchorUpdateId = static_cast<std::uint64_t>(snapshot.updateId.raw);
     provenance.anchorFirstUpdateId = static_cast<std::uint64_t>(snapshot.firstUpdateId.raw);
     provenance.trustedReplayAnchor = trustedReplayAnchor;
@@ -696,9 +725,4 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
 }
 
 }  // namespace hftrec::capture
-
-
-
-
-
 

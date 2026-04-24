@@ -4,12 +4,6 @@
 #include <string>
 #include <vector>
 
-namespace hftrec::cxet_bridge {
-struct CapturedTradeRow;
-struct CapturedBookTickerRow;
-struct CapturedOrderBookRow;
-}
-
 namespace hftrec::replay {
 struct TradeRow;
 struct BookTickerRow;
@@ -33,28 +27,24 @@ struct SnapshotProvenance {
     std::string symbol{};
     std::int64_t sourceTsNs{0};
     std::int64_t ingestTsNs{0};
+    bool hasAnchorUpdateId{false};
+    bool hasAnchorFirstUpdateId{false};
     std::uint64_t anchorUpdateId{0};
     std::uint64_t anchorFirstUpdateId{0};
     bool trustedReplayAnchor{true};
 };
 
-std::string renderTradeJsonLine(const hftrec::cxet_bridge::CapturedTradeRow& trade,
-                                const EventSequenceIds& sequenceIds);
-
 std::string renderTradeJsonLine(const hftrec::replay::TradeRow& trade);
-
-std::string renderBookTickerJsonLine(const hftrec::cxet_bridge::CapturedBookTickerRow& bookTicker,
-                                     const EventSequenceIds& sequenceIds);
+std::string renderTradeJsonLine(const hftrec::replay::TradeRow& trade,
+                                const std::vector<std::string>& aliases);
 
 std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker);
-
-std::string renderDepthJsonLine(const hftrec::cxet_bridge::CapturedOrderBookRow& delta,
-                                const EventSequenceIds& sequenceIds);
+std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker,
+                                     const std::vector<std::string>& aliases);
 
 std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta);
-
-std::string renderSnapshotJson(const hftrec::cxet_bridge::CapturedOrderBookRow& snapshot,
-                               const SnapshotProvenance& provenance);
+std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta,
+                                const std::vector<std::string>& aliases);
 
 std::string renderSnapshotJson(const hftrec::replay::SnapshotDocument& snapshot);
 

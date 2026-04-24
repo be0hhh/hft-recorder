@@ -129,11 +129,11 @@ bool SessionReplay::validateDepthStream_() noexcept {
 
     auto& depthSummary = summaryFor_(IntegrityChannel::Depth);
     std::int64_t previousUpdateId = snapshot_.updateId;
-    bool havePreviousUpdateId = snapshotLoaded_ && previousUpdateId > 0;
+    bool havePreviousUpdateId = snapshotLoaded_ && snapshot_.hasUpdateId;
 
     for (std::size_t i = 0; i < depths_.size(); ++i) {
         const auto& row = depths_[i];
-        const bool hasIds = row.updateId > 0 && row.firstUpdateId > 0;
+        const bool hasIds = row.hasUpdateId && row.hasFirstUpdateId;
         if (!hasIds) {
             continue;
         }

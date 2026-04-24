@@ -55,7 +55,6 @@ QStringList canonicalBookTickerAliases() {
 
 QStringList canonicalOrderbookAliases() {
     return {
-        QStringLiteral("updateId"),
         QStringLiteral("bidPrice"),
         QStringLiteral("bidQty"),
         QStringLiteral("askPrice"),
@@ -64,57 +63,45 @@ QStringList canonicalOrderbookAliases() {
         QStringLiteral("symbol"),
         QStringLiteral("exchange"),
         QStringLiteral("market"),
+        QStringLiteral("updateId"),
     };
 }
 
-#if 0
-QStringList orderedAliases(const QStringList& preferredAliases, const QStringList& discoveredAliases) {
-    QStringList ordered;
-    ordered.reserve(preferredAliases.size());
-    for (const auto& alias : preferredAliases) {
-        if (discoveredAliases.isEmpty() || discoveredAliases.contains(alias)) {
-            ordered.push_back(alias);
-        }
-    }
-    return ordered;
+QStringList requiredTradesAliases() {
+    return {
+        QStringLiteral("price"),
+        QStringLiteral("amount"),
+        QStringLiteral("side"),
+        QStringLiteral("timestamp"),
+    };
 }
 
-QString cxetAliasSourcePath() {
-    QFileInfo sourceFileInfo(QString::fromUtf8(__FILE__));
-    QDir dir = sourceFileInfo.absoluteDir();
-    for (int i = 0; i < 6 && dir.cdUp(); ++i) {
-    }
-    return dir.filePath(QStringLiteral("src/src/api/fields/RequestedFieldNames.cpp"));
+QStringList requiredBookTickerAliases() {
+    return {
+        QStringLiteral("bidPrice"),
+        QStringLiteral("bidQty"),
+        QStringLiteral("askPrice"),
+        QStringLiteral("askQty"),
+        QStringLiteral("timestamp"),
+    };
 }
 
-QStringList extractAliasesFromCxetSource() {
-    QFile sourceFile(cxetAliasSourcePath());
-    if (!sourceFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return {};
-    }
-
-    const QString content = QString::fromUtf8(sourceFile.readAll());
-    const QRegularExpression regex(QStringLiteral("matchCi\\(start, end, \"([^\"]+)\"\\)"));
-    QSet<QString> uniqueAliases;
-    QStringList aliases;
-    auto matchIterator = regex.globalMatch(content);
-    while (matchIterator.hasNext()) {
-        const auto match = matchIterator.next();
-        const auto alias = match.captured(1).trimmed();
-        if (alias.isEmpty() || uniqueAliases.contains(alias)) continue;
-        uniqueAliases.insert(alias);
-        aliases.push_back(alias);
-    }
-    return aliases;
+QStringList requiredOrderbookAliases() {
+    return {
+        QStringLiteral("bidPrice"),
+        QStringLiteral("bidQty"),
+        QStringLiteral("askPrice"),
+        QStringLiteral("askQty"),
+        QStringLiteral("timestamp"),
+    };
 }
-#endif
 
 QString buildAliasesSuffix(const QStringList& availableAliases,
                            const QStringList& selectedAliases) {
     QStringList orderedSelected;
     orderedSelected.reserve(selectedAliases.size());
     for (const auto& alias : availableAliases) {
-        if (selectedAliases.contains(alias)) orderedSelected.push_back(alias);
+        if (selectedAliases.contains(alias, Qt::CaseInsensitive)) orderedSelected.push_back(alias);
     }
     if (orderedSelected.isEmpty()) return {};
     return QStringLiteral(".aliases(%1)").arg(orderedSelected.join(QStringLiteral(",")));
@@ -124,45 +111,16 @@ QString buildAliasesSuffix(const QStringList& availableAliases,
 
 QStringList loadAliasesForChannel(const char* channelName) {
     const auto channel = QString::fromUtf8(channelName);
-    if (channel == QStringLiteral("trades")) {
-        return canonicalTradesAliases();
-    }
-    if (channel == QStringLiteral("bookticker")) {
-        return canonicalBookTickerAliases();
-    }
-    if (channel == QStringLiteral("orderbook")) {
-        return canonicalOrderbookAliases();
-    }
+    if (channel == QStringLiteral("trades")) return canonicalTradesAliases();
+    if (channel == QStringLiteral("bookticker")) return canonicalBookTickerAliases();
+    if (channel == QStringLiteral("orderbook")) return canonicalOrderbookAliases();
     return {};
 }
 
 QStringList requiredAliasesForChannel(const QString& channel) {
-    if (channel == QStringLiteral("trades")) {
-        return {
-            QStringLiteral("price"),
-            QStringLiteral("amount"),
-            QStringLiteral("side"),
-            QStringLiteral("timestamp"),
-        };
-    }
-    if (channel == QStringLiteral("bookticker")) {
-        return {
-            QStringLiteral("bidPrice"),
-            QStringLiteral("bidQty"),
-            QStringLiteral("askPrice"),
-            QStringLiteral("askQty"),
-            QStringLiteral("timestamp"),
-        };
-    }
-    if (channel == QStringLiteral("orderbook")) {
-        return {
-            QStringLiteral("bidPrice"),
-            QStringLiteral("bidQty"),
-            QStringLiteral("askPrice"),
-            QStringLiteral("askQty"),
-            QStringLiteral("timestamp"),
-        };
-    }
+    if (channel == QStringLiteral("trades")) return requiredTradesAliases();
+    if (channel == QStringLiteral("bookticker")) return requiredBookTickerAliases();
+    if (channel == QStringLiteral("orderbook")) return requiredOrderbookAliases();
     return {};
 }
 
@@ -174,30 +132,22 @@ QStringList normalizedSelectedAliasesForChannel(const QString& channel,
                                                 const QStringList& selectedAliases) {
     QStringList normalized = selectedAliases;
     for (const auto& alias : requiredAliasesForChannel(channel)) {
-        if (!normalized.contains(alias)) normalized.push_back(alias);
+        if (!normalized.contains(alias, Qt::CaseInsensitive)) normalized.push_back(alias);
     }
     return normalized;
 }
 
 int aliasWeightBytes(const QString& alias) {
-    if (alias == QStringLiteral("price") ||
-        alias == QStringLiteral("amount") ||
-        alias == QStringLiteral("quoteQty") ||
-        alias == QStringLiteral("timestamp") ||
-        alias == QStringLiteral("id") ||
-        alias == QStringLiteral("firstTradeId") ||
-        alias == QStringLiteral("lastTradeId") ||
-        alias == QStringLiteral("updateId") ||
-        alias == QStringLiteral("bidPrice") ||
-        alias == QStringLiteral("bidQty") ||
-        alias == QStringLiteral("askPrice") ||
-        alias == QStringLiteral("askQty")) {
+    if (alias == QStringLiteral("price") || alias == QStringLiteral("amount") ||
+        alias == QStringLiteral("quoteQty") || alias == QStringLiteral("timestamp") ||
+        alias == QStringLiteral("id") || alias == QStringLiteral("firstTradeId") ||
+        alias == QStringLiteral("lastTradeId") || alias == QStringLiteral("updateId") ||
+        alias == QStringLiteral("bidPrice") || alias == QStringLiteral("bidQty") ||
+        alias == QStringLiteral("askPrice") || alias == QStringLiteral("askQty")) {
         return 8;
     }
-    if (alias == QStringLiteral("side") ||
-        alias == QStringLiteral("isBuyerMaker") ||
-        alias == QStringLiteral("exchange") ||
-        alias == QStringLiteral("market")) {
+    if (alias == QStringLiteral("side") || alias == QStringLiteral("isBuyerMaker") ||
+        alias == QStringLiteral("exchange") || alias == QStringLiteral("market")) {
         return 1;
     }
     if (alias == QStringLiteral("symbol")) return 32;
@@ -211,11 +161,8 @@ QString channelWeightSummary(const QString& channel, const QStringList& selected
         int perBidBytes = 0;
         int perAskBytes = 0;
         for (const auto& alias : normalizedAliases) {
-            if (alias == QStringLiteral("timestamp") ||
-                alias == QStringLiteral("updateId") ||
-                alias == QStringLiteral("symbol") ||
-                alias == QStringLiteral("exchange") ||
-                alias == QStringLiteral("market")) {
+            if (alias == QStringLiteral("timestamp") || alias == QStringLiteral("symbol") ||
+                alias == QStringLiteral("exchange") || alias == QStringLiteral("market")) {
                 baseBytes += aliasWeightBytes(alias);
             } else if (alias == QStringLiteral("bidPrice") || alias == QStringLiteral("bidQty")) {
                 perBidBytes += aliasWeightBytes(alias);
@@ -223,17 +170,15 @@ QString channelWeightSummary(const QString& channel, const QStringList& selected
                 perAskBytes += aliasWeightBytes(alias);
             }
         }
-        return QStringLiteral("Total %1B + N_bid*%2B + N_ask*%3B")
-            .arg(baseBytes)
-            .arg(perBidBytes)
-            .arg(perAskBytes);
+        return QStringLiteral("Total ") + QString::number(baseBytes)
+            + QStringLiteral("B + N_bid*") + QString::number(perBidBytes)
+            + QStringLiteral("B + N_ask*") + QString::number(perAskBytes)
+            + QStringLiteral("B");
     }
 
     int totalBytes = 0;
-    for (const auto& alias : normalizedAliases) {
-        totalBytes += aliasWeightBytes(alias);
-    }
-    return QStringLiteral("Total %1B").arg(totalBytes);
+    for (const auto& alias : normalizedAliases) totalBytes += aliasWeightBytes(alias);
+    return QStringLiteral("Total ") + QString::number(totalBytes) + QStringLiteral("B");
 }
 
 std::vector<std::string> normalizedSymbols(const QString& symbolsText) {
@@ -244,9 +189,7 @@ std::vector<std::string> normalizedSymbols(const QString& symbolsText) {
         const auto normalized = normalizeToken(rawToken);
         if (normalized.isEmpty()) continue;
         const auto asStd = normalized.toStdString();
-        if (std::find(symbols.begin(), symbols.end(), asStd) == symbols.end()) {
-            symbols.push_back(asStd);
-        }
+        if (std::find(symbols.begin(), symbols.end(), asStd) == symbols.end()) symbols.push_back(asStd);
     }
     return symbols;
 }
@@ -286,12 +229,9 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
     const auto symbols = normalizedSymbols(symbolsText);
     configs.reserve(symbols.size());
 
-    const auto normalizedTradesAliases =
-        normalizedSelectedAliasesForChannel(QStringLiteral("trades"), selectedTradesAliases);
-    const auto normalizedBookTickerAliases =
-        normalizedSelectedAliasesForChannel(QStringLiteral("bookticker"), selectedBookTickerAliases);
-    const auto normalizedOrderbookAliases =
-        normalizedSelectedAliasesForChannel(QStringLiteral("orderbook"), selectedOrderbookAliases);
+    const auto normalizedTradesAliases = normalizedSelectedAliasesForChannel(QStringLiteral("trades"), selectedTradesAliases);
+    const auto normalizedBookTickerAliases = normalizedSelectedAliasesForChannel(QStringLiteral("bookticker"), selectedBookTickerAliases);
+    const auto normalizedOrderbookAliases = normalizedSelectedAliasesForChannel(QStringLiteral("orderbook"), selectedOrderbookAliases);
     const auto tradesSuffix = buildAliasesSuffix(tradesAvailableAliases, normalizedTradesAliases);
     const auto bookTickerSuffix = buildAliasesSuffix(bookTickerAvailableAliases, normalizedBookTickerAliases);
     const auto orderbookSuffix = buildAliasesSuffix(orderbookAvailableAliases, normalizedOrderbookAliases);
@@ -307,17 +247,12 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
 
         const auto symbolDsl = toDslSymbol(symbol);
         config.tradesAliases.reserve(static_cast<std::size_t>(normalizedTradesAliases.size()));
-        for (const auto& alias : normalizedTradesAliases) {
-            config.tradesAliases.push_back(alias.toStdString());
-        }
+        for (const auto& alias : normalizedTradesAliases) config.tradesAliases.push_back(alias.toStdString());
         config.bookTickerAliases.reserve(static_cast<std::size_t>(normalizedBookTickerAliases.size()));
-        for (const auto& alias : normalizedBookTickerAliases) {
-            config.bookTickerAliases.push_back(alias.toStdString());
-        }
+        for (const auto& alias : normalizedBookTickerAliases) config.bookTickerAliases.push_back(alias.toStdString());
         config.orderbookAliases.reserve(static_cast<std::size_t>(normalizedOrderbookAliases.size()));
-        for (const auto& alias : normalizedOrderbookAliases) {
-            config.orderbookAliases.push_back(alias.toStdString());
-        }
+        for (const auto& alias : normalizedOrderbookAliases) config.orderbookAliases.push_back(alias.toStdString());
+
         config.tradesRequestCommand =
             QStringLiteral("subscribe().object(trades).exchange(binance).market(futures).symbol(%1)%2")
                 .arg(symbolDsl, tradesSuffix)

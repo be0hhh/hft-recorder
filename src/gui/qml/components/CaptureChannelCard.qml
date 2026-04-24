@@ -49,6 +49,9 @@ Rectangle {
             CaptureWeightBadge {
                 Layout.alignment: Qt.AlignRight
                 badgeText: card.weightSummary
+                panelColor: card.panelColor
+                borderColor: card.borderColor
+                textColor: card.textColor
                 accentRequiredColor: card.accentRequiredColor
             }
         }

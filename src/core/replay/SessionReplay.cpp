@@ -18,6 +18,18 @@ namespace hftrec::replay {
 
 namespace {
 
+Status parseTradeCanonicalLine(std::string_view line, TradeRow& row) noexcept {
+    return parseTradeLine(line, row);
+}
+
+Status parseBookTickerCanonicalLine(std::string_view line, BookTickerRow& row) noexcept {
+    return parseBookTickerLine(line, row);
+}
+
+Status parseDepthCanonicalLine(std::string_view line, DepthRow& row) noexcept {
+    return parseDepthLine(line, row);
+}
+
 void applyLoadIssueToIntegritySummary(const hftrec::corpus::LoadIssue& issue,
                                       SessionIntegritySummary& summary) {
     auto mark = [&](ChannelIntegritySummary& channelSummary, IntegrityChannel channel) {
@@ -145,7 +157,7 @@ Status SessionReplay::addTradesFile(const std::filesystem::path& path) noexcept 
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<TradeRow>(path, trades_, errorDetail_, parseTradeLine, lineNumber);
+    const auto st = loadJsonl<TradeRow>(path, trades_, errorDetail_, parseTradeCanonicalLine, lineNumber);
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("trades");
@@ -189,7 +201,7 @@ Status SessionReplay::addBookTickerFile(const std::filesystem::path& path) noexc
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<BookTickerRow>(path, bookTickers_, errorDetail_, parseBookTickerLine, lineNumber);
+    const auto st = loadJsonl<BookTickerRow>(path, bookTickers_, errorDetail_, parseBookTickerCanonicalLine, lineNumber);
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("bookticker");
@@ -233,7 +245,7 @@ Status SessionReplay::addDepthFile(const std::filesystem::path& path) noexcept {
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthLine, lineNumber);
+    const auto st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber);
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("depth");

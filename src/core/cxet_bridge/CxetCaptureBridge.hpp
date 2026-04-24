@@ -55,6 +55,8 @@ struct CapturedOrderBookRow {
     std::string symbol{};
     std::uint64_t exchangeId{0};
     std::uint64_t tsNs{0};
+    bool hasUpdateId{false};
+    bool hasFirstUpdateId{false};
     std::uint64_t updateId{0};
     std::uint64_t firstUpdateId{0};
     std::vector<CapturedLevel> bids{};

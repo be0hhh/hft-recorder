@@ -1,6 +1,6 @@
-﻿#pragma once
+#pragma once
 
-#include <core/market_data/MarketDataIngress.hpp>
+#include "core/market_data/MarketDataIngress.hpp"
 
 #include <cstdint>
 #include <filesystem>

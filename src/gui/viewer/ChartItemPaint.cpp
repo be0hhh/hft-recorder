@@ -135,15 +135,6 @@ std::int64_t latestBookStateTs(const LiveDataBatch& batch) noexcept {
         maxSnapshotTs(batch));
 }
 
-std::int64_t latestLiveTs(const LiveDataBatch& batch) noexcept {
-    return std::max({
-        batch.trades.empty() ? 0 : batch.trades.back().tsNs,
-        batch.bookTickers.empty() ? 0 : batch.bookTickers.back().tsNs,
-        batch.depths.empty() ? 0 : batch.depths.back().tsNs,
-        maxSnapshotTs(batch),
-    });
-}
-
 constexpr std::size_t kLiveRenderBookLevelsBudgetPerSide = 256;
 constexpr std::size_t kLiveInteractiveBookLevelsBudgetPerSide = 192;
 constexpr std::int64_t kUsdScaleE8 = 100000000ll;
@@ -246,6 +237,11 @@ bool eventKeyLess(const Row& lhs, const Row& rhs) noexcept {
     return lhs.ingestSeq < rhs.ingestSeq;
 }
 
+template <typename Row>
+bool sameEventKey(const Row& lhs, const Row& rhs) noexcept {
+    return !eventKeyLess(lhs, rhs) && !eventKeyLess(rhs, lhs);
+}
+
 struct LiveBookEventRef {
     const hftrec::replay::SnapshotDocument* snapshot{nullptr};
     const hftrec::replay::DepthRow* depth{nullptr};
@@ -332,8 +328,24 @@ void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataCache& cache
                    + cache.overlayRows.snapshots.size() + cache.overlayRows.depths.size());
     for (const auto& snapshot : cache.stableRows.snapshots) events.push_back(LiveBookEventRef{&snapshot, nullptr});
     for (const auto& depth : cache.stableRows.depths) events.push_back(LiveBookEventRef{nullptr, &depth});
-    for (const auto& snapshot : cache.overlayRows.snapshots) events.push_back(LiveBookEventRef{&snapshot, nullptr});
-    for (const auto& depth : cache.overlayRows.depths) events.push_back(LiveBookEventRef{nullptr, &depth});
+    for (const auto& snapshot : cache.overlayRows.snapshots) {
+        const bool duplicate = std::any_of(
+            cache.stableRows.snapshots.begin(),
+            cache.stableRows.snapshots.end(),
+            [&snapshot](const hftrec::replay::SnapshotDocument& stable) noexcept {
+                return sameEventKey(stable, snapshot);
+            });
+        if (!duplicate) events.push_back(LiveBookEventRef{&snapshot, nullptr});
+    }
+    for (const auto& depth : cache.overlayRows.depths) {
+        const bool duplicate = std::any_of(
+            cache.stableRows.depths.begin(),
+            cache.stableRows.depths.end(),
+            [&depth](const hftrec::replay::DepthRow& stable) noexcept {
+                return sameEventKey(stable, depth);
+            });
+        if (!duplicate) events.push_back(LiveBookEventRef{nullptr, &depth});
+    }
     if (events.empty()) return;
 
     std::sort(events.begin(), events.end(), liveBookEventLess);
@@ -953,8 +965,6 @@ void ChartItem::paint(QPainter* painter) {
 }
 
 }  // namespace hftrec::gui::viewer
-
-
 
 
 

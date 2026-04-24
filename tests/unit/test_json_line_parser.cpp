@@ -3,21 +3,15 @@
 #include <string>
 
 #include "core/capture/JsonSerializers.hpp"
-#include "core/cxet_bridge/CxetCaptureBridge.hpp"
 #include "core/replay/EventRows.hpp"
 #include "core/replay/JsonLineParser.hpp"
 
 namespace {
 
 using hftrec::Status;
-using hftrec::capture::EventSequenceIds;
-using hftrec::capture::SnapshotProvenance;
-using hftrec::cxet_bridge::CapturedBookTickerRow;
-using hftrec::cxet_bridge::CapturedLevel;
-using hftrec::cxet_bridge::CapturedOrderBookRow;
-using hftrec::cxet_bridge::CapturedTradeRow;
 using hftrec::replay::BookTickerRow;
 using hftrec::replay::DepthRow;
+using hftrec::replay::PricePair;
 using hftrec::replay::SnapshotDocument;
 using hftrec::replay::TradeRow;
 using hftrec::replay::parseBookTickerLine;
@@ -26,17 +20,20 @@ using hftrec::replay::parseSnapshotDocument;
 using hftrec::replay::parseTradeLine;
 
 TEST(JsonLineParser, TradeLineRoundTrip) {
-    CapturedTradeRow ev{};
+    TradeRow ev{};
     ev.symbol = "BTCUSDT";
+    ev.exchange = "binance";
+    ev.market = "futures_usd";
     ev.priceE8 = 3'000'100'000'000LL;
     ev.qtyE8 = 10'000'000LL;
     ev.quoteQtyE8 = 30'001'000'000LL;
-    ev.tsNs = 1'713'168'000'000'000'000ULL;
+    ev.tsNs = 1'713'168'000'000'000'000LL;
     ev.side = 1;
-    const EventSequenceIds ids{7u, 11u};
+    ev.captureSeq = 7;
+    ev.ingestSeq = 11;
 
     TradeRow row{};
-    ASSERT_EQ(parseTradeLine(hftrec::capture::renderTradeJsonLine(ev, ids), row), Status::Ok);
+    ASSERT_EQ(parseTradeLine(hftrec::capture::renderTradeJsonLine(ev), row), Status::Ok);
     EXPECT_EQ(row.tsNs, 1'713'168'000'000'000'000LL);
     EXPECT_EQ(row.captureSeq, 7);
     EXPECT_EQ(row.ingestSeq, 11);
@@ -44,37 +41,44 @@ TEST(JsonLineParser, TradeLineRoundTrip) {
     EXPECT_EQ(row.qtyE8, 10'000'000LL);
     EXPECT_EQ(row.quoteQtyE8, 30'001'000'000LL);
     EXPECT_EQ(row.sideBuy, 1u);
+    EXPECT_EQ(row.symbol, "BTCUSDT");
+    EXPECT_EQ(row.exchange, "binance");
+    EXPECT_EQ(row.market, "futures_usd");
 }
 
 TEST(JsonLineParser, TradeLineSellSide) {
-    CapturedTradeRow ev{};
+    TradeRow ev{};
     ev.symbol = "ETHUSDT";
+    ev.exchange = "binance";
+    ev.market = "spot";
     ev.tradeId = 42ULL;
-    ev.tsNs = 1'000'000'000ULL;
+    ev.tsNs = 1'000'000'000LL;
     ev.side = 0;
-    const EventSequenceIds ids{8u, 12u};
+    ev.captureSeq = 8;
+    ev.ingestSeq = 12;
 
     TradeRow row{};
-    ASSERT_EQ(parseTradeLine(hftrec::capture::renderTradeJsonLine(ev, ids), row), Status::Ok);
+    ASSERT_EQ(parseTradeLine(hftrec::capture::renderTradeJsonLine(ev), row), Status::Ok);
     EXPECT_EQ(row.sideBuy, 0u);
     EXPECT_EQ(row.captureSeq, 8);
     EXPECT_EQ(row.ingestSeq, 12);
 }
 
 TEST(JsonLineParser, BookTickerLineRoundTrip) {
-    CapturedBookTickerRow ev{};
+    BookTickerRow ev{};
     ev.symbol = "ETHUSDT";
+    ev.exchange = "binance";
+    ev.market = "futures_usd";
     ev.bidPriceE8 = 200'000'000'000LL;
     ev.bidQtyE8 = 50'000'000LL;
     ev.askPriceE8 = 200'010'000'000LL;
     ev.askQtyE8 = 60'000'000LL;
-    ev.includeBidQty = true;
-    ev.includeAskQty = true;
-    ev.tsNs = 1'713'168'000'500'000'000ULL;
-    const EventSequenceIds ids{3u, 13u};
+    ev.tsNs = 1'713'168'000'500'000'000LL;
+    ev.captureSeq = 3;
+    ev.ingestSeq = 13;
 
     BookTickerRow row{};
-    ASSERT_EQ(parseBookTickerLine(hftrec::capture::renderBookTickerJsonLine(ev, ids), row), Status::Ok);
+    ASSERT_EQ(parseBookTickerLine(hftrec::capture::renderBookTickerJsonLine(ev), row), Status::Ok);
     EXPECT_EQ(row.tsNs, 1'713'168'000'500'000'000LL);
     EXPECT_EQ(row.captureSeq, 3);
     EXPECT_EQ(row.ingestSeq, 13);
@@ -82,25 +86,31 @@ TEST(JsonLineParser, BookTickerLineRoundTrip) {
     EXPECT_EQ(row.bidQtyE8, 50'000'000LL);
     EXPECT_EQ(row.askPriceE8, 200'010'000'000LL);
     EXPECT_EQ(row.askQtyE8, 60'000'000LL);
+    EXPECT_EQ(row.symbol, "ETHUSDT");
 }
 
 TEST(JsonLineParser, DepthLineRoundTrip) {
-    CapturedOrderBookRow delta{};
+    DepthRow delta{};
     delta.symbol = "BTCUSDT";
-    delta.tsNs = 1'713'168'000'750'000'000ULL;
-    delta.updateId = 220ULL;
-    delta.firstUpdateId = 218ULL;
+    delta.exchange = "binance";
+    delta.market = "futures_usd";
+    delta.tsNs = 1'713'168'000'750'000'000LL;
+    delta.updateId = 220;
+    delta.firstUpdateId = 218;
+    delta.hasUpdateId = true;
+    delta.hasFirstUpdateId = true;
+    delta.captureSeq = 9;
+    delta.ingestSeq = 14;
     delta.bids = {
-        CapturedLevel{3'000'000'000'000LL, 25'000'000LL, 0, 0ULL},
-        CapturedLevel{2'999'900'000'000LL, 0LL, 0, 0ULL},
+        PricePair{3'000'000'000'000LL, 25'000'000LL, 0, 0ULL},
+        PricePair{2'999'900'000'000LL, 0LL, 0, 0ULL},
     };
     delta.asks = {
-        CapturedLevel{3'000'100'000'000LL, 15'000'000LL, 0, 0ULL},
+        PricePair{3'000'100'000'000LL, 15'000'000LL, 0, 0ULL},
     };
-    const EventSequenceIds ids{9u, 14u};
 
     DepthRow row{};
-    ASSERT_EQ(parseDepthLine(hftrec::capture::renderDepthJsonLine(delta, ids), row), Status::Ok);
+    ASSERT_EQ(parseDepthLine(hftrec::capture::renderDepthJsonLine(delta), row), Status::Ok);
     EXPECT_EQ(row.tsNs, 1'713'168'000'750'000'000LL);
     EXPECT_EQ(row.captureSeq, 9);
     EXPECT_EQ(row.ingestSeq, 14);
@@ -117,41 +127,54 @@ TEST(JsonLineParser, DepthLineRoundTrip) {
 }
 
 TEST(JsonLineParser, DepthLineEmptyAskArray) {
-    CapturedOrderBookRow delta{};
+    DepthRow delta{};
     delta.symbol = "BTCUSDT";
+    delta.exchange = "binance";
+    delta.market = "futures_usd";
+    delta.captureSeq = 10;
+    delta.ingestSeq = 15;
+    delta.hasUpdateId = true;
+    delta.hasFirstUpdateId = true;
     delta.bids = {
-        CapturedLevel{100LL, 200LL, 0, 0ULL},
+        PricePair{100LL, 200LL, 0, 0ULL},
     };
-    const EventSequenceIds ids{10u, 15u};
 
     DepthRow row{};
-    ASSERT_EQ(parseDepthLine(hftrec::capture::renderDepthJsonLine(delta, ids), row), Status::Ok);
+    ASSERT_EQ(parseDepthLine(hftrec::capture::renderDepthJsonLine(delta), row), Status::Ok);
     EXPECT_EQ(row.bids.size(), 1u);
     EXPECT_EQ(row.asks.size(), 0u);
 }
 
 TEST(JsonLineParser, SnapshotDocumentRoundTrip) {
-    CapturedOrderBookRow snap{};
+    SnapshotDocument snap{};
     snap.symbol = "BTCUSDT";
-    snap.tsNs = 1'713'168'000'000'000'000ULL;
-    snap.updateId = 150ULL;
-    snap.firstUpdateId = 145ULL;
+    snap.exchange = "binance";
+    snap.market = "futures_usd";
+    snap.tsNs = 1'713'168'000'000'000'000LL;
+    snap.updateId = 150;
+    snap.firstUpdateId = 145;
+    snap.hasUpdateId = true;
+    snap.hasFirstUpdateId = true;
+    snap.sourceTsNs = 1'713'168'000'000'000'000LL;
+    snap.ingestTsNs = 1'713'168'000'000'123'456LL;
+    snap.captureSeq = 1;
+    snap.ingestSeq = 2;
+    snap.anchorUpdateId = 150;
+    snap.anchorFirstUpdateId = 145;
+    snap.hasAnchorUpdateId = true;
+    snap.hasAnchorFirstUpdateId = true;
+    snap.trustedReplayAnchor = 1u;
+    snap.snapshotKind = "initial";
+    snap.source = "rest_orderbook_snapshot";
     snap.bids = {
-        CapturedLevel{3'000'000'000'000LL, 100'000'000LL, 0, 0ULL},
+        PricePair{3'000'000'000'000LL, 100'000'000LL, 0, 0ULL},
     };
     snap.asks = {
-        CapturedLevel{3'000'100'000'000LL, 80'000'000LL, 1, 0ULL},
+        PricePair{3'000'100'000'000LL, 80'000'000LL, 1, 0ULL},
     };
-    SnapshotProvenance provenance{};
-    provenance.sequence = EventSequenceIds{1u, 2u};
-    provenance.sourceTsNs = 1'713'168'000'000'000'000LL;
-    provenance.ingestTsNs = 1'713'168'000'000'123'456LL;
-    provenance.anchorUpdateId = 150u;
-    provenance.anchorFirstUpdateId = 145u;
-    provenance.trustedReplayAnchor = true;
 
     SnapshotDocument parsed{};
-    ASSERT_EQ(parseSnapshotDocument(hftrec::capture::renderSnapshotJson(snap, provenance), parsed), Status::Ok);
+    ASSERT_EQ(parseSnapshotDocument(hftrec::capture::renderSnapshotJson(snap), parsed), Status::Ok);
     EXPECT_EQ(parsed.tsNs, 1'713'168'000'000'000'000LL);
     EXPECT_EQ(parsed.captureSeq, 1);
     EXPECT_EQ(parsed.ingestSeq, 2);

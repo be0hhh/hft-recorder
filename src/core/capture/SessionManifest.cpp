@@ -378,23 +378,23 @@ bool parseChannelIntegrityGroupObject(JsonParser& parser, SessionManifest& manif
 
 
 bool isSupportedCaptureContractVersion(std::string_view version) noexcept {
-    return version == "hftrec.cxet_prefix_json.v2";
+    return version == "hftrec.cxet_alias_rows_json.v4";
 }
 
 bool isSupportedTradesRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_trade_prefix_v2";
+    return schema == "cxet_trade_alias_first_v3";
 }
 
 bool isSupportedBookTickerRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_bookticker_prefix_v2";
+    return schema == "cxet_bookticker_alias_first_v3";
 }
 
 bool isSupportedDepthRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_orderbook_prefix_v2";
+    return schema == "cxet_orderbook_alias_first_v4";
 }
 
 bool isSupportedSnapshotSchema(std::string_view schema) noexcept {
-    return schema == "cxet_orderbook_snapshot_prefix_v2";
+    return schema == "cxet_orderbook_snapshot_alias_first_v4";
 }
 
 void populateCanonicalArtifacts(SessionManifest& manifest) {

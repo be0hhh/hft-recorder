@@ -100,7 +100,7 @@ Current `legacy_v0` compatibility path covers older manifests with flat fields:
 
 One line per normalized trade-like event.
 
-Current implemented fields:
+Current implemented fields (v3 optional-tail schema):
 - `tsNs`
 - `captureSeq`
 - `ingestSeq`
@@ -115,7 +115,7 @@ recorder writes today.
 
 One line per normalized level-1 event.
 
-Current implemented fields:
+Current implemented fields (v3 optional-tail schema):
 - `tsNs`
 - `captureSeq`
 - `ingestSeq`
@@ -128,14 +128,14 @@ Current implemented fields:
 
 One line per normalized orderbook delta event.
 
-Current implemented fields:
+Current implemented fields (v3 optional-tail schema):
 - `tsNs`
 - `captureSeq`
 - `ingestSeq`
-- `updateId`
-- `firstUpdateId`
 - `bids`
 - `asks`
+- `exchangeId`
+- optional tail: `updateId`, `firstUpdateId`
 
 Each `bids` / `asks` item:
 - `price_i64`
@@ -155,24 +155,17 @@ rows share the same `tsNs`.
 
 One file per full normalized snapshot.
 
-Current implemented fields:
+Current implemented fields (v3 optional-tail schema):
 - `tsNs`
 - `captureSeq`
 - `ingestSeq`
-- `updateId`
-- `firstUpdateId`
-- `snapshotKind`
-- `source`
-- `exchange`
-- `market`
-- `symbol`
 - `sourceTsNs`
 - `ingestTsNs`
-- `anchorUpdateId`
-- `anchorFirstUpdateId`
 - `trustedReplayAnchor`
 - `bids`
 - `asks`
+- `exchangeId`
+- optional tail: `updateId`, `firstUpdateId`, `anchorUpdateId`, `anchorFirstUpdateId`
 
 Each `bids` / `asks` item:
 - `price_i64`
