@@ -14,6 +14,8 @@
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
 #include "core/local_exchange/LocalOrderEngine.hpp"
 #include "core/metrics/Metrics.hpp"
+#include "primitives/composite/OrderBookDeltaRuntimeV1.hpp"
+#include "primitives/composite/StreamMeta.hpp"
 
 #include "metrics/MetricsControl.hpp"
 #include "metrics/Probes.hpp"
@@ -597,11 +599,13 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
             std::vector<std::string> aliases;
         } callbackContext{this, sessionId, exchange, market, orderbookAliases};
 
-        const bool subscribeOk = cxet::api::runSubscribeOrderBookDeltaByConfig(
+        const bool subscribeOk = cxet::api::runSubscribeOrderBookRuntimeByConfig(
             subscribeBuilder,
             payloadBuf,
             deltaRecvBuf,
-            [](const cxet::composite::OrderBookSnapshot& delta, void* userData) noexcept -> bool {
+            [](const cxet::composite::OrderBookDeltaRuntimeV1& delta,
+               const cxet::composite::StreamMeta& meta,
+               void* userData) noexcept -> bool {
                 auto* context = static_cast<CallbackContext*>(userData);
                 auto* self = context->self;
                 self->depthCount_.fetch_add(1, std::memory_order_acq_rel);
@@ -610,7 +614,7 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
 
                 TscTick bridgeStartTsc{};
                 if (captureMetrics) bridgeStartTsc = cxet::probes::captureTsc();
-                const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(delta);
+                const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(delta, meta);
                 const auto row = makeDepthRow(capturedDepth, context->exchange, context->market, sequenceIds);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
 
@@ -725,4 +729,3 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
 }
 
 }  // namespace hftrec::capture
-

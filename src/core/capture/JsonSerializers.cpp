@@ -4,7 +4,6 @@
 #include <system_error>
 
 #include "core/common/JsonString.hpp"
-#include "core/cxet_bridge/CxetCaptureBridge.hpp"
 #include "core/replay/EventRows.hpp"
 
 namespace hftrec::capture {

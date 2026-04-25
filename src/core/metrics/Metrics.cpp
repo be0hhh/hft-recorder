@@ -1,4 +1,4 @@
-﻿#include "core/metrics/Metrics.hpp"
+#include "core/metrics/Metrics.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -7,7 +7,7 @@
 #include <mutex>
 #include <string>
 
-#include "probes/TimeDelta.hpp"
+#include "core/common/Timing.hpp"
 
 namespace hftrec::metrics {
 
@@ -71,7 +71,12 @@ std::uint64_t parseStatusBytes(std::string_view key) noexcept {
 }  // namespace
 
 void init() noexcept {
-    (void)cxet::probes::ensureCalibrated();
+    hftrec::timing::ensureCalibrated();
+    std::lock_guard<std::mutex> lock(stateMutex());
+    (void)streamMetrics_("trades");
+    (void)streamMetrics_("bookticker");
+    (void)streamMetrics_("depth");
+    (void)streamMetrics_("snapshot");
 }
 
 void shutdown() noexcept {}
@@ -204,11 +209,11 @@ void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndTsc) noexcept {
     gui.paintNsTotal += ns;
     gui.paintNsMax = maxOf(gui.paintNsMax, ns);
     if (gui.lastFrameTsc != 0u && frameEndTsc > gui.lastFrameTsc) {
-        TscTick start{};
-        TscTick end{};
+        hftrec::timing::Tick start{};
+        hftrec::timing::Tick end{};
         start.raw = gui.lastFrameTsc;
         end.raw = frameEndTsc;
-        const DurationNs deltaNs = cxet::probes::deltaNs(start, end);
+        const auto deltaNs = hftrec::timing::deltaNs(start, end);
         gui.fps = deltaNs.raw > 0u ? 1000000000ull / deltaNs.raw : 0u;
     }
     gui.lastFrameTsc = frameEndTsc;

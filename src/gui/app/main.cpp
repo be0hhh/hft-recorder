@@ -1,4 +1,4 @@
-﻿#include <QGuiApplication>
+#include <QGuiApplication>
 #include <QObject>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
@@ -7,7 +7,12 @@
 #include <QUrl>
 
 #include "app/metrics_bootstrap.hpp"
+#include "gui/api/ChartApiServer.hpp"
+#if HFTREC_WITH_CXET
+#include "gui/api/ExecutionChartAdapter.hpp"
+#include "gui/api/LocalVenueWsServer.hpp"
 #include "core/local_exchange/LocalExchangeServer.hpp"
+#endif
 #include "gui/models/SessionListModel.hpp"
 #include "gui/models/ViewerSourceListModel.hpp"
 #include "gui/viewer/ChartController.hpp"
@@ -50,8 +55,12 @@ void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
     hftrec::app::MetricsBootstrap metricsBootstrap{};
+#if HFTREC_WITH_CXET
     hftrec::local_exchange::LocalExchangeServer localExchangeServer;
     localExchangeServer.start();
+    hftrec::gui::api::LocalVenueWsServer localVenueWsServer;
+    hftrec::gui::api::ExecutionChartAdapter executionChartAdapter;
+#endif
     QCoreApplication::setOrganizationName(QStringLiteral("hftrec"));
     QCoreApplication::setApplicationName(QStringLiteral("hft-recorder"));
     const QString requestedMode = qEnvironmentVariable("HFTREC_RENDER_MODE", "cpu").trimmed().toLower();
@@ -77,7 +86,25 @@ int main(int argc, char* argv[]) {
     engine.load(QUrl(QStringLiteral("qrc:/HftRecorder/qml/Main.qml")));
     wireRenderDiagnostics(engine);
 
+    hftrec::gui::api::ChartApiServer chartApiServer;
+    chartApiServer.setChartController(engine.rootObjects().isEmpty()
+        ? nullptr
+        : engine.rootObjects().constFirst()->findChild<hftrec::gui::viewer::ChartController*>(QStringLiteral("chartController")));
+    chartApiServer.startFromEnvironment();
+
+#if HFTREC_WITH_CXET
+    auto* chartController = engine.rootObjects().isEmpty()
+        ? nullptr
+        : engine.rootObjects().constFirst()->findChild<hftrec::gui::viewer::ChartController*>(QStringLiteral("chartController"));
+    executionChartAdapter.setChartController(chartController);
+    localExchangeServer.setEventSink(&executionChartAdapter);
+    localVenueWsServer.startFromEnvironment();
+#endif
+
     const int rc = app.exec();
+#if HFTREC_WITH_CXET
+    localVenueWsServer.stop();
     localExchangeServer.stop();
+#endif
     return rc;
 }

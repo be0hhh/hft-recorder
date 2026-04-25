@@ -1,4 +1,4 @@
-﻿#include "gui/viewer/ChartController.hpp"
+#include "gui/viewer/ChartController.hpp"
 
 #include <QFileInfo>
 #include <algorithm>
@@ -47,6 +47,9 @@ QString recordedSourceIdFromPath(const QString& dir) {
 void ChartController::clearLiveDataCache_() noexcept {
     liveDataCache_.stableRows = LiveDataBatch{};
     liveDataCache_.overlayRows = LiveDataBatch{};
+    liveDataCache_.hasRenderRange = false;
+    liveDataCache_.renderTsMin = 0;
+    liveDataCache_.renderTsMax = 0;
     liveOverlayState_ = LiveDataBatch{};
     liveInitialViewportApplied_ = false;
     ++liveDataCache_.version;
@@ -249,6 +252,10 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
     currentBookTickerIndex_ = -1;
     selectionActive_ = false;
     selectionSummaryText_.clear();
+    if (!verticalMarkers_.empty()) {
+        verticalMarkers_.clear();
+        emit markersChanged();
+    }
 
     const auto path = std::filesystem::path(stripFileUrl(sessionPath));
     if (!sessionPath.trimmed().isEmpty()) {
@@ -285,6 +292,10 @@ void ChartController::activateLiveOnlyMode() {
     currentBookTickerIndex_ = -1;
     selectionActive_ = false;
     selectionSummaryText_.clear();
+    if (!verticalMarkers_.empty()) {
+        verticalMarkers_.clear();
+        emit markersChanged();
+    }
     statusText_ = QStringLiteral("Choose a live source.");
     emit sessionChanged();
     emit statusChanged();
@@ -304,6 +315,10 @@ void ChartController::resetSession() {
     currentBookTickerIndex_ = -1;
     selectionActive_ = false;
     selectionSummaryText_.clear();
+    if (!verticalMarkers_.empty()) {
+        verticalMarkers_.clear();
+        emit markersChanged();
+    }
     statusText_ = QStringLiteral("Choose a source.");
     emit sessionChanged();
     emit statusChanged();
@@ -425,6 +440,10 @@ bool ChartController::loadSession(const QString& dir) {
     loaded_ = false;
     replay_ = hftrec::replay::SessionReplay{};
     clearSelection();
+    if (!verticalMarkers_.empty()) {
+        verticalMarkers_.clear();
+        emit markersChanged();
+    }
 
     const auto path = std::filesystem::path(stripFileUrl(dir));
     const auto st = replay_.open(path);

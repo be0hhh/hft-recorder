@@ -13,36 +13,41 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-# hft-recorder is a standalone consumer of a prebuilt CXETCPP library.
-# It must not build or vendor the parent project sources.
-# See doc/BUILD_AND_ISOLATION.md.
-#
-# Inputs from the parent workspace (set by run.sh or -D flags):
-#   CXET_PUBLIC_INCLUDE_DIR — directory containing public CXETCPP headers
-#                             (the directory that holds cxet.hpp)
-#   CXET_SHARED_LIB         — path to prebuilt libcxet_lib.so
+# hft-recorder is a standalone consumer of a prebuilt CXETCPP library when
+# available. Offline viewer builds must not build or vendor parent sources.
 set(CXET_PUBLIC_INCLUDE_DIR "" CACHE PATH "Path to CXETCPP public headers")
 set(CXET_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_lib shared library")
+set(HFTREC_CXET_MODE "AUTO" CACHE STRING "CXET integration mode: AUTO, ON, or OFF")
+set_property(CACHE HFTREC_CXET_MODE PROPERTY STRINGS AUTO ON OFF)
+string(TOUPPER "${HFTREC_CXET_MODE}" HFTREC_CXET_MODE_NORMALIZED)
 
-if(NOT CXET_PUBLIC_INCLUDE_DIR OR NOT CXET_SHARED_LIB)
-    message(WARNING
-        "CXET_PUBLIC_INCLUDE_DIR or CXET_SHARED_LIB not set — "
-        "use run.sh to build, or pass them with -D.")
+set(HFTREC_WITH_CXET OFF)
+if(HFTREC_CXET_MODE_NORMALIZED STREQUAL "OFF")
+    message(STATUS "hft-recorder: CXETCPP integration disabled")
+elseif(CXET_PUBLIC_INCLUDE_DIR AND CXET_SHARED_LIB AND EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/cxet.hpp" AND EXISTS "${CXET_SHARED_LIB}")
+    set(HFTREC_WITH_CXET ON)
+    message(STATUS "hft-recorder: CXETCPP integration enabled")
+else()
+    if(HFTREC_CXET_MODE_NORMALIZED STREQUAL "ON")
+        message(FATAL_ERROR "HFTREC_CXET_MODE=ON requires valid CXET_PUBLIC_INCLUDE_DIR and CXET_SHARED_LIB")
+    endif()
+    message(STATUS "hft-recorder: CXETCPP integration not found; building offline viewer mode")
 endif()
 
-add_library(cxet_lib SHARED IMPORTED GLOBAL)
-set_target_properties(cxet_lib PROPERTIES
-    IMPORTED_LOCATION "${CXET_SHARED_LIB}"
-    INTERFACE_INCLUDE_DIRECTORIES "${CXET_PUBLIC_INCLUDE_DIR}"
-)
+if(HFTREC_WITH_CXET)
+    add_library(cxet_lib SHARED IMPORTED GLOBAL)
+    set_target_properties(cxet_lib PROPERTIES
+        IMPORTED_LOCATION "${CXET_SHARED_LIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CXET_PUBLIC_INCLUDE_DIR}"
+    )
+endif()
 
 find_package(Threads REQUIRED)
-find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 QUIET)
+find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 Network QUIET)
 
 include(FetchContent)
 set(FETCHCONTENT_QUIET ON)
 
-# spdlog + fmt — logging per doc/LOGGING_AND_METRICS.md.
 FetchContent_Declare(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
@@ -60,7 +65,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
-# GoogleTest — unit/integration tests per doc/TESTING_CONTRACT.md.
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git

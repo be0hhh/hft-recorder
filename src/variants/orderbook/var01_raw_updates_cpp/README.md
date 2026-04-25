@@ -31,7 +31,7 @@ OrderBookDeltaEvent stream (first_update_id, final_update_id, is_bid,
 3. `doc/STREAMS.md` — §"depth@0ms"
 4. `doc/ORDERBOOK_REPRESENTATION_EXPERIMENTS.md` — this is the anchor against
    which the representation experiments are scored
-5. `doc/CXETCPP_USAGE_EXAMPLES.md` — §`runSubscribeOrderBookDeltaByConfig`
+5. `doc/CXETCPP_USAGE_EXAMPLES.md` — §`runSubscribeOrderBookRuntimeByConfig`
 
 ## How to implement (Phase 3)
 

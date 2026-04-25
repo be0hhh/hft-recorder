@@ -118,54 +118,61 @@ stream->stop();
 
 ---
 
-## 4. depth@0ms deltas — `runSubscribeOrderBookDeltaByConfig` (callback)
+## 4. depth@0ms deltas — `runSubscribeOrderBookRuntimeByConfig` (callback)
 
-`OrderBookDeltaOnUpdate` signature (from `api/run/RunByConfig.hpp:240`):
+`OrderBookRuntimeOnUpdate` signature (from `api/run/RunByConfig.hpp`):
 
 ```cpp
-using OrderBookDeltaOnUpdate =
-    bool (*)(const composite::OrderBookSnapshot& delta, void* userData) noexcept;
+using OrderBookRuntimeOnUpdate =
+    bool (*)(const composite::OrderBookDeltaRuntimeV1& delta,
+             const composite::StreamMeta& meta,
+             void* userData) noexcept;
 ```
 
-The callback is invoked on the **library's WS thread**; keep it short and lock-free.
-Push into SPSC, return `true` to keep going, `false` to stop.
+The callback is invoked on the library's WS thread; keep it short and lock-free.
+`StreamMeta` carries exchange/market/symbol. `OrderBookDeltaRuntimeV1` carries only
+hot-path fields: timestamp, update ids, visible bid/ask counts, and bid/ask
+`BookLevelPxQty` arrays. `qty == 0` is preserved and means delete this level.
 
 ```cpp
 struct DepthCallbackCtx {
-    SpscRing<OrderBookSnapshot, kProducerRingCapacity>* ring;
-    std::atomic<bool>*                                  stopFlag;
+    SpscRing<CapturedOrderBookRow, kProducerRingCapacity>* ring;
+    std::atomic<bool>*                                     stopFlag;
 };
 
-static bool onDepthDelta(const composite::OrderBookSnapshot& delta, void* userData) noexcept {
+static bool onDepthDelta(const composite::OrderBookDeltaRuntimeV1& delta,
+                         const composite::StreamMeta& meta,
+                         void* userData) noexcept {
     auto* ctx = static_cast<DepthCallbackCtx*>(userData);
-    if (ctx->stopFlag->load(std::memory_order_relaxed)) return false;    // request stop
-    if (!ctx->ring->tryPush(delta)) {
+    if (ctx->stopFlag->load(std::memory_order_relaxed)) return false;
+
+    const CapturedOrderBookRow row =
+        CxetCaptureBridge::captureOrderBook(delta, meta);
+    if (!ctx->ring->tryPush(row)) {
         metrics::eventsDropped(StreamType::DepthUpdate, DropReason::SpscFull).increment();
-        // Keep going; dropped event → GAP_MARKER on next flush (see ERROR_HANDLING_AND_GAPS.md).
     }
     return true;
 }
 
 void runDepthProducer(Symbol sym, canon::ExchangeId ex, canon::MarketType mkt,
-                      SpscRing<OrderBookSnapshot, kProducerRingCapacity>& ring,
+                      SpscRing<CapturedOrderBookRow, kProducerRingCapacity>& ring,
                       std::atomic<bool>& stop) noexcept {
     UnifiedRequestBuilder b;
     b.subscribe()
-     .object(cxet::composite::out::SubscribeObject::OrderBook)    // depth@0ms for fapi
+     .object(cxet::composite::out::SubscribeObject::OrderBook)
      .exchange(ex).market(mkt).symbol(sym);
 
-    MessageBuffer payloadBuf{};        // 64 KB each — on producer stack is fine, not hot path.
+    MessageBuffer payloadBuf{};
     MessageBuffer recvBuf{};
-
     DepthCallbackCtx ctx{&ring, &stop};
 
-    const bool ok = runSubscribeOrderBookDeltaByConfig(
+    const bool ok = runSubscribeOrderBookRuntimeByConfig(
         b, payloadBuf, recvBuf,
         &onDepthDelta, &ctx,
-        /* maxUpdates        */ 0,        // 0 = unlimited
+        /* maxUpdates        */ 0,
         /* stopRequested     */ &stop,
-        /* maxReconnectAttempts */ 8,     // auto-reconnect with backoff
-        /* pingIntervalMs    */ 20'000);  // 20 s keepalive for Binance fapi
+        /* maxReconnectAttempts */ 8,
+        /* pingIntervalMs    */ 20'000);
     if (!ok) {
         logError("depth@0ms subscribe failed for {}", sym.cStr());
     }
@@ -174,13 +181,11 @@ void runDepthProducer(Symbol sym, canon::ExchangeId ex, canon::MarketType mkt,
 
 Notes:
 
-- `runSubscribeOrderBookDeltaByConfig` **blocks** the calling thread until the WS loop exits
-  (either `maxUpdates` reached, callback returned `false`, or `stopRequested == true`).
+- `runSubscribeOrderBookRuntimeByConfig` blocks the calling thread until the WS loop exits.
 - Do the block on a dedicated producer thread (`CPU_PROD_DEPTH`, default `4`).
 - `MessageBuffer` is `64 KB`; two of them on the stack is fine outside the hot path.
 - `ping_interval_ms = 20'000` matches Binance fapi server-side expectation.
-- Reconnect: library re-fetches snapshot internally on gap detection. Our recorder emits
-  `CODER_RESET` + `GAP_MARKER` on the next flush — see `ERROR_HANDLING_AND_GAPS.md`.
+- The old snapshot-shaped callback is removed.
 
 ---
 
@@ -306,7 +311,7 @@ static MessageBuffer gBuf{};                  // data-race; each thread owns its
 
 - `apps/arbitrage-screener/src/data/DataManager.cpp` — reference pattern for `CxetStream<T>` +
   producer/poll thread (lines 148–271 for batched+markprice streams).
-- `CXETCPP/src/src/api/run/RunByConfig.hpp:247-255` — `runSubscribeOrderBookDeltaByConfig` signature.
+- `CXETCPP/src/src/api/run/RunByConfig.hpp` - `runSubscribeOrderBookRuntimeByConfig` signature.
 - `CXETCPP/src/src/api/run/RunByConfig.hpp:168-171` — `runGetOrderBookByConfig` signature.
 - `CODING_STYLE.md` — primitive types, container bans, logging rules.
 - `API_CONTRACTS.md` — internal `SpscRing<T>`, `IStreamRecorder`, `BlockWriter` interfaces.

@@ -20,6 +20,7 @@ class AppViewModel : public QObject {
     Q_PROPERTY(qreal bookDepthWindowPct READ bookDepthWindowPct WRITE setBookDepthWindowPct NOTIFY bookDepthWindowPctChanged)
     Q_PROPERTY(QString liveUpdateMode READ liveUpdateMode WRITE setLiveUpdateMode NOTIFY liveUpdateModeChanged)
     Q_PROPERTY(int liveUpdateIntervalMs READ liveUpdateIntervalMs NOTIFY liveUpdateModeChanged)
+    Q_PROPERTY(int renderWindowSeconds READ renderWindowSeconds WRITE setRenderWindowSeconds NOTIFY renderWindowSecondsChanged)
 
   public:
     explicit AppViewModel(QObject* parent = nullptr);
@@ -35,12 +36,14 @@ class AppViewModel : public QObject {
     qreal bookDepthWindowPct() const noexcept { return bookDepthWindowPct_; }
     QString liveUpdateMode() const { return liveUpdateMode_; }
     int liveUpdateIntervalMs() const noexcept;
+    int renderWindowSeconds() const noexcept { return renderWindowSeconds_; }
 
     void setTradeAmountScale(qreal value);
     void setBookBrightnessUsdRef(qreal value);
     void setBookMinVisibleUsd(qreal value);
     void setBookDepthWindowPct(qreal value);
     void setLiveUpdateMode(const QString& mode);
+    void setRenderWindowSeconds(int seconds);
     void setActiveChartRenderer(const QString& rendererName);
     Q_INVOKABLE void setRenderDiagnostics(const QString& requestedMode, const QString& actualGraphicsApi);
 
@@ -52,6 +55,7 @@ class AppViewModel : public QObject {
     void bookMinVisibleUsdChanged();
     void bookDepthWindowPctChanged();
     void liveUpdateModeChanged();
+    void renderWindowSecondsChanged();
 
   private:
     void loadSettings_();
@@ -69,6 +73,7 @@ class AppViewModel : public QObject {
     qreal bookMinVisibleUsd_{5000.0};
     qreal bookDepthWindowPct_{5.0};
     QString liveUpdateMode_{"100ms"};
+    int renderWindowSeconds_{0};
     bool settingsDirty_{false};
     QSettings settings_{};
     QTimer saveTimer_{};

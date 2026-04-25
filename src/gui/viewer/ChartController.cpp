@@ -1,6 +1,7 @@
-﻿#include "gui/viewer/ChartController.hpp"
+#include "gui/viewer/ChartController.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <filesystem>
 #include <memory>
 #include <utility>
@@ -85,6 +86,25 @@ void removeRowsPromotedToStable(std::vector<Row>& overlay, const std::vector<Row
         overlay.end());
 }
 
+template <typename Row>
+void keepRowsInTimeRange(std::vector<Row>& rows, std::int64_t tsMin, std::int64_t tsMax) {
+    rows.erase(
+        std::remove_if(
+            rows.begin(),
+            rows.end(),
+            [tsMin, tsMax](const Row& row) noexcept {
+                return row.tsNs < tsMin || row.tsNs > tsMax;
+            }),
+        rows.end());
+}
+
+void keepBatchInTimeRange(LiveDataBatch& batch, std::int64_t tsMin, std::int64_t tsMax) {
+    keepRowsInTimeRange(batch.trades, tsMin, tsMax);
+    keepRowsInTimeRange(batch.bookTickers, tsMin, tsMax);
+    keepRowsInTimeRange(batch.depths, tsMin, tsMax);
+    keepRowsInTimeRange(batch.snapshots, tsMin, tsMax);
+}
+
 }  // namespace
 
 ChartController::ChartController(QObject* parent)
@@ -111,6 +131,43 @@ int ChartController::liveUpdateIntervalMs() const noexcept {
     return liveUpdateIntervalMs_;
 }
 
+void ChartController::setRenderWindowSeconds(int seconds) {
+    const int clamped = std::clamp(seconds, -1, 86400);
+    if (renderWindowSeconds_ == clamped) return;
+    renderWindowSeconds_ = clamped;
+    liveWindowVersion_ = 0;
+    emit renderWindowChanged();
+    emit viewportChanged();
+}
+
+bool ChartController::addVerticalMarker(qint64 tsNs, const QString& label) {
+    if (!loaded_) {
+        statusText_ = QStringLiteral("No active loaded chart for marker.");
+        emit statusChanged();
+        return false;
+    }
+    if (tsNs <= 0) {
+        statusText_ = QStringLiteral("Marker timestamp must be positive.");
+        emit statusChanged();
+        return false;
+    }
+    constexpr std::size_t kMaxMarkers = 4096;
+    verticalMarkers_.push_back(VerticalMarker{static_cast<std::int64_t>(tsNs), label.left(96)});
+    if (verticalMarkers_.size() > kMaxMarkers) {
+        verticalMarkers_.erase(verticalMarkers_.begin(), verticalMarkers_.begin() + static_cast<std::ptrdiff_t>(verticalMarkers_.size() - kMaxMarkers));
+    }
+    emit markersChanged();
+    emit viewportChanged();
+    return true;
+}
+
+void ChartController::clearVerticalMarkers() {
+    if (verticalMarkers_.empty()) return;
+    verticalMarkers_.clear();
+    emit markersChanged();
+    emit viewportChanged();
+}
+
 void ChartController::setLiveDataProvider(std::unique_ptr<ILiveDataProvider> provider) {
     if (liveDataProvider_ != nullptr) liveDataProvider_->stop();
     liveDataProvider_ = provider != nullptr ? std::move(provider) : std::make_unique<JsonTailLiveDataProvider>();
@@ -126,25 +183,46 @@ void ChartController::setLiveDataProvider(std::unique_ptr<ILiveDataProvider> pro
 
 void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsMax) {
     if (liveDataProvider_ == nullptr || tsMax <= tsMin) return;
+    bool emptyWindow = false;
+    const std::int64_t latestTs = latestRenderableTsNs_();
+    if (latestOnlyRenderWindow_()) {
+        tsMin = std::max<std::int64_t>(tsMin, latestTs);
+        tsMax = std::min<std::int64_t>(tsMax, latestTs);
+        if (tsMax <= tsMin) {
+            tsMax = latestTs;
+            tsMin = std::max<std::int64_t>(0, latestTs - 1);
+        }
+    } else if (limitedRenderWindow_() && latestTs > 0) {
+        tsMin = std::max(tsMin, effectiveRenderMinTs_(latestTs));
+        tsMax = std::min(tsMax, latestTs);
+        if (tsMax <= tsMin) emptyWindow = true;
+    }
     if (liveWindowVersion_ == liveDataCache_.version
         && liveWindowTsMin_ == tsMin
         && liveWindowTsMax_ == tsMax) {
         return;
     }
 
-    const auto materializeStart = std::chrono::steady_clock::now();
-    LiveDataBatch nextStable = liveDataProvider_->materializeRange(
-        LiveDataRangeRequest{{}, tsMin, tsMax},
-        liveDataCache_.version + 1u);
-    hftrec::metrics::recordLiveMaterialize(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::steady_clock::now() - materializeStart).count()));
+    LiveDataBatch nextStable{};
+    if (!emptyWindow) {
+        const auto materializeStart = std::chrono::steady_clock::now();
+        nextStable = liveDataProvider_->materializeRange(
+            LiveDataRangeRequest{{}, tsMin, tsMax},
+            liveDataCache_.version + 1u);
+        hftrec::metrics::recordLiveMaterialize(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - materializeStart).count()));
+    }
 
     liveDataCache_.stableRows = std::move(nextStable);
     reconcileOverlayWithStable_();
-    liveDataCache_.overlayRows = liveOverlayState_;
+    liveDataCache_.overlayRows = emptyWindow ? LiveDataBatch{} : liveOverlayState_;
+    if (limitedRenderWindow_() && !emptyWindow) keepBatchInTimeRange(liveDataCache_.overlayRows, tsMin, tsMax);
     ++liveDataCache_.version;
     liveDataCache_.stableRows.id = liveDataCache_.version;
     liveDataCache_.overlayRows.id = liveDataCache_.version;
+    liveDataCache_.hasRenderRange = !emptyWindow;
+    liveDataCache_.renderTsMin = tsMin;
+    liveDataCache_.renderTsMax = tsMax;
     hftrec::metrics::setLiveRows(static_cast<std::uint64_t>(liveDataCache_.stableRows.trades.size() + liveDataCache_.overlayRows.trades.size()),
                          static_cast<std::uint64_t>(liveDataCache_.stableRows.bookTickers.size() + liveDataCache_.overlayRows.bookTickers.size()),
                          static_cast<std::uint64_t>(liveDataCache_.stableRows.depths.size() + liveDataCache_.overlayRows.depths.size()),
@@ -233,6 +311,54 @@ void ChartController::refreshLoadedStateFromSources_() noexcept {
         || !liveOverlayState_.trades.empty()
         || !liveOverlayState_.bookTickers.empty()
         || !liveOverlayState_.depths.empty();
+}
+
+std::int64_t ChartController::latestOrderbookTsNs_() const noexcept {
+    std::int64_t latest = 0;
+    if (!replay_.depths().empty()) latest = std::max(latest, replay_.depths().back().tsNs);
+    for (const auto& row : liveDataCache_.stableRows.depths) latest = std::max(latest, row.tsNs);
+    for (const auto& row : liveDataCache_.overlayRows.depths) latest = std::max(latest, row.tsNs);
+    for (const auto& row : liveOverlayState_.depths) latest = std::max(latest, row.tsNs);
+    if (latest == 0 && !replay_.buckets().empty()) latest = replay_.lastTsNs();
+    return latest;
+}
+
+std::int64_t ChartController::latestRenderableTsNs_() const noexcept {
+    std::int64_t latest = std::max<std::int64_t>(replay_.lastTsNs(), 0);
+    const auto absorbTradeRows = [&latest](const auto& rows) noexcept {
+        if (!rows.empty()) latest = std::max(latest, rows.back().tsNs);
+    };
+    const auto absorbTickerRows = [&latest](const auto& rows) noexcept {
+        if (!rows.empty()) latest = std::max(latest, rows.back().tsNs);
+    };
+    const auto absorbDepthRows = [&latest](const auto& rows) noexcept {
+        if (!rows.empty()) latest = std::max(latest, rows.back().tsNs);
+    };
+    const auto absorbSnapshotRows = [&latest](const auto& rows) noexcept {
+        if (!rows.empty()) latest = std::max(latest, rows.back().tsNs);
+    };
+
+    absorbTradeRows(liveDataCache_.stableRows.trades);
+    absorbTradeRows(liveDataCache_.overlayRows.trades);
+    absorbTradeRows(liveOverlayState_.trades);
+    absorbTickerRows(liveDataCache_.stableRows.bookTickers);
+    absorbTickerRows(liveDataCache_.overlayRows.bookTickers);
+    absorbTickerRows(liveOverlayState_.bookTickers);
+    absorbDepthRows(liveDataCache_.stableRows.depths);
+    absorbDepthRows(liveDataCache_.overlayRows.depths);
+    absorbDepthRows(liveOverlayState_.depths);
+    absorbSnapshotRows(liveDataCache_.stableRows.snapshots);
+    absorbSnapshotRows(liveDataCache_.overlayRows.snapshots);
+    absorbSnapshotRows(liveOverlayState_.snapshots);
+    return latest;
+}
+
+std::int64_t ChartController::effectiveRenderMinTs_(std::int64_t latestTsNs) const noexcept {
+    if (!limitedRenderWindow_() || latestTsNs <= 0) return std::numeric_limits<std::int64_t>::min();
+    constexpr std::int64_t kOneSecondNs = 1000000000ll;
+    const std::int64_t windowNs = static_cast<std::int64_t>(renderWindowSeconds_) * kOneSecondNs;
+    if (latestTsNs <= windowNs) return 0;
+    return latestTsNs - windowNs;
 }
 
 void ChartController::initializeViewportFromLiveDataOnce_() noexcept {

@@ -1,4 +1,4 @@
-﻿if(NOT Qt6_FOUND)
+if(NOT Qt6_FOUND)
     message(STATUS "Qt6 not found: hft-recorder GUI target is disabled")
     return()
 endif()
@@ -17,6 +17,7 @@ qt_add_executable(hft-recorder-gui
     viewer/ChartControllerSession.cpp
     viewer/ChartControllerViewport.cpp
     viewer/ChartControllerSelection.cpp
+    api/ChartApiServer.cpp
     viewer/LiveDataProvider.cpp
     viewer/ChartItem.cpp
     viewer/ChartItemHover.cpp
@@ -35,6 +36,14 @@ target_include_directories(hft-recorder-gui
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/src
 )
+
+if(HFTREC_WITH_CXET)
+    target_sources(hft-recorder-gui
+        PRIVATE
+            api/ExecutionChartAdapter.cpp
+            api/LocalVenueWsServer.cpp
+    )
+endif()
 
 qt_add_qml_module(hft-recorder-gui
     URI HftRecorder
@@ -70,6 +79,7 @@ target_link_libraries(hft-recorder-gui
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
+        Qt6::Network
         hftrec_core
         hftrec_support
 )

@@ -1,4 +1,4 @@
-﻿#include "gui/viewer/ChartItem.hpp"
+#include "gui/viewer/ChartItem.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -28,7 +28,7 @@
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
 #include "gui/viewer/renderers/TradeRenderer.hpp"
-#include "probes/TimeDelta.hpp"
+#include "core/common/Timing.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -318,10 +318,18 @@ void appendLiveBookSegment(std::vector<BookSegment>& out,
 void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataCache& cache) {
     if (!live.orderbookVisible) return;
 
+    const std::int64_t renderTsMin = cache.hasRenderRange
+        ? std::max<std::int64_t>(live.vp.tMin, cache.renderTsMin)
+        : live.vp.tMin;
+    const std::int64_t renderTsMax = cache.hasRenderRange
+        ? std::min<std::int64_t>(live.vp.tMax, cache.renderTsMax)
+        : live.vp.tMax;
+    if (renderTsMax <= renderTsMin) return;
+
     const std::int64_t liveVisibleTsMax = std::min<std::int64_t>(
-        live.vp.tMax,
+        renderTsMax,
         std::max(latestBookStateTs(cache.stableRows), latestBookStateTs(cache.overlayRows)));
-    if (liveVisibleTsMax <= live.vp.tMin) return;
+    if (liveVisibleTsMax <= renderTsMin) return;
 
     std::vector<LiveBookEventRef> events;
     events.reserve(cache.stableRows.snapshots.size() + cache.stableRows.depths.size()
@@ -352,7 +360,7 @@ void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataCache& cache
 
     hftrec::replay::BookState state{};
     bool hasState = false;
-    std::int64_t segmentStartTs = live.vp.tMin;
+    std::int64_t segmentStartTs = renderTsMin;
 
     for (const auto& event : events) {
         const std::int64_t eventTs = event.snapshot != nullptr ? event.snapshot->tsNs : event.depth->tsNs;
@@ -365,7 +373,7 @@ void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataCache& cache
         else state.applyDelta(*event.depth);
 
         hasState = !state.bids().empty() || !state.asks().empty();
-        segmentStartTs = std::max<std::int64_t>(live.vp.tMin, eventTs);
+        segmentStartTs = std::max<std::int64_t>(renderTsMin, eventTs);
         if (segmentStartTs >= liveVisibleTsMax) break;
     }
 
@@ -553,6 +561,21 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     return live;
 }
 
+void recordGuiObjectCounts(const RenderSnapshot& base, const RenderSnapshot* live = nullptr) {
+    std::uint64_t orderbookSegments = static_cast<std::uint64_t>(base.bookSegments.size());
+    std::uint64_t bookTickerLines = static_cast<std::uint64_t>(base.bookTickerTrace.bidLines.size()
+        + base.bookTickerTrace.askLines.size());
+    std::uint64_t bookTickerSamples = static_cast<std::uint64_t>(base.bookTickerTrace.samples.size());
+    std::uint64_t tradeDots = static_cast<std::uint64_t>(base.tradeDots.size());
+    if (live != nullptr) {
+        orderbookSegments += static_cast<std::uint64_t>(live->bookSegments.size());
+        bookTickerLines += static_cast<std::uint64_t>(live->bookTickerTrace.bidLines.size()
+            + live->bookTickerTrace.askLines.size());
+        bookTickerSamples += static_cast<std::uint64_t>(live->bookTickerTrace.samples.size());
+        tradeDots += static_cast<std::uint64_t>(live->tradeDots.size());
+    }
+    metrics::setGuiObjectCounts(orderbookSegments, bookTickerLines, bookTickerSamples, tradeDots);
+}
 void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
     target.bookSegments.insert(
         target.bookSegments.end(),
@@ -732,9 +755,9 @@ const RenderSnapshot& ChartItem::ensureSnapshot_() {
     const bool rebuildActive = activeDirty || !activeCache || sizeChanged;
 
     if (rebuildActive) {
-        const TscTick snapshotBuildStart = cxet::probes::captureTsc();
+        const hftrec::timing::Tick snapshotBuildStart = hftrec::timing::captureTick();
         activeCache = std::make_unique<RenderSnapshot>(controller_->buildSnapshot(w, h, detail::collectInputs(*this)));
-        metrics::recordGuiSnapshotBuild(cxet::probes::deltaNs(snapshotBuildStart, cxet::probes::captureTsc()).raw);
+        metrics::recordGuiSnapshotBuild(hftrec::timing::deltaNs(snapshotBuildStart, hftrec::timing::captureTick()).raw);
         cachedW_ = w;
         cachedH_ = h;
         activeDirty = false;
@@ -745,10 +768,7 @@ const RenderSnapshot& ChartItem::ensureSnapshot_() {
 void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h) {
     if (overlayOnly_) return;
     if (!snap.loaded) return;
-    metrics::setGuiObjectCounts(static_cast<std::uint64_t>(snap.bookSegments.size()),
-                                static_cast<std::uint64_t>(snap.bookTickerTrace.bidLines.size() + snap.bookTickerTrace.askLines.size()),
-                                static_cast<std::uint64_t>(snap.bookTickerTrace.samples.size()),
-                                static_cast<std::uint64_t>(snap.tradeDots.size()));
+    recordGuiObjectCounts(snap);
     const bool sizeMatches = (cachedLayerImageW_ == w && cachedLayerImageH_ == h);
     if (!sizeMatches) {
         cachedOrderbookImage_ = QImage{};
@@ -818,7 +838,7 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
 }
 
 void ChartItem::paint(QPainter* painter) {
-    const TscTick paintStart = cxet::probes::captureTsc();
+    const hftrec::timing::Tick paintStart = hftrec::timing::captureTick();
     painter->setRenderHint(QPainter::Antialiasing, false);
     painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter->setRenderHint(QPainter::TextAntialiasing, true);
@@ -844,6 +864,7 @@ void ChartItem::paint(QPainter* painter) {
     const auto& liveCache = controller_->liveDataCache();
     const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
     if (cachedLiveDataBatchId_ != liveCache.version) {
+        if (controller_->renderWindowActive()) invalidateBaseImage_();
         cachedLiveDataBatchId_ = 0;
         cachedHitTestBatchId_ = 0;
         cachedLiveSnap_.reset();
@@ -851,12 +872,13 @@ void ChartItem::paint(QPainter* painter) {
     }
     if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
         const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
-        const TscTick liveSnapshotStart = cxet::probes::captureTsc();
+        const hftrec::timing::Tick liveSnapshotStart = hftrec::timing::captureTick();
         cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
             liveSnapshotFromDataBatch(snap, liveCache, liveTradeOrigIndexStart));
-        metrics::recordGuiLiveSnapshotBuild(cxet::probes::deltaNs(liveSnapshotStart, cxet::probes::captureTsc()).raw);
+        metrics::recordGuiLiveSnapshotBuild(hftrec::timing::deltaNs(liveSnapshotStart, hftrec::timing::captureTick()).raw);
         cachedLiveDataBatchId_ = liveCache.version;
     }
+    recordGuiObjectCounts(baseSnap, cachedLiveSnap_.get());
     const auto refreshHitTestSnapshot = [&]() {
         RenderSnapshot hitTestSnap = baseSnap;
         if (cachedLiveSnap_ != nullptr && cachedLiveSnap_->loaded) {
@@ -899,20 +921,20 @@ void ChartItem::paint(QPainter* painter) {
                 (clippedSource.width() / sourceRect.width()) * rect.width(),
                 (clippedSource.height() / sourceRect.height()) * rect.height(),
             };
-            const TscTick orderbookRenderStart = cxet::probes::captureTsc();
+            const hftrec::timing::Tick orderbookRenderStart = hftrec::timing::captureTick();
             painter->drawImage(destRect, cachedOrderbookImage_, clippedSource);
-            metrics::recordGuiRenderOrderbook(cxet::probes::deltaNs(orderbookRenderStart, cxet::probes::captureTsc()).raw);
-            const TscTick bookTickerRenderStart = cxet::probes::captureTsc();
+            metrics::recordGuiRenderOrderbook(hftrec::timing::deltaNs(orderbookRenderStart, hftrec::timing::captureTick()).raw);
+            const hftrec::timing::Tick bookTickerRenderStart = hftrec::timing::captureTick();
             painter->drawImage(destRect, cachedBookTickerImage_, clippedSource);
-            metrics::recordGuiRenderBookTicker(cxet::probes::deltaNs(bookTickerRenderStart, cxet::probes::captureTsc()).raw);
-            const TscTick tradesRenderStart = cxet::probes::captureTsc();
+            metrics::recordGuiRenderBookTicker(hftrec::timing::deltaNs(bookTickerRenderStart, hftrec::timing::captureTick()).raw);
+            const hftrec::timing::Tick tradesRenderStart = hftrec::timing::captureTick();
             painter->drawImage(destRect, cachedTradesImage_, clippedSource);
-            metrics::recordGuiRenderTrades(cxet::probes::deltaNs(tradesRenderStart, cxet::probes::captureTsc()).raw);
-            const TscTick liveSnapshotDrawStart = cxet::probes::captureTsc();
+            metrics::recordGuiRenderTrades(hftrec::timing::deltaNs(tradesRenderStart, hftrec::timing::captureTick()).raw);
+            const hftrec::timing::Tick liveSnapshotDrawStart = hftrec::timing::captureTick();
             paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
-            metrics::recordGuiLiveSnapshotDraw(cxet::probes::deltaNs(liveSnapshotDrawStart, cxet::probes::captureTsc()).raw);
-            const TscTick frameEnd = cxet::probes::captureTsc();
-            metrics::recordGuiPaint(cxet::probes::deltaNs(paintStart, frameEnd).raw, frameEnd.raw);
+            metrics::recordGuiLiveSnapshotDraw(hftrec::timing::deltaNs(liveSnapshotDrawStart, hftrec::timing::captureTick()).raw);
+            const hftrec::timing::Tick frameEnd = hftrec::timing::captureTick();
+            metrics::recordGuiPaint(hftrec::timing::deltaNs(paintStart, frameEnd).raw, frameEnd.raw);
             return;
         }
 
@@ -932,36 +954,37 @@ void ChartItem::paint(QPainter* painter) {
                 liveSnapshotFromDataBatch(snap, liveCache, liveTradeOrigIndexStart));
             cachedLiveDataBatchId_ = liveCache.version;
         }
+        recordGuiObjectCounts(baseSnap, cachedLiveSnap_.get());
         if (!cachedHitTestSnap_ || cachedHitTestBatchId_ != liveCache.version) refreshHitTestSnapshot();
     }
 
     if (!cachedOrderbookImage_.isNull() && !overlayOnly_) {
-        const TscTick orderbookRenderStart = cxet::probes::captureTsc();
+        const hftrec::timing::Tick orderbookRenderStart = hftrec::timing::captureTick();
         painter->drawImage(rect, cachedOrderbookImage_);
-        metrics::recordGuiRenderOrderbook(cxet::probes::deltaNs(orderbookRenderStart, cxet::probes::captureTsc()).raw);
+        metrics::recordGuiRenderOrderbook(hftrec::timing::deltaNs(orderbookRenderStart, hftrec::timing::captureTick()).raw);
     }
     if (!cachedBookTickerImage_.isNull()) {
-        const TscTick bookTickerRenderStart = cxet::probes::captureTsc();
+        const hftrec::timing::Tick bookTickerRenderStart = hftrec::timing::captureTick();
         painter->drawImage(rect, cachedBookTickerImage_);
-        metrics::recordGuiRenderBookTicker(cxet::probes::deltaNs(bookTickerRenderStart, cxet::probes::captureTsc()).raw);
+        metrics::recordGuiRenderBookTicker(hftrec::timing::deltaNs(bookTickerRenderStart, hftrec::timing::captureTick()).raw);
     }
     if (!cachedTradesImage_.isNull()) {
-        const TscTick tradesRenderStart = cxet::probes::captureTsc();
+        const hftrec::timing::Tick tradesRenderStart = hftrec::timing::captureTick();
         painter->drawImage(rect, cachedTradesImage_);
-        metrics::recordGuiRenderTrades(cxet::probes::deltaNs(tradesRenderStart, cxet::probes::captureTsc()).raw);
+        metrics::recordGuiRenderTrades(hftrec::timing::deltaNs(tradesRenderStart, hftrec::timing::captureTick()).raw);
     }
-    const TscTick liveSnapshotDrawStart = cxet::probes::captureTsc();
+    const hftrec::timing::Tick liveSnapshotDrawStart = hftrec::timing::captureTick();
     paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
-    metrics::recordGuiLiveSnapshotDraw(cxet::probes::deltaNs(liveSnapshotDrawStart, cxet::probes::captureTsc()).raw);
+    metrics::recordGuiLiveSnapshotDraw(hftrec::timing::deltaNs(liveSnapshotDrawStart, hftrec::timing::captureTick()).raw);
 
     if (!interactiveMode_) {
-        const TscTick overlayRenderStart = cxet::probes::captureTsc();
+        const hftrec::timing::Tick overlayRenderStart = hftrec::timing::captureTick();
         RenderContext ctx{painter, snap, detail::buildHoverInfo(*this), dpr};
         renderers::renderOverlay(ctx);
-        metrics::recordGuiOverlayRender(cxet::probes::deltaNs(overlayRenderStart, cxet::probes::captureTsc()).raw);
+        metrics::recordGuiOverlayRender(hftrec::timing::deltaNs(overlayRenderStart, hftrec::timing::captureTick()).raw);
     }
-    const TscTick frameEnd = cxet::probes::captureTsc();
-    metrics::recordGuiPaint(cxet::probes::deltaNs(paintStart, frameEnd).raw, frameEnd.raw);
+    const hftrec::timing::Tick frameEnd = hftrec::timing::captureTick();
+    metrics::recordGuiPaint(hftrec::timing::deltaNs(paintStart, frameEnd).raw, frameEnd.raw);
 }
 
 }  // namespace hftrec::gui::viewer

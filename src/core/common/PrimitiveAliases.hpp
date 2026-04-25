@@ -7,7 +7,7 @@
 // When CXETCPP public headers expose Price/Amount/TimeNs, prefer those — do
 // not redefine. This header is the single inclusion point used by hftrec core.
 
-#if __has_include("cxet.hpp")
+#if HFTREC_WITH_CXET && __has_include("cxet.hpp")
     #include "cxet.hpp"
 #endif
 

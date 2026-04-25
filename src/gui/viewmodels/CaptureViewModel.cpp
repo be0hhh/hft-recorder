@@ -1,4 +1,4 @@
-﻿#include "gui/viewmodels/CaptureViewModel.hpp"
+#include "gui/viewmodels/CaptureViewModel.hpp"
 
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
@@ -22,6 +22,22 @@ QString CaptureViewModel::sessionId() const { return lastSessionId_; }
 QString CaptureViewModel::sessionPath() const { return lastSessionPath_; }
 QString CaptureViewModel::statusText() const { return statusText_; }
 QVariantList CaptureViewModel::activeLiveSources() const { return activeLiveSources_; }
+
+bool CaptureViewModel::captureAvailable() const noexcept {
+#if HFTREC_WITH_CXET
+    return true;
+#else
+    return false;
+#endif
+}
+
+QString CaptureViewModel::captureUnavailableReason() const {
+#if HFTREC_WITH_CXET
+    return {};
+#else
+    return QStringLiteral("Built without CXETCPP: live capture and exchange parsing are unavailable.");
+#endif
+}
 bool CaptureViewModel::sessionOpen() const { return !coordinators_.empty(); }
 bool CaptureViewModel::tradesRunning() const { return lastTradesRunning_; }
 bool CaptureViewModel::bookTickerRunning() const { return lastBookTickerRunning_; }

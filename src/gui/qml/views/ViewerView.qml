@@ -34,6 +34,7 @@ Pane {
     function chartSurface() { return chartLoader.item }
     function syncRendererDiagnostics() { root.appVm.activeChartRenderer = root.useDedicatedGpuPath ? "gpu-orderbook" : "cpu-chart" }
     function syncLiveUpdateMode() { chart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs) }
+    function syncRenderWindow() { chart.setRenderWindowSeconds(root.appVm.renderWindowSeconds) }
 
     function applySourceSelection(sourceId) {
         interaction.clearSelectionVisual()
@@ -127,7 +128,7 @@ Pane {
         Component.onCompleted: reload()
     }
 
-    ChartController { id: chart }
+    ChartController { id: chart; objectName: "chartController" }
     ViewerInteractionState { id: interaction }
     Timer { id: interactiveModeTimer; interval: 120; repeat: false; onTriggered: interaction.interactiveMode = false }
     Timer {
@@ -145,12 +146,14 @@ Pane {
         Qt.callLater(root.ensureSourceSelection)
         Qt.callLater(root.syncRendererDiagnostics)
         Qt.callLater(root.syncLiveUpdateMode)
+        Qt.callLater(root.syncRenderWindow)
     }
     onUseDedicatedGpuPathChanged: root.syncRendererDiagnostics()
 
     Connections {
         target: root.appVm
         function onLiveUpdateModeChanged() { root.syncLiveUpdateMode() }
+        function onRenderWindowSecondsChanged() { root.syncRenderWindow() }
     }
 
     Connections {

@@ -78,6 +78,39 @@ void renderObjectCard(QPainter* painter,
     drawTextCard(painter, card, accent, lines);
 }
 
+
+void renderVerticalMarkers(const RenderContext& ctx) {
+    const auto& snap = ctx.s;
+    if (snap.verticalMarkers.empty()) return;
+
+    QPen markerPen(QColor(0xFF, 0xD8, 0x4D, 0xE8));
+    markerPen.setWidthF(2.0);
+    markerPen.setCosmetic(true);
+    ctx.p->setPen(markerPen);
+    ctx.p->setBrush(Qt::NoBrush);
+
+    QFont labelFont = ctx.p->font();
+    labelFont.setPixelSize(11);
+    ctx.p->setFont(labelFont);
+    const QFontMetrics metrics(labelFont);
+
+    for (const auto& marker : snap.verticalMarkers) {
+        if (marker.tsNs < snap.vp.tMin || marker.tsNs > snap.vp.tMax) continue;
+        const qreal x = snap.vp.toX(marker.tsNs);
+        if (x < 0.0 || x > snap.vp.w) continue;
+        ctx.p->drawLine(QPointF{x, 0.0}, QPointF{x, snap.vp.h});
+        if (!marker.label.isEmpty()) {
+            const QString label = marker.label.left(64);
+            const qreal textW = static_cast<qreal>(metrics.horizontalAdvance(label));
+            qreal tx = x + 6.0;
+            if (tx + textW > snap.vp.w - 6.0) tx = x - textW - 6.0;
+            tx = std::clamp<qreal>(tx, 6.0, std::max<qreal>(6.0, snap.vp.w - textW - 6.0));
+            ctx.p->setPen(QColor(0xFF, 0xD8, 0x4D, 0xF5));
+            ctx.p->drawText(QPointF{tx, 16.0}, label);
+            ctx.p->setPen(markerPen);
+        }
+    }
+}
 void renderBookOverlay(const RenderContext& ctx) {
     const auto& snap = ctx.s;
     const auto& hov  = ctx.hov;
@@ -172,6 +205,7 @@ void renderTradeOverlay(const RenderContext& ctx) {
 }  // namespace
 
 void renderOverlay(const RenderContext& ctx) {
+    renderVerticalMarkers(ctx);
     renderBookOverlay(ctx);
     renderTradeOverlay(ctx);
 }

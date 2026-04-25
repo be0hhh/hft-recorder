@@ -217,6 +217,44 @@ Rectangle {
         }
 
         Label {
+            text: "Window"
+            color: bar.mutedTextColor
+            font.pixelSize: 12
+        }
+
+        TextField {
+            id: renderWindowInput
+            Layout.preferredWidth: 58
+            text: ""
+            color: bar.textColor
+            selectionColor: bar.accentBuyColor
+            selectedTextColor: "#101012"
+            font.pixelSize: 12
+            horizontalAlignment: Text.AlignRight
+            validator: IntValidator { bottom: -1; top: 86400 }
+            background: Rectangle {
+                color: bar.panelColor
+                border.color: renderWindowInput.activeFocus ? bar.accentBuyColor : bar.borderColor
+                radius: 4
+            }
+            Binding {
+                target: renderWindowInput
+                property: "text"
+                value: bar.appVm.renderWindowSeconds
+                when: !renderWindowInput.activeFocus
+            }
+            onEditingFinished: {
+                var seconds = Number(text)
+                if (!Number.isFinite(seconds))
+                    seconds = 0
+                bar.appVm.renderWindowSeconds = bar.clamp(Math.round(seconds), -1, 86400)
+                text = bar.appVm.renderWindowSeconds
+            }
+        }
+
+        Label { text: "s"; color: bar.mutedTextColor; font.pixelSize: 12 }
+
+        Label {
             text: "Trades Size"
             color: bar.mutedTextColor
             font.pixelSize: 12

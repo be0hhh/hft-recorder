@@ -3,6 +3,7 @@
 #include <chrono>
 #include <mutex>
 
+#if HFTREC_WITH_CXET
 #include "api/dispatch/BuildDispatch.hpp"
 #include "api/env/CxetEnv.hpp"
 #include "api/fields/RequestedFieldNames.hpp"
@@ -11,9 +12,11 @@
 #include "composite/level_0/SubscribeObject.hpp"
 #include "cxet.hpp"
 #include "primitives/buf/Symbol.hpp"
+#endif
 
 namespace hftrec::capture::internal {
 
+#if HFTREC_WITH_CXET
 namespace {
 
 Symbol makeSymbol(const std::string& symbolText) noexcept {
@@ -23,14 +26,17 @@ Symbol makeSymbol(const std::string& symbolText) noexcept {
 }
 
 }  // namespace
+#endif
 
 void ensureCxetInitialized() noexcept {
+#if HFTREC_WITH_CXET
     static std::once_flag initOnce;
     std::call_once(initOnce, []() noexcept {
         (void)cxet::loadDotEnv(".env");
         (void)cxet::initProxyFromEnv();
         cxet::initBuildDispatch();
     });
+#endif
 }
 
 std::int64_t nowNs() noexcept {
@@ -45,6 +51,7 @@ long long nowSec() noexcept {
         .count();
 }
 
+#if HFTREC_WITH_CXET
 cxet::UnifiedRequestBuilder makeTradesBuilder(const std::string& symbolText) noexcept {
     auto symbol = makeSymbol(symbolText);
     return cxet::subscribe()
@@ -100,6 +107,7 @@ bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
     builder.aliases(Span<const canon::FieldId>(fieldIds, parsedCount));
     return true;
 }
+#endif
 
 Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError) {
     if (config.symbols.empty()) {
@@ -122,7 +130,12 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
         lastError = "capture output directory must not be empty";
         return Status::InvalidArgument;
     }
+#if !HFTREC_WITH_CXET
+    lastError = "hft-recorder was built without CXETCPP";
+    return Status::Unimplemented;
+#else
     return Status::Ok;
+#endif
 }
 
 bool sessionConfigMatches(const CaptureConfig& lhs, const CaptureConfig& rhs) noexcept {

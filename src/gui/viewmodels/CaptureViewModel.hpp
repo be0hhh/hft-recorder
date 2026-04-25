@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QObject>
 #include <QString>
@@ -34,6 +34,8 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(QString sessionPath READ sessionPath NOTIFY sessionStateChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(QVariantList activeLiveSources READ activeLiveSources NOTIFY activeLiveSourcesChanged)
+    Q_PROPERTY(bool captureAvailable READ captureAvailable CONSTANT)
+    Q_PROPERTY(QString captureUnavailableReason READ captureUnavailableReason CONSTANT)
     Q_PROPERTY(bool sessionOpen READ sessionOpen NOTIFY sessionStateChanged)
     Q_PROPERTY(bool tradesRunning READ tradesRunning NOTIFY channelStateChanged)
     Q_PROPERTY(bool bookTickerRunning READ bookTickerRunning NOTIFY channelStateChanged)
@@ -58,6 +60,8 @@ class CaptureViewModel : public QObject {
     QString sessionPath() const;
     QString statusText() const;
     QVariantList activeLiveSources() const;
+    bool captureAvailable() const noexcept;
+    QString captureUnavailableReason() const;
     bool sessionOpen() const;
     bool tradesRunning() const;
     bool bookTickerRunning() const;

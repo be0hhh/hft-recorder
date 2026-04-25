@@ -4,6 +4,7 @@
 #include "core/codec/VarInt.hpp"
 #include "core/codec/ZigZag.hpp"
 #include "core/common/Status.hpp"
+#include "core/metrics/Metrics.hpp"
 
 namespace {
 
@@ -35,6 +36,15 @@ TEST(Smoke, ZigZagRoundTrip) {
     for (std::int64_t v : {0LL, 1LL, -1LL, 42LL, -42LL, 1LL << 40, -(1LL << 40)}) {
         EXPECT_EQ(zigzagDecode(zigzagEncode(v)), v);
     }
+}
+TEST(Smoke, MetricsExposeAllRecorderStreamsAtZero) {
+    hftrec::metrics::init();
+    std::string out;
+    hftrec::metrics::renderPrometheus(out);
+    EXPECT_NE(out.find("hftrec_stream_events_captured_total{stream=\"trades\"} 0"), std::string::npos);
+    EXPECT_NE(out.find("hftrec_stream_events_captured_total{stream=\"bookticker\"} 0"), std::string::npos);
+    EXPECT_NE(out.find("hftrec_stream_events_captured_total{stream=\"depth\"} 0"), std::string::npos);
+    EXPECT_NE(out.find("hftrec_stream_events_captured_total{stream=\"snapshot\"} 0"), std::string::npos);
 }
 
 }  // namespace

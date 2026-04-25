@@ -31,6 +31,9 @@ struct LiveDataCache {
     LiveDataBatch stableRows{};
     LiveDataBatch overlayRows{};
     std::uint64_t version{0};
+    bool hasRenderRange{false};
+    std::int64_t renderTsMin{0};
+    std::int64_t renderTsMax{0};
 };
 
 struct LiveDataRangeRequest {

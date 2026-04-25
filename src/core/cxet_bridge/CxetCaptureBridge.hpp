@@ -10,6 +10,7 @@ namespace cxet {
 namespace composite {
 struct TradeRuntimeV1;
 struct BookTickerRuntimeV1;
+struct OrderBookDeltaRuntimeV1;
 struct OrderBookSnapshot;
 struct StreamMeta;
 }  // namespace composite
@@ -84,6 +85,8 @@ class CxetCaptureBridge {
     static CapturedBookTickerRow captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
                                                    const cxet::composite::StreamMeta& meta);
     static CapturedOrderBookRow captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot);
+    static CapturedOrderBookRow captureOrderBook(const cxet::composite::OrderBookDeltaRuntimeV1& delta,
+                                                 const cxet::composite::StreamMeta& meta);
     static CaptureFailureEvent makeFailure(CaptureFailureKind kind,
                                            std::string channel,
                                            std::string detail,

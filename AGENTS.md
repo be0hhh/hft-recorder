@@ -9,6 +9,7 @@ This repository is a standalone application over `CXETCPP`.
 - Reason: even read-only Git commands can produce CRLF/index warnings, touch Git internals through platform tooling, or trigger unwanted surrounding automation/noise.
 - Use filesystem tools instead: `Get-ChildItem`, `rg`, `Get-Content`, targeted file reads, and direct path inspection.
 - Do not start remote/compact/background automation tasks unless the user explicitly asks for them in the current message.
+- Do not check GitHub, remotes, CI status, pull requests, releases, or other network-backed repository state unless the user explicitly asks for that exact remote/GitHub action in the current message.
 - If repository state is needed, ask the user to run the Git command or paste the relevant output.
 
 ## Core contract
@@ -20,6 +21,15 @@ This repository is a standalone application over `CXETCPP`.
 - Do not compile `CXETCPP` sources inside this repo.
 - Do not use `add_subdirectory(..)` or vendor the parent library source tree here.
 - Do not depend on `network/`, `parse/`, `exchanges/`, or other library internals.
+
+## Build and test restraint
+
+- Do not build or run tests automatically after every code edit.
+- Build or test only when it is genuinely needed to validate a risky change,
+  diagnose a concrete failure, or when the user explicitly asks for it.
+- Prefer targeted checks over broad rebuilds when a narrow verification is enough.
+- If a build is optional rather than necessary, explain the tradeoff and leave it
+  to the user instead of starting it by default.
 
 ## Current truth
 

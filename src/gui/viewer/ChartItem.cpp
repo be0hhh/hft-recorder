@@ -26,6 +26,8 @@ void ChartItem::setController(ChartController* c) {
         connect(controller_, &ChartController::viewportChanged, this, &ChartItem::requestRepaint);
         connect(controller_, &ChartController::liveDataChanged, this, &ChartItem::requestLiveRepaint);
         connect(controller_, &ChartController::sessionChanged, this, &ChartItem::requestSessionRepaint);
+        connect(controller_, &ChartController::markersChanged, this, &ChartItem::requestRepaint);
+        connect(controller_, &ChartController::renderWindowChanged, this, &ChartItem::requestSessionRepaint);
     }
     invalidateSnapshotCache_();
     invalidateBaseImage_();

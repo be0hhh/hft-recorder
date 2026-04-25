@@ -31,7 +31,7 @@ Pane {
             spacing: 16
 
             Label { text: "Live Capture"; font.pixelSize: 26; font.bold: true; color: root.textColor }
-            Label { text: "Binance FAPI / canonical normalized JSON corpus"; color: root.mutedTextColor }
+            Label { text: root.captureVm.captureAvailable ? "Binance FAPI / canonical normalized JSON corpus" : root.captureVm.captureUnavailableReason; color: root.captureVm.captureAvailable ? root.mutedTextColor : root.accentSellColor; wrapMode: Text.WordWrap }
 
             CaptureSessionSummaryCard {
                 captureVm: root.captureVm
@@ -53,6 +53,7 @@ Pane {
 
                 ColumnLayout {
                     id: controlsColumn
+                    enabled: root.captureVm.captureAvailable
                     anchors.fill: parent
                     anchors.margins: 12
                     spacing: 12
@@ -65,6 +66,7 @@ Pane {
                         accentColor: root.anyChannelRunning ? root.accentSellColor : root.accentRequiredColor
                         actionTextColor: root.anyChannelRunning ? "#fff4f5" : "#071419"
                         mutedTextColor: root.mutedTextColor
+                        enabled: root.captureVm.captureAvailable
                         onClicked: {
                             if (root.anyChannelRunning) root.captureVm.stopAllChannels()
                             else root.captureVm.startAllChannels()
@@ -152,6 +154,7 @@ Pane {
                         borderColor: root.borderColor
                         textColor: root.textColor
                         mutedTextColor: root.mutedTextColor
+                        enabled: root.captureVm.captureAvailable
                         onClicked: root.captureVm.finalizeSession()
                     }
 

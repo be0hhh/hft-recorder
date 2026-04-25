@@ -2,6 +2,7 @@
 
 #include "primitives/composite/BookTickerData.hpp"
 #include "primitives/composite/BookTickerRuntimeV1.hpp"
+#include "primitives/composite/OrderBookDeltaRuntimeV1.hpp"
 #include "primitives/composite/OrderBookSnapshot.hpp"
 #include "primitives/composite/RuntimeCompatibility.hpp"
 #include "primitives/composite/StreamMeta.hpp"
@@ -89,6 +90,37 @@ CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::
             static_cast<std::int64_t>(snapshot.asks[i].amount.raw),
             static_cast<std::int64_t>(snapshot.asks[i].side.raw),
             static_cast<std::uint64_t>(snapshot.asks[i].levelId.raw)
+        });
+    }
+    return row;
+}
+
+CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookDeltaRuntimeV1& delta,
+                                                         const cxet::composite::StreamMeta& meta) {
+    CapturedOrderBookRow row{};
+    row.symbol = meta.symbol.data;
+    row.exchangeId = static_cast<std::uint64_t>(meta.exchangeId.raw);
+    row.tsNs = static_cast<std::uint64_t>(delta.ts.raw);
+    row.hasUpdateId = delta.updateId.raw > 0u;
+    row.hasFirstUpdateId = delta.firstUpdateId.raw > 0u;
+    row.updateId = static_cast<std::uint64_t>(delta.updateId.raw);
+    row.firstUpdateId = static_cast<std::uint64_t>(delta.firstUpdateId.raw);
+    row.bids.reserve(delta.bidCount.raw);
+    for (std::uint32_t i = 0; i < delta.bidCount.raw; ++i) {
+        row.bids.push_back(CapturedLevel{
+            static_cast<std::int64_t>(delta.bids[i].px.raw),
+            static_cast<std::int64_t>(delta.bids[i].qty.raw),
+            0,
+            static_cast<std::uint64_t>(i)
+        });
+    }
+    row.asks.reserve(delta.askCount.raw);
+    for (std::uint32_t i = 0; i < delta.askCount.raw; ++i) {
+        row.asks.push_back(CapturedLevel{
+            static_cast<std::int64_t>(delta.asks[i].px.raw),
+            static_cast<std::int64_t>(delta.asks[i].qty.raw),
+            1,
+            static_cast<std::uint64_t>(i)
         });
     }
     return row;

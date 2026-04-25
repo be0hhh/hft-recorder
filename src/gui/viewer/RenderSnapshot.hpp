@@ -4,6 +4,7 @@
 #include <vector>
 
 #include <QPointF>
+#include <QString>
 
 #include "gui/viewer/ViewportMap.hpp"
 
@@ -65,6 +66,11 @@ struct TradeDot {
     int          origIndex{-1};  // index into SessionReplay::trades()
 };
 
+struct VerticalMarker {
+    std::int64_t tsNs{0};
+    QString label{};
+};
+
 struct HoverInfo {
     bool    active{false};
     bool    contextActive{false};
@@ -114,6 +120,9 @@ struct RenderSnapshot {
 
     // Trades pre-filtered to viewport (original order by tsNs).
     std::vector<TradeDot> tradeDots;
+
+    // API-injected vertical markers for the active chart.
+    std::vector<VerticalMarker> verticalMarkers;
 
     HoverInfo hover{};
 };

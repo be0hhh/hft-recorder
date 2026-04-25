@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QObject>
 #include <QString>
@@ -40,6 +40,8 @@ class ChartController : public QObject {
     Q_PROPERTY(int depthCount READ depthCount NOTIFY sessionChanged)
     Q_PROPERTY(bool selectionActive READ selectionActive NOTIFY selectionChanged)
     Q_PROPERTY(QString selectionSummaryText READ selectionSummaryText NOTIFY selectionChanged)
+    Q_PROPERTY(int verticalMarkerCount READ verticalMarkerCount NOTIFY markersChanged)
+    Q_PROPERTY(int renderWindowSeconds READ renderWindowSeconds WRITE setRenderWindowSeconds NOTIFY renderWindowChanged)
 
   public:
     explicit ChartController(QObject* parent = nullptr);
@@ -82,6 +84,9 @@ class ChartController : public QObject {
     int depthCount() const { return static_cast<int>(replay_.depths().size()); }
     bool selectionActive() const noexcept { return selectionActive_; }
     QString selectionSummaryText() const { return selectionSummaryText_; }
+    int verticalMarkerCount() const { return static_cast<int>(verticalMarkers_.size()); }
+    int renderWindowSeconds() const noexcept { return renderWindowSeconds_; }
+    bool renderWindowActive() const noexcept { return renderWindowSeconds_ != 0; }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
     Q_INVOKABLE bool activateLiveSource(const QString& sourceId, const QString& sessionPath = QString{});
@@ -120,6 +125,9 @@ class ChartController : public QObject {
     Q_INVOKABLE bool measurePointDistance(qreal plotWidthPx, qreal plotHeightPx,
                                           qreal x0, qreal y0, qreal x1, qreal y1);
     Q_INVOKABLE void clearSelection();
+    Q_INVOKABLE bool addVerticalMarker(qint64 tsNs, const QString& label = QString{});
+    Q_INVOKABLE void clearVerticalMarkers();
+    Q_INVOKABLE void setRenderWindowSeconds(int seconds);
 
     void syncReplayCursorToViewport();
     std::int64_t viewportCursorTs() const noexcept;
@@ -138,6 +146,8 @@ class ChartController : public QObject {
     void viewportChanged();
     void statusChanged();
     void selectionChanged();
+    void markersChanged();
+    void renderWindowChanged();
 
   private:
     struct SelectionRange {
@@ -194,6 +204,11 @@ class ChartController : public QObject {
     void refreshLoadedStateFromSources_() noexcept;
     void initializeViewportFromLiveDataOnce_() noexcept;
     void markUserViewportControl_() noexcept;
+    std::int64_t latestRenderableTsNs_() const noexcept;
+    std::int64_t latestOrderbookTsNs_() const noexcept;
+    std::int64_t effectiveRenderMinTs_(std::int64_t latestTsNs) const noexcept;
+    bool latestOnlyRenderWindow_() const noexcept { return renderWindowSeconds_ < 0; }
+    bool limitedRenderWindow_() const noexcept { return renderWindowSeconds_ > 0; }
     SelectionRange selectionFromRect_(qreal plotWidthPx, qreal plotHeightPx,
                                       qreal x0, qreal y0, qreal x1, qreal y1) const noexcept;
     SelectionSummary buildSelectionSummary_(const SelectionRange& range);
@@ -229,6 +244,8 @@ class ChartController : public QObject {
     bool gpuRendererAvailable_{true};
     bool selectionActive_{false};
     QString selectionSummaryText_{};
+    std::vector<VerticalMarker> verticalMarkers_{};
+    int renderWindowSeconds_{0};
 };
 
 }  // namespace hftrec::gui::viewer
