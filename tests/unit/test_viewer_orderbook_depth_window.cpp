@@ -172,6 +172,23 @@ TEST(ViewerOrderbookDepthWindow, FallsBackToCurrentBookBestWithoutTicker) {
     EXPECT_FALSE(containsPrice(seg.asks, e8(10700)));
 }
 
+TEST(ViewerOrderbookDepthWindow, UsesBookTickerAnchorWhenBookBestIsStale) {
+    const auto qty = e8(2);
+    const auto snap = buildSnapshot(
+        {{e8(10000), qty}, {e8(9000), qty}, {e8(8400), qty}},
+        {{e8(10100), qty}, {e8(11100), qty}, {e8(11700), qty}},
+        bookTickerLine(1000, e8(9000), e8(11100)),
+        5.0);
+    const auto& seg = onlySegment(snap);
+
+    EXPECT_TRUE(containsPrice(seg.bids, e8(10000)));
+    EXPECT_TRUE(containsPrice(seg.bids, e8(9000)));
+    EXPECT_FALSE(containsPrice(seg.bids, e8(8400)));
+    EXPECT_TRUE(containsPrice(seg.asks, e8(10100)));
+    EXPECT_TRUE(containsPrice(seg.asks, e8(11100)));
+    EXPECT_FALSE(containsPrice(seg.asks, e8(11700)));
+}
+
 TEST(ViewerOrderbookDepthWindow, ClampsPercentRange) {
     const auto qty = e8(2);
     const std::vector<BookLevel> bids{{e8(10000), qty}, {e8(9899), qty}, {e8(7600), qty}, {e8(7400), qty}};

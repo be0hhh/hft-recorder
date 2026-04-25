@@ -335,6 +335,30 @@ struct BookTickerPixelState {
     }
 };
 
+struct BookTickerAnchor {
+    std::int64_t bidPriceE8{0};
+    std::int64_t askPriceE8{0};
+};
+
+BookTickerAnchor bookTickerAnchorAtOrBefore(const std::vector<hftrec::replay::BookTickerRow>& tickers,
+                                            std::int64_t tsNs) noexcept {
+    const auto it = std::upper_bound(
+        tickers.begin(),
+        tickers.end(),
+        tsNs,
+        [](std::int64_t ts, const hftrec::replay::BookTickerRow& row) noexcept {
+            return ts < row.tsNs;
+        });
+    auto cursor = it;
+    while (cursor != tickers.begin()) {
+        --cursor;
+        if (cursor->bidPriceE8 > 0 || cursor->askPriceE8 > 0) {
+            return BookTickerAnchor{cursor->bidPriceE8, cursor->askPriceE8};
+        }
+    }
+    return BookTickerAnchor{};
+}
+
 bool visiblyDifferent(qreal lhs, qreal rhs) noexcept {
     return std::abs(lhs - rhs) >= 0.5;
 }
@@ -911,8 +935,11 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         if (in.orderbookVisible) {
             std::int64_t maxBid = 0;
             std::int64_t maxAsk = 0;
-            const std::int64_t bidMinE8 = windowBidMinE8(book.bestBidPrice(), snap.bookDepthWindowPct);
-            const std::int64_t askMaxE8 = windowAskMaxE8(book.bestAskPrice(), snap.bookDepthWindowPct);
+            const BookTickerAnchor anchor = bookTickerAnchorAtOrBefore(tickers, tsStart);
+            const std::int64_t anchorBidE8 = anchor.bidPriceE8 > 0 ? anchor.bidPriceE8 : book.bestBidPrice();
+            const std::int64_t anchorAskE8 = anchor.askPriceE8 > 0 ? anchor.askPriceE8 : book.bestAskPrice();
+            const std::int64_t bidMinE8 = windowBidMinE8(anchorBidE8, snap.bookDepthWindowPct);
+            const std::int64_t askMaxE8 = windowAskMaxE8(anchorAskE8, snap.bookDepthWindowPct);
             std::size_t keptBids = 0;
             std::size_t keptAsks = 0;
             int lastBidYPx = std::numeric_limits<int>::min();
