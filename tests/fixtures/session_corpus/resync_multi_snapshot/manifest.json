@@ -1,17 +1,17 @@
 {
   "manifest_schema_version": 1,
-  "corpus_schema_version": 1,
-  "capture_contract_version": "hftrec.cxet_pos_json.v1",
+  "corpus_schema_version": 2,
+  "capture_contract_version": "hftrec.cxet_alias_rows_json.v4",
   "session_status": "complete",
   "identity": { "session_id": "fixture_resync_multi_snapshot", "exchange": "binance", "market": "futures_usd", "symbols": ["BTCUSDT"] },
   "capture": { "selected_parent_dir": "./recordings", "started_at_ns": 1000, "ended_at_ns": 5000, "target_duration_sec": 5, "actual_duration_sec": 5, "snapshot_interval_sec": 60 },
   "replay": { "structurally_loadable": true, "structural_blockers": [] },
   "channels": {
-    "trades": { "enabled": false, "required_when_enabled": false, "path": "trades.jsonl", "row_schema": "cxet_trade_public_pos_v1", "declared_event_count": 0 },
-    "bookticker": { "enabled": false, "required_when_enabled": false, "path": "bookticker.jsonl", "row_schema": "cxet_bookticker_pos_v1", "declared_event_count": 0 },
-    "depth": { "enabled": true, "required_when_enabled": true, "path": "depth.jsonl", "row_schema": "cxet_orderbook_pos_v1", "declared_event_count": 2 }
+    "trades": { "enabled": false, "required_when_enabled": false, "path": "trades.jsonl", "row_schema": "cxet_trade_alias_first_v3", "declared_event_count": 0 },
+    "bookticker": { "enabled": false, "required_when_enabled": false, "path": "bookticker.jsonl", "row_schema": "cxet_bookticker_alias_first_v3", "declared_event_count": 0 },
+    "depth": { "enabled": true, "required_when_enabled": true, "path": "depth.jsonl", "row_schema": "cxet_orderbook_alias_first_v4", "declared_event_count": 2 }
   },
-  "snapshots": { "schema": "cxet_orderbook_snapshot_pos_v1", "files": ["snapshot_000.json", "snapshot_001.json"], "declared_snapshot_count": 2 },
+  "snapshots": { "schema": "cxet_orderbook_snapshot_alias_first_v4", "files": ["snapshot_000.json", "snapshot_001.json"], "declared_snapshot_count": 2 },
   "artifacts": { "instrument_metadata_path": "derived/instrument_metadata.json", "session_audit_path": "reports/session_audit.json", "loader_diagnostics_path": "reports/loader_diagnostics.json", "canonical": ["manifest.json", "depth.jsonl", "snapshot_000.json", "snapshot_001.json"], "support": [] },
   "integrity": {
     "session_health": "clean",
@@ -27,4 +27,3 @@
   },
   "summary": { "warning_summary": "" }
 }
-

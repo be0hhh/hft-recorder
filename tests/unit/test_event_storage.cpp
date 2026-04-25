@@ -37,6 +37,7 @@ hftrec::replay::TradeRow tradeRow(std::int64_t tsNs, std::int64_t captureSeq, st
     row.ingestSeq = ingestSeq;
     row.priceE8 = 30000;
     row.qtyE8 = 10;
+    row.side = 1;
     row.sideBuy = 1u;
     return row;
 }
@@ -136,7 +137,7 @@ TEST(EventStorage, JsonSessionSinkWritesCurrentTradeSchema) {
     ASSERT_EQ(sink.close(), hftrec::Status::Ok);
 
     const auto text = readFile(dir / "trades.jsonl");
-    EXPECT_NE(text.find("[0,0,30000,10,100,0,0,0,0,1,1,7]"), std::string::npos);
+    EXPECT_NE(text.find("[30000,10,1,100,0,0,0,0,0,\"\",\"\",\"\",1,7]"), std::string::npos);
 
     EXPECT_STREQ(sink.backendId(), kJsonSessionId);
     EXPECT_EQ(stats.tradesTotal, 1u);

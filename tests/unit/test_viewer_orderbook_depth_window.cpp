@@ -49,14 +49,7 @@ std::string depthLine(std::int64_t tsNs,
                       std::int64_t updateId,
                       const std::vector<BookLevel>& bids,
                       const std::vector<BookLevel>& asks) {
-    std::string out = "[0," + std::to_string(updateId)
-        + "," + std::to_string(updateId)
-        + "," + std::to_string(tsNs)
-        + "," + std::to_string(bids.size())
-        + "," + std::to_string(asks.size())
-        + "," + std::to_string(updateId)
-        + "," + std::to_string(updateId)
-        + ",[";
+    std::string out = "[[";
     for (std::size_t i = 0; i < bids.size(); ++i) {
         if (i != 0u) out += ",";
         out += level(bids[i].priceE8, bids[i].qtyE8);
@@ -66,26 +59,34 @@ std::string depthLine(std::int64_t tsNs,
         if (i != 0u) out += ",";
         out += level(asks[i].priceE8, asks[i].qtyE8);
     }
-    out += "]]\n";
+    out += "]," + std::to_string(tsNs)
+        + ",\"BTCUSDT\",\"binance\",\"futures_usd\","
+        + std::to_string(updateId)
+        + "," + std::to_string(updateId)
+        + "," + std::to_string(updateId)
+        + "," + std::to_string(updateId)
+        + "]\n";
     return out;
 }
 
 std::string bookTickerLine(std::int64_t tsNs,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8) {
-    return "[0," + std::to_string(bidPriceE8)
+    return "[" + std::to_string(bidPriceE8)
         + "," + std::to_string(e8(2))
         + "," + std::to_string(askPriceE8)
         + "," + std::to_string(e8(2))
         + "," + std::to_string(tsNs)
+        + ",\"BTCUSDT\",\"binance\",\"futures_usd\""
         + ",100,100]\n";
 }
 
 std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8) {
-    return "[0,0," + std::to_string(priceE8)
+    return "[" + std::to_string(priceE8)
         + "," + std::to_string(e8(1))
+        + ",1"
         + "," + std::to_string(tsNs)
-        + ",0,0,0,0,1,200,200]\n";
+        + ",0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",200,200]\n";
 }
 
 SnapshotInputs orderbookInputs(qreal depthWindowPct) {
@@ -235,7 +236,7 @@ TEST(ViewerOrderbookHover, UsesSegmentUnderMouseX) {
     EXPECT_EQ(hover.bookKind, 4);
     EXPECT_EQ(hover.bookPriceE8, e8(950));
     EXPECT_EQ(hover.bookQtyE8, e8(2));
-    EXPECT_EQ(hover.bookTsNs, 0);
+    EXPECT_EQ(hover.bookTsNs, 25);
 
     hftrec::gui::viewer::hit_test::computeHover(
         snap,
@@ -245,7 +246,7 @@ TEST(ViewerOrderbookHover, UsesSegmentUnderMouseX) {
     EXPECT_EQ(hover.bookKind, 3);
     EXPECT_EQ(hover.bookPriceE8, e8(500));
     EXPECT_EQ(hover.bookQtyE8, e8(3));
-    EXPECT_EQ(hover.bookTsNs, 50);
+    EXPECT_EQ(hover.bookTsNs, 75);
 }
 
 }  // namespace

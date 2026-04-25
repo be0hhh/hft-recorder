@@ -43,11 +43,12 @@ std::string bookTickerLine(std::int64_t tsNs,
                            std::int64_t captureSeq,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8) {
-    return "[0," + std::to_string(bidPriceE8)
+    return "[" + std::to_string(bidPriceE8)
         + "," + std::to_string(e8(2))
         + "," + std::to_string(askPriceE8)
         + "," + std::to_string(e8(3))
         + "," + std::to_string(tsNs)
+        + ",\"BTCUSDT\",\"binance\",\"futures_usd\""
         + "," + std::to_string(captureSeq)
         + "," + std::to_string(captureSeq) + "]\n";
 }
@@ -62,6 +63,7 @@ hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
     row.ingestSeq = captureSeq;
     row.priceE8 = priceE8;
     row.qtyE8 = qtyE8;
+    row.side = 1;
     row.sideBuy = 1u;
     return row;
 }
