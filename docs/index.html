@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>hft-recorder: готовый бинарь + REST markers</title>
+  <meta name="description" content="Binary-only guide for hft-recorder offline viewer and REST Marker API">
+  <style>
+    :root {
+      --bg:#0a1020; --card:#121a31; --card2:#17213d; --text:#edf2ff; --muted:#aeb9d8;
+      --accent:#facc15; --blue:#60a5fa; --green:#34d399; --red:#fb7185;
+      --border:rgba(255,255,255,.13); --code:#050814;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      background:
+        radial-gradient(circle at top left,rgba(96,165,250,.26),transparent 32rem),
+        radial-gradient(circle at 80% 0%,rgba(250,204,21,.14),transparent 30rem),
+        var(--bg);
+      color:var(--text); line-height:1.55;
+    }
+    .wrap{max-width:1160px;margin:0 auto;padding:28px 18px 80px}
+    h1{font-size:clamp(2.2rem,5vw,4.7rem);line-height:.96;margin:36px 0 16px;letter-spacing:-.05em}
+    h2{font-size:clamp(1.55rem,3vw,2.35rem);line-height:1.05;margin:0 0 14px;letter-spacing:-.035em}
+    h3{font-size:1.08rem;margin:26px 0 8px}
+    p,li,td{color:var(--muted)}
+    a{color:#93c5fd}
+    .hero{display:grid;grid-template-columns:1.35fr .65fr;gap:22px;align-items:start;padding-bottom:24px}
+    .lead{font-size:1.16rem;max-width:860px}
+    .badges{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+    .badge{border:1px solid var(--border);background:rgba(255,255,255,.065);border-radius:999px;padding:7px 12px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.035));border:1px solid var(--border);border-radius:24px;padding:22px;margin:18px 0;box-shadow:0 20px 60px rgba(0,0,0,.28)}
+    .toc{position:sticky;top:16px;margin-top:38px}
+    .toc a{display:block;text-decoration:none;color:var(--muted);padding:7px 0}
+    .toc a:hover{color:var(--text)}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+    .mini{background:rgba(255,255,255,.045);border:1px solid var(--border);border-radius:20px;padding:16px}
+    .step{display:grid;grid-template-columns:44px 1fr;gap:14px;margin:18px 0}
+    .n{width:44px;height:44px;border-radius:15px;display:grid;place-items:center;font-weight:900;color:var(--accent);background:rgba(250,204,21,.13);border:1px solid rgba(250,204,21,.35)}
+    pre{background:var(--code);border:1px solid var(--border);border-radius:16px;padding:16px;overflow:auto;position:relative;margin:12px 0 16px}
+    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace}
+    code:not(pre code){background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:2px 6px;color:#fde68a}
+    .copy{position:absolute;top:10px;right:10px;border:1px solid var(--border);background:rgba(255,255,255,.1);color:var(--text);border-radius:10px;padding:7px 10px;cursor:pointer}
+    .warn,.ok,.note{border-radius:16px;padding:14px 16px;margin:14px 0}
+    .warn{background:rgba(251,113,133,.12);border:1px solid rgba(251,113,133,.28);color:#fecdd3}
+    .ok{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.28);color:#bbf7d0}
+    .note{background:rgba(96,165,250,.12);border:1px solid rgba(96,165,250,.28);color:#bfdbfe}
+    table{width:100%;border-collapse:collapse;border:1px solid var(--border);border-radius:16px;overflow:hidden;margin:12px 0}
+    th,td{border-bottom:1px solid var(--border);padding:12px;text-align:left;vertical-align:top}
+    th{background:rgba(255,255,255,.08);color:var(--text)}
+    label{display:block;color:var(--muted);font-size:.92rem;margin:0 0 6px}
+    input{width:100%;border:1px solid var(--border);background:rgba(255,255,255,.08);border-radius:14px;color:var(--text);padding:12px}
+    button{border:0;border-radius:14px;padding:11px 14px;background:var(--accent);font-weight:900;color:#1f1600;cursor:pointer}
+    button.secondary{background:rgba(255,255,255,.09);border:1px solid var(--border);color:var(--text)}
+    .form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    #status{white-space:pre-wrap}
+    footer{color:var(--muted);font-size:.9rem;margin-top:42px}
+    @media(max-width:900px){.hero,.grid,.grid3,.form{grid-template-columns:1fr}.toc{position:static;margin-top:0}}
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <h1>hft-recorder для человека с готовым бинарём</h1>
+      <p class="lead">
+        Эта страница объясняет, как без компиляции запустить offline viewer, открыть старый график и
+        отправить marker на график через REST из curl, PowerShell, Python, Java, Docker или другой машины.
+      </p>
+      <div class="badges">
+        <span class="badge">Без CMake</span>
+        <span class="badge">Без CXETCPP</span>
+        <span class="badge">Только готовый бинарь</span>
+        <span class="badge">REST marker API :18080</span>
+      </div>
+    </div>
+    <aside class="card toc">
+      <strong>Содержание</strong>
+      <a href="#what-user-has">Что есть у пользователя</a>
+      <a href="#what-it-does">Что REST реально делает</a>
+      <a href="#folder">Как разложить файлы</a>
+      <a href="#start">Как запустить бинарь</a>
+      <a href="#open-data">Как открыть график</a>
+      <a href="#health">Проверка health</a>
+      <a href="#marker">Отправить marker</a>
+      <a href="#timestamp">Как взять ts_ns</a>
+      <a href="#remote">Из другого места</a>
+      <a href="#browser-test">Тест с этой страницы</a>
+      <a href="#troubleshooting">Ошибки</a>
+    </aside>
+  </section>
+
+  <section id="what-user-has" class="card">
+    <h2>0. Что должно быть у пользователя</h2>
+    <p>Пользователь НЕ компилирует проект. Ему нужен готовый архив примерно такого вида:</p>
+    <pre><code>hft-recorder-package/
+  hft-recorder-gui.exe          # Windows
+  # или:
+  hft-recorder-gui              # Linux
+
+  recordings/
+    1776994215_binance_futures_usd_RAVEUSDT/
+      trades.jsonl
+      # optional: bookticker.jsonl, depth.jsonl, snapshot_000.json
+
+  start-windows.bat             # optional helper
+  send-marker.ps1               # optional helper
+  send-marker.sh                # optional helper</code></pre>
+    <div class="ok">
+      Главное: готовый GUI-бинарь + данные для Viewer. Никаких <code>cmake</code>, <code>compile.sh</code>,
+      <code>CXETCPP</code>, headers или исходников пользователю не нужно.
+    </div>
+  </section>
+
+  <section id="what-it-does" class="card">
+    <h2>1. Что REST Marker API реально делает</h2>
+    <p>
+      REST Marker API получает timestamp в nanoseconds и optional label, затем рисует вертикальную линию
+      на уже открытом активном графике.
+    </p>
+    <pre><code>external script / service
+  -> POST http://127.0.0.1:18080/api/v1/chart/markers/vertical
+  -> hft-recorder GUI
+  -> yellow vertical line on active chart</code></pre>
+    <div class="warn">
+      REST API не загружает файл, не открывает график, не отправляет ордер, не симулирует биржу и не создаёт execution events.
+      Это только визуальная отметка на уже открытом графике.
+    </div>
+  </section>
+
+  <section id="folder" class="card">
+    <h2>2. Как подготовить папку для человека</h2>
+    <p>Самый простой вариант — один zip-архив:</p>
+    <pre><code>hft-recorder-offline.zip
+  hft-recorder-gui.exe
+  recordings/
+  start-windows.bat
+  send-marker.ps1
+  README.txt</code></pre>
+    <p>README.txt можно сделать таким:</p>
+    <pre><code>1. Распакуй архив в любую папку, например C:\hft-recorder-offline.
+2. Запусти start-windows.bat.
+3. В GUI открой Viewer.
+4. Нажми Load / Open и выбери recordings\...\trades.jsonl или session folder.
+5. Проверь REST:
+   PowerShell: Invoke-RestMethod http://127.0.0.1:18080/api/v1/health
+6. Отправь marker:
+   .\send-marker.ps1 1776994215000000000 "my signal"</code></pre>
+  </section>
+
+  <section id="start" class="card">
+    <h2>3. Как запустить готовый бинарь</h2>
+
+    <h3>Windows: двойной клик или PowerShell</h3>
+    <p>Если бинарь уже собран как offline viewer, можно запускать напрямую:</p>
+    <pre><code>cd C:\hft-recorder-offline
+
+$env:HFTREC_API_HOST="127.0.0.1"
+$env:HFTREC_API_PORT="18080"
+$env:HFTREC_METRICS_PORT="8080"
+
+.\hft-recorder-gui.exe</code></pre>
+
+    <h3>Windows helper: start-windows.bat</h3>
+    <p>Этот файл можно положить рядом с <code>hft-recorder-gui.exe</code>, чтобы пользователь просто нажал два раза:</p>
+    <pre><code>@echo off
+set HFTREC_API_HOST=127.0.0.1
+set HFTREC_API_PORT=18080
+set HFTREC_METRICS_PORT=8080
+
+cd /d "%~dp0"
+start "" "%~dp0hft-recorder-gui.exe"</code></pre>
+
+    <h3>Linux</h3>
+    <pre><code>cd ~/hft-recorder-offline
+chmod +x ./hft-recorder-gui
+
+HFTREC_API_HOST=127.0.0.1 \
+HFTREC_API_PORT=18080 \
+HFTREC_METRICS_PORT=8080 \
+./hft-recorder-gui</code></pre>
+
+    <div class="note">
+      <code>HFTREC_API_HOST=127.0.0.1</code> значит: REST доступен только на этой же машине.
+      Это самый безопасный режим по умолчанию.
+    </div>
+  </section>
+
+  <section id="open-data" class="card">
+    <h2>4. Как открыть график</h2>
+    <div class="step"><div class="n">1</div><div><strong>Открыть GUI.</strong><p>Должно появиться окно hft-recorder.</p></div></div>
+    <div class="step"><div class="n">2</div><div><strong>Перейти в Viewer.</strong><p>REST marker рисуется только в Viewer / active chart.</p></div></div>
+    <div class="step"><div class="n">3</div><div><strong>Загрузить данные.</strong><p>Выбрать session folder или конкретный <code>trades.jsonl</code>.</p></div></div>
+    <div class="step"><div class="n">4</div><div><strong>Убедиться, что график виден.</strong><p>Если свечи/точки/линия не отображаются, REST marker тоже некуда рисовать.</p></div></div>
+
+    <pre><code>Пример session folder:
+C:\hft-recorder-offline\recordings\1776994215_binance_futures_usd_RAVEUSDT
+
+Пример trades file:
+C:\hft-recorder-offline\recordings\1776994215_binance_futures_usd_RAVEUSDT\trades.jsonl</code></pre>
+  </section>
+
+  <section id="health" class="card">
+    <h2>5. Проверить, что REST видит график</h2>
+    <h3>PowerShell</h3>
+    <pre><code>Invoke-RestMethod http://127.0.0.1:18080/api/v1/health</code></pre>
+    <h3>curl</h3>
+    <pre><code>curl http://127.0.0.1:18080/api/v1/health</code></pre>
+    <p>Нормальный ответ:</p>
+    <pre><code>{"ok":true,"active_chart":true,"loaded":true}</code></pre>
+    <table>
+      <thead><tr><th>Поле</th><th>Что значит</th><th>Что делать, если false</th></tr></thead>
+      <tbody>
+        <tr><td><code>ok</code></td><td>REST server отвечает</td><td>Проверить, запущен ли GUI и порт 18080</td></tr>
+        <tr><td><code>active_chart</code></td><td>GUI нашёл активный ChartController</td><td>Перейти в Viewer / открыть chart</td></tr>
+        <tr><td><code>loaded</code></td><td>В Viewer загружены данные</td><td>Загрузить session folder или trades.jsonl</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="marker" class="card">
+    <h2>6. Отправить вертикальную линию на график</h2>
+    <p>Endpoint:</p>
+    <pre><code>POST http://127.0.0.1:18080/api/v1/chart/markers/vertical
+Content-Type: application/json
+
+{"ts_ns":"1776994215000000000","label":"signal A"}</code></pre>
+
+    <h3>PowerShell: one-liner</h3>
+    <pre><code>$body = @{ ts_ns = "1776994215000000000"; label = "signal A" } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18080/api/v1/chart/markers/vertical -ContentType 'application/json' -Body $body</code></pre>
+
+    <h3>PowerShell helper: send-marker.ps1</h3>
+    <pre><code>param(
+  [Parameter(Mandatory=$true)][string]$TsNs,
+  [string]$Label = "manual signal"
+)
+
+$body = @{ ts_ns = $TsNs; label = $Label } | ConvertTo-Json -Compress
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:18080/api/v1/chart/markers/vertical" `
+  -ContentType "application/json" `
+  -Body $body</code></pre>
+    <p>Использование:</p>
+    <pre><code>.\send-marker.ps1 1776994215000000000 "my signal"</code></pre>
+
+    <h3>curl</h3>
+    <pre><code>curl -X POST http://127.0.0.1:18080/api/v1/chart/markers/vertical ^
+  -H "Content-Type: application/json" ^
+  --data "{\"ts_ns\":\"1776994215000000000\",\"label\":\"curl signal\"}"</code></pre>
+
+    <h3>Python</h3>
+    <pre><code>import requests
+
+requests.post(
+    "http://127.0.0.1:18080/api/v1/chart/markers/vertical",
+    json={"ts_ns": "1776994215000000000", "label": "python signal"},
+    timeout=1.0,
+).raise_for_status()</code></pre>
+
+    <h3>Java 11+</h3>
+    <pre><code>import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+public class MarkerTest {
+  public static void main(String[] args) throws Exception {
+    String json = "{\"ts_ns\":\"1776994215000000000\",\"label\":\"java signal\"}";
+
+    HttpRequest request = HttpRequest.newBuilder()
+      .uri(URI.create("http://127.0.0.1:18080/api/v1/chart/markers/vertical"))
+      .header("Content-Type", "application/json")
+      .POST(HttpRequest.BodyPublishers.ofString(json))
+      .build();
+
+    HttpResponse&lt;String&gt; response = HttpClient.newHttpClient()
+      .send(request, HttpResponse.BodyHandlers.ofString());
+
+    System.out.println(response.statusCode());
+    System.out.println(response.body());
+  }
+}</code></pre>
+
+    <h3>Очистить markers</h3>
+    <pre><code>Invoke-RestMethod -Method Delete http://127.0.0.1:18080/api/v1/chart/markers</code></pre>
+  </section>
+
+  <section id="timestamp" class="card">
+    <h2>7. Как выбрать правильный <code>ts_ns</code></h2>
+    <p>
+      <code>ts_ns</code> должен попадать во временной диапазон загруженного графика. Если marker отправился,
+      но не виден, чаще всего timestamp вне диапазона экрана или вне данных.
+    </p>
+
+    <h3>Если есть Unix seconds</h3>
+    <pre><code># seconds -> nanoseconds
+1776994215 * 1000000000 = 1776994215000000000</code></pre>
+
+    <h3>Python conversion</h3>
+    <pre><code>import datetime as dt
+
+ts = dt.datetime.fromisoformat("2026-04-23T12:10:15+00:00")
+ts_ns = int(ts.timestamp() * 1_000_000_000)
+print(str(ts_ns))</code></pre>
+
+    <h3>Почему строкой?</h3>
+    <div class="note">
+      Отправляй <code>ts_ns</code> строкой: <code>"1776994215000000000"</code>.
+      Большие int64 timestamps могут терять точность в JavaScript/JSON tooling.
+    </div>
+  </section>
+
+  <section id="remote" class="card">
+    <h2>8. Как отправлять “из любого места”</h2>
+    <div class="grid3">
+      <div class="mini">
+        <h3>Та же машина</h3>
+        <pre><code>http://127.0.0.1:18080</code></pre>
+        <p>Самый простой и безопасный вариант.</p>
+      </div>
+      <div class="mini">
+        <h3>Docker на этой машине</h3>
+        <pre><code>http://host.docker.internal:18080</code></pre>
+        <p>Если script/bridge внутри Docker Desktop.</p>
+      </div>
+      <div class="mini">
+        <h3>Другая машина в LAN</h3>
+        <pre><code>HFTREC_API_HOST=0.0.0.0
+HFTREC_API_PORT=18080</code></pre>
+        <p>Потом обращаться к IP компьютера с GUI.</p>
+      </div>
+    </div>
+
+    <h3>Пример: GUI на 192.168.1.50</h3>
+    <pre><code>curl -X POST http://192.168.1.50:18080/api/v1/chart/markers/vertical \
+  -H 'Content-Type: application/json' \
+  --data '{"ts_ns":"1776994215000000000","label":"remote signal"}'</code></pre>
+
+    <div class="warn">
+      Не открывай <code>0.0.0.0:18080</code> в публичный интернет. Это debug/offline API без нормальной auth-модели.
+      Для LAN лучше закрыть порт firewall-ом только на доверенные IP.
+    </div>
+  </section>
+
+  <section id="browser-test" class="card">
+    <h2>9. Тест прямо с этой GitHub Pages страницы</h2>
+    <p>
+      Эта форма пробует отправить marker из браузера. Если будет CORS error, это нормально:
+      используй PowerShell/curl/Python или добавь CORS headers в REST server.
+    </p>
+    <div class="form">
+      <div><label>API base URL</label><input id="apiBase" value="http://127.0.0.1:18080"></div>
+      <div><label>ts_ns</label><input id="ts" value="1776994215000000000"></div>
+      <div><label>label</label><input id="label" value="pages signal"></div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <button onclick="health()">Health</button>
+        <button onclick="sendMarker()">Send marker</button>
+        <button class="secondary" onclick="clearMarkers()">Clear markers</button>
+      </div>
+    </div>
+    <div id="status" class="note">Сначала запусти GUI, открой Viewer и загрузи trades/session.</div>
+  </section>
+
+  <section id="troubleshooting" class="card">
+    <h2>10. Частые ошибки</h2>
+    <table>
+      <thead><tr><th>Симптом</th><th>Причина</th><th>Решение</th></tr></thead>
+      <tbody>
+        <tr><td><code>connection refused</code></td><td>GUI не запущен или REST disabled</td><td>Запустить GUI, проверить <code>HFTREC_API_PORT=18080</code>, не ставить <code>HFTREC_API_MODE=off</code></td></tr>
+        <tr><td><code>loaded:false</code></td><td>Viewer открыт без данных</td><td>Загрузить session folder или <code>trades.jsonl</code></td></tr>
+        <tr><td><code>no_active_chart</code></td><td>Нет активного chart controller</td><td>Перейти в Viewer и открыть график</td></tr>
+        <tr><td>Marker не видно</td><td><code>ts_ns</code> вне диапазона данных или viewport</td><td>Взять timestamp из открытого <code>trades.jsonl</code>, приблизить/проскроллить график</td></tr>
+        <tr><td>Browser test не работает</td><td>CORS / mixed-content / browser security</td><td>Использовать PowerShell/curl/Python или добавить CORS headers</td></tr>
+        <tr><td>С другой машины не подключается</td><td>REST слушает только <code>127.0.0.1</code> или firewall</td><td>Запустить с <code>HFTREC_API_HOST=0.0.0.0</code> и открыть порт только в LAN</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    Static GitHub Pages guide. Place this file at <code>docs/index.html</code> and publish GitHub Pages from branch <code>main</code>, folder <code>/docs</code>.
+  </footer>
+</main>
+
+<script>
+function setStatus(message, good) {
+  const el = document.getElementById("status");
+  el.textContent = message;
+  el.className = good ? "ok" : "note";
+}
+async function request(path, options={}) {
+  const base = document.getElementById("apiBase").value.replace(/\/+$/, "");
+  const r = await fetch(base + path, options);
+  const text = await r.text();
+  let body = text;
+  try { body = JSON.stringify(JSON.parse(text), null, 2); } catch(e) {}
+  if (!r.ok) throw new Error(r.status + " " + body);
+  return body;
+}
+async function health() {
+  try { setStatus("Health OK:\n" + await request("/api/v1/health"), true); }
+  catch(e) { setStatus("Health failed:\n" + e.message + "\n\nПроверь GUI, порт 18080, Viewer loaded, CORS.", false); }
+}
+async function sendMarker() {
+  try {
+    const payload = {ts_ns: String(document.getElementById("ts").value), label: String(document.getElementById("label").value || "pages signal")};
+    setStatus("Marker sent:\n" + await request("/api/v1/chart/markers/vertical", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)}), true);
+  } catch(e) { setStatus("Marker failed:\n" + e.message + "\n\nПроверь active_chart:true, loaded:true, timestamp в диапазоне графика, CORS.", false); }
+}
+async function clearMarkers() {
+  try { setStatus("Markers cleared:\n" + await request("/api/v1/chart/markers", {method:"DELETE"}), true); }
+  catch(e) { setStatus("Clear failed:\n" + e.message, false); }
+}
+document.querySelectorAll("pre").forEach(pre => {
+  const btn = document.createElement("button");
+  btn.className = "copy";
+  btn.textContent = "copy";
+  btn.onclick = async () => {
+    await navigator.clipboard.writeText(pre.innerText.replace(/\ncopy$/, ""));
+    btn.textContent = "copied";
+    setTimeout(() => btn.textContent = "copy", 900);
+  };
+  pre.appendChild(btn);
+});
+</script>
+</body>
+</html>
