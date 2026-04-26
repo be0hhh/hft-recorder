@@ -17,6 +17,7 @@ endif()
 # available. Offline viewer builds must not build or vendor parent sources.
 set(CXET_PUBLIC_INCLUDE_DIR "" CACHE PATH "Path to CXETCPP public headers")
 set(CXET_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_lib shared library")
+set(CXET_REPLAY_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_replay_core shared library")
 set(HFTREC_CXET_MODE "AUTO" CACHE STRING "CXET integration mode: AUTO, ON, or OFF")
 set_property(CACHE HFTREC_CXET_MODE PROPERTY STRINGS AUTO ON OFF)
 string(TOUPPER "${HFTREC_CXET_MODE}" HFTREC_CXET_MODE_NORMALIZED)
@@ -42,8 +43,80 @@ if(HFTREC_WITH_CXET)
     )
 endif()
 
+set(HFTREC_WITH_CXET_REPLAY OFF)
+set(_CXET_REPLAY_INCLUDE_DIR "")
+if(CXET_PUBLIC_INCLUDE_DIR)
+    get_filename_component(_CXET_PUBLIC_INCLUDE_PARENT "${CXET_PUBLIC_INCLUDE_DIR}" DIRECTORY)
+    if(EXISTS "${_CXET_PUBLIC_INCLUDE_PARENT}/cxet/replay/ReplaySession.hpp")
+        set(_CXET_REPLAY_INCLUDE_DIR "${_CXET_PUBLIC_INCLUDE_PARENT}")
+    elseif(EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/cxet/replay/ReplaySession.hpp")
+        set(_CXET_REPLAY_INCLUDE_DIR "${CXET_PUBLIC_INCLUDE_DIR}")
+    endif()
+endif()
+if(HFTREC_WITH_CXET AND CXET_REPLAY_SHARED_LIB
+        AND _CXET_REPLAY_INCLUDE_DIR
+        AND EXISTS "${CXET_REPLAY_SHARED_LIB}")
+    set(HFTREC_WITH_CXET_REPLAY ON)
+    add_library(cxet_replay_core SHARED IMPORTED GLOBAL)
+    set_target_properties(cxet_replay_core PROPERTIES
+        IMPORTED_LOCATION "${CXET_REPLAY_SHARED_LIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_CXET_REPLAY_INCLUDE_DIR}"
+    )
+    message(STATUS "hft-recorder: CXET replay-core integration enabled")
+else()
+    message(STATUS "hft-recorder: CXET replay-core integration not found; recorded viewer uses offline fallback")
+endif()
+
 find_package(Threads REQUIRED)
-find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 Network QUIET)
+find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2 Network QUIET)
+
+set(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/include" CACHE PATH "Path to hft-compressor public headers")
+set(HFT_COMPRESSOR_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt hft-compressor shared/import library")
+set(HFT_COMPRESSOR_RUNTIME_LIB "" CACHE FILEPATH "Path to hft-compressor runtime library, usually DLL on Windows")
+if(NOT HFT_COMPRESSOR_SHARED_LIB)
+    set(_HFT_COMPRESSOR_LIB_CANDIDATES
+        "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/build/libhft_compressor_core.so"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/build/lib/libhft_compressor_core.so"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/build/Release/hft_compressor_core.lib"
+    )
+    foreach(_candidate IN LISTS _HFT_COMPRESSOR_LIB_CANDIDATES)
+        if(EXISTS "${_candidate}")
+            set(HFT_COMPRESSOR_SHARED_LIB "${_candidate}" CACHE FILEPATH "Path to prebuilt hft-compressor shared/import library" FORCE)
+            break()
+        endif()
+    endforeach()
+endif()
+if(NOT HFT_COMPRESSOR_RUNTIME_LIB AND HFT_COMPRESSOR_SHARED_LIB)
+    get_filename_component(_hft_compressor_lib_dir "${HFT_COMPRESSOR_SHARED_LIB}" DIRECTORY)
+    if(EXISTS "${_hft_compressor_lib_dir}/hft_compressor_core.dll")
+        set(HFT_COMPRESSOR_RUNTIME_LIB "${_hft_compressor_lib_dir}/hft_compressor_core.dll" CACHE FILEPATH "Path to hft-compressor runtime library, usually DLL on Windows" FORCE)
+    endif()
+endif()
+
+if(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR AND HFT_COMPRESSOR_SHARED_LIB
+        AND EXISTS "${HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR}/hft_compressor/compressor.hpp"
+        AND EXISTS "${HFT_COMPRESSOR_SHARED_LIB}")
+    get_filename_component(_hft_compressor_lib_ext "${HFT_COMPRESSOR_SHARED_LIB}" EXT)
+    if(WIN32 AND _hft_compressor_lib_ext STREQUAL ".lib")
+        add_library(hft_compressor_core SHARED IMPORTED GLOBAL)
+        set_target_properties(hft_compressor_core PROPERTIES
+            IMPORTED_IMPLIB "${HFT_COMPRESSOR_SHARED_LIB}"
+            IMPORTED_LOCATION "${HFT_COMPRESSOR_RUNTIME_LIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR}"
+            INTERFACE_COMPILE_DEFINITIONS HFT_COMPRESSOR_SHARED
+        )
+    else()
+        add_library(hft_compressor_core UNKNOWN IMPORTED GLOBAL)
+        set_target_properties(hft_compressor_core PROPERTIES
+            IMPORTED_LOCATION "${HFT_COMPRESSOR_SHARED_LIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR}"
+            INTERFACE_COMPILE_DEFINITIONS HFT_COMPRESSOR_SHARED
+        )
+    endif()
+    message(STATUS "hft-recorder: hft-compressor prebuilt dependency enabled: ${HFT_COMPRESSOR_SHARED_LIB}")
+else()
+    message(FATAL_ERROR "hft-recorder compression tab requires prebuilt hft-compressor. Configure with HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR and HFT_COMPRESSOR_SHARED_LIB.")
+endif()
 
 include(FetchContent)
 set(FETCHCONTENT_QUIET ON)

@@ -79,6 +79,13 @@ void ChartApiServer::setChartController(hftrec::gui::viewer::ChartController* co
     controller_ = controller;
 }
 
+hftrec::gui::viewer::ChartController* ChartApiServer::controller() const noexcept {
+    // TODO: when Viewer cloning is introduced, replace this singleton target
+    // with an explicit workspace chart-target policy.
+    if (auto* active = hftrec::gui::viewer::ChartController::activeInstance()) return active;
+    return controller_;
+}
+
 bool ChartApiServer::startFromEnvironment() {
     if (apiDisabled()) return false;
     if (server_.isListening()) return true;
@@ -124,12 +131,13 @@ void ChartApiServer::handleReadyRead_(QTcpSocket* socket) {
     } else if (method == "POST" && path == "/api/v1/chart/markers/vertical") {
         responseBody = markerPost_(body, statusCode, statusText);
     } else if (method == "DELETE" && path == "/api/v1/chart/markers") {
-        if (controller_ == nullptr) {
+        auto* chart = controller();
+        if (chart == nullptr) {
             statusCode = 409;
             statusText = reasonPhrase(statusCode);
             responseBody = QByteArrayLiteral("{\"ok\":false,\"error\":\"no_active_chart\"}\n");
         } else {
-            controller_->clearVerticalMarkers();
+            chart->clearVerticalMarkers();
             responseBody = QByteArrayLiteral("{\"ok\":true}\n");
         }
     } else {
@@ -154,8 +162,9 @@ void ChartApiServer::respond_(QTcpSocket* socket, int statusCode, const QByteArr
 }
 
 QByteArray ChartApiServer::healthBody_() const {
-    const bool active = controller_ != nullptr;
-    const bool loaded = active && controller_->loaded();
+    auto* chart = controller();
+    const bool active = chart != nullptr;
+    const bool loaded = active && chart->loaded();
     QByteArray out = QByteArrayLiteral("{\"ok\":true,\"active_chart\":");
     out += jsonBool(active);
     out += QByteArrayLiteral(",\"loaded\":");
@@ -165,7 +174,8 @@ QByteArray ChartApiServer::healthBody_() const {
 }
 
 QByteArray ChartApiServer::markerPost_(const QByteArray& body, int& statusCode, QByteArray& statusText) {
-    if (controller_ == nullptr || !controller_->loaded()) {
+    auto* chart = controller();
+    if (chart == nullptr || !chart->loaded()) {
         statusCode = 409;
         statusText = reasonPhrase(statusCode);
         return QByteArrayLiteral("{\"ok\":false,\"error\":\"no_active_chart\"}\n");
@@ -186,7 +196,7 @@ QByteArray ChartApiServer::markerPost_(const QByteArray& body, int& statusCode, 
         return QByteArrayLiteral("{\"ok\":false,\"error\":\"missing_ts_ns\"}\n");
     }
     const QString label = obj.value(QStringLiteral("label")).toString();
-    if (!controller_->addVerticalMarker(tsNs, label)) {
+    if (!chart->addVerticalMarker(tsNs, label)) {
         statusCode = 400;
         statusText = reasonPhrase(statusCode);
         return QByteArrayLiteral("{\"ok\":false,\"error\":\"invalid_marker\"}\n");

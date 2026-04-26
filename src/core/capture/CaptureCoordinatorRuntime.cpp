@@ -1,4 +1,4 @@
-﻿#include "core/capture/CaptureCoordinator.hpp"
+#include "core/capture/CaptureCoordinator.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -8,7 +8,6 @@
 
 
 #include "api/run/RunByConfig.hpp"
-#include "composite/level_0/GetObject.hpp"
 #include "core/capture/CaptureCoordinatorInternal.hpp"
 #include "core/capture/JsonSerializers.hpp"
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
@@ -44,6 +43,7 @@ void recordCxetLatencyIfEnabled(cxet::metrics::LatencyProbe& probe,
 std::string snapshotSymbolString(const cxet::composite::OrderBookSnapshot& snapshot) {
     return std::string(snapshot.symbol.data);
 }
+
 
 replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
                               std::string_view exchange,
@@ -553,41 +553,6 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
     const auto market = manifest_.market;
     const auto orderbookAliases = config.orderbookAliases;
     orderbookThread_ = std::thread([this, subscribeBuilder, sessionId, exchange, market, orderbookAliases]() mutable noexcept {
-        MessageBuffer requestBuf{};
-        MessageBuffer recvBuf{};
-        cxet::composite::OrderBookSnapshot snapshot{};
-        cxet::UnifiedRequestBuilder getBuilder{};
-        CountVal depthLimit{};
-        depthLimit.raw = 1000u;
-        getBuilder.get()
-            .object(cxet::composite::out::GetObject::Orderbook)
-            .exchange(subscribeBuilder.exchange())
-            .market(subscribeBuilder.market())
-            .symbol(subscribeBuilder.symbol(0))
-            .limit(depthLimit)
-            .aliases(subscribeBuilder.requestedFields());
-
-        if (!cxet::api::runGetOrderBookByConfig(getBuilder, requestBuf, recvBuf, &snapshot)) {
-            metrics::recordSnapshotFetchFailure("depth");
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            const auto failure = cxet_bridge::CxetCaptureBridge::makeFailure(
-                cxet_bridge::CaptureFailureKind::SnapshotFetchFailed,
-                "depth",
-                "failed to fetch initial REST orderbook snapshot",
-                true);
-            lastError_ = failure.channel + ": " + failure.detail;
-            orderbookRunning_.store(false, std::memory_order_release);
-            return;
-        }
-
-        const auto snapshotStatus = writeSnapshotFile(snapshot, 0u, "initial", "rest_orderbook_snapshot", true);
-        if (!isOk(snapshotStatus)) {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            lastError_ = "failed to write snapshot_000.json";
-            orderbookRunning_.store(false, std::memory_order_release);
-            return;
-        }
-
         MessageBuffer payloadBuf{};
         MessageBuffer deltaRecvBuf{};
 

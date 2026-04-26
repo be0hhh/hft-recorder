@@ -7,6 +7,7 @@ Pane {
     id: root
 
     required property CaptureViewModel captureVm
+    required property bool tabActive
     property bool anyChannelRunning: root.captureVm.tradesRunning || root.captureVm.bookTickerRunning || root.captureVm.orderbookRunning
 
     property color windowColor: "#161616"
@@ -159,7 +160,7 @@ Pane {
                     }
 
                     Label {
-                        text: "Orderbook button contract: first REST snapshot, then WS deltas into depth.jsonl."
+                        text: "Orderbook capture writes WS depth deltas into depth.jsonl; REST snapshot is optional."
                         color: root.mutedTextColor
                         wrapMode: Text.WordWrap
                     }

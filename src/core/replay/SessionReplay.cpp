@@ -582,22 +582,10 @@ void SessionReplay::finalizeChannelStates_() noexcept {
         if (snapshotSummary.reasonCode.empty()) snapshotSummary.reasonCode = "not_captured";
         if (snapshotSummary.reasonText.empty()) snapshotSummary.reasonText = "orderbook channel disabled for session";
     } else if (!snapshotLoaded_) {
-        snapshotSummary.state = ChannelHealthState::Missing;
+        snapshotSummary.state = ChannelHealthState::NotCaptured;
         snapshotSummary.exactReplayEligible = false;
-        if (snapshotSummary.reasonCode.empty()) snapshotSummary.reasonCode = "missing_file";
-        if (snapshotSummary.reasonText.empty()) snapshotSummary.reasonText = "orderbook replay has no snapshot anchor";
-        noteIncident_(IntegrityIncident{
-            IntegrityChannel::Snapshot,
-            IntegrityIncidentKind::MissingFile,
-            IntegritySeverity::Warning,
-            "missing_file",
-            "orderbook replay has no snapshot anchor",
-            0,
-            0,
-            {},
-            {},
-            true
-        });
+        if (snapshotSummary.reasonCode.empty()) snapshotSummary.reasonCode = "optional_not_captured";
+        if (snapshotSummary.reasonText.empty()) snapshotSummary.reasonText = "optional orderbook snapshot was not captured";
     } else if (snapshotSummary.incidentCount == 0u) {
         snapshotSummary.state = ChannelHealthState::Clean;
         snapshotSummary.exactReplayEligible = true;
@@ -619,10 +607,15 @@ void SessionReplay::finalizeChannelStates_() noexcept {
         if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "missing_file";
         if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth channel enabled but file has no rows";
     } else if (!snapshotLoaded_) {
-        depthSummary.state = ChannelHealthState::Degraded;
-        depthSummary.exactReplayEligible = false;
-        if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "snapshot_missing_for_depth";
-        if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth rows loaded without snapshot anchor";
+        if (depthSummary.incidentCount == 0u) {
+            depthSummary.state = ChannelHealthState::Clean;
+            depthSummary.exactReplayEligible = false;
+            if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "ok_without_snapshot";
+            if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth rows loaded without optional snapshot anchor";
+        } else {
+            depthSummary.state = ChannelHealthState::Degraded;
+            depthSummary.exactReplayEligible = false;
+        }
     } else if (!sequenceValidationAvailable_) {
         depthSummary.state = ChannelHealthState::Degraded;
         depthSummary.exactReplayEligible = false;

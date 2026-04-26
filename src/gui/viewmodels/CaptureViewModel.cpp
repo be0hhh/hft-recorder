@@ -2,10 +2,14 @@
 
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
+#include <QCoreApplication>
+#include <QDir>
+
 namespace hftrec::gui {
 
 CaptureViewModel::CaptureViewModel(QObject* parent)
     : QObject(parent) {
+    outputDirectory_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../recordings"));
     tradesAvailableAliases_ = detail::loadAliasesForChannel("trades");
     bookTickerAvailableAliases_ = detail::loadAliasesForChannel("bookticker");
     orderbookAvailableAliases_ = detail::loadAliasesForChannel("orderbook");

@@ -8,6 +8,7 @@
 #include <chrono>
 
 #include "core/metrics/Metrics.hpp"
+#include "core/replay/CxetReplaySessionLoader.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -82,10 +83,12 @@ void ChartController::markUserViewportControl_() noexcept {
 }
 
 void ChartController::pollLiveData_() {
+    if (!active_) return;
+    if (currentSourceKind_ != QStringLiteral("live")) return;
     refreshProviderFromRegistry_();
     if (liveDataProvider_ == nullptr) return;
 
-    if (currentSourceKind_ == QStringLiteral("live") && !LiveDataRegistry::instance().hasSource(currentSourceId_.toStdString())) {
+    if (sessionDir_.isEmpty() && !LiveDataRegistry::instance().hasSource(currentSourceId_.toStdString())) {
         stopLiveData_();
         replay_.reset();
         loaded_ = false;
@@ -107,8 +110,7 @@ void ChartController::pollLiveData_() {
         return;
     }
 
-    if (currentSourceKind_ != QStringLiteral("live") && sessionDir_.isEmpty()) return;
-    if (currentSourceKind_ == QStringLiteral("live") && !liveProviderFromRegistry_) return;
+    if (!liveProviderFromRegistry_ && sessionDir_.isEmpty()) return;
 
     std::filesystem::path sessionPath{};
     if (!liveProviderFromRegistry_) {
@@ -446,9 +448,17 @@ bool ChartController::loadSession(const QString& dir) {
     }
 
     const auto path = std::filesystem::path(stripFileUrl(dir));
+    std::string cxetReplayError;
+#if HFTREC_WITH_CXET_REPLAY
+    const hftrec::replay::CxetReplaySessionLoader cxetLoader{};
+    const auto st = cxetLoader.loadRenderOnce(path, replay_, cxetReplayError);
+#else
     const auto st = replay_.open(path);
+#endif
     if (!isOk(st)) {
-        statusText_ = replayFailureText(replay_, st, QStringLiteral("Failed to load session"));
+        statusText_ = cxetReplayError.empty()
+            ? replayFailureText(replay_, st, QStringLiteral("Failed to load session"))
+            : QStringLiteral("Failed to load session: %1").arg(QString::fromStdString(cxetReplayError));
         emit sessionChanged();
         emit statusChanged();
         return false;
@@ -469,7 +479,6 @@ bool ChartController::loadSession(const QString& dir) {
         statusText_ += QStringLiteral(" | %1").arg(QString::fromStdString(std::string{replay_.errorDetail()}));
     }
     if (loaded_) computeInitialViewport_();
-    startLiveData_(path);
     emit sessionChanged();
     emit statusChanged();
     emit viewportChanged();

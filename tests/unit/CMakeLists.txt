@@ -30,6 +30,8 @@ if(Qt6_FOUND)
             test_viewer_orderbook_depth_window.cpp
             test_viewer_bookticker_trace.cpp
             test_chart_markers.cpp
+            test_workspace_viewmodel.cpp
+            test_recorded_render_once.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartController.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerSession.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
@@ -37,6 +39,7 @@ if(Qt6_FOUND)
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/LiveDataProvider.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp
     )
 endif()
 

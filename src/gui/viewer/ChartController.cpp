@@ -13,6 +13,12 @@ namespace hftrec::gui::viewer {
 
 namespace {
 
+ChartController* g_activeChartController = nullptr;
+
+}  // namespace
+
+namespace {
+
 std::filesystem::path providerSessionPath(const QString& path) {
     QString p = path;
     if (p.startsWith(QStringLiteral("file:///"))) p.remove(0, 8);
@@ -115,7 +121,26 @@ ChartController::ChartController(QObject* parent)
     liveDataTimer_->setInterval(liveUpdateIntervalMs_);
     liveDataTimer_->setTimerType(Qt::PreciseTimer);
     connect(liveDataTimer_, &QTimer::timeout, this, [this]() { pollLiveData_(); });
-    liveDataTimer_->start();
+}
+
+ChartController::~ChartController() {
+    if (g_activeChartController == this) g_activeChartController = nullptr;
+}
+
+ChartController* ChartController::activeInstance() noexcept {
+    return g_activeChartController;
+}
+
+void ChartController::setActive(bool active) {
+    if (active_ == active) return;
+    active_ = active;
+    if (active_) g_activeChartController = this;
+    else if (g_activeChartController == this) g_activeChartController = nullptr;
+    if (liveDataTimer_ != nullptr) {
+        if (active_) liveDataTimer_->start();
+        else liveDataTimer_->stop();
+    }
+    emit activeChanged();
 }
 
 void ChartController::setLiveUpdateIntervalMs(int intervalMs) {
@@ -172,8 +197,9 @@ void ChartController::setLiveDataProvider(std::unique_ptr<ILiveDataProvider> pro
     if (liveDataProvider_ != nullptr) liveDataProvider_->stop();
     liveDataProvider_ = provider != nullptr ? std::move(provider) : std::make_unique<JsonTailLiveDataProvider>();
     liveProviderFromRegistry_ = dynamic_cast<InMemoryLiveDataProvider*>(liveDataProvider_.get()) != nullptr;
-    liveProviderSourceId_ = liveProviderFromRegistry_ ? currentSourceId_ : QString{};
+    liveProviderSourceId_ = liveProviderFromRegistry_ && currentSourceKind_ == QStringLiteral("live") ? currentSourceId_ : QString{};
     clearLiveDataCache_();
+    if (currentSourceKind_ != QStringLiteral("live")) return;
     if (liveProviderFromRegistry_) {
         liveDataProvider_->start(LiveDataProviderConfig{{}, {}, currentSourceId_.toStdString()});
     } else if (!sessionDir_.isEmpty()) {
@@ -182,6 +208,7 @@ void ChartController::setLiveDataProvider(std::unique_ptr<ILiveDataProvider> pro
 }
 
 void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsMax) {
+    if (currentSourceKind_ != QStringLiteral("live")) return;
     if (liveDataProvider_ == nullptr || tsMax <= tsMin) return;
     bool emptyWindow = false;
     const std::int64_t latestTs = latestRenderableTsNs_();
@@ -261,7 +288,7 @@ void ChartController::refreshProviderFromRegistry_() {
         liveProviderFromRegistry_ = false;
         liveProviderSourceId_.clear();
         clearLiveDataCache_();
-        if (currentSourceKind_ == QStringLiteral("recorded") && !sessionDir_.isEmpty()) {
+        if (currentSourceKind_ == QStringLiteral("live") && !sessionDir_.isEmpty()) {
             liveDataProvider_->start(LiveDataProviderConfig{providerSessionPath(sessionDir_), {}, {}});
         }
     }

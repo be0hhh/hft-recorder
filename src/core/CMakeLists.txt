@@ -25,6 +25,7 @@ set(HFTREC_CORE_SOURCES
     metrics/Metrics.cpp
     replay/JsonLineParser.cpp
     replay/BookState.cpp
+    replay/CxetReplaySessionLoader.cpp
     replay/SessionReplay.cpp
     replay/SessionReplayTimeline.cpp
     storage/EventStorage.cpp
@@ -65,6 +66,13 @@ if(HFTREC_WITH_CXET)
     target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET=1)
 else()
     target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET=0)
+endif()
+
+if(HFTREC_WITH_CXET_REPLAY)
+    target_link_libraries(hftrec_core PRIVATE cxet_replay_core)
+    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET_REPLAY=1)
+else()
+    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET_REPLAY=0)
 endif()
 
 target_compile_features(hftrec_core PUBLIC cxx_std_23)

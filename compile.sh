@@ -63,18 +63,22 @@ fi
 
 _install_cxet_if_missing() {
     local so="$INSTALL_DIR/lib/libcxet_lib.so"
-    if [ "$FORCE_CXET" = "0" ] && { [ -f "$so" ] || [ -f "$so.1" ]; }; then
+    local replay_so="$INSTALL_DIR/lib/libcxet_replay_core.so"
+    if [ "$FORCE_CXET" = "0" ] \
+        && { [ -f "$so" ] || [ -f "$so.1" ]; } \
+        && { [ -f "$replay_so" ] || [ -f "$replay_so.1" ]; }; then
         return 0
     fi
     echo ">>> Building CXETCPP -> $INSTALL_DIR"
     cd "$CXETCPP"
     cmake -B build \
           -DCXET_FULL_BUILD=OFF \
+          -DCXET_BUILD_REPLAY=ON \
           -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_CXX_FLAGS="-w" \
           > /dev/null
-    cmake --build build --target cxet_lib -j"$JOBS"
+    cmake --build build --target cxet_lib cxet_replay_core -j"$JOBS"
     cmake --install build > /dev/null
     cd "$APP"
 }
@@ -183,7 +187,11 @@ CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so"
 if [ ! -f "$CXET_LIB" ] && [ -f "$INSTALL_DIR/lib/libcxet_lib.so.1" ]; then
     CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so.1"
 fi
-if [ ! -d "$CXET_INCLUDE" ] || [ ! -f "$CXET_LIB" ]; then
+CXET_REPLAY_LIB="$INSTALL_DIR/lib/libcxet_replay_core.so"
+if [ ! -f "$CXET_REPLAY_LIB" ] && [ -f "$INSTALL_DIR/lib/libcxet_replay_core.so.1" ]; then
+    CXET_REPLAY_LIB="$INSTALL_DIR/lib/libcxet_replay_core.so.1"
+fi
+if [ ! -d "$CXET_INCLUDE" ] || [ ! -f "$CXET_LIB" ] || [ ! -f "$CXET_REPLAY_LIB" ]; then
     echo "ERROR: CXETCPP install incomplete at $INSTALL_DIR" >&2
     exit 2
 fi
@@ -195,16 +203,15 @@ if [ "$CLEAN" = "1" ]; then
     rm -rf build
 fi
 
-if [ ! -f "$APP/build/CMakeCache.txt" ]; then
-    echo ">>> Configuring"
-    cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCXET_PUBLIC_INCLUDE_DIR="$CXET_INCLUDE" \
-          -DCXET_SHARED_LIB="$CXET_LIB"
-fi
+echo ">>> Configuring"
+cmake -B build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCXET_PUBLIC_INCLUDE_DIR="$CXET_INCLUDE" \
+      -DCXET_SHARED_LIB="$CXET_LIB" \
+      -DCXET_REPLAY_SHARED_LIB="$CXET_REPLAY_LIB"
 
 echo ">>> Building (jobs=$JOBS)"
-cmake --build build -j"$JOBS"
+cmake --build build --target hft-recorder hft-recorder-gui -j"$JOBS"
 
 _write_start_launcher
 

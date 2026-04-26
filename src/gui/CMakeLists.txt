@@ -13,6 +13,8 @@ qt_add_executable(hft-recorder-gui
     viewmodels/CaptureViewModelBatch.cpp
     viewmodels/CaptureViewModelRequests.cpp
     viewmodels/CaptureViewModelState.cpp
+    viewmodels/CompressionViewModel.cpp
+    viewmodels/WorkspaceViewModel.cpp
     viewer/ChartController.cpp
     viewer/ChartControllerSession.cpp
     viewer/ChartControllerViewport.cpp
@@ -64,7 +66,10 @@ qt_add_qml_module(hft-recorder-gui
         qml/components/ViewerSelectionOverlay.qml
         qml/components/ViewerPriceScale.qml
         qml/components/ViewerTimeScale.qml
+        qml/components/WorkspaceHost.qml
+        qml/components/WorkspaceFloatingWindow.qml
         qml/views/CaptureView.qml
+        qml/views/CompressView.qml
         qml/views/SessionsView.qml
         qml/views/ValidationView.qml
         qml/views/LabView.qml
@@ -79,9 +84,19 @@ target_link_libraries(hft-recorder-gui
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
+        Qt6::QuickDialogs2
         Qt6::Network
         hftrec_core
         hftrec_support
+        hft_compressor_core
 )
 
 target_compile_features(hft-recorder-gui PRIVATE cxx_std_23)
+
+if(WIN32 AND HFT_COMPRESSOR_RUNTIME_LIB)
+    add_custom_command(TARGET hft-recorder-gui POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${HFT_COMPRESSOR_RUNTIME_LIB}"
+            "$<TARGET_FILE_DIR:hft-recorder-gui>"
+    )
+endif()

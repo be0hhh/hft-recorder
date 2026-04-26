@@ -9,6 +9,7 @@ Pane {
     focus: true
     required property AppViewModel appVm
     required property CaptureViewModel captureVm
+    required property bool tabActive
 
     property color windowColor: "#161616"
     property color chromeColor: "#202024"
@@ -143,11 +144,13 @@ Pane {
     }
 
     Component.onCompleted: {
+        chart.active = root.tabActive
         Qt.callLater(root.ensureSourceSelection)
         Qt.callLater(root.syncRendererDiagnostics)
         Qt.callLater(root.syncLiveUpdateMode)
         Qt.callLater(root.syncRenderWindow)
     }
+    onTabActiveChanged: chart.active = root.tabActive
     onUseDedicatedGpuPathChanged: root.syncRendererDiagnostics()
 
     Connections {

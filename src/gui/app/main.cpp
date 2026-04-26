@@ -20,6 +20,9 @@
 #include "gui/viewer/gpu/GpuChartItem.hpp"
 #include "gui/viewmodels/AppViewModel.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
+#include "gui/viewmodels/CompressionViewModel.hpp"
+#include "gui/viewmodels/WorkspaceViewModel.hpp"
+#include "hft_compressor/metrics_server.hpp"
 
 namespace {
 
@@ -55,6 +58,8 @@ void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
     hftrec::app::MetricsBootstrap metricsBootstrap{};
+    hft_compressor::MetricsServer compressionMetricsServer{};
+    compressionMetricsServer.startFromEnvironment();
 #if HFTREC_WITH_CXET
     hftrec::local_exchange::LocalExchangeServer localExchangeServer;
     localExchangeServer.start();
@@ -72,6 +77,8 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<hftrec::gui::ViewerSourceListModel>("HftRecorder", 1, 0, "ViewerSourceListModel");
     qmlRegisterType<hftrec::gui::AppViewModel>("HftRecorder", 1, 0, "AppViewModel");
     qmlRegisterType<hftrec::gui::CaptureViewModel>("HftRecorder", 1, 0, "CaptureViewModel");
+    qmlRegisterType<hftrec::gui::CompressionViewModel>("HftRecorder", 1, 0, "CompressionViewModel");
+    qmlRegisterType<hftrec::gui::WorkspaceViewModel>("HftRecorder", 1, 0, "WorkspaceViewModel");
     qmlRegisterType<hftrec::gui::viewer::ChartController>("HftRecorder", 1, 0, "ChartController");
     qmlRegisterType<hftrec::gui::viewer::ChartItem>("HftRecorder", 1, 0, "ChartItem");
     qmlRegisterType<hftrec::gui::viewer::gpu::GpuChartItem>("HftRecorder", 1, 0, "GpuChartItem");

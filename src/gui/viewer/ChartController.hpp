@@ -24,6 +24,7 @@ class ChartController : public QObject {
     Q_PROPERTY(QString currentSourceKind READ currentSourceKind NOTIFY sessionChanged)
     Q_PROPERTY(bool loaded READ loaded NOTIFY sessionChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusChanged)
+    Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
 
     Q_PROPERTY(qint64 firstTsNs READ firstTsNs NOTIFY sessionChanged)
     Q_PROPERTY(qint64 lastTsNs READ lastTsNs NOTIFY sessionChanged)
@@ -45,12 +46,16 @@ class ChartController : public QObject {
 
   public:
     explicit ChartController(QObject* parent = nullptr);
+    ~ChartController() override;
+
+    static ChartController* activeInstance() noexcept;
 
     QString sessionDir() const { return sessionDir_; }
     QString currentSourceId() const { return currentSourceId_; }
     QString currentSourceKind() const { return currentSourceKind_; }
     bool loaded() const { return loaded_; }
     QString statusText() const { return statusText_; }
+    bool active() const noexcept { return active_; }
 
     qint64 firstTsNs() const { return replay_.firstTsNs(); }
     qint64 lastTsNs() const { return replay_.lastTsNs(); }
@@ -89,6 +94,7 @@ class ChartController : public QObject {
     bool renderWindowActive() const noexcept { return renderWindowSeconds_ != 0; }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
+    Q_INVOKABLE void setActive(bool active);
     Q_INVOKABLE bool activateLiveSource(const QString& sourceId, const QString& sessionPath = QString{});
     Q_INVOKABLE void activateLiveOnlyMode();
     Q_INVOKABLE void resetSession();
@@ -148,6 +154,7 @@ class ChartController : public QObject {
     void selectionChanged();
     void markersChanged();
     void renderWindowChanged();
+    void activeChanged();
 
   private:
     struct SelectionRange {
@@ -220,6 +227,7 @@ class ChartController : public QObject {
     QString currentSourceKind_{};
     QString statusText_{"No session loaded"};
     bool loaded_{false};
+    bool active_{false};
     QTimer* liveDataTimer_{nullptr};
     std::unique_ptr<ILiveDataProvider> liveDataProvider_{};
     bool liveProviderFromRegistry_{false};

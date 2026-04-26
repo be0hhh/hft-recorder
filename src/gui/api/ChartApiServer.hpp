@@ -30,6 +30,7 @@ class ChartApiServer final : public QObject {
     void handleReadyRead_(QTcpSocket* socket);
     void respond_(QTcpSocket* socket, int statusCode, const QByteArray& statusText,
                   const QByteArray& contentType, const QByteArray& body);
+    hftrec::gui::viewer::ChartController* controller() const noexcept;
     QByteArray healthBody_() const;
     QByteArray markerPost_(const QByteArray& body, int& statusCode, QByteArray& statusText);
 

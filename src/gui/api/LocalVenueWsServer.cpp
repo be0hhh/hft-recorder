@@ -125,6 +125,8 @@ bool buildOrderRequest(const QJsonObject& root,
     frame.marketRaw = static_cast<std::uint8_t>(order.value(QStringLiteral("market_raw")).toInt());
     frame.typeRaw = static_cast<std::uint8_t>(order.value(QStringLiteral("type_raw")).toInt(cxet::UnifiedRequestSpec::kUnset));
     frame.subtypeRaw = static_cast<std::uint8_t>(order.value(QStringLiteral("subtype_raw")).toInt(cxet::UnifiedRequestSpec::kUnset));
+    frame.apiSlotRaw = static_cast<std::uint8_t>(order.value(QStringLiteral("api_slot_raw")).toInt(1));
+    if (frame.apiSlotRaw == 0u) frame.apiSlotRaw = 1u;
     frame.sideSet = static_cast<std::uint8_t>(order.value(QStringLiteral("side_set")).toInt());
     frame.sideRaw = static_cast<std::uint8_t>(order.value(QStringLiteral("side_raw")).toInt());
     if (!parseInt64Value(order.value(QStringLiteral("price_raw")), frame.priceRaw)) frame.priceRaw = 0;

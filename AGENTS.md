@@ -76,3 +76,37 @@ This repository is a standalone application over `CXETCPP`.
   - validation
   - compression lab
   - results dashboard
+
+## Karpathy-style behavioral rules
+
+Source: https://github.com/forrestchang/andrej-karpathy-skills
+
+These rules are secondary to the hft-recorder rules above. In particular, they do not relax the local bans on Git commands, remote automation, compiling CXETCPP sources inside this repo, or unnecessary builds/tests.
+
+### 1. Think before coding
+
+- Do not assume silently. State important assumptions before implementation.
+- If multiple interpretations exist, surface them instead of picking one invisibly.
+- If a simpler approach fits the request better, say so and explain the tradeoff.
+- If the task is unclear enough that a reasonable implementation would be risky, stop and ask.
+
+### 2. Simplicity first
+
+- Write the minimum code that solves the requested problem.
+- Do not add speculative features, one-off abstractions, or configurability that was not requested.
+- Do not add error handling for impossible scenarios just to make code look defensive.
+- If a solution is much larger than the problem requires, simplify it before presenting it.
+
+### 3. Surgical changes
+
+- Touch only files and lines that trace directly to the user's request.
+- Do not improve adjacent code, comments, formatting, or structure as a drive-by change.
+- Match existing style even when a different style would be personally preferred.
+- Remove only unused code created by the current change. Mention unrelated dead code instead of deleting it.
+
+### 4. Goal-driven execution
+
+- Convert non-trivial tasks into verifiable success criteria.
+- For bug fixes, prefer a reproducing test or targeted check before and after the fix.
+- For refactors, preserve behavior and verify with the narrowest meaningful check.
+- For multi-step work, keep a short plan with each step tied to a concrete verification.

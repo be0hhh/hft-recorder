@@ -514,7 +514,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     const auto declaredSnapshots = report.manifestPresent ? out.manifest.snapshotFiles : std::vector<std::string>{};
     if (!isOk(loadSnapshots(sessionDir,
                             declaredSnapshots,
-                            requireDepth,
+                            false,
                             out.snapshotDocuments,
                             report,
                             report.snapshotState))) {

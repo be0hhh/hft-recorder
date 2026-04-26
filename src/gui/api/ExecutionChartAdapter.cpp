@@ -42,7 +42,8 @@ void ExecutionChartAdapter::setChartController(hftrec::gui::viewer::ChartControl
 }
 
 void ExecutionChartAdapter::onExecutionEvent(const hftrec::execution::ExecutionEvent& event) noexcept {
-    auto* controller = controller_;
+    auto* controller = hftrec::gui::viewer::ChartController::activeInstance();
+    if (controller == nullptr) controller = controller_;
     if (controller == nullptr || event.tsNs == 0u) return;
     if (event.kind != hftrec::execution::ExecutionEventKind::Ack &&
         event.kind != hftrec::execution::ExecutionEventKind::Reject) {

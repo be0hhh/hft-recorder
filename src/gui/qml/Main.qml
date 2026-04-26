@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import HftRecorder 1.0
@@ -18,22 +18,104 @@ ApplicationWindow {
     property color mutedTextColor: "#b6b6b6"
     property color accentBuyColor: "#24c2cb"
 
-    AppViewModel { id: appVm; objectName: "appVm" }
-    CaptureViewModel { id: captureVm; objectName: "captureVm" }
+    property var createdTabs: ({})
+    property var floatingWindows: ({})
+    property string workspaceErrorText: ""
 
-    component DarkTabButton: TabButton {
-        id: control
-        background: Rectangle {
-            color: control.checked ? root.panelAltColor : root.panelColor
-            border.color: control.checked ? root.accentBuyColor : root.borderColor
-            border.width: 1
+    AppViewModel { id: rootAppVm; objectName: "appVm" }
+    CaptureViewModel { id: rootCaptureVm; objectName: "captureVm" }
+    CompressionViewModel { id: rootCompressionVm; objectName: "compressionVm" }
+    WorkspaceViewModel { id: rootWorkspaceVm; objectName: "workspaceVm" }
+
+    Item { id: inactiveTabStorage; visible: false; anchors.fill: parent }
+    Component { id: captureComponent; CaptureView { captureVm: rootCaptureVm; tabActive: false } }
+    Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; tabActive: false } }
+    Component { id: compressComponent; CompressView { compressionVm: rootCompressionVm; tabActive: false } }
+
+    function componentForTab(tabId) {
+        if (tabId === "capture") return captureComponent
+        if (tabId === "viewer") return viewerComponent
+        if (tabId === "compress") return compressComponent
+        return null
+    }
+
+    function ensureTab(tabId) {
+        if (createdTabs[tabId] !== undefined)
+            return createdTabs[tabId]
+        var component = componentForTab(tabId)
+        if (component === null)
+            return null
+        var item = component.createObject(inactiveTabStorage)
+        if (item === null) {
+            workspaceErrorText = "Failed to create tab: " + tabId
+            console.error(workspaceErrorText)
+            return null
         }
-        contentItem: Text {
-            text: control.text
-            color: control.checked ? root.textColor : root.mutedTextColor
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
+        item.visible = false
+        item.enabled = false
+        createdTabs[tabId] = item
+        return item
+    }
+
+    function deactivateHost(hostId) {
+        var tabs = rootWorkspaceVm.hostTabs(hostId)
+        for (var i = 0; i < tabs.length; ++i) {
+            var item = createdTabs[tabs[i]]
+            if (item !== undefined) {
+                item.tabActive = false
+                item.visible = false
+                item.enabled = false
+                item.parent = inactiveTabStorage
+            }
         }
+    }
+
+    function attachTabToHost(tabId, targetParent, hostId) {
+        if (targetParent === null || targetParent === undefined)
+            return
+        workspaceErrorText = ""
+        deactivateHost(hostId)
+
+        var item = ensureTab(tabId)
+        if (item === null) {
+            workspaceErrorText = "Tab is not available: " + rootWorkspaceVm.tabTitle(tabId)
+            return
+        }
+        item.parent = targetParent
+        item.anchors.fill = targetParent
+        item.visible = true
+        item.enabled = true
+        item.tabActive = true
+    }
+
+    function syncFloatingWindows() {
+        var hosts = rootWorkspaceVm.floatingHosts()
+        var wanted = ({})
+        for (var i = 0; i < hosts.length; ++i) {
+            var host = hosts[i]
+            wanted[host.id] = true
+            if (floatingWindows[host.id] === undefined) {
+                var window = floatingWindowComponent.createObject(root, {
+                    workspaceVm: rootWorkspaceVm,
+                    hostId: host.id,
+                    hostState: host,
+                    attachTab: attachTabToHost
+                })
+                floatingWindows[host.id] = window
+            }
+        }
+
+        for (var id in floatingWindows) {
+            if (wanted[id]) continue
+            deactivateHost(id)
+            floatingWindows[id].destroy()
+            delete floatingWindows[id]
+        }
+    }
+
+    onClosing: {
+        for (var id in floatingWindows)
+            floatingWindows[id].applicationClosing = true
     }
 
     header: ToolBar {
@@ -45,29 +127,54 @@ ApplicationWindow {
             anchors.rightMargin: 16
             spacing: 16
             Label { text: "hft-recorder"; font.bold: true; font.pixelSize: 20; color: root.textColor }
+            Label { text: rootAppVm.renderDiagnosticsText; color: root.mutedTextColor; font.pixelSize: 12 }
             Item { Layout.fillWidth: true }
+            Button {
+                text: "Reset layout"
+                visible: rootWorkspaceVm.floatingHosts().length > 0
+                onClicked: rootWorkspaceVm.restoreAllTabsToMain()
+            }
         }
     }
 
-    ColumnLayout {
+    WorkspaceHost {
+        id: mainHost
         anchors.fill: parent
-        spacing: 0
+        workspaceVm: rootWorkspaceVm
+        hostId: rootWorkspaceVm.mainHostId
+        floating: false
+        attachTab: root.attachTabToHost
+        panelColor: root.panelColor
+        panelAltColor: root.panelAltColor
+        borderColor: root.borderColor
+        textColor: root.textColor
+        mutedTextColor: root.mutedTextColor
+        accentBuyColor: root.accentBuyColor
+    }
 
-        TabBar {
-            id: tabBar
-            Layout.fillWidth: true
-            background: Rectangle { color: root.panelColor; border.color: root.borderColor; border.width: 1 }
-            DarkTabButton { text: "Capture" }
-            DarkTabButton { text: "Viewer" }
-        }
+    Rectangle {
+        anchors.fill: parent
+        anchors.topMargin: 94
+        visible: root.workspaceErrorText !== ""
+        color: root.color
+        z: 100
 
-        StackLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            currentIndex: tabBar.currentIndex
-
-            CaptureView { Layout.fillWidth: true; Layout.fillHeight: true; captureVm: captureVm }
-            ViewerView { Layout.fillWidth: true; Layout.fillHeight: true; appVm: appVm; captureVm: captureVm }
+        Label {
+            anchors.centerIn: parent
+            text: root.workspaceErrorText
+            color: root.textColor
         }
     }
+
+    Component {
+        id: floatingWindowComponent
+        WorkspaceFloatingWindow {}
+    }
+
+    Connections {
+        target: rootWorkspaceVm
+        function onLayoutChanged() { root.syncFloatingWindows() }
+    }
+
+    Component.onCompleted: root.syncFloatingWindows()
 }
