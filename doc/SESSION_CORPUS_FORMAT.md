@@ -8,8 +8,15 @@ This is the current source of truth for recording and replay.
 
 Important scope rule:
 - JSON is the current canonical durable backend
+- JSON is not proof that the upstream source is high-quality or exact
 - JSON is not the permanent architecture truth for all future backends
 - consumer semantics must stay defined by session/materialization contracts, not by filename-specific behavior alone
+
+Market-data source-quality labels follow
+[MARKET_DATA_FEED_QUALITY_AND_SBE](../../../doc/hft-research/MARKET_DATA_FEED_QUALITY_AND_SBE.md).
+Every persisted channel must preserve `source_quality`, `source_format`,
+`origin`, `feed_kind`, `sequence_policy`, and `timestamp_policy` in manifest or
+equivalent session metadata.
 
 ## Session directory
 
@@ -71,6 +78,16 @@ Current canonical top-level groups:
 - `artifacts`
 - `summary`
 
+For each entry under `channels`, metadata must make source quality explicit:
+- `source_quality`: `canonical`, `canonical_available_but_aggregated`,
+  `degraded`, `diagnostic`, or `unknown`
+- `source_format`: for example `json`, `sbe`, `binary`, `rest_snapshot`, or
+  `derived`
+- `origin`: exchange/product/channel/raw stream name
+- `feed_kind`: for example `raw_trade`, `agg_trade`, `l1_bbo`, `l2_delta`, or
+  `snapshot`
+- `sequence_policy` and `timestamp_policy`
+
 Important implemented rules:
 - new-format sessions declare schema versions explicitly
 - loader validates manifest first, then loads channel files by manifest-declared
@@ -100,6 +117,11 @@ Current `legacy_v0` compatibility path covers older manifests with flat fields:
 
 One line per normalized trade-like event.
 
+The filename does not define raw-vs-aggregated semantics. Manifest metadata must
+say whether the source is `feed_kind=raw_trade`, `feed_kind=agg_trade`, or an
+exchange-specific trade kind. Binance FAPI `aggTrade` is
+`canonical_available_but_aggregated`, not raw executions.
+
 Current implemented fields (v3 optional-tail schema):
 - `tsNs`
 - `captureSeq`
@@ -114,6 +136,10 @@ recorder writes today.
 ### `bookticker.jsonl`
 
 One line per normalized level-1 event.
+
+Level-1 BBO channels are observational overlays. If the source is throttled or
+bucketed BBO, it must be labelled `degraded` for exact fill/microstructure
+claims.
 
 Current implemented fields (v3 optional-tail schema):
 - `tsNs`
@@ -264,3 +290,8 @@ Exact book reconstruction semantics:
 `CXETCPP` callback payloads are a live capture interface, not the durable corpus
 contract. Recorder code should translate them into recorder-owned normalized
 capture rows before writing canonical JSON.
+
+Future SBE/binary capture may materialize into the same normalized JSON rows,
+but the session metadata must still preserve the original `source_format`,
+`origin`, and `feed_kind`. JSON and SBE rows must not be merged as one anonymous
+canonical stream.
