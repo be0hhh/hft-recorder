@@ -295,22 +295,11 @@ void ChartController::refreshProviderFromRegistry_() {
 }
 
 bool ChartController::appendOverlayBatch_(const LiveDataBatch& batch, QString* failureText) {
-    LiveDataBatch nextOverlay{};
+    if (!appendMonotonicRows(batch.trades, liveOverlayState_.trades, failureText, QStringLiteral("trade"))) return false;
+    if (!appendMonotonicRows(batch.bookTickers, liveOverlayState_.bookTickers, failureText, QStringLiteral("bookticker"))) return false;
+    if (!appendMonotonicRows(batch.depths, liveOverlayState_.depths, failureText, QStringLiteral("depth"))) return false;
+    if (!appendMonotonicRows(batch.snapshots, liveOverlayState_.snapshots, failureText, QStringLiteral("snapshot"))) return false;
 
-    if (!batch.trades.empty()) nextOverlay.trades.push_back(batch.trades.back());
-    if (!batch.bookTickers.empty()) nextOverlay.bookTickers.push_back(batch.bookTickers.back());
-    if (!batch.depths.empty()) nextOverlay.depths.push_back(batch.depths.back());
-    if (!batch.snapshots.empty()) nextOverlay.snapshots.push_back(batch.snapshots.back());
-
-    if (!appendMonotonicRows(nextOverlay.trades, liveOverlayState_.trades, failureText, QStringLiteral("trade"))) return false;
-    if (!appendMonotonicRows(nextOverlay.bookTickers, liveOverlayState_.bookTickers, failureText, QStringLiteral("bookticker"))) return false;
-    if (!appendMonotonicRows(nextOverlay.depths, liveOverlayState_.depths, failureText, QStringLiteral("depth"))) return false;
-    if (!appendMonotonicRows(nextOverlay.snapshots, liveOverlayState_.snapshots, failureText, QStringLiteral("snapshot"))) return false;
-
-    if (liveOverlayState_.trades.size() > 1u) liveOverlayState_.trades.erase(liveOverlayState_.trades.begin(), liveOverlayState_.trades.end() - 1);
-    if (liveOverlayState_.bookTickers.size() > 1u) liveOverlayState_.bookTickers.erase(liveOverlayState_.bookTickers.begin(), liveOverlayState_.bookTickers.end() - 1);
-    if (liveOverlayState_.depths.size() > 1u) liveOverlayState_.depths.erase(liveOverlayState_.depths.begin(), liveOverlayState_.depths.end() - 1);
-    if (liveOverlayState_.snapshots.size() > 1u) liveOverlayState_.snapshots.erase(liveOverlayState_.snapshots.begin(), liveOverlayState_.snapshots.end() - 1);
     liveOverlayState_.id = batch.id;
     return true;
 }

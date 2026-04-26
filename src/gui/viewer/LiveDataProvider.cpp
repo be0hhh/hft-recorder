@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -260,7 +261,7 @@ LiveDataBatch JsonTailLiveDataProvider::materializeRange(const LiveDataRangeRequ
     batch.bookTickers.insert(batch.bookTickers.end(), tickerBegin, tickerEnd);
 
     const std::int64_t depthTsMin = batch.snapshots.empty()
-        ? request.tsMin
+        ? std::numeric_limits<std::int64_t>::min()
         : batch.snapshots.back().tsNs;
     const auto depthBegin = std::lower_bound(
         depthHistory_.begin(),
@@ -394,7 +395,7 @@ LiveDataBatch InMemoryLiveDataProvider::materializeRange(const LiveDataRangeRequ
             allRows.snapshots.end(),
             request.tsMax,
             [](std::int64_t ts, const hftrec::replay::SnapshotDocument& row) noexcept { return ts < row.tsNs; });
-        std::int64_t depthTsMin = request.tsMin;
+        std::int64_t depthTsMin = std::numeric_limits<std::int64_t>::min();
         if (snapshotIt != allRows.snapshots.begin()) {
             const auto& snapshot = *std::prev(snapshotIt);
             batch.snapshots.push_back(snapshot);

@@ -68,6 +68,23 @@ hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
     return row;
 }
 
+hftrec::replay::DepthRow depthRow(std::int64_t tsNs,
+                                  std::int64_t captureSeq,
+                                  std::int64_t bidPriceE8,
+                                  std::int64_t askPriceE8) {
+    hftrec::replay::DepthRow row{};
+    row.tsNs = tsNs;
+    row.captureSeq = captureSeq;
+    row.ingestSeq = captureSeq;
+    row.hasUpdateId = true;
+    row.hasFirstUpdateId = true;
+    row.updateId = captureSeq;
+    row.firstUpdateId = captureSeq;
+    row.bids.push_back(hftrec::replay::PricePair{bidPriceE8, e8(2), 0, 0});
+    row.asks.push_back(hftrec::replay::PricePair{askPriceE8, e8(3), 1, 0});
+    return row;
+}
+
 class StubIngress final : public hftrec::market_data::IMarketDataIngress {
   public:
     explicit StubIngress(const hftrec::storage::IEventSource* source) : source_(source) {}
@@ -182,6 +199,28 @@ TEST(ViewerLiveSource, RegistrySelectionUsesInMemoryProviderForViewportCache) {
     ASSERT_EQ(chart.liveDataCache().stableRows.trades.size(), 1u);
     EXPECT_EQ(chart.liveDataCache().stableRows.trades.front().tsNs, 100);
     EXPECT_TRUE(chart.loaded());
+
+    registry.clear();
+}
+
+TEST(ViewerLiveSource, MaterializesPriorDepthForOrderbookState) {
+    hftrec::storage::LiveEventStore store{};
+    ASSERT_EQ(store.appendDepth(depthRow(100, 1, e8(100), e8(101))), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendDepth(depthRow(150, 2, e8(99), e8(102))), hftrec::Status::Ok);
+    StubIngress ingress(&store);
+
+    auto& registry = LiveDataRegistry::instance();
+    registry.setSources({
+        {"live:test:futures:BNBUSDT", "Test", "Futures", "BNBUSDT", "s3", {}, &ingress},
+    });
+
+    ChartController chart;
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:BNBUSDT"), QString{}));
+    chart.refreshLiveDataWindow(120, 200);
+
+    ASSERT_EQ(chart.liveDataCache().stableRows.depths.size(), 2u);
+    EXPECT_EQ(chart.liveDataCache().stableRows.depths.front().tsNs, 100);
+    EXPECT_EQ(chart.liveDataCache().stableRows.depths.back().tsNs, 150);
 
     registry.clear();
 }

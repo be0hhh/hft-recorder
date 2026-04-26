@@ -225,6 +225,19 @@ TEST(ViewerOrderbookDepthWindow, KeepsOneRepresentativePerPixel) {
     EXPECT_EQ(seg.asks.front().priceE8, e8(10100));
 }
 
+TEST(ViewerOrderbookDepthWindow, HoldsBookStateUntilNextEvent) {
+    const auto qty = e8(2);
+    const auto snap = buildSnapshot(
+        {{e8(10000), qty}},
+        {{e8(10100), qty}},
+        {},
+        5.0);
+    const auto& seg = onlySegment(snap);
+
+    EXPECT_EQ(seg.tsStartNs, 1000);
+    EXPECT_EQ(seg.tsEndNs, 2000);
+}
+
 TEST(ViewerOrderbookHover, UsesSegmentUnderMouseX) {
     RenderSnapshot snap{};
     snap.loaded = true;
