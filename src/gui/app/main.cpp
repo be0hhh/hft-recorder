@@ -22,7 +22,6 @@
 #include "gui/viewmodels/CaptureViewModel.hpp"
 #include "gui/viewmodels/CompressionViewModel.hpp"
 #include "gui/viewmodels/WorkspaceViewModel.hpp"
-#include "hft_compressor/metrics_server.hpp"
 
 namespace {
 
@@ -58,8 +57,6 @@ void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
     hftrec::app::MetricsBootstrap metricsBootstrap{};
-    hft_compressor::MetricsServer compressionMetricsServer{};
-    compressionMetricsServer.startFromEnvironment();
 #if HFTREC_WITH_CXET
     hftrec::local_exchange::LocalExchangeServer localExchangeServer;
     localExchangeServer.start();

@@ -66,7 +66,7 @@ Pane {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: "Run zstd"
+                text: "Run pipeline"
                 enabled: root.compressionVm.canRun
                 onClicked: root.compressionVm.runCompression()
             }
@@ -96,6 +96,51 @@ Pane {
                 onEditingFinished: root.compressionVm.setOutputRoot(text)
             }
             Button { text: "Folder"; onClicked: outputDialog.open() }
+
+            Label { text: "Pipeline"; color: root.mutedTextColor; Layout.alignment: Qt.AlignVCenter }
+            ComboBox {
+                id: pipelineBox
+                Layout.fillWidth: true
+                textRole: "label"
+                valueRole: "id"
+                model: root.compressionVm.pipelines
+                Component.onCompleted: currentIndex = indexOfValue(root.compressionVm.selectedPipelineId)
+                onActivated: root.compressionVm.setSelectedPipelineId(currentValue)
+
+                delegate: ItemDelegate {
+                    required property var modelData
+                    width: pipelineBox.width
+                    text: modelData.label + "  [" + modelData.availability + "]"
+                    opacity: modelData.available ? 1.0 : 0.65
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+                radius: 4
+                color: root.panelAltColor
+                border.color: root.compressionVm.selectedPipelineAvailable ? root.accentColor : root.borderColor
+                border.width: 1
+
+                Text {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    verticalAlignment: Text.AlignVCenter
+                    text: root.compressionVm.selectedPipelineAvailable ? "available" : "planned"
+                    color: root.compressionVm.selectedPipelineAvailable ? root.textColor : root.mutedTextColor
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: root.compressionVm.selectedPipelineSummary
+            color: root.mutedTextColor
+            font.pixelSize: 12
+            elide: Text.ElideRight
         }
 
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.borderColor }
@@ -159,6 +204,9 @@ Pane {
 
                 Label { text: "Status"; color: root.mutedTextColor }
                 Label { Layout.fillWidth: true; text: root.compressionVm.statusText; color: root.textColor; elide: Text.ElideRight }
+
+                Label { text: "Pipeline"; color: root.mutedTextColor }
+                Label { Layout.fillWidth: true; text: root.compressionVm.resultPipelineText; color: root.textColor; elide: Text.ElideRight }
 
                 Label { text: "File"; color: root.mutedTextColor }
                 Label { Layout.fillWidth: true; text: root.compressionVm.outputFile; color: root.textColor; elide: Text.ElideMiddle }

@@ -36,10 +36,13 @@ else()
 endif()
 
 if(HFTREC_WITH_CXET)
+    get_filename_component(_cxet_lib_dir "${CXET_SHARED_LIB}" DIRECTORY)
     add_library(cxet_lib SHARED IMPORTED GLOBAL)
     set_target_properties(cxet_lib PROPERTIES
         IMPORTED_LOCATION "${CXET_SHARED_LIB}"
         INTERFACE_INCLUDE_DIRECTORIES "${CXET_PUBLIC_INCLUDE_DIR}"
+        INTERFACE_LINK_DIRECTORIES "${_cxet_lib_dir}"
+        INTERFACE_LINK_OPTIONS "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_cxet_lib_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${_cxet_lib_dir}>"
     )
 endif()
 

@@ -94,7 +94,11 @@ cmd_install_cxet() {
     _require_linux_build_env
     local force="${1:-}"
     local so="$INSTALL_DIR/lib/libcxet_lib.so"
-    if [ "$force" != "--force" ] && { [ -f "$so" ] || [ -f "$so.1" ]; }; then
+    if [ "$force" != "--force" ] \
+        && { [ -f "$so" ] || [ -f "$so.1" ]; } \
+        && [ -f "$INSTALL_DIR/lib/libwolfssl.so.44" ] \
+        && [ -f "$INSTALL_DIR/lib/libabsl_raw_hash_set.so" ] \
+        && [ -f "$INSTALL_DIR/lib/libabsl_hash.so" ]; then
         echo ">>> CXETCPP already installed at $INSTALL_DIR"
         return 0
     fi
@@ -112,6 +116,9 @@ cmd_install_cxet() {
     cmake --build build --target cxet_lib -j"$(nproc)"
     echo ">>> Installing CXETCPP ..."
     cmake --install build
+    mkdir -p "$INSTALL_DIR/lib"
+    cp -a build/extra/wolfssl/libwolfssl.so* "$INSTALL_DIR/lib/"
+    find build/extra/abseil-cpp/absl -name 'libabsl*.so*' -exec cp -a {} "$INSTALL_DIR/lib/" \;
 }
 
 _resolve_cxet_paths() {

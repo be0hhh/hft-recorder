@@ -66,7 +66,10 @@ _install_cxet_if_missing() {
     local replay_so="$INSTALL_DIR/lib/libcxet_replay_core.so"
     if [ "$FORCE_CXET" = "0" ] \
         && { [ -f "$so" ] || [ -f "$so.1" ]; } \
-        && { [ -f "$replay_so" ] || [ -f "$replay_so.1" ]; }; then
+        && { [ -f "$replay_so" ] || [ -f "$replay_so.1" ]; } \
+        && [ -f "$INSTALL_DIR/lib/libwolfssl.so.44" ] \
+        && [ -f "$INSTALL_DIR/lib/libabsl_raw_hash_set.so" ] \
+        && [ -f "$INSTALL_DIR/lib/libabsl_hash.so" ]; then
         return 0
     fi
     echo ">>> Building CXETCPP -> $INSTALL_DIR"
@@ -80,6 +83,9 @@ _install_cxet_if_missing() {
           > /dev/null
     cmake --build build --target cxet_lib cxet_replay_core -j"$JOBS"
     cmake --install build > /dev/null
+    mkdir -p "$INSTALL_DIR/lib"
+    cp -a build/extra/wolfssl/libwolfssl.so* "$INSTALL_DIR/lib/"
+    find build/extra/abseil-cpp/absl -name 'libabsl*.so*' -exec cp -a {} "$INSTALL_DIR/lib/" \;
     cd "$APP"
 }
 
