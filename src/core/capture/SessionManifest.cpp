@@ -202,6 +202,15 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
                                     manifest.tradesCount)) {
                 return false;
             }
+        } else if (key == "liquidations") {
+            if (!parseChannelObject(parser,
+                                    manifest.liquidationsEnabled,
+                                    manifest.liquidationsRequiredWhenEnabled,
+                                    manifest.liquidationsPath,
+                                    manifest.liquidationsRowSchema,
+                                    manifest.liquidationsCount)) {
+                return false;
+            }
         } else if (key == "bookticker") {
             if (!parseChannelObject(parser,
                                     manifest.bookTickerEnabled,
@@ -361,6 +370,8 @@ bool parseChannelIntegrityGroupObject(JsonParser& parser, SessionManifest& manif
         if (!parser.parseKey(key)) return false;
         if (key == "trades") {
             if (!parseChannelIntegrityObject(parser, manifest.tradesIntegrity)) return false;
+        } else if (key == "liquidations") {
+            if (!parseChannelIntegrityObject(parser, manifest.liquidationsIntegrity)) return false;
         } else if (key == "bookticker") {
             if (!parseChannelIntegrityObject(parser, manifest.bookTickerIntegrity)) return false;
         } else if (key == "depth") {
@@ -385,6 +396,10 @@ bool isSupportedTradesRowSchema(std::string_view schema) noexcept {
     return schema == "cxet_trade_alias_first_v3";
 }
 
+bool isSupportedLiquidationsRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_liquidation_alias_first_v1";
+}
+
 bool isSupportedBookTickerRowSchema(std::string_view schema) noexcept {
     return schema == "cxet_bookticker_alias_first_v3";
 }
@@ -402,6 +417,7 @@ void populateCanonicalArtifacts(SessionManifest& manifest) {
     manifest.canonicalArtifacts.push_back("manifest.json");
     if (!manifest.instrumentMetadataPath.empty()) manifest.canonicalArtifacts.push_back(manifest.instrumentMetadataPath);
     if (manifest.tradesEnabled && !manifest.tradesPath.empty()) manifest.canonicalArtifacts.push_back(manifest.tradesPath);
+    if (manifest.liquidationsEnabled && !manifest.liquidationsPath.empty()) manifest.canonicalArtifacts.push_back(manifest.liquidationsPath);
     if (manifest.bookTickerEnabled && !manifest.bookTickerPath.empty()) manifest.canonicalArtifacts.push_back(manifest.bookTickerPath);
     if (manifest.orderbookEnabled && !manifest.depthPath.empty()) manifest.canonicalArtifacts.push_back(manifest.depthPath);
     for (const auto& snapshotFile : manifest.snapshotFiles) {
@@ -436,6 +452,12 @@ bool validateStructurally(SessionManifest& manifest) {
     }
     if (manifest.tradesEnabled && !isSupportedTradesRowSchema(manifest.tradesRowSchema)) {
         manifest.structuralBlockers.push_back("unsupported trades row schema");
+    }
+    if (manifest.liquidationsEnabled && manifest.liquidationsRequiredWhenEnabled && manifest.liquidationsPath.empty()) {
+        manifest.structuralBlockers.push_back("missing liquidations path");
+    }
+    if (manifest.liquidationsEnabled && !isSupportedLiquidationsRowSchema(manifest.liquidationsRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported liquidations row schema");
     }
     if (manifest.bookTickerEnabled && manifest.bookTickerRequiredWhenEnabled && manifest.bookTickerPath.empty()) {
         manifest.structuralBlockers.push_back("missing bookticker path");
@@ -512,6 +534,13 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"row_schema\": " << json::quote(manifest.tradesRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.tradesCount << "\n";
     out << "    },\n";
+    out << "    \"liquidations\": {\n";
+    out << "      \"enabled\": " << boolToString(manifest.liquidationsEnabled) << ",\n";
+    out << "      \"required_when_enabled\": " << boolToString(manifest.liquidationsRequiredWhenEnabled) << ",\n";
+    out << "      \"path\": " << json::quote(manifest.liquidationsPath) << ",\n";
+    out << "      \"row_schema\": " << json::quote(manifest.liquidationsRowSchema) << ",\n";
+    out << "      \"declared_event_count\": " << manifest.liquidationsCount << "\n";
+    out << "    },\n";
     out << "    \"bookticker\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.bookTickerEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.bookTickerRequiredWhenEnabled) << ",\n";
@@ -554,6 +583,7 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "    },\n";
     out << "    \"channels\": {\n";
     appendChannelIntegrity(out, "trades", manifest.tradesIntegrity, true);
+    appendChannelIntegrity(out, "liquidations", manifest.liquidationsIntegrity, true);
     appendChannelIntegrity(out, "bookticker", manifest.bookTickerIntegrity, true);
     appendChannelIntegrity(out, "depth", manifest.depthIntegrity, true);
     appendChannelIntegrity(out, "snapshot", manifest.snapshotIntegrity, false);

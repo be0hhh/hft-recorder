@@ -11,6 +11,7 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
     : QObject(parent) {
     outputDirectory_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../recordings"));
     tradesAvailableAliases_ = detail::loadAliasesForChannel("trades");
+    liquidationsAvailableAliases_ = detail::loadAliasesForChannel("liquidations");
     bookTickerAvailableAliases_ = detail::loadAliasesForChannel("bookticker");
     orderbookAvailableAliases_ = detail::loadAliasesForChannel("orderbook");
 
@@ -44,12 +45,15 @@ QString CaptureViewModel::captureUnavailableReason() const {
 }
 bool CaptureViewModel::sessionOpen() const { return !coordinators_.empty(); }
 bool CaptureViewModel::tradesRunning() const { return lastTradesRunning_; }
+bool CaptureViewModel::liquidationsRunning() const { return lastLiquidationsRunning_; }
 bool CaptureViewModel::bookTickerRunning() const { return lastBookTickerRunning_; }
 bool CaptureViewModel::orderbookRunning() const { return lastOrderbookRunning_; }
 qulonglong CaptureViewModel::tradesCount() const { return lastTradesCount_; }
+qulonglong CaptureViewModel::liquidationsCount() const { return lastLiquidationsCount_; }
 qulonglong CaptureViewModel::bookTickerCount() const { return lastBookTickerCount_; }
 qulonglong CaptureViewModel::depthCount() const { return lastDepthCount_; }
 QStringList CaptureViewModel::tradesAvailableAliases() const { return tradesAvailableAliases_; }
+QStringList CaptureViewModel::liquidationsAvailableAliases() const { return liquidationsAvailableAliases_; }
 QStringList CaptureViewModel::bookTickerAvailableAliases() const { return bookTickerAvailableAliases_; }
 QStringList CaptureViewModel::orderbookAvailableAliases() const { return orderbookAvailableAliases_; }
 
@@ -65,6 +69,13 @@ QString CaptureViewModel::tradesRequestPreview() const {
     return detail::buildRequestPreview(QStringLiteral("trades"),
                                        tradesAvailableAliases_,
                                        selectedTradesAliases_,
+                                       symbolsText_);
+}
+
+QString CaptureViewModel::liquidationsRequestPreview() const {
+    return detail::buildRequestPreview(QStringLiteral("liquidations"),
+                                       liquidationsAvailableAliases_,
+                                       selectedLiquidationsAliases_,
                                        symbolsText_);
 }
 
@@ -137,15 +148,18 @@ std::vector<capture::CaptureConfig> CaptureViewModel::makeConfigs() const {
     return detail::makeConfigs(outputDirectory_,
                                symbolsText_,
                                tradesAvailableAliases_,
+                               liquidationsAvailableAliases_,
                                bookTickerAvailableAliases_,
                                orderbookAvailableAliases_,
                                selectedTradesAliases_,
+                               selectedLiquidationsAliases_,
                                selectedBookTickerAliases_,
                                selectedOrderbookAliases_);
 }
 
 QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& channel) {
     if (channel == QStringLiteral("trades")) return &selectedTradesAliases_;
+    if (channel == QStringLiteral("liquidations")) return &selectedLiquidationsAliases_;
     if (channel == QStringLiteral("bookticker")) return &selectedBookTickerAliases_;
     if (channel == QStringLiteral("orderbook")) return &selectedOrderbookAliases_;
     return nullptr;
@@ -153,6 +167,7 @@ QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& channel
 
 const QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& channel) const {
     if (channel == QStringLiteral("trades")) return &selectedTradesAliases_;
+    if (channel == QStringLiteral("liquidations")) return &selectedLiquidationsAliases_;
     if (channel == QStringLiteral("bookticker")) return &selectedBookTickerAliases_;
     if (channel == QStringLiteral("orderbook")) return &selectedOrderbookAliases_;
     return nullptr;
@@ -160,6 +175,7 @@ const QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& c
 
 const QStringList* CaptureViewModel::availableAliasesForChannel_(const QString& channel) const {
     if (channel == QStringLiteral("trades")) return &tradesAvailableAliases_;
+    if (channel == QStringLiteral("liquidations")) return &liquidationsAvailableAliases_;
     if (channel == QStringLiteral("bookticker")) return &bookTickerAvailableAliases_;
     if (channel == QStringLiteral("orderbook")) return &orderbookAvailableAliases_;
     return nullptr;

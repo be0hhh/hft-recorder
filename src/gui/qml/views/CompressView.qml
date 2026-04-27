@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 
 Pane {
@@ -18,17 +17,18 @@ Pane {
 
     background: Rectangle { color: root.windowColor }
 
-    FileDialog {
-        id: inputDialog
-        title: "Select corpus file"
-        nameFilters: ["Canonical JSONL (*.jsonl)"]
-        onAccepted: root.compressionVm.setInputFileUrl(selectedFile)
+    function syncSelections() {
+        sessionBox.currentIndex = sessionBox.indexOfValue(root.compressionVm.selectedSessionId)
+        channelBox.currentIndex = channelBox.indexOfValue(root.compressionVm.selectedChannel)
+        pipelineBox.currentIndex = pipelineBox.indexOfValue(root.compressionVm.selectedPipelineId)
     }
 
-    FolderDialog {
-        id: outputDialog
-        title: "Select output root"
-        onAccepted: root.compressionVm.setOutputRootUrl(selectedFolder)
+    Connections {
+        target: root.compressionVm
+        function onSessionsChanged() { root.syncSelections() }
+        function onSelectedSessionChanged() { root.syncSelections() }
+        function onSelectedChannelChanged() { root.syncSelections() }
+        function onSelectedPipelineChanged() { root.syncSelections() }
     }
 
     ColumnLayout {
@@ -66,6 +66,11 @@ Pane {
             Item { Layout.fillWidth: true }
 
             Button {
+                text: "Reload"
+                onClicked: root.compressionVm.reloadSessions()
+            }
+
+            Button {
                 text: "Run pipeline"
                 enabled: root.compressionVm.canRun
                 onClicked: root.compressionVm.runCompression()
@@ -78,24 +83,87 @@ Pane {
             columnSpacing: 10
             rowSpacing: 10
 
-            Label { text: "Input"; color: root.mutedTextColor; Layout.alignment: Qt.AlignVCenter }
-            TextField {
+            Label { text: "Recordings"; color: root.mutedTextColor; Layout.alignment: Qt.AlignVCenter }
+            Label {
                 Layout.fillWidth: true
-                text: root.compressionVm.inputFile
+                text: root.compressionVm.recordingsRoot
                 color: root.textColor
-                placeholderText: "trades.jsonl, bookticker.jsonl, or depth.jsonl"
-                onEditingFinished: root.compressionVm.setInputFile(text)
+                elide: Text.ElideMiddle
             }
-            Button { text: "Browse"; onClicked: inputDialog.open() }
+            Label { text: "" }
 
-            Label { text: "Output"; color: root.mutedTextColor; Layout.alignment: Qt.AlignVCenter }
-            TextField {
+            Label { text: "Session"; color: root.mutedTextColor; Layout.alignment: Qt.AlignVCenter }
+            ComboBox {
+                id: sessionBox
                 Layout.fillWidth: true
-                text: root.compressionVm.outputRoot
-                color: root.textColor
-                onEditingFinished: root.compressionVm.setOutputRoot(text)
+                textRole: "label"
+                valueRole: "id"
+                model: root.compressionVm.sessions
+                Component.onCompleted: root.syncSelections()
+                onActivated: root.compressionVm.setSelectedSessionId(currentValue)
+
+                delegate: ItemDelegate {
+                    required property var modelData
+                    width: sessionBox.width
+                    text: modelData.label
+                }
             }
-            Button { text: "Folder"; onClicked: outputDialog.open() }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+                radius: 4
+                color: root.panelAltColor
+                border.color: root.borderColor
+                border.width: 1
+
+                Text {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    verticalAlignment: Text.AlignVCenter
+                    text: root.compressionVm.selectedSessionPath
+                    color: root.mutedTextColor
+                    font.pixelSize: 12
+                    elide: Text.ElideMiddle
+                }
+            }
+
+            Label { text: "Channel"; color: root.mutedTextColor; Layout.alignment: Qt.AlignVCenter }
+            ComboBox {
+                id: channelBox
+                Layout.fillWidth: true
+                textRole: "label"
+                valueRole: "id"
+                model: root.compressionVm.channelChoices
+                Component.onCompleted: root.syncSelections()
+                onActivated: root.compressionVm.setSelectedChannel(currentValue)
+
+                delegate: ItemDelegate {
+                    required property var modelData
+                    width: channelBox.width
+                    text: modelData.label + (modelData.available ? "" : "  missing")
+                    opacity: modelData.available ? 1.0 : 0.55
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+                radius: 4
+                color: root.panelAltColor
+                border.color: root.compressionVm.canRun ? root.accentColor : root.borderColor
+                border.width: 1
+
+                Text {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    verticalAlignment: Text.AlignVCenter
+                    text: root.compressionVm.inputFile
+                    color: root.textColor
+                    font.pixelSize: 12
+                    elide: Text.ElideMiddle
+                }
+            }
 
             Label { text: "Pipeline"; color: root.mutedTextColor; Layout.alignment: Qt.AlignVCenter }
             ComboBox {
@@ -104,7 +172,7 @@ Pane {
                 textRole: "label"
                 valueRole: "id"
                 model: root.compressionVm.pipelines
-                Component.onCompleted: currentIndex = indexOfValue(root.compressionVm.selectedPipelineId)
+                Component.onCompleted: root.syncSelections()
                 onActivated: root.compressionVm.setSelectedPipelineId(currentValue)
 
                 delegate: ItemDelegate {
@@ -132,6 +200,15 @@ Pane {
                     font.pixelSize: 12
                     elide: Text.ElideRight
                 }
+            }
+
+            Label { text: "Output"; color: root.mutedTextColor; Layout.alignment: Qt.AlignVCenter }
+            Label {
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                text: root.compressionVm.outputFilePreview
+                color: root.textColor
+                elide: Text.ElideMiddle
             }
         }
 

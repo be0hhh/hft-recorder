@@ -23,9 +23,11 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel) {
         }
 
         snapshot.tradesRunning = snapshot.tradesRunning || coordinator->tradesRunning();
+        snapshot.liquidationsRunning = snapshot.liquidationsRunning || coordinator->liquidationsRunning();
         snapshot.bookTickerRunning = snapshot.bookTickerRunning || coordinator->bookTickerRunning();
         snapshot.orderbookRunning = snapshot.orderbookRunning || coordinator->orderbookRunning();
         snapshot.tradesCount += static_cast<qulonglong>(coordinator->tradesCount());
+        snapshot.liquidationsCount += static_cast<qulonglong>(coordinator->liquidationsCount());
         snapshot.bookTickerCount += static_cast<qulonglong>(coordinator->bookTickerCount());
         snapshot.depthCount += static_cast<qulonglong>(coordinator->depthCount());
 
@@ -63,18 +65,22 @@ void CaptureViewModel::refreshState() {
     }
 
     if (snapshot.tradesRunning != lastTradesRunning_ ||
+        snapshot.liquidationsRunning != lastLiquidationsRunning_ ||
         snapshot.bookTickerRunning != lastBookTickerRunning_ ||
         snapshot.orderbookRunning != lastOrderbookRunning_) {
         lastTradesRunning_ = snapshot.tradesRunning;
+        lastLiquidationsRunning_ = snapshot.liquidationsRunning;
         lastBookTickerRunning_ = snapshot.bookTickerRunning;
         lastOrderbookRunning_ = snapshot.orderbookRunning;
         channelChanged = true;
     }
 
     if (snapshot.tradesCount != lastTradesCount_ ||
+        snapshot.liquidationsCount != lastLiquidationsCount_ ||
         snapshot.bookTickerCount != lastBookTickerCount_ ||
         snapshot.depthCount != lastDepthCount_) {
         lastTradesCount_ = snapshot.tradesCount;
+        lastLiquidationsCount_ = snapshot.liquidationsCount;
         lastBookTickerCount_ = snapshot.bookTickerCount;
         lastDepthCount_ = snapshot.depthCount;
         countersChangedLocal = true;

@@ -47,6 +47,7 @@ Status mergeStatus(Status current, Status next) noexcept {
 }  // namespace
 
 EventBatch IEventSource::readSince(std::size_t tradeOffset,
+                                   std::size_t liquidationOffset,
                                    std::size_t bookTickerOffset,
                                    std::size_t depthOffset,
                                    std::size_t snapshotOffset) const {
@@ -56,6 +57,12 @@ EventBatch IEventSource::readSince(std::size_t tradeOffset,
     } else {
         batch.trades.erase(batch.trades.begin(),
                            batch.trades.begin() + static_cast<std::ptrdiff_t>(tradeOffset));
+    }
+    if (liquidationOffset >= batch.liquidations.size()) {
+        batch.liquidations.clear();
+    } else {
+        batch.liquidations.erase(batch.liquidations.begin(),
+                                 batch.liquidations.begin() + static_cast<std::ptrdiff_t>(liquidationOffset));
     }
     if (bookTickerOffset >= batch.bookTickers.size()) {
         batch.bookTickers.clear();
@@ -81,6 +88,13 @@ EventBatch IEventSource::readSince(std::size_t tradeOffset,
 Status LiveEventStore::appendTrade(const replay::TradeRow& row) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     events_.trades.push_back(row);
+    ++version_;
+    return Status::Ok;
+}
+
+Status LiveEventStore::appendLiquidation(const replay::LiquidationRow& row) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    events_.liquidations.push_back(row);
     ++version_;
     return Status::Ok;
 }
@@ -124,6 +138,7 @@ EventBatch LiveEventStore::readRange(std::int64_t fromTsNs, std::int64_t toTsNs)
     EventBatch out{};
     std::lock_guard<std::mutex> lock(mutex_);
     appendRowsInSortedRange(events_.trades, fromTsNs, toTsNs, out.trades);
+    appendRowsInSortedRange(events_.liquidations, fromTsNs, toTsNs, out.liquidations);
     appendRowsInSortedRange(events_.bookTickers, fromTsNs, toTsNs, out.bookTickers);
     appendRowsInSortedRange(events_.depths, fromTsNs, toTsNs, out.depths);
     appendRowsInSortedRange(events_.snapshots, fromTsNs, toTsNs, out.snapshots);
@@ -131,12 +146,14 @@ EventBatch LiveEventStore::readRange(std::int64_t fromTsNs, std::int64_t toTsNs)
 }
 
 EventBatch LiveEventStore::readSince(std::size_t tradeOffset,
+                                     std::size_t liquidationOffset,
                                      std::size_t bookTickerOffset,
                                      std::size_t depthOffset,
                                      std::size_t snapshotOffset) const {
     EventBatch out{};
     std::lock_guard<std::mutex> lock(mutex_);
     appendRowsSince(events_.trades, tradeOffset, out.trades);
+    appendRowsSince(events_.liquidations, liquidationOffset, out.liquidations);
     appendRowsSince(events_.bookTickers, bookTickerOffset, out.bookTickers);
     appendRowsSince(events_.depths, depthOffset, out.depths);
     appendRowsSince(events_.snapshots, snapshotOffset, out.snapshots);
@@ -147,6 +164,7 @@ EventStoreStats LiveEventStore::stats() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     return EventStoreStats{
         static_cast<std::uint64_t>(events_.trades.size()),
+        static_cast<std::uint64_t>(events_.liquidations.size()),
         static_cast<std::uint64_t>(events_.bookTickers.size()),
         static_cast<std::uint64_t>(events_.depths.size()),
         static_cast<std::uint64_t>(events_.snapshots.size()),
@@ -171,6 +189,12 @@ void CompositeEventSink::addSink(IEventSink* sink) noexcept {
 Status CompositeEventSink::appendTrade(const replay::TradeRow& row) noexcept {
     Status status = Status::Ok;
     for (auto* sink : sinks_) status = mergeStatus(status, sink->appendTrade(row));
+    return status;
+}
+
+Status CompositeEventSink::appendLiquidation(const replay::LiquidationRow& row) noexcept {
+    Status status = Status::Ok;
+    for (auto* sink : sinks_) status = mergeStatus(status, sink->appendLiquidation(row));
     return status;
 }
 

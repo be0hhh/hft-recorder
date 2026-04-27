@@ -26,6 +26,7 @@ Pane {
     property string selectedSourceId: ""
     property bool userHasExplicitSelection: false
     property bool showTradesLayer: true
+    property bool showLiquidationsLayer: false
     property bool showOrderbookLayer: false
     property bool showBookTickerLayer: false
     property bool effectiveBookTickerLayer: showBookTickerLayer || showOrderbookLayer
@@ -62,25 +63,32 @@ Pane {
     }
 
     function ensureVisibleLayerSelection() {
-        if (chart.hasTrades) {
-            if (!root.showTradesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer)
-                root.showTradesLayer = true
+        if (chart.hasTrades || chart.hasLiquidations) {
+            if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
+                if (chart.hasTrades)
+                    root.showTradesLayer = true
+                else
+                    root.showLiquidationsLayer = true
+            }
             return
         }
 
-        if (root.showTradesLayer) {
+        if (root.showTradesLayer || root.showLiquidationsLayer) {
             root.showTradesLayer = false
+            root.showLiquidationsLayer = false
             if (chart.hasOrderbook)
                 root.showOrderbookLayer = true
             else if (chart.hasBookTicker)
                 root.showBookTickerLayer = true
         }
 
-        if (!root.showTradesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
+        if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
             if (chart.hasOrderbook)
                 root.showOrderbookLayer = true
             else if (chart.hasBookTicker)
                 root.showBookTickerLayer = true
+            else if (chart.hasLiquidations)
+                root.showLiquidationsLayer = true
             else
                 root.showTradesLayer = true
         }
@@ -206,6 +214,7 @@ Pane {
             chart: chart
             interaction: interaction
             showTradesLayer: root.showTradesLayer
+            showLiquidationsLayer: root.showLiquidationsLayer
             showOrderbookLayer: root.showOrderbookLayer
             showBookTickerLayer: root.showBookTickerLayer
             effectiveBookTickerLayer: root.effectiveBookTickerLayer
@@ -221,6 +230,7 @@ Pane {
                 if (root.showTradesLayer && !chart.loaded && root.selectedSourceId !== "")
                     root.applySourceSelection(root.selectedSourceId)
             }
+            onToggleLiquidations: root.showLiquidationsLayer = !root.showLiquidationsLayer
             onToggleOrderbook: root.showOrderbookLayer = !root.showOrderbookLayer
             onToggleBookTicker: root.showBookTickerLayer = !root.showBookTickerLayer
         }
@@ -242,6 +252,7 @@ Pane {
                         anchors.fill: parent
                         controller: chart
                         tradesVisible: root.showTradesLayer
+                        liquidationsVisible: root.showLiquidationsLayer
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
                         tradeAmountScale: root.appVm.tradeAmountScale
@@ -257,6 +268,7 @@ Pane {
                         anchors.fill: parent
                         controller: chart
                         tradesVisible: root.showTradesLayer
+                        liquidationsVisible: root.showLiquidationsLayer
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
                         tradeAmountScale: root.appVm.tradeAmountScale
@@ -320,7 +332,7 @@ Pane {
                         pressY = mouse.y
                         lastX = mouse.x
                         lastY = mouse.y
-                        if (root.chartSurface() && !interaction.anyHoverableLayerVisible(root.showTradesLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) root.chartSurface().clearHover()
+                        if (root.chartSurface() && !interaction.anyHoverableLayerVisible(root.showTradesLayer || root.showLiquidationsLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) root.chartSurface().clearHover()
                     }
                     onPositionChanged: function(mouse) {
                         if (interaction.rangeSelectionActive) {
@@ -352,7 +364,7 @@ Pane {
                             return
                         }
                         if (interaction.priceScaleDragging || interaction.timeScaleDragging) return
-                        if (!interaction.anyHoverableLayerVisible(root.showTradesLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) return
+                        if (!interaction.anyHoverableLayerVisible(root.showTradesLayer || root.showLiquidationsLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) return
                         pendingHoverX = mouse.x
                         pendingHoverY = mouse.y
                         hoverPending = true
@@ -483,13 +495,13 @@ Pane {
                 color: "#2b2b31"
                 border.color: root.borderColor
                 border.width: 1
-                visible: root.showOrderbookLayer || root.showBookTickerLayer || !root.showTradesLayer
+                visible: root.showOrderbookLayer || root.showBookTickerLayer || root.showLiquidationsLayer || !root.showTradesLayer
                 implicitWidth: layerStatusText.implicitWidth + 20
                 implicitHeight: layerStatusText.implicitHeight + 12
                 Label {
                     id: layerStatusText
                     anchors.centerIn: parent
-                    text: !root.showTradesLayer ? "Trades hidden" : root.showOrderbookLayer ? "Orderbook + BookTicker" : "BookTicker mode"
+                    text: root.showLiquidationsLayer ? "Liquidations" : !root.showTradesLayer ? "Trades hidden" : root.showOrderbookLayer ? "Orderbook + BookTicker" : "BookTicker mode"
                     color: root.mutedTextColor
                     font.pixelSize: 12
                 }

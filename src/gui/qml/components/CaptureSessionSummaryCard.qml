@@ -78,6 +78,7 @@ Rectangle {
             spacing: 18
 
             Label { text: "Trades: " + card.captureVm.tradesCount; color: card.textColor }
+            Label { text: "Liquidations: " + card.captureVm.liquidationsCount; color: card.textColor }
             Label { text: "BookTicker: " + card.captureVm.bookTickerCount; color: card.textColor }
             Label { text: "Depth: " + card.captureVm.depthCount; color: card.textColor }
             Item { Layout.fillWidth: true }

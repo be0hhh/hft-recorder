@@ -70,6 +70,7 @@ void paintSnapshotLayers(QPainter* painter,
     layerSnap.orderbookVisible = drawOrderbook && snap.orderbookVisible;
     layerSnap.bookTickerVisible = drawBookTicker && snap.bookTickerVisible;
     layerSnap.tradesVisible = drawTrades && snap.tradesVisible;
+    layerSnap.liquidationsVisible = drawTrades && snap.liquidationsVisible;
     layerSnap.tradeConnectorsVisible = drawTrades && snap.tradeConnectorsVisible;
     if (drawBackground && !layerSnap.overlayOnly) {
         painter->fillRect(QRectF{0.0, 0.0, layerSnap.vp.w, layerSnap.vp.h}, bgColor());
@@ -80,7 +81,7 @@ void paintSnapshotLayers(QPainter* painter,
     RenderContext ctx{painter, layerSnap, drawOverlay ? hover : HoverInfo{}, dpr};
     if (layerSnap.orderbookVisible) renderers::renderBook(ctx);
     if (layerSnap.bookTickerVisible) renderers::renderBookTicker(ctx);
-    if (layerSnap.tradesVisible) renderers::renderTrades(ctx);
+    if (layerSnap.tradesVisible || layerSnap.liquidationsVisible) renderers::renderTrades(ctx);
     if (drawOverlay) renderers::renderOverlay(ctx);
 }
 
@@ -114,7 +115,9 @@ int nextTradeOrigIndex(const RenderSnapshot& snap) noexcept {
 }
 
 std::int64_t maxTradeTs(const RenderSnapshot& snap) noexcept {
-    return snap.tradeDots.empty() ? 0 : snap.tradeDots.back().tsNs;
+    std::int64_t ts = snap.tradeDots.empty() ? 0 : snap.tradeDots.back().tsNs;
+    if (!snap.liquidationDots.empty()) ts = std::max(ts, snap.liquidationDots.back().tsNs);
+    return ts;
 }
 
 std::int64_t maxOrderbookTs(const RenderSnapshot& snap) noexcept {
@@ -632,6 +635,7 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     live.bookSegments.clear();
     live.bookTickerTrace = BookTickerTrace{};
     live.tradeDots.clear();
+    live.liquidationDots.clear();
     live.gpuBookVertices.clear();
     live.tradeConnectorsVisible = true;
 
@@ -649,6 +653,21 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     };
     appendTradeRows(cache.stableRows.trades);
     appendTradeRows(cache.overlayRows.trades);
+
+    if (live.liquidationsVisible) {
+        int liquidationOrigIndex = 0;
+        const auto appendLiquidationRows = [&](const auto& rows) {
+            for (const auto& row : rows) {
+                const int rowOrigIndex = liquidationOrigIndex;
+                if (liquidationOrigIndex < std::numeric_limits<int>::max()) ++liquidationOrigIndex;
+                if (row.tsNs < live.vp.tMin || row.tsNs > live.vp.tMax) continue;
+                if (row.priceE8 < live.vp.pMin || row.priceE8 > live.vp.pMax) continue;
+                live.liquidationDots.push_back(LiquidationDot{row.tsNs, row.priceE8, row.qtyE8, row.avgPriceE8, row.filledQtyE8, row.sideBuy != 0, rowOrigIndex});
+            }
+        };
+        appendLiquidationRows(cache.stableRows.liquidations);
+        appendLiquidationRows(cache.overlayRows.liquidations);
+    }
 
     if (live.bookTickerVisible) {
         std::vector<const hftrec::replay::BookTickerRow*> rows;
@@ -669,14 +688,16 @@ void recordGuiObjectCounts(const RenderSnapshot& base, const RenderSnapshot* liv
         + base.bookTickerTrace.askLines.size());
     std::uint64_t bookTickerSamples = static_cast<std::uint64_t>(base.bookTickerTrace.samples.size());
     std::uint64_t tradeDots = static_cast<std::uint64_t>(base.tradeDots.size());
+    std::uint64_t liquidationDots = static_cast<std::uint64_t>(base.liquidationDots.size());
     if (live != nullptr) {
         orderbookSegments += static_cast<std::uint64_t>(live->bookSegments.size());
         bookTickerLines += static_cast<std::uint64_t>(live->bookTickerTrace.bidLines.size()
             + live->bookTickerTrace.askLines.size());
         bookTickerSamples += static_cast<std::uint64_t>(live->bookTickerTrace.samples.size());
         tradeDots += static_cast<std::uint64_t>(live->tradeDots.size());
+        liquidationDots += static_cast<std::uint64_t>(live->liquidationDots.size());
     }
-    metrics::setGuiObjectCounts(orderbookSegments, bookTickerLines, bookTickerSamples, tradeDots);
+    metrics::setGuiObjectCounts(orderbookSegments, bookTickerLines, bookTickerSamples, tradeDots, liquidationDots);
 }
 void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
     target.bookSegments.insert(
@@ -699,6 +720,10 @@ void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
         target.tradeDots.end(),
         std::make_move_iterator(rows.tradeDots.begin()),
         std::make_move_iterator(rows.tradeDots.end()));
+    target.liquidationDots.insert(
+        target.liquidationDots.end(),
+        std::make_move_iterator(rows.liquidationDots.begin()),
+        std::make_move_iterator(rows.liquidationDots.end()));
 }
 
 void drawTradeBridge(QPainter* painter, const RenderSnapshot& base, const RenderSnapshot& live) {

@@ -42,6 +42,7 @@ enum class IntegrityIncidentKind : std::uint8_t {
 
 enum class IntegrityChannel : std::uint8_t {
     Trades = 0,
+    Liquidations,
     BookTicker,
     Depth,
     Snapshot,
@@ -93,7 +94,8 @@ inline constexpr std::string_view toString(IntegrityIncidentKind kind) noexcept 
 
 inline constexpr std::string_view toString(IntegrityChannel channel) noexcept {
     switch (channel) {
-        case IntegrityChannel::Trades:     return "trades";
+        case IntegrityChannel::Trades:       return "trades";
+        case IntegrityChannel::Liquidations: return "liquidations";
         case IntegrityChannel::BookTicker: return "bookticker";
         case IntegrityChannel::Depth:      return "depth";
         case IntegrityChannel::Snapshot:   return "snapshot";
@@ -131,6 +133,7 @@ struct SessionIntegritySummary {
     std::size_t                    totalIncidents{0};
     IntegritySeverity              highestSeverity{IntegritySeverity::Info};
     ChannelIntegritySummary        trades{};
+    ChannelIntegritySummary        liquidations{};
     ChannelIntegritySummary        bookTicker{};
     ChannelIntegritySummary        depth{};
     ChannelIntegritySummary        snapshot{};

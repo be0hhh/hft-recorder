@@ -1,5 +1,7 @@
 #include "core/capture/ChannelJsonWriter.hpp"
 
+#include <system_error>
+
 namespace hftrec::capture {
 
 Status ChannelJsonWriter::open(ChannelKind channel, const std::filesystem::path& sessionDir) noexcept {
@@ -7,7 +9,10 @@ Status ChannelJsonWriter::open(ChannelKind channel, const std::filesystem::path&
         return Status::Ok;
     }
     channel_ = channel;
-    const auto path = sessionDir / std::string{channelFileName(channel)};
+    const auto path = sessionDir / std::string{channelJsonlRelativePath(channel)};
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) return Status::IoError;
     stream_.open(path, channel == ChannelKind::Snapshot ? std::ios::out : (std::ios::out | std::ios::app));
     return stream_.is_open() ? Status::Ok : Status::IoError;
 }

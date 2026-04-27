@@ -9,6 +9,7 @@ Item {
     required property string hostId
     required property bool floating
     required property var attachTab
+    property string activeTabId: ""
 
     property color panelColor: "#2c2c2f"
     property color panelAltColor: "#3c3c3c"
@@ -19,16 +20,19 @@ Item {
 
     function reloadTabs() {
         tabsRepeater.model = root.workspaceVm.hostTabs(root.hostId)
+        root.activeTabId = root.workspaceVm.activeTab(root.hostId)
         root.attachCurrentTab()
     }
 
     function attachCurrentTab() {
         var active = root.workspaceVm.activeTab(root.hostId)
+        root.activeTabId = active
         if (active !== "") root.attachTab(active, contentParent, root.hostId)
     }
 
     function activateTab(tabId) {
         root.workspaceVm.setActiveTab(root.hostId, tabId)
+        root.activeTabId = tabId
         root.attachTab(tabId, contentParent, root.hostId)
     }
 
@@ -72,18 +76,19 @@ Item {
                     delegate: Rectangle {
                         id: tabButton
                         required property string modelData
+                        readonly property bool selected: root.activeTabId === modelData
 
                         Layout.preferredWidth: Math.max(112, titleText.implicitWidth + 34)
                         Layout.fillHeight: true
-                        color: root.workspaceVm.activeTab(root.hostId) === modelData ? root.panelAltColor : root.panelColor
-                        border.color: root.workspaceVm.activeTab(root.hostId) === modelData ? root.accentBuyColor : root.borderColor
+                        color: selected ? root.panelAltColor : root.panelColor
+                        border.color: selected ? root.accentBuyColor : root.borderColor
                         border.width: 1
 
                         Text {
                             id: titleText
                             anchors.centerIn: parent
                             text: root.workspaceVm.tabTitle(tabButton.modelData)
-                            color: root.workspaceVm.activeTab(root.hostId) === tabButton.modelData ? root.textColor : root.mutedTextColor
+                            color: tabButton.selected ? root.textColor : root.mutedTextColor
                             font.pixelSize: 13
                         }
 

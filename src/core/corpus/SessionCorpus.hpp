@@ -15,6 +15,7 @@ struct SessionCorpus {
     std::optional<InstrumentMetadata> instrumentMetadata;
     LoadReport report;
     std::vector<std::string> tradeLines;
+    std::vector<std::string> liquidationLines;
     std::vector<std::string> bookTickerLines;
     std::vector<std::string> depthLines;
     std::vector<std::string> snapshotDocuments;

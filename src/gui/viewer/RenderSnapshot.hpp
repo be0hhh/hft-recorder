@@ -66,6 +66,16 @@ struct TradeDot {
     int          origIndex{-1};  // index into SessionReplay::trades()
 };
 
+struct LiquidationDot {
+    std::int64_t tsNs{0};
+    std::int64_t priceE8{0};
+    std::int64_t qtyE8{0};
+    std::int64_t avgPriceE8{0};
+    std::int64_t filledQtyE8{0};
+    bool         sideBuy{true};
+    int          origIndex{-1};
+};
+
 struct VerticalMarker {
     std::int64_t tsNs{0};
     QString label{};
@@ -83,6 +93,16 @@ struct HoverInfo {
     std::int64_t tradePriceE8{0};
     std::int64_t tradeQtyE8{0};
     bool         tradeSideBuy{true};
+
+    // Liquidation hit-test result.
+    bool         liquidationHit{false};
+    int          liquidationOrigIndex{-1};
+    std::int64_t liquidationTsNs{0};
+    std::int64_t liquidationPriceE8{0};
+    std::int64_t liquidationQtyE8{0};
+    std::int64_t liquidationAvgPriceE8{0};
+    std::int64_t liquidationFilledQtyE8{0};
+    bool         liquidationSideBuy{true};
 
     // Book hit-test result. 0 none, 1 bid ticker, 2 ask ticker, 3 bid book, 4 ask book.
     int          bookKind{0};
@@ -103,6 +123,7 @@ struct RenderSnapshot {
 
     // Visibility + tuning knobs (snapshot of ChartItem state at build time).
     bool  tradesVisible{true};
+    bool  liquidationsVisible{true};
     bool  tradeConnectorsVisible{true};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
@@ -120,6 +141,7 @@ struct RenderSnapshot {
 
     // Trades pre-filtered to viewport (original order by tsNs).
     std::vector<TradeDot> tradeDots;
+    std::vector<LiquidationDot> liquidationDots;
 
     // API-injected vertical markers for the active chart.
     std::vector<VerticalMarker> verticalMarkers;
@@ -131,6 +153,7 @@ struct RenderSnapshot {
 // ChartItem. Kept as a struct so the signature doesn't drift when knobs change.
 struct SnapshotInputs {
     bool  tradesVisible{true};
+    bool  liquidationsVisible{true};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
     bool  interactiveMode{false};

@@ -32,6 +32,7 @@ namespace {
 SnapshotInputs collectInputs(const GpuChartItem& item) {
     return SnapshotInputs{
         item.tradesVisible(),
+        item.liquidationsVisible(),
         item.orderbookVisible(),
         item.bookTickerVisible(),
         item.interactiveMode(),
@@ -255,6 +256,16 @@ void GpuChartItem::setTradesVisible(bool value) {
     update();
 }
 
+void GpuChartItem::setLiquidationsVisible(bool value) {
+    if (liquidationsVisible_ == value) return;
+    liquidationsVisible_ = value;
+    if (!liquidationsVisible_) clearHover();
+    invalidateSnapshotCache_();
+    ensureSnapshot_();
+    emit liquidationsVisibleChanged();
+    update();
+}
+
 void GpuChartItem::setOrderbookVisible(bool value) {
     if (orderbookVisible_ == value) return;
     orderbookVisible_ = value;
@@ -360,7 +371,7 @@ void GpuChartItem::activateContextPoint(qreal x, qreal y) {
     hoverActive_ = true;
     contextActive_ = true;
     updateHover_();
-    if (hoveredTradeIndex_ < 0 && hoveredBookKind_ == 0) {
+    if (hoveredTradeIndex_ < 0 && hoveredBookKind_ == 0 && (!hoverInfo_ || !hoverInfo_->liquidationHit)) {
         clearHover();
         return;
     }
@@ -405,7 +416,7 @@ void GpuChartItem::updateHover_() {
     hoveredBookTsNs_ = hover.bookTsNs;
     hoveredBookTsStartNs_ = hover.bookTsStartNs;
     hoveredBookTsEndNs_ = hover.bookTsEndNs;
-    *hoverInfo_ = buildHoverInfo_();
+    *hoverInfo_ = hover;
 }
 
 void GpuChartItem::requestRepaint() {

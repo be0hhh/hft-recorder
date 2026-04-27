@@ -123,10 +123,15 @@ Implemented now:
 - `Compress` tab can call the prebuilt `hft-compressor` library.
 - Pipeline registry is visible to the tab.
 - `std.zstd_jsonl_blocks_v1` can produce `.hfc` and metrics.
+- `cxet_replay_core` exposes callback-based session streaming.
+- `cxet_replay_core` can prefer `.hfc` channel artifacts when it is linked
+  with the prebuilt `hft-compressor` library.
+- `hft-recorder` recorded-session loading uses the CXET replay stream API in
+  CXET-enabled builds, then materializes rows for the current GUI viewer.
 
 Not implemented yet:
 
-- loading `.hfc` as a recorded source in Viewer;
+- GUI compressed-source selection/discovery;
 - compressed session manifest/index discovery;
 - streaming `.hfc` file decoder API that does not require loading the whole
   compressed file buffer;

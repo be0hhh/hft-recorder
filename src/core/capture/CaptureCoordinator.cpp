@@ -44,12 +44,14 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.startedAtNs = internal::nowNs();
     manifest_.targetDurationSec = config.durationSec;
     manifest_.snapshotIntervalSec = config.snapshotIntervalSec;
-    manifest_.tradesPath = "trades.jsonl";
-    manifest_.bookTickerPath = "bookticker.jsonl";
-    manifest_.depthPath = "depth.jsonl";
+    manifest_.tradesPath = std::string{channelJsonlRelativePath(ChannelKind::Trades)};
+    manifest_.liquidationsPath = std::string{channelJsonlRelativePath(ChannelKind::Liquidations)};
+    manifest_.bookTickerPath = std::string{channelJsonlRelativePath(ChannelKind::BookTicker)};
+    manifest_.depthPath = std::string{channelJsonlRelativePath(ChannelKind::DepthDelta)};
     manifest_.canonicalArtifacts = {"manifest.json", manifest_.instrumentMetadataPath};
     manifest_.captureContractVersion = "hftrec.cxet_alias_rows_json.v4";
     manifest_.tradesRowSchema = "cxet_trade_alias_first_v3";
+    manifest_.liquidationsRowSchema = "cxet_liquidation_alias_first_v1";
     manifest_.bookTickerRowSchema = "cxet_bookticker_alias_first_v3";
     manifest_.depthRowSchema = "cxet_orderbook_alias_first_v4";
     manifest_.snapshotSchema = "cxet_orderbook_snapshot_alias_first_v4";
@@ -91,6 +93,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
 
 Status CaptureCoordinator::finalizeSession() noexcept {
     (void)stopTrades();
+    (void)stopLiquidations();
     (void)stopBookTicker();
     (void)stopOrderbook();
 
@@ -104,6 +107,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
         manifest_.actualDurationSec = (manifest_.endedAtNs - manifest_.startedAtNs) / 1000000000LL;
     }
     manifest_.tradesCount = tradesCount_.load(std::memory_order_relaxed);
+    manifest_.liquidationsCount = liquidationsCount_.load(std::memory_order_relaxed);
     manifest_.bookTickerCount = bookTickerCount_.load(std::memory_order_relaxed);
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
@@ -113,6 +117,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
 
     (void)eventSink_.close();
     (void)tradesWriter_.close();
+    (void)liquidationsWriter_.close();
     (void)bookTickerWriter_.close();
     (void)depthWriter_.close();
 
@@ -176,16 +181,20 @@ void CaptureCoordinator::resetSessionState() noexcept {
     config_ = {};
     lastError_.clear();
     tradesStop_.store(false, std::memory_order_release);
+    liquidationsStop_.store(false, std::memory_order_release);
     bookTickerStop_.store(false, std::memory_order_release);
     orderbookStop_.store(false, std::memory_order_release);
     tradesRunning_.store(false, std::memory_order_release);
+    liquidationsRunning_.store(false, std::memory_order_release);
     bookTickerRunning_.store(false, std::memory_order_release);
     orderbookRunning_.store(false, std::memory_order_release);
     tradesCount_.store(0, std::memory_order_release);
+    liquidationsCount_.store(0, std::memory_order_release);
     bookTickerCount_.store(0, std::memory_order_release);
     depthCount_.store(0, std::memory_order_release);
     snapshotCount_.store(0, std::memory_order_release);
     tradesCaptureSeq_.store(0, std::memory_order_release);
+    liquidationsCaptureSeq_.store(0, std::memory_order_release);
     bookTickerCaptureSeq_.store(0, std::memory_order_release);
     depthCaptureSeq_.store(0, std::memory_order_release);
     snapshotCaptureSeq_.store(0, std::memory_order_release);
@@ -206,6 +215,7 @@ void CaptureCoordinator::syncManifestIntegrityFromReplay_() noexcept {
     manifest_.sessionHealth = summary.sessionHealth;
     manifest_.exactReplayEligible = summary.exactReplayEligible;
     manifest_.tradesIntegrity = summary.trades;
+    manifest_.liquidationsIntegrity = summary.liquidations;
     manifest_.bookTickerIntegrity = summary.bookTicker;
     manifest_.depthIntegrity = summary.depth;
     manifest_.snapshotIntegrity = summary.snapshot;

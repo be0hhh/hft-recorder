@@ -12,6 +12,7 @@ struct TradeRuntimeV1;
 struct BookTickerRuntimeV1;
 struct OrderBookDeltaRuntimeV1;
 struct OrderBookSnapshot;
+struct LiquidationEvent;
 struct StreamMeta;
 }  // namespace composite
 }  // namespace cxet
@@ -31,6 +32,22 @@ struct CapturedTradeRow {
     std::int64_t side{0};
     bool isBuyerMaker{false};
     bool sideBuy{false};
+};
+
+struct CapturedLiquidationRow {
+    std::string symbol{};
+    std::uint64_t exchangeId{0};
+    std::uint64_t tsNs{0};
+    std::int64_t priceE8{0};
+    std::int64_t qtyE8{0};
+    std::int64_t avgPriceE8{0};
+    std::int64_t filledQtyE8{0};
+    std::int64_t side{0};
+    bool sideBuy{false};
+    std::int64_t orderType{0};
+    std::int64_t timeInForce{0};
+    std::int64_t status{0};
+    std::int64_t sourceMode{0};
 };
 
 struct CapturedBookTickerRow {
@@ -84,6 +101,7 @@ class CxetCaptureBridge {
                                          const cxet::composite::StreamMeta& meta);
     static CapturedBookTickerRow captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
                                                    const cxet::composite::StreamMeta& meta);
+    static CapturedLiquidationRow captureLiquidation(const cxet::composite::LiquidationEvent& event);
     static CapturedOrderBookRow captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot);
     static CapturedOrderBookRow captureOrderBook(const cxet::composite::OrderBookDeltaRuntimeV1& delta,
                                                  const cxet::composite::StreamMeta& meta);

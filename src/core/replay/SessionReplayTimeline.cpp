@@ -14,6 +14,10 @@ void SessionReplay::appendTradeRow(TradeRow row) {
     trades_.push_back(std::move(row));
 }
 
+void SessionReplay::appendLiquidationRow(LiquidationRow row) {
+    liquidations_.push_back(std::move(row));
+}
+
 void SessionReplay::appendBookTickerRow(BookTickerRow row) {
     bookTickers_.push_back(std::move(row));
 }
@@ -384,9 +388,10 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
     }
 
     const bool tradesOk = validateChannel(IntegrityChannel::Trades, trades_, "trades");
+    const bool liquidationsOk = validateChannel(IntegrityChannel::Liquidations, liquidations_, "liquidations");
     const bool bookTickerOk = validateChannel(IntegrityChannel::BookTicker, bookTickers_, "bookticker");
     const bool depthOk = validateChannel(IntegrityChannel::Depth, depths_, "depth");
-    if (!(tradesOk && bookTickerOk && depthOk)) {
+    if (!(tradesOk && liquidationsOk && bookTickerOk && depthOk)) {
         return false;
     }
 
@@ -412,9 +417,11 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
     for (std::size_t i = 1; i < mergedIngestSeqs.size(); ++i) {
         if (mergedIngestSeqs[i] <= mergedIngestSeqs[i - 1]) {
             auto& tradesSummary = summaryFor_(IntegrityChannel::Trades);
+            auto& liquidationsSummary = summaryFor_(IntegrityChannel::Liquidations);
             auto& bookTickerSummary = summaryFor_(IntegrityChannel::BookTicker);
             auto& depthSummary = summaryFor_(IntegrityChannel::Depth);
             if (tradesSummary.state != ChannelHealthState::Corrupt) tradesSummary.state = ChannelHealthState::Degraded;
+            if (liquidationsSummary.state != ChannelHealthState::Corrupt) liquidationsSummary.state = ChannelHealthState::Degraded;
             if (bookTickerSummary.state != ChannelHealthState::Corrupt) bookTickerSummary.state = ChannelHealthState::Degraded;
             if (depthSummary.state != ChannelHealthState::Corrupt) depthSummary.state = ChannelHealthState::Degraded;
             noteIncident_(IntegrityIncident{
@@ -438,12 +445,15 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
 
 void SessionReplay::rebuildEvents_() noexcept {
     events_.clear();
-    events_.reserve(trades_.size() + bookTickers_.size() + depths_.size());
+    events_.reserve(trades_.size() + liquidations_.size() + bookTickers_.size() + depths_.size());
     for (std::size_t i = 0; i < depths_.size(); ++i) {
         events_.push_back(Event{depths_[i].tsNs, depths_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::Depth});
     }
     for (std::size_t i = 0; i < trades_.size(); ++i) {
         events_.push_back(Event{trades_[i].tsNs, trades_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::Trade});
+    }
+    for (std::size_t i = 0; i < liquidations_.size(); ++i) {
+        events_.push_back(Event{liquidations_[i].tsNs, liquidations_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::Liquidation});
     }
     for (std::size_t i = 0; i < bookTickers_.size(); ++i) {
         events_.push_back(Event{bookTickers_[i].tsNs, bookTickers_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::BookTicker});

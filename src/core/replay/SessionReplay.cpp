@@ -22,6 +22,10 @@ Status parseTradeCanonicalLine(std::string_view line, TradeRow& row) noexcept {
     return parseTradeLine(line, row);
 }
 
+Status parseLiquidationCanonicalLine(std::string_view line, LiquidationRow& row) noexcept {
+    return parseLiquidationLine(line, row);
+}
+
 Status parseBookTickerCanonicalLine(std::string_view line, BookTickerRow& row) noexcept {
     return parseBookTickerLine(line, row);
 }
@@ -63,6 +67,7 @@ void applyLoadIssueToIntegritySummary(const hftrec::corpus::LoadIssue& issue,
     };
 
     if (issue.channel == "trades") mark(summary.trades, IntegrityChannel::Trades);
+    else if (issue.channel == "liquidations") mark(summary.liquidations, IntegrityChannel::Liquidations);
     else if (issue.channel == "bookticker") mark(summary.bookTicker, IntegrityChannel::BookTicker);
     else if (issue.channel == "depth") mark(summary.depth, IntegrityChannel::Depth);
     else if (issue.channel == "snapshot") mark(summary.snapshot, IntegrityChannel::Snapshot);
@@ -114,6 +119,7 @@ Status loadJsonl(const std::filesystem::path& path,
 
 void SessionReplay::reset() noexcept {
     trades_.clear();
+    liquidations_.clear();
     bookTickers_.clear();
     depths_.clear();
     events_.clear();
@@ -178,6 +184,28 @@ Status SessionReplay::addTradesFile(const std::filesystem::path& path) noexcept 
         });
     }
     return st;
+}
+
+Status SessionReplay::addLiquidationsFile(const std::filesystem::path& path) noexcept {
+    if (path.empty()) {
+        errorDetail_ = "liquidations path is empty";
+        status_ = Status::InvalidArgument;
+        metrics::recordReplayParseFailure("liquidations");
+        return status_;
+    }
+    std::size_t lineNumber = 0;
+    const auto st = loadJsonl<LiquidationRow>(path, liquidations_, errorDetail_, parseLiquidationCanonicalLine, lineNumber);
+    if (!isOk(st)) {
+        ++parseFailureCount_;
+        metrics::recordReplayParseFailure("liquidations");
+        auto& summary = summaryFor_(IntegrityChannel::Liquidations);
+        summary.state = ChannelHealthState::Corrupt;
+        summary.exactReplayEligible = false;
+        noteIncident_(IntegrityIncident{IntegrityChannel::Liquidations, IntegrityIncidentKind::ParseError, IntegritySeverity::Error, "parse_error", errorDetail_, 0, lineNumber, {}, path.filename().string(), true});
+        status_ = st;
+        return st;
+    }
+    return Status::Ok;
 }
 
 Status SessionReplay::addBookTickerFile(const std::filesystem::path& path) noexcept {
@@ -373,6 +401,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
     if (loadReport_.manifestPresent) {
         manifestHints_.present = true;
         manifestHints_.tradesEnabled = corpus.manifest.tradesEnabled;
+        manifestHints_.liquidationsEnabled = corpus.manifest.liquidationsEnabled;
         manifestHints_.bookTickerEnabled = corpus.manifest.bookTickerEnabled;
         manifestHints_.orderbookEnabled = corpus.manifest.orderbookEnabled;
     } else {
@@ -416,6 +445,23 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
             return status_;
         }
         trades_.push_back(std::move(row));
+    }
+
+    liquidations_.reserve(corpus.liquidationLines.size());
+    for (const auto& line : corpus.liquidationLines) {
+        if (line.empty()) continue;
+        LiquidationRow row{};
+        const auto st = parseLiquidationLine(std::string_view{line}, row);
+        if (!isOk(st)) {
+            errorDetail_ = "failed to parse liquidations.jsonl line from loaded corpus";
+            ++parseFailureCount_;
+            metrics::recordReplayParseFailure("liquidations");
+            status_ = st;
+            refreshHealthSummary_();
+            maybeWriteIntegrityReport_();
+            return status_;
+        }
+        liquidations_.push_back(std::move(row));
     }
 
     bookTickers_.reserve(corpus.bookTickerLines.size());
@@ -473,7 +519,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         const auto loadNs = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - startedAt).count());
-        metrics::recordReplayLoad(trades_.size() + bookTickers_.size() + depths_.size(), loadNs);
+        metrics::recordReplayLoad(trades_.size() + liquidations_.size() + bookTickers_.size() + depths_.size(), loadNs);
     }
     return status_;
 }
@@ -481,6 +527,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
 void SessionReplay::resetIntegrity_() noexcept {
     integritySummary_ = SessionIntegritySummary{};
     integritySummary_.trades.state = ChannelHealthState::NotCaptured;
+    integritySummary_.liquidations.state = ChannelHealthState::NotCaptured;
     integritySummary_.bookTicker.state = ChannelHealthState::NotCaptured;
     integritySummary_.depth.state = ChannelHealthState::NotCaptured;
     integritySummary_.snapshot.state = ChannelHealthState::NotCaptured;
@@ -488,7 +535,8 @@ void SessionReplay::resetIntegrity_() noexcept {
 
 ChannelIntegritySummary& SessionReplay::summaryFor_(IntegrityChannel channel) noexcept {
     switch (channel) {
-        case IntegrityChannel::Trades:     return integritySummary_.trades;
+        case IntegrityChannel::Trades:       return integritySummary_.trades;
+        case IntegrityChannel::Liquidations: return integritySummary_.liquidations;
         case IntegrityChannel::BookTicker: return integritySummary_.bookTicker;
         case IntegrityChannel::Depth:      return integritySummary_.depth;
         case IntegrityChannel::Snapshot:   return integritySummary_.snapshot;
@@ -523,6 +571,7 @@ bool SessionReplay::loadManifestHints_(const std::filesystem::path& sessionDir) 
 
     manifestHints_.present = true;
     manifestHints_.tradesEnabled = manifest.tradesEnabled;
+    manifestHints_.liquidationsEnabled = manifest.liquidationsEnabled;
     manifestHints_.bookTickerEnabled = manifest.bookTickerEnabled;
     manifestHints_.orderbookEnabled = manifest.orderbookEnabled;
     return true;
@@ -573,6 +622,7 @@ void SessionReplay::finalizeChannelStates_() noexcept {
     };
 
     markSimpleChannel(IntegrityChannel::Trades, manifestHints_.tradesEnabled, trades_.size());
+    markSimpleChannel(IntegrityChannel::Liquidations, manifestHints_.liquidationsEnabled, liquidations_.size());
     markSimpleChannel(IntegrityChannel::BookTicker, manifestHints_.bookTickerEnabled, bookTickers_.size());
 
     auto& snapshotSummary = integritySummary_.snapshot;
@@ -637,6 +687,7 @@ void SessionReplay::refreshHealthSummary_() noexcept {
     integritySummary_.sessionHealth = SessionHealth::Clean;
     const ChannelIntegritySummary* channels[] = {
         &integritySummary_.trades,
+        &integritySummary_.liquidations,
         &integritySummary_.bookTicker,
         &integritySummary_.depth,
         &integritySummary_.snapshot,
@@ -684,6 +735,7 @@ void SessionReplay::maybeWriteIntegrityReport_() noexcept {
     out << "  \"highest_severity\": " << json::quote(std::string{toString(integritySummary_.highestSeverity)}) << ",\n";
     out << "  \"channels\": {\n";
     writeChannel(out, "trades", integritySummary_.trades, true);
+    writeChannel(out, "liquidations", integritySummary_.liquidations, true);
     writeChannel(out, "bookticker", integritySummary_.bookTicker, true);
     writeChannel(out, "depth", integritySummary_.depth, true);
     writeChannel(out, "snapshot", integritySummary_.snapshot, false);

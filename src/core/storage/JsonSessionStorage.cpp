@@ -1,6 +1,7 @@
 #include "core/storage/JsonSessionStorage.hpp"
 
 #include <string>
+#include <system_error>
 
 #include "core/capture/JsonSerializers.hpp"
 
@@ -44,14 +45,22 @@ EventStoreStats JsonSessionSink::stats() const noexcept {
 Status JsonSessionSink::ensureChannelFile(capture::ChannelKind channel) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     if (sessionDir_.empty()) return Status::InvalidArgument;
-    std::ofstream stream(sessionDir_ / std::string{capture::channelFileName(channel)}, std::ios::out | std::ios::app);
+    const auto path = sessionDir_ / std::string{capture::channelJsonlRelativePath(channel)};
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) return Status::IoError;
+    std::ofstream stream(path, std::ios::out | std::ios::app);
     return stream.is_open() ? Status::Ok : Status::IoError;
 }
 
 Status JsonSessionSink::ensureLineStream_(capture::ChannelKind channel, std::ofstream& stream) noexcept {
     if (sessionDir_.empty()) return Status::InvalidArgument;
     if (stream.is_open()) return Status::Ok;
-    stream.open(sessionDir_ / std::string{capture::channelFileName(channel)}, std::ios::out | std::ios::app);
+    const auto path = sessionDir_ / std::string{capture::channelJsonlRelativePath(channel)};
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) return Status::IoError;
+    stream.open(path, std::ios::out | std::ios::app);
     return stream.is_open() ? Status::Ok : Status::IoError;
 }
 
@@ -65,6 +74,10 @@ Status JsonSessionSink::writeLine_(capture::ChannelKind channel,
 
 Status JsonSessionSink::appendTrade(const replay::TradeRow& row) noexcept {
     return appendTradeLine(row, capture::renderTradeJsonLine(row));
+}
+
+Status JsonSessionSink::appendLiquidation(const replay::LiquidationRow& row) noexcept {
+    return appendLiquidationLine(row, capture::renderLiquidationJsonLine(row));
 }
 
 Status JsonSessionSink::appendBookTicker(const replay::BookTickerRow& row) noexcept {
@@ -83,6 +96,17 @@ Status JsonSessionSink::appendTradeLine(const replay::TradeRow&, const std::stri
         ++stats_.version;
     }
     return status;
+}
+
+Status JsonSessionSink::appendLiquidationLine(const replay::LiquidationRow&, const std::string& line) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto status = writeLine_(capture::ChannelKind::Liquidations, liquidations_, line);
+    if (!isOk(status)) return status;
+    liquidations_.flush();
+    if (!liquidations_.good()) return Status::IoError;
+    ++stats_.liquidationsTotal;
+    ++stats_.version;
+    return Status::Ok;
 }
 
 Status JsonSessionSink::appendBookTickerLine(const replay::BookTickerRow&, const std::string& line) noexcept {
@@ -123,9 +147,11 @@ Status JsonSessionSink::appendSnapshot(const replay::SnapshotDocument& snapshot,
 Status JsonSessionSink::flush() noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     if (trades_.is_open()) trades_.flush();
+    if (liquidations_.is_open()) liquidations_.flush();
     if (bookTicker_.is_open()) bookTicker_.flush();
     if (depth_.is_open()) depth_.flush();
     if ((trades_.is_open() && !trades_.good())
+        || (liquidations_.is_open() && !liquidations_.good())
         || (bookTicker_.is_open() && !bookTicker_.good())
         || (depth_.is_open() && !depth_.good())) {
         return Status::IoError;
@@ -136,6 +162,7 @@ Status JsonSessionSink::flush() noexcept {
 Status JsonSessionSink::close() noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     if (trades_.is_open()) trades_.close();
+    if (liquidations_.is_open()) liquidations_.close();
     if (bookTicker_.is_open()) bookTicker_.close();
     if (depth_.is_open()) depth_.close();
     sessionDir_.clear();

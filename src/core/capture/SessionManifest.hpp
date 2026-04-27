@@ -34,15 +34,19 @@ struct SessionManifest {
     bool structurallyLoadable{true};
     std::vector<std::string> structuralBlockers;
     bool tradesEnabled{false};
+    bool liquidationsEnabled{false};
     bool bookTickerEnabled{false};
     bool orderbookEnabled{false};
     bool tradesRequiredWhenEnabled{true};
+    bool liquidationsRequiredWhenEnabled{true};
     bool bookTickerRequiredWhenEnabled{true};
     bool orderbookRequiredWhenEnabled{true};
-    std::string tradesPath{"trades.jsonl"};
-    std::string bookTickerPath{"bookticker.jsonl"};
-    std::string depthPath{"depth.jsonl"};
+    std::string tradesPath{"jsonl/trades.jsonl"};
+    std::string liquidationsPath{"jsonl/liquidations.jsonl"};
+    std::string bookTickerPath{"jsonl/bookticker.jsonl"};
+    std::string depthPath{"jsonl/depth.jsonl"};
     std::string tradesRowSchema{"cxet_trade_alias_first_v3"};
+    std::string liquidationsRowSchema{"cxet_liquidation_alias_first_v1"};
     std::string bookTickerRowSchema{"cxet_bookticker_alias_first_v3"};
     std::string depthRowSchema{"cxet_orderbook_alias_first_v4"};
     std::string snapshotSchema{"cxet_orderbook_snapshot_alias_first_v4"};
@@ -50,6 +54,7 @@ struct SessionManifest {
     std::vector<std::string> canonicalArtifacts{};
     std::vector<std::string> supportArtifacts{};
     std::uint64_t tradesCount{0};
+    std::uint64_t liquidationsCount{0};
     std::uint64_t bookTickerCount{0};
     std::uint64_t depthCount{0};
     std::uint64_t snapshotCount{0};
@@ -57,6 +62,7 @@ struct SessionManifest {
     bool exactReplayEligible{false};
     std::string integrityReportPath{"reports/integrity_report.json"};
     ChannelIntegritySummary tradesIntegrity{};
+    ChannelIntegritySummary liquidationsIntegrity{};
     ChannelIntegritySummary bookTickerIntegrity{};
     ChannelIntegritySummary depthIntegrity{};
     ChannelIntegritySummary snapshotIntegrity{};

@@ -47,6 +47,16 @@ void ChartItem::setTradesVisible(bool value) {
     update();
 }
 
+void ChartItem::setLiquidationsVisible(bool value) {
+    if (liquidationsVisible_ == value) return;
+    liquidationsVisible_ = value;
+    if (!liquidationsVisible_) clearHover();
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit liquidationsVisibleChanged();
+    update();
+}
+
 void ChartItem::setOrderbookVisible(bool value) {
     if (orderbookVisible_ == value) return;
     orderbookVisible_ = value;
@@ -151,6 +161,7 @@ namespace hftrec::gui::viewer::detail {
 SnapshotInputs collectInputs(const ChartItem& item) {
     return SnapshotInputs{
         item.tradesVisible(),
+        item.liquidationsVisible(),
         item.orderbookVisible(),
         item.bookTickerVisible(),
         item.interactiveMode(),

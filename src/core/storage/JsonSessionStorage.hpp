@@ -21,9 +21,11 @@ class JsonSessionSink final : public IStorageBackend {
     EventStoreStats stats() const noexcept override;
 
     Status appendTrade(const replay::TradeRow& row) noexcept override;
+    Status appendLiquidation(const replay::LiquidationRow& row) noexcept override;
     Status appendBookTicker(const replay::BookTickerRow& row) noexcept override;
     Status appendDepth(const replay::DepthRow& row) noexcept override;
     Status appendTradeLine(const replay::TradeRow& row, const std::string& line) noexcept;
+    Status appendLiquidationLine(const replay::LiquidationRow& row, const std::string& line) noexcept;
     Status appendBookTickerLine(const replay::BookTickerRow& row, const std::string& line) noexcept;
     Status appendDepthLine(const replay::DepthRow& row, const std::string& line) noexcept;
     Status appendSnapshot(const replay::SnapshotDocument& snapshot,
@@ -37,6 +39,7 @@ class JsonSessionSink final : public IStorageBackend {
 
     std::filesystem::path sessionDir_{};
     std::ofstream trades_{};
+    std::ofstream liquidations_{};
     std::ofstream bookTicker_{};
     std::ofstream depth_{};
     mutable std::mutex mutex_{};

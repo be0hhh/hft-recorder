@@ -53,6 +53,10 @@ void addLatency(std::uint64_t ns,
     max = maxOf(max, ns);
 }
 
+bool isLiquidationsSource(std::string_view source) noexcept {
+    return source == "liquidations" || source == "liquidation" || source == "forceOrder";
+}
+
 std::uint64_t parseStatusBytes(std::string_view key) noexcept {
     std::ifstream in{"/proc/self/status"};
     if (!in) return 0;
@@ -74,6 +78,7 @@ void init() noexcept {
     hftrec::timing::ensureCalibrated();
     std::lock_guard<std::mutex> lock(stateMutex());
     (void)streamMetrics_("trades");
+    (void)streamMetrics_("liquidations");
     (void)streamMetrics_("bookticker");
     (void)streamMetrics_("depth");
     (void)streamMetrics_("snapshot");
@@ -137,9 +142,11 @@ void recordReplaySeek() noexcept {
     ++state().snapshot.replay.replaySeekCountTotal;
 }
 
-void recordReplayParseFailure(std::string_view) noexcept {
+void recordReplayParseFailure(std::string_view source) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex());
-    ++state().snapshot.replay.replayParseFailuresTotal;
+    auto& replay = state().snapshot.replay;
+    ++replay.replayParseFailuresTotal;
+    if (isLiquidationsSource(source)) ++replay.replayParseFailuresLiquidationsTotal;
 }
 
 void recordValidationRun(std::size_t eventsTotal,
@@ -173,12 +180,14 @@ void recordLabRun(std::size_t inputBytes,
 }
 
 void setLiveRows(std::uint64_t trades,
+                 std::uint64_t liquidations,
                  std::uint64_t bookTickers,
                  std::uint64_t depths,
                  std::uint64_t snapshots) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& live = state().snapshot.live;
     live.tradesRows = trades;
+    live.liquidationsRows = liquidations;
     live.bookTickerRows = bookTickers;
     live.depthRows = depths;
     live.snapshotRows = snapshots;
@@ -196,10 +205,16 @@ void recordLiveMaterialize(std::uint64_t ns) noexcept {
     addLatency(ns, live.materializeCountTotal, live.materializeNsTotal, live.materializeNsMax);
 }
 
-void recordLiveJsonTailParse(std::uint64_t ns) noexcept {
+void recordLiveJsonTailParse(std::uint64_t ns, std::string_view source) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& live = state().snapshot.live;
     addLatency(ns, live.jsonTailParseCountTotal, live.jsonTailParseNsTotal, live.jsonTailParseNsMax);
+    if (isLiquidationsSource(source)) {
+        addLatency(ns,
+                   live.jsonTailParseLiquidationsCountTotal,
+                   live.jsonTailParseLiquidationsNsTotal,
+                   live.jsonTailParseLiquidationsNsMax);
+    }
 }
 
 void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndTsc) noexcept {
@@ -274,13 +289,15 @@ void incGuiLayerCacheRebuild() noexcept {
 void setGuiObjectCounts(std::uint64_t orderbookSegments,
                         std::uint64_t bookTickerLines,
                         std::uint64_t bookTickerSamples,
-                        std::uint64_t tradeDots) noexcept {
+                        std::uint64_t tradeDots,
+                        std::uint64_t liquidationDots) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     gui.orderbookSegments = orderbookSegments;
     gui.bookTickerLines = bookTickerLines;
     gui.bookTickerSamples = bookTickerSamples;
     gui.tradeDots = tradeDots;
+    gui.liquidationDots = liquidationDots;
 }
 
 MetricsSnapshot snapshot() noexcept {
@@ -329,6 +346,7 @@ void renderPrometheus(std::string& out) noexcept {
     appendMetric("hftrec_replay_rows_loaded_total", snap.replay.rowsLoadedTotal);
     appendMetric("hftrec_replay_seek_total", snap.replay.replaySeekCountTotal);
     appendMetric("hftrec_replay_parse_failures_total", snap.replay.replayParseFailuresTotal);
+    appendMetric("hftrec_replay_parse_failures_liquidations_total", snap.replay.replayParseFailuresLiquidationsTotal);
     appendMetric("hftrec_replay_last_session_load_ns", snap.replay.lastSessionLoadNs);
     appendMetric("hftrec_validation_runs_total", snap.validation.runsTotal);
     appendMetric("hftrec_validation_events_total", snap.validation.eventsTotal);
@@ -344,6 +362,7 @@ void renderPrometheus(std::string& out) noexcept {
     appendMetric("hftrec_process_rss_bytes", rssBytes);
     appendMetric("hftrec_process_virtual_memory_bytes", vmSizeBytes);
     appendMetric("hftrec_live_trades_rows", snap.live.tradesRows);
+    appendMetric("hftrec_live_liquidations_rows", snap.live.liquidationsRows);
     appendMetric("hftrec_live_book_ticker_rows", snap.live.bookTickerRows);
     appendMetric("hftrec_live_depth_rows", snap.live.depthRows);
     appendMetric("hftrec_live_snapshot_rows", snap.live.snapshotRows);
@@ -359,6 +378,10 @@ void renderPrometheus(std::string& out) noexcept {
     appendMetric("hftrec_live_json_tail_parse_ns_total", snap.live.jsonTailParseNsTotal);
     appendMetric("hftrec_live_json_tail_parse_ns_avg", avg(snap.live.jsonTailParseNsTotal, snap.live.jsonTailParseCountTotal));
     appendMetric("hftrec_live_json_tail_parse_ns_max", snap.live.jsonTailParseNsMax);
+    appendMetric("hftrec_live_json_tail_parse_liquidations_total", snap.live.jsonTailParseLiquidationsCountTotal);
+    appendMetric("hftrec_live_json_tail_parse_liquidations_ns_total", snap.live.jsonTailParseLiquidationsNsTotal);
+    appendMetric("hftrec_live_json_tail_parse_liquidations_ns_avg", avg(snap.live.jsonTailParseLiquidationsNsTotal, snap.live.jsonTailParseLiquidationsCountTotal));
+    appendMetric("hftrec_live_json_tail_parse_liquidations_ns_max", snap.live.jsonTailParseLiquidationsNsMax);
     appendMetric("hftrec_gui_frames_total", snap.gui.frameTotal);
     appendMetric("hftrec_gui_fps", snap.gui.fps);
     appendMetric("hftrec_gui_paint_ns_total", snap.gui.paintNsTotal);
@@ -398,6 +421,7 @@ void renderPrometheus(std::string& out) noexcept {
     appendMetric("hftrec_gui_book_ticker_lines", snap.gui.bookTickerLines);
     appendMetric("hftrec_gui_book_ticker_samples", snap.gui.bookTickerSamples);
     appendMetric("hftrec_gui_trade_dots", snap.gui.tradeDots);
+    appendMetric("hftrec_gui_liquidation_dots", snap.gui.liquidationDots);
     appendMetric("hftrec_gui_last_frame_tsc", snap.gui.lastFrameTsc);
 }
 }  // namespace hftrec::metrics

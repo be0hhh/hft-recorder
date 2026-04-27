@@ -8,7 +8,7 @@ Pane {
 
     required property CaptureViewModel captureVm
     required property bool tabActive
-    property bool anyChannelRunning: root.captureVm.tradesRunning || root.captureVm.bookTickerRunning || root.captureVm.orderbookRunning
+    property bool anyChannelRunning: root.captureVm.tradesRunning || root.captureVm.liquidationsRunning || root.captureVm.bookTickerRunning || root.captureVm.orderbookRunning
 
     property color windowColor: "#161616"
     property color panelColor: "#2c2c2f"
@@ -99,6 +99,30 @@ Pane {
 
                     }
 
+                    CaptureChannelCard {
+                        captureVm: root.captureVm
+                        channelKey: "liquidations"
+                        titleText: "Liquidations Request"
+                        emptyText: "No liquidation aliases available."
+                        availableAliases: root.captureVm.liquidationsAvailableAliases
+                        requestPreview: root.captureVm.liquidationsRequestPreview
+                        weightSummary: root.captureVm.channelWeightSummary("liquidations")
+                        running: root.captureVm.liquidationsRunning
+                        actionText: root.captureVm.liquidationsRunning ? "Stop Liquidations" : "Start Liquidations"
+                        panelColor: root.panelColor
+                        panelAltColor: root.panelAltColor
+                        borderColor: root.borderColor
+                        textColor: root.textColor
+                        mutedTextColor: root.mutedTextColor
+                        accentRequiredColor: root.accentRequiredColor
+                        accentOptionalColor: root.accentOptionalColor
+                        accentSellColor: root.accentSellColor
+                        actionAccentColor: root.captureVm.liquidationsRunning ? root.accentSellColor : root.accentRequiredColor
+                        actionTextColor: root.captureVm.liquidationsRunning ? "#fff4f5" : "#071419"
+
+                        actionVisible: false
+
+                    }
                     CaptureChannelCard {
                         captureVm: root.captureVm
                         channelKey: "bookticker"

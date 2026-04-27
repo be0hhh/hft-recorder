@@ -17,6 +17,10 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept;
 Status parseTradeLine(std::string_view line,
                       TradeRow& out,
                       const std::vector<std::string>& aliases) noexcept;
+Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept;
+Status parseLiquidationLine(std::string_view line,
+                            LiquidationRow& out,
+                            const std::vector<std::string>& aliases) noexcept;
 Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept;
 Status parseBookTickerLine(std::string_view line,
                            BookTickerRow& out,

@@ -1,4 +1,4 @@
-﻿#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -94,7 +94,7 @@ TEST(EventStorage, LiveStoreReadsOnlyDeltaRowsFromOffsets) {
     ASSERT_EQ(store.appendTrade(tradeRow(200, 2, 2)), hftrec::Status::Ok);
     ASSERT_EQ(store.appendTrade(tradeRow(300, 3, 3)), hftrec::Status::Ok);
 
-    const auto delta = store.readSince(2u, 0u, 0u, 0u);
+    const auto delta = store.readSince(2u, 0u, 0u, 0u, 0u);
     ASSERT_EQ(delta.trades.size(), 1u);
     EXPECT_EQ(delta.trades[0].tsNs, 300);
 }
@@ -111,7 +111,7 @@ TEST(EventStorage, LiveStoreReadsSnapshotDeltaFromOffsets) {
     ASSERT_EQ(store.appendSnapshot(first, 0u), hftrec::Status::Ok);
     ASSERT_EQ(store.appendSnapshot(second, 1u), hftrec::Status::Ok);
 
-    const auto delta = store.readSince(0u, 0u, 0u, 1u);
+    const auto delta = store.readSince(0u, 0u, 0u, 0u, 1u);
     ASSERT_EQ(delta.snapshots.size(), 1u);
     EXPECT_EQ(delta.snapshots[0].updateId, 20);
 }
@@ -136,7 +136,7 @@ TEST(EventStorage, JsonSessionSinkWritesCurrentTradeSchema) {
     const auto stats = sink.stats();
     ASSERT_EQ(sink.close(), hftrec::Status::Ok);
 
-    const auto text = readFile(dir / "trades.jsonl");
+    const auto text = readFile(dir / "jsonl" / "trades.jsonl");
     EXPECT_NE(text.find("[30000,10,1,100,0,0,0,0,0,\"\",\"\",\"\",1,7]"), std::string::npos);
 
     EXPECT_STREQ(sink.backendId(), kJsonSessionId);

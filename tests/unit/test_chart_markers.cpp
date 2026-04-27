@@ -112,17 +112,42 @@ TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
     EXPECT_FALSE(snap.bookTickerTrace.samples.empty());
 
     chart.setRenderWindowSeconds(30);
+    EXPECT_EQ(chart.tsMax(), 61000000000ll);
+    EXPECT_EQ(chart.tsMin(), 31000000000ll);
     snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, true});
     ASSERT_EQ(snap.tradeDots.size(), 2u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 31000000000ll);
     EXPECT_EQ(snap.tradeDots.back().tsNs, 61000000000ll);
 
     chart.setRenderWindowSeconds(-1);
+    EXPECT_EQ(chart.tsMax(), 61000000000ll);
+    EXPECT_EQ(chart.tsMin(), 60999999999ll);
     snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, true});
     ASSERT_EQ(snap.tradeDots.size(), 1u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 61000000000ll);
     ASSERT_EQ(snap.bookTickerTrace.samples.size(), 1u);
     EXPECT_EQ(snap.bookTickerTrace.samples.front().tsNs, 61000000000ll);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(ChartRenderWindow, LoadSessionOpensAtLatestWindowWhenConfigured) {
+    const auto dir = makeTmpDir();
+    writeFile(dir / "trades.jsonl",
+              tradeLine(1000000000ll, e8(100), 1)
+              + tradeLine(61000000000ll, e8(102), 2));
+
+    ChartController chart;
+    chart.setRenderWindowSeconds(30);
+    ASSERT_TRUE(chart.loadSession(QString::fromStdString(dir.string())));
+    ASSERT_TRUE(chart.loaded());
+    EXPECT_EQ(chart.tsMax(), 61000000000ll);
+    EXPECT_EQ(chart.tsMin(), 31000000000ll);
+
+    const auto snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false});
+    ASSERT_EQ(snap.tradeDots.size(), 1u);
+    EXPECT_EQ(snap.tradeDots.front().tsNs, 61000000000ll);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

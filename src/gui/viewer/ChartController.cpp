@@ -106,6 +106,7 @@ void keepRowsInTimeRange(std::vector<Row>& rows, std::int64_t tsMin, std::int64_
 
 void keepBatchInTimeRange(LiveDataBatch& batch, std::int64_t tsMin, std::int64_t tsMax) {
     keepRowsInTimeRange(batch.trades, tsMin, tsMax);
+    keepRowsInTimeRange(batch.liquidations, tsMin, tsMax);
     keepRowsInTimeRange(batch.bookTickers, tsMin, tsMax);
     keepRowsInTimeRange(batch.depths, tsMin, tsMax);
     keepRowsInTimeRange(batch.snapshots, tsMin, tsMax);
@@ -161,6 +162,7 @@ void ChartController::setRenderWindowSeconds(int seconds) {
     if (renderWindowSeconds_ == clamped) return;
     renderWindowSeconds_ = clamped;
     liveWindowVersion_ = 0;
+    applyRecordedRenderWindowViewport_();
     emit renderWindowChanged();
     emit viewportChanged();
 }
@@ -251,6 +253,7 @@ void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsM
     liveDataCache_.renderTsMin = tsMin;
     liveDataCache_.renderTsMax = tsMax;
     hftrec::metrics::setLiveRows(static_cast<std::uint64_t>(liveDataCache_.stableRows.trades.size() + liveDataCache_.overlayRows.trades.size()),
+                         static_cast<std::uint64_t>(liveDataCache_.stableRows.liquidations.size() + liveDataCache_.overlayRows.liquidations.size()),
                          static_cast<std::uint64_t>(liveDataCache_.stableRows.bookTickers.size() + liveDataCache_.overlayRows.bookTickers.size()),
                          static_cast<std::uint64_t>(liveDataCache_.stableRows.depths.size() + liveDataCache_.overlayRows.depths.size()),
                          static_cast<std::uint64_t>(liveDataCache_.stableRows.snapshots.size() + liveDataCache_.overlayRows.snapshots.size()));
@@ -296,6 +299,7 @@ void ChartController::refreshProviderFromRegistry_() {
 
 bool ChartController::appendOverlayBatch_(const LiveDataBatch& batch, QString* failureText) {
     if (!appendMonotonicRows(batch.trades, liveOverlayState_.trades, failureText, QStringLiteral("trade"))) return false;
+    if (!appendMonotonicRows(batch.liquidations, liveOverlayState_.liquidations, failureText, QStringLiteral("liquidation"))) return false;
     if (!appendMonotonicRows(batch.bookTickers, liveOverlayState_.bookTickers, failureText, QStringLiteral("bookticker"))) return false;
     if (!appendMonotonicRows(batch.depths, liveOverlayState_.depths, failureText, QStringLiteral("depth"))) return false;
     if (!appendMonotonicRows(batch.snapshots, liveOverlayState_.snapshots, failureText, QStringLiteral("snapshot"))) return false;
@@ -306,6 +310,7 @@ bool ChartController::appendOverlayBatch_(const LiveDataBatch& batch, QString* f
 
 void ChartController::reconcileOverlayWithStable_() {
     removeRowsPromotedToStable(liveOverlayState_.trades, liveDataCache_.stableRows.trades);
+    removeRowsPromotedToStable(liveOverlayState_.liquidations, liveDataCache_.stableRows.liquidations);
     removeRowsPromotedToStable(liveOverlayState_.bookTickers, liveDataCache_.stableRows.bookTickers);
     removeRowsPromotedToStable(liveOverlayState_.depths, liveDataCache_.stableRows.depths);
     removeRowsPromotedToStable(liveOverlayState_.snapshots, liveDataCache_.stableRows.snapshots);
@@ -314,17 +319,21 @@ void ChartController::reconcileOverlayWithStable_() {
 void ChartController::refreshLoadedStateFromSources_() noexcept {
     loaded_ = !replay_.buckets().empty()
         || !replay_.trades().empty()
+        || !replay_.liquidations().empty()
         || !replay_.bookTickers().empty()
         || !replay_.depths().empty()
         || !replay_.book().bids().empty()
         || !replay_.book().asks().empty()
         || !liveDataCache_.stableRows.trades.empty()
+        || !liveDataCache_.stableRows.liquidations.empty()
         || !liveDataCache_.stableRows.bookTickers.empty()
         || !liveDataCache_.stableRows.depths.empty()
         || !liveDataCache_.overlayRows.trades.empty()
+        || !liveDataCache_.overlayRows.liquidations.empty()
         || !liveDataCache_.overlayRows.bookTickers.empty()
         || !liveDataCache_.overlayRows.depths.empty()
         || !liveOverlayState_.trades.empty()
+        || !liveOverlayState_.liquidations.empty()
         || !liveOverlayState_.bookTickers.empty()
         || !liveOverlayState_.depths.empty();
 }
@@ -355,8 +364,11 @@ std::int64_t ChartController::latestRenderableTsNs_() const noexcept {
     };
 
     absorbTradeRows(liveDataCache_.stableRows.trades);
+    absorbTradeRows(liveDataCache_.stableRows.liquidations);
     absorbTradeRows(liveDataCache_.overlayRows.trades);
+    absorbTradeRows(liveDataCache_.overlayRows.liquidations);
     absorbTradeRows(liveOverlayState_.trades);
+    absorbTradeRows(liveOverlayState_.liquidations);
     absorbTickerRows(liveDataCache_.stableRows.bookTickers);
     absorbTickerRows(liveDataCache_.overlayRows.bookTickers);
     absorbTickerRows(liveOverlayState_.bookTickers);
@@ -379,7 +391,7 @@ std::int64_t ChartController::effectiveRenderMinTs_(std::int64_t latestTsNs) con
 
 void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
     if (liveInitialViewportApplied_) return;
-    if (!replay_.trades().empty() || !replay_.bookTickers().empty() || !replay_.depths().empty()
+    if (!replay_.trades().empty() || !replay_.liquidations().empty() || !replay_.bookTickers().empty() || !replay_.depths().empty()
         || !replay_.book().bids().empty() || !replay_.book().asks().empty()) {
         liveInitialViewportApplied_ = true;
         return;
@@ -418,8 +430,11 @@ void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
     };
 
     absorbTradeRows(liveDataCache_.stableRows.trades);
+    absorbTradeRows(liveDataCache_.stableRows.liquidations);
     absorbTradeRows(liveDataCache_.overlayRows.trades);
+    absorbTradeRows(liveDataCache_.overlayRows.liquidations);
     absorbTradeRows(liveOverlayState_.trades);
+    absorbTradeRows(liveOverlayState_.liquidations);
     absorbTickerRows(liveDataCache_.stableRows.bookTickers);
     absorbTickerRows(liveDataCache_.overlayRows.bookTickers);
     absorbTickerRows(liveOverlayState_.bookTickers);
@@ -439,6 +454,26 @@ void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
     priceMaxE8_ = firstPrice + pricePad;
     if (priceMaxE8_ <= priceMinE8_) priceMaxE8_ = priceMinE8_ + 1;
     liveInitialViewportApplied_ = true;
+}
+
+void ChartController::applyRecordedRenderWindowViewport_() noexcept {
+    if (currentSourceKind_ == QStringLiteral("live")) return;
+    if (!loaded_ || !renderWindowActive()) return;
+
+    const std::int64_t latestTs = latestRenderableTsNs_();
+    if (latestTs <= 0) return;
+
+    if (latestOnlyRenderWindow_()) {
+        tsMax_ = latestTs;
+        tsMin_ = std::max<std::int64_t>(replay_.firstTsNs(), latestTs - 1);
+        if (tsMax_ <= tsMin_) tsMin_ = std::max<std::int64_t>(0, latestTs - 1);
+    } else {
+        tsMax_ = latestTs;
+        tsMin_ = std::max<std::int64_t>(replay_.firstTsNs(), effectiveRenderMinTs_(latestTs));
+    }
+
+    if (tsMax_ <= tsMin_) tsMax_ = tsMin_ + 1;
+    currentBookTickerIndex_ = -1;
 }
 
 }  // namespace hftrec::gui::viewer

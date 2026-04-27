@@ -27,6 +27,7 @@ RenderSnapshot hoverSnapshotFrom(const RenderSnapshot& snap, const RenderSnapsho
         liveSnap->bookTickerTrace.samples.begin(),
         liveSnap->bookTickerTrace.samples.end());
     merged.tradeDots.insert(merged.tradeDots.end(), liveSnap->tradeDots.begin(), liveSnap->tradeDots.end());
+    merged.liquidationDots.insert(merged.liquidationDots.end(), liveSnap->liquidationDots.begin(), liveSnap->liquidationDots.end());
     return merged;
 }
 
@@ -63,7 +64,7 @@ void ChartItem::activateContextPoint(qreal x, qreal y) {
     hoverActive_ = true;
     contextActive_ = true;
     updateHover_();
-    if (hoveredTradeIndex_ < 0 && hoveredBookKind_ == 0) {
+    if (hoveredTradeIndex_ < 0 && hoveredLiquidationIndex_ < 0 && hoveredBookKind_ == 0) {
         clearHover();
         return;
     }
@@ -71,7 +72,7 @@ void ChartItem::activateContextPoint(qreal x, qreal y) {
 }
 
 void ChartItem::clearHover() {
-    const bool hadHoverState = hoverActive_ || contextActive_ || hoveredTradeIndex_ >= 0 || hoveredBookKind_ != 0;
+    const bool hadHoverState = hoverActive_ || contextActive_ || hoveredTradeIndex_ >= 0 || hoveredLiquidationIndex_ >= 0 || hoveredBookKind_ != 0;
     hoverActive_ = false;
     contextActive_ = false;
     hoveredTradeIndex_ = -1;
@@ -79,6 +80,13 @@ void ChartItem::clearHover() {
     hoveredTradePriceE8_ = 0;
     hoveredTradeQtyE8_ = 0;
     hoveredTradeSideBuy_ = true;
+    hoveredLiquidationIndex_ = -1;
+    hoveredLiquidationTsNs_ = 0;
+    hoveredLiquidationPriceE8_ = 0;
+    hoveredLiquidationQtyE8_ = 0;
+    hoveredLiquidationAvgPriceE8_ = 0;
+    hoveredLiquidationFilledQtyE8_ = 0;
+    hoveredLiquidationSideBuy_ = true;
     hoveredBookKind_ = 0;
     hoveredBookPriceE8_ = 0;
     hoveredBookQtyE8_ = 0;
@@ -94,6 +102,13 @@ void ChartItem::updateHover_() {
     hoveredTradePriceE8_ = 0;
     hoveredTradeQtyE8_ = 0;
     hoveredTradeSideBuy_ = true;
+    hoveredLiquidationIndex_ = -1;
+    hoveredLiquidationTsNs_ = 0;
+    hoveredLiquidationPriceE8_ = 0;
+    hoveredLiquidationQtyE8_ = 0;
+    hoveredLiquidationAvgPriceE8_ = 0;
+    hoveredLiquidationFilledQtyE8_ = 0;
+    hoveredLiquidationSideBuy_ = true;
     hoveredBookKind_ = 0;
     hoveredBookPriceE8_ = 0;
     hoveredBookQtyE8_ = 0;
@@ -118,6 +133,13 @@ void ChartItem::updateHover_() {
     hoveredTradePriceE8_ = hover.tradeHit ? hover.tradePriceE8 : 0;
     hoveredTradeQtyE8_ = hover.tradeHit ? hover.tradeQtyE8 : 0;
     hoveredTradeSideBuy_ = hover.tradeSideBuy;
+    hoveredLiquidationIndex_ = hover.liquidationHit ? hover.liquidationOrigIndex : -1;
+    hoveredLiquidationTsNs_ = hover.liquidationHit ? hover.liquidationTsNs : 0;
+    hoveredLiquidationPriceE8_ = hover.liquidationHit ? hover.liquidationPriceE8 : 0;
+    hoveredLiquidationQtyE8_ = hover.liquidationHit ? hover.liquidationQtyE8 : 0;
+    hoveredLiquidationAvgPriceE8_ = hover.liquidationHit ? hover.liquidationAvgPriceE8 : 0;
+    hoveredLiquidationFilledQtyE8_ = hover.liquidationHit ? hover.liquidationFilledQtyE8 : 0;
+    hoveredLiquidationSideBuy_ = hover.liquidationSideBuy;
     hoveredBookKind_ = hover.bookKind;
     hoveredBookPriceE8_ = hover.bookPriceE8;
     hoveredBookQtyE8_ = hover.bookQtyE8;
@@ -141,6 +163,17 @@ HoverInfo buildHoverInfo(const ChartItem& item) {
     hover.bookTsNs = item.hoveredBookTsNs_;
     hover.bookTsStartNs = item.hoveredBookTsStartNs_;
     hover.bookTsEndNs = item.hoveredBookTsEndNs_;
+
+    if (item.hoveredLiquidationIndex_ >= 0) {
+        hover.liquidationHit = true;
+        hover.liquidationOrigIndex = item.hoveredLiquidationIndex_;
+        hover.liquidationTsNs = item.hoveredLiquidationTsNs_;
+        hover.liquidationPriceE8 = item.hoveredLiquidationPriceE8_;
+        hover.liquidationQtyE8 = item.hoveredLiquidationQtyE8_;
+        hover.liquidationAvgPriceE8 = item.hoveredLiquidationAvgPriceE8_;
+        hover.liquidationFilledQtyE8 = item.hoveredLiquidationFilledQtyE8_;
+        hover.liquidationSideBuy = item.hoveredLiquidationSideBuy_;
+    }
 
     if (item.hoveredTradeIndex_ < 0) {
         return hover;

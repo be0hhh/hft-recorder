@@ -561,6 +561,10 @@ void ChartController::computeInitialViewport_() {
         absorbPrice(trade.priceE8, hasPrice, pMin, pMax);
         hasTradeOrTickerPrice = hasPrice;
     }
+    for (const auto& liquidation : replay_.liquidations()) {
+        absorbPrice(liquidation.priceE8, hasPrice, pMin, pMax);
+        hasTradeOrTickerPrice = hasPrice;
+    }
     for (const auto& ticker : replay_.bookTickers()) {
         absorbPrice(ticker.bidPriceE8, hasPrice, pMin, pMax);
         absorbPrice(ticker.askPriceE8, hasPrice, pMin, pMax);
@@ -742,12 +746,15 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
                           static_cast<double>(widthPx), static_cast<double>(heightPx)};
     snap.loaded = loaded_
         || !liveDataCache_.stableRows.trades.empty()
+        || !liveDataCache_.stableRows.liquidations.empty()
         || !liveDataCache_.stableRows.bookTickers.empty()
         || !liveDataCache_.stableRows.depths.empty()
         || !liveDataCache_.overlayRows.trades.empty()
+        || !liveDataCache_.overlayRows.liquidations.empty()
         || !liveDataCache_.overlayRows.bookTickers.empty()
         || !liveDataCache_.overlayRows.depths.empty();
     snap.tradesVisible = in.tradesVisible;
+    snap.liquidationsVisible = in.liquidationsVisible;
     snap.orderbookVisible = in.orderbookVisible;
     snap.bookTickerVisible = in.bookTickerVisible;
     snap.interactiveMode = in.interactiveMode;
@@ -858,6 +865,48 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         else pixelBin.sell.absorb(dot);
     }
     flushTradeBin();
+
+    if (in.liquidationsVisible) {
+        const auto& liquidations = replay_.liquidations();
+        auto liqBegin = liquidations.begin();
+        auto liqEnd = liquidations.end();
+        if (latestOnlyWindow) {
+            const auto latestLiqIt = std::upper_bound(
+                liquidations.begin(),
+                liquidations.end(),
+                latestTsNs,
+                [](std::int64_t ts, const hftrec::replay::LiquidationRow& row) noexcept { return ts < row.tsNs; });
+            if (latestLiqIt == liquidations.begin()) {
+                liqBegin = liquidations.end();
+                liqEnd = liquidations.end();
+            } else {
+                liqBegin = std::prev(latestLiqIt);
+                liqEnd = latestLiqIt;
+            }
+        } else {
+            liqBegin = std::lower_bound(
+                liquidations.begin(),
+                liquidations.end(),
+                renderMinTs,
+                [](const hftrec::replay::LiquidationRow& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
+            liqEnd = std::upper_bound(
+                liqBegin,
+                liquidations.end(),
+                renderMaxTs,
+                [](std::int64_t ts, const hftrec::replay::LiquidationRow& row) noexcept { return ts < row.tsNs; });
+        }
+        snap.liquidationDots.reserve(static_cast<std::size_t>(std::distance(liqBegin, liqEnd)));
+        for (auto it = liqBegin; it != liqEnd; ++it) {
+            const auto& row = *it;
+            if (latestOnlyWindow && (row.tsNs < snap.vp.tMin || row.tsNs > snap.vp.tMax)) continue;
+            if (row.priceE8 < snap.vp.pMin || row.priceE8 > snap.vp.pMax) continue;
+            const auto x = snap.vp.toX(row.tsNs);
+            const auto y = snap.vp.toY(row.priceE8);
+            if (x < 0.0 || x > snap.vp.w || y < 0.0 || y > snap.vp.h) continue;
+            const auto origIndex = static_cast<int>(std::distance(liquidations.begin(), it));
+            snap.liquidationDots.push_back(LiquidationDot{row.tsNs, row.priceE8, row.qtyE8, row.avgPriceE8, row.filledQtyE8, row.sideBuy != 0, origIndex});
+        }
+    }
 
     if (!in.orderbookVisible && !in.bookTickerVisible) return snap;
 

@@ -59,6 +59,36 @@ void CaptureViewModel::stopTrades() {
     refreshState();
 }
 
+bool CaptureViewModel::startLiquidations() {
+    if (!ensureCoordinatorBatch_()) {
+        refreshState();
+        return false;
+    }
+
+    const auto configs = makeConfigs();
+    for (std::size_t i = 0; i < coordinators_.size() && i < configs.size(); ++i) {
+        const auto status = coordinators_[i]->startLiquidations(configs[i]);
+        if (!isOk(status)) {
+            abortCoordinatorBatch_(joinCoordinatorErrors_());
+            refreshState();
+            return false;
+        }
+    }
+
+    setStatusText(QStringLiteral("Liquidations capture started for %1 symbol(s)").arg(coordinators_.size()));
+    registerLiveSources_();
+    refreshState();
+    return true;
+}
+
+void CaptureViewModel::stopLiquidations() {
+    for (auto& coordinator : coordinators_) {
+        if (coordinator) coordinator->stopLiquidations();
+    }
+    setStatusText(QStringLiteral("Liquidations capture stopped"));
+    registerLiveSources_();
+    refreshState();
+}
 bool CaptureViewModel::startBookTicker() {
     if (!ensureCoordinatorBatch_()) {
         refreshState();
@@ -136,6 +166,13 @@ bool CaptureViewModel::startAllChannels() {
             return false;
         }
 
+        const auto liquidationsStatus = coordinators_[i]->startLiquidations(configs[i]);
+        if (!isOk(liquidationsStatus)) {
+            abortCoordinatorBatch_(joinCoordinatorErrors_());
+            refreshState();
+            return false;
+        }
+
         const auto bookTickerStatus = coordinators_[i]->startBookTicker(configs[i]);
         if (!isOk(bookTickerStatus)) {
             abortCoordinatorBatch_(joinCoordinatorErrors_());
@@ -161,6 +198,7 @@ void CaptureViewModel::stopAllChannels() {
     for (auto& coordinator : coordinators_) {
         if (!coordinator) continue;
         coordinator->stopTrades();
+        coordinator->stopLiquidations();
         coordinator->stopBookTicker();
         coordinator->stopOrderbook();
     }
@@ -209,7 +247,7 @@ void CaptureViewModel::registerLiveSources_() {
     for (const auto& coordinator : coordinators_) {
         if (!coordinator) continue;
         const auto manifest = coordinator->manifestCopy();
-        const bool hasLiveChannel = coordinator->tradesRunning() || coordinator->bookTickerRunning() || coordinator->orderbookRunning();
+        const bool hasLiveChannel = coordinator->tradesRunning() || coordinator->liquidationsRunning() || coordinator->bookTickerRunning() || coordinator->orderbookRunning();
         if (!hasLiveChannel) continue;
 
         const QString exchange = QString::fromStdString(manifest.exchange);
@@ -261,6 +299,7 @@ void CaptureViewModel::abortCoordinatorBatch_(const QString& fallbackStatus) {
         if (!coordinator) continue;
         const auto preFinalizeError = QString::fromStdString(coordinator->lastError()).trimmed();
         coordinator->stopTrades();
+        coordinator->stopLiquidations();
         coordinator->stopBookTicker();
         coordinator->stopOrderbook();
         const auto status = coordinator->finalizeSession();

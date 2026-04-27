@@ -1,7 +1,12 @@
 #include "gui/viewmodels/CompressionViewModel.hpp"
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QLocale>
 #include <QVariantMap>
+
+#include <filesystem>
 
 #include "hft_compressor/compressor.hpp"
 #include "hft_compressor/metrics_server.hpp"
@@ -33,17 +38,120 @@ QString pipelineSummary(const hft_compressor::PipelineDescriptor& pipeline) {
              viewString(pipeline.entropy));
 }
 
+QString pathFromUrl(const QUrl& url) {
+    if (!url.isValid() || url.isEmpty()) return QString{};
+    const QString path = url.isLocalFile() ? url.toLocalFile() : url.toString();
+    return path.trimmed();
+}
+
+QString resolveRecordingsRoot() {
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const QString candidate = appDir.absoluteFilePath(QStringLiteral("../../recordings"));
+    return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
+}
+
+QString displayChannel(const QString& channel) {
+    if (channel == QStringLiteral("bookticker")) return QStringLiteral("BookTicker");
+    if (channel == QStringLiteral("depth")) return QStringLiteral("Depth");
+    return QStringLiteral("Trades");
+}
+
 }  // namespace
 
 CompressionViewModel::CompressionViewModel(QObject* parent)
-    : QObject(parent), outputRoot_(QString::fromStdString(hft_compressor::defaultOutputRoot().string())) {
+    : QObject(parent) {
     const auto allPipelines = hft_compressor::listPipelines();
     if (!allPipelines.empty()) selectedPipelineId_ = viewString(allPipelines.front().id);
+
+    const auto sessionRows = sessions();
+    if (!sessionRows.empty()) {
+        selectedSessionId_ = sessionRows.front().toMap().value(QStringLiteral("id")).toString();
+        const QString firstChannel = firstAvailableChannel_(selectedSessionPath());
+        if (!firstChannel.isEmpty()) selectedChannel_ = firstChannel;
+    }
+
     compressionMetricsServer_ = std::make_unique<hft_compressor::MetricsServer>();
     compressionMetricsServer_->startFromEnvironment();
 }
 
 CompressionViewModel::~CompressionViewModel() = default;
+
+QString CompressionViewModel::recordingsRoot() const {
+    return resolveRecordingsRoot();
+}
+
+QVariantList CompressionViewModel::sessions() const {
+    QVariantList out;
+    QDir recordingsDir(recordingsRoot());
+    if (!recordingsDir.exists()) return out;
+
+    const auto entries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
+    for (const auto& entry : entries) {
+        const QString path = recordingsDir.absoluteFilePath(entry);
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), entry);
+        row.insert(QStringLiteral("label"), entry);
+        row.insert(QStringLiteral("path"), path);
+        row.insert(QStringLiteral("hasTrades"), !existingChannelPath_(path, QStringLiteral("trades")).isEmpty());
+        row.insert(QStringLiteral("hasBookTicker"), !existingChannelPath_(path, QStringLiteral("bookticker")).isEmpty());
+        row.insert(QStringLiteral("hasDepth"), !existingChannelPath_(path, QStringLiteral("depth")).isEmpty());
+        out.push_back(row);
+    }
+    return out;
+}
+
+QString CompressionViewModel::selectedSessionPath() const {
+    if (selectedSessionId_.trimmed().isEmpty()) return {};
+    return QDir(recordingsRoot()).absoluteFilePath(selectedSessionId_);
+}
+
+QVariantList CompressionViewModel::channelChoices() const {
+    QVariantList out;
+    const QString sessionPath = selectedSessionPath();
+    const QString channels[] = {QStringLiteral("trades"), QStringLiteral("bookticker"), QStringLiteral("depth")};
+    for (const QString& channel : channels) {
+        const QString path = existingChannelPath_(sessionPath, channel);
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), channel);
+        row.insert(QStringLiteral("label"), displayChannel(channel));
+        row.insert(QStringLiteral("file"), path.isEmpty() ? preferredChannelPath_(sessionPath, channel) : path);
+        row.insert(QStringLiteral("available"), !path.isEmpty());
+        out.push_back(row);
+    }
+    return out;
+}
+
+QString CompressionViewModel::inputFile() const {
+    if (!manualInputFile_.trimmed().isEmpty() && selectedSessionId_.trimmed().isEmpty()) return manualInputFile_;
+    const QString path = existingChannelPath_(selectedSessionPath(), selectedChannel_);
+    return path.isEmpty() ? preferredChannelPath_(selectedSessionPath(), selectedChannel_) : path;
+}
+
+QString CompressionViewModel::outputRoot() const {
+    if (!manualOutputRoot_.trimmed().isEmpty() && selectedSessionId_.trimmed().isEmpty()) return manualOutputRoot_;
+    const QString sessionPath = selectedSessionPath();
+    if (sessionPath.isEmpty()) return {};
+    return QDir(sessionPath).absoluteFilePath(QStringLiteral("compressed/zstd"));
+}
+
+QString CompressionViewModel::outputFilePreview() const {
+    const QString root = outputRoot();
+    const QString fileName = channelFileName_(selectedChannel_).replace(QStringLiteral(".jsonl"), QStringLiteral(".hfc"));
+    if (root.isEmpty() || fileName.isEmpty()) return {};
+    return QDir(root).absoluteFilePath(fileName);
+}
+
+QVariantList CompressionViewModel::outputRootChoices() const {
+    QVariantList out;
+    const QString root = outputRoot();
+    if (!root.isEmpty()) {
+        QVariantMap row;
+        row.insert(QStringLiteral("label"), root);
+        row.insert(QStringLiteral("path"), root);
+        out.push_back(row);
+    }
+    return out;
+}
 
 QVariantList CompressionViewModel::pipelines() const {
     QVariantList out;
@@ -82,7 +190,7 @@ bool CompressionViewModel::selectedPipelineAvailable() const {
 }
 
 QString CompressionViewModel::inferredStream() const {
-    const auto stream = hft_compressor::inferStreamTypeFromPath(inputFile_.toStdString());
+    const auto stream = hft_compressor::inferStreamTypeFromPath(inputFile().toStdString());
     return viewString(hft_compressor::streamTypeToString(stream));
 }
 
@@ -119,29 +227,84 @@ QString CompressionViewModel::timingText() const {
 }
 
 bool CompressionViewModel::canRun() const {
+    const QString path = inputFile();
     return selectedPipelineAvailable()
-        && hft_compressor::inferStreamTypeFromPath(inputFile_.toStdString()) != hft_compressor::StreamType::Unknown;
+        && !path.isEmpty()
+        && QFileInfo::exists(path)
+        && hft_compressor::inferStreamTypeFromPath(path.toStdString()) != hft_compressor::StreamType::Unknown;
+}
+
+void CompressionViewModel::reloadSessions() {
+    const auto rows = sessions();
+    bool selectedStillExists = false;
+    for (const auto& rowValue : rows) {
+        if (rowValue.toMap().value(QStringLiteral("id")).toString() == selectedSessionId_) {
+            selectedStillExists = true;
+            break;
+        }
+    }
+    if (!selectedStillExists) {
+        selectedSessionId_ = rows.empty() ? QString{} : rows.front().toMap().value(QStringLiteral("id")).toString();
+        const QString firstChannel = firstAvailableChannel_(selectedSessionPath());
+        selectedChannel_ = firstChannel.isEmpty() ? QStringLiteral("trades") : firstChannel;
+        emit selectedSessionChanged();
+        emit selectedChannelChanged();
+    }
+    emit sessionsChanged();
+    emit channelChoicesChanged();
+    emitSelectionChanged_();
+}
+
+void CompressionViewModel::setSelectedSessionId(const QString& sessionId) {
+    const QString normalized = sessionId.trimmed();
+    if (selectedSessionId_ == normalized) return;
+    selectedSessionId_ = normalized;
+    const QString firstChannel = firstAvailableChannel_(selectedSessionPath());
+    selectedChannel_ = firstChannel.isEmpty() ? QStringLiteral("trades") : firstChannel;
+    manualInputFile_.clear();
+    manualOutputRoot_.clear();
+    emit selectedSessionChanged();
+    emit selectedChannelChanged();
+    emit channelChoicesChanged();
+    emitSelectionChanged_();
+}
+
+void CompressionViewModel::setSelectedChannel(const QString& channel) {
+    const QString normalized = channel.trimmed().toLower();
+    if (normalized != QStringLiteral("trades")
+        && normalized != QStringLiteral("bookticker")
+        && normalized != QStringLiteral("depth")) {
+        return;
+    }
+    if (selectedChannel_ == normalized) return;
+    selectedChannel_ = normalized;
+    emit selectedChannelChanged();
+    emitSelectionChanged_();
 }
 
 void CompressionViewModel::setInputFile(const QString& path) {
-    if (inputFile_ == path) return;
-    inputFile_ = path;
-    emit inputFileChanged();
-    emit canRunChanged();
+    manualInputFile_ = path.trimmed();
+    selectedSessionId_.clear();
+    emit selectedSessionChanged();
+    emit channelChoicesChanged();
+    emitSelectionChanged_();
 }
 
 void CompressionViewModel::setInputFileUrl(const QUrl& url) {
-    setInputFile(url.isLocalFile() ? url.toLocalFile() : url.toString());
+    const QString path = pathFromUrl(url);
+    if (!path.isEmpty()) setInputFile(path);
 }
 
 void CompressionViewModel::setOutputRoot(const QString& path) {
-    if (outputRoot_ == path) return;
-    outputRoot_ = path;
+    manualOutputRoot_ = path.trimmed();
     emit outputRootChanged();
+    emit outputRootChoicesChanged();
+    emitSelectionChanged_();
 }
 
 void CompressionViewModel::setOutputRootUrl(const QUrl& url) {
-    setOutputRoot(url.isLocalFile() ? url.toLocalFile() : url.toString());
+    const QString path = pathFromUrl(url);
+    if (!path.isEmpty()) setOutputRoot(path);
 }
 
 void CompressionViewModel::setSelectedPipelineId(const QString& pipelineId) {
@@ -153,8 +316,8 @@ void CompressionViewModel::setSelectedPipelineId(const QString& pipelineId) {
 
 void CompressionViewModel::runCompression() {
     hft_compressor::CompressionRequest request{};
-    request.inputPath = inputFile_.toStdString();
-    request.outputRoot = outputRoot_.toStdString();
+    request.inputPath = inputFile().toStdString();
+    request.outputPathOverride = outputFilePreview().toStdString();
     request.pipelineId = selectedPipelineId_.toStdString();
     const auto result = hft_compressor::compress(request);
     outputFile_ = QString::fromStdString(result.outputPath.string());
@@ -177,6 +340,48 @@ void CompressionViewModel::runCompression() {
         ? QStringLiteral("Compression complete")
         : QStringLiteral("Compression failed: ") + QString::fromStdString(result.error);
     emit resultChanged();
+    emit canRunChanged();
+}
+
+QString CompressionViewModel::existingChannelPath_(const QString& sessionPath, const QString& channel) const {
+    if (sessionPath.trimmed().isEmpty()) return {};
+    const QString fileName = channelFileName_(channel);
+    if (fileName.isEmpty()) return {};
+    const QDir dir(sessionPath);
+    const QString jsonlPath = dir.absoluteFilePath(QStringLiteral("jsonl/%1").arg(fileName));
+    if (QFileInfo::exists(jsonlPath)) return jsonlPath;
+    const QString legacyPath = dir.absoluteFilePath(fileName);
+    if (QFileInfo::exists(legacyPath)) return legacyPath;
+    return {};
+}
+
+QString CompressionViewModel::preferredChannelPath_(const QString& sessionPath, const QString& channel) const {
+    if (sessionPath.trimmed().isEmpty()) return {};
+    const QString fileName = channelFileName_(channel);
+    return fileName.isEmpty() ? QString{} : QDir(sessionPath).absoluteFilePath(QStringLiteral("jsonl/%1").arg(fileName));
+}
+
+QString CompressionViewModel::firstAvailableChannel_(const QString& sessionPath) const {
+    const QString channels[] = {QStringLiteral("trades"), QStringLiteral("bookticker"), QStringLiteral("depth")};
+    for (const QString& channel : channels) {
+        if (!existingChannelPath_(sessionPath, channel).isEmpty()) return channel;
+    }
+    return {};
+}
+
+QString CompressionViewModel::channelFileName_(const QString& channel) const {
+    if (channel == QStringLiteral("bookticker")) return QStringLiteral("bookticker.jsonl");
+    if (channel == QStringLiteral("depth")) return QStringLiteral("depth.jsonl");
+    if (channel == QStringLiteral("trades")) return QStringLiteral("trades.jsonl");
+    return {};
+}
+
+void CompressionViewModel::emitSelectionChanged_() {
+    emit selectionChanged();
+    emit inputFileChanged();
+    emit outputRootChanged();
+    emit outputRootChoicesChanged();
+    emit canRunChanged();
 }
 
 }  // namespace hftrec::gui

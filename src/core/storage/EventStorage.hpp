@@ -12,6 +12,7 @@ namespace hftrec::storage {
 
 struct EventBatch {
     std::vector<replay::TradeRow> trades{};
+    std::vector<replay::LiquidationRow> liquidations{};
     std::vector<replay::BookTickerRow> bookTickers{};
     std::vector<replay::DepthRow> depths{};
     std::vector<replay::SnapshotDocument> snapshots{};
@@ -19,6 +20,7 @@ struct EventBatch {
 
 struct EventStoreStats {
     std::uint64_t tradesTotal{0};
+    std::uint64_t liquidationsTotal{0};
     std::uint64_t bookTickersTotal{0};
     std::uint64_t depthsTotal{0};
     std::uint64_t snapshotsTotal{0};
@@ -33,6 +35,7 @@ class IEventSink {
     virtual ~IEventSink() = default;
 
     virtual Status appendTrade(const replay::TradeRow& row) noexcept = 0;
+    virtual Status appendLiquidation(const replay::LiquidationRow& row) noexcept = 0;
     virtual Status appendBookTicker(const replay::BookTickerRow& row) noexcept = 0;
     virtual Status appendDepth(const replay::DepthRow& row) noexcept = 0;
     virtual Status appendSnapshot(const replay::SnapshotDocument& snapshot,
@@ -51,6 +54,7 @@ class IEventSource {
     virtual EventBatch readAll() const = 0;
     virtual EventBatch readRange(std::int64_t fromTsNs, std::int64_t toTsNs) const = 0;
     virtual EventBatch readSince(std::size_t tradeOffset,
+                                 std::size_t liquidationOffset,
                                  std::size_t bookTickerOffset,
                                  std::size_t depthOffset,
                                  std::size_t snapshotOffset) const;
@@ -81,6 +85,7 @@ class IStorageBackend : public IEventSink {
 class LiveEventStore final : public IHotEventCache {
   public:
     Status appendTrade(const replay::TradeRow& row) noexcept override;
+    Status appendLiquidation(const replay::LiquidationRow& row) noexcept override;
     Status appendBookTicker(const replay::BookTickerRow& row) noexcept override;
     Status appendDepth(const replay::DepthRow& row) noexcept override;
     Status appendSnapshot(const replay::SnapshotDocument& snapshot,
@@ -91,7 +96,8 @@ class LiveEventStore final : public IHotEventCache {
     EventBatch readAll() const override;
     EventBatch readRange(std::int64_t fromTsNs, std::int64_t toTsNs) const override;
     EventBatch readSince(std::size_t tradeOffset,
-                         std::size_t bookTickerOffset,
+                                 std::size_t liquidationOffset,
+                                 std::size_t bookTickerOffset,
                          std::size_t depthOffset,
                          std::size_t snapshotOffset) const override;
     EventStoreStats stats() const noexcept override;
@@ -109,6 +115,7 @@ class CompositeEventSink final : public IEventSink {
     void addSink(IEventSink* sink) noexcept;
 
     Status appendTrade(const replay::TradeRow& row) noexcept override;
+    Status appendLiquidation(const replay::LiquidationRow& row) noexcept override;
     Status appendBookTicker(const replay::BookTickerRow& row) noexcept override;
     Status appendDepth(const replay::DepthRow& row) noexcept override;
     Status appendSnapshot(const replay::SnapshotDocument& snapshot,

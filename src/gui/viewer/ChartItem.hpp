@@ -34,6 +34,7 @@ class ChartItem : public QQuickPaintedItem {
     Q_PROPERTY(hftrec::gui::viewer::ChartController* controller
                    READ controller WRITE setController NOTIFY controllerChanged)
     Q_PROPERTY(bool tradesVisible READ tradesVisible WRITE setTradesVisible NOTIFY tradesVisibleChanged)
+    Q_PROPERTY(bool liquidationsVisible READ liquidationsVisible WRITE setLiquidationsVisible NOTIFY liquidationsVisibleChanged)
     Q_PROPERTY(bool orderbookVisible READ orderbookVisible WRITE setOrderbookVisible NOTIFY orderbookVisibleChanged)
     Q_PROPERTY(bool bookTickerVisible READ bookTickerVisible WRITE setBookTickerVisible NOTIFY bookTickerVisibleChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
@@ -51,6 +52,8 @@ class ChartItem : public QQuickPaintedItem {
     void setController(ChartController* c);
     bool tradesVisible() const noexcept { return tradesVisible_; }
     void setTradesVisible(bool value);
+    bool liquidationsVisible() const noexcept { return liquidationsVisible_; }
+    void setLiquidationsVisible(bool value);
     bool orderbookVisible() const noexcept { return orderbookVisible_; }
     void setOrderbookVisible(bool value);
     bool bookTickerVisible() const noexcept { return bookTickerVisible_; }
@@ -76,6 +79,7 @@ class ChartItem : public QQuickPaintedItem {
   signals:
     void controllerChanged();
     void tradesVisibleChanged();
+    void liquidationsVisibleChanged();
     void orderbookVisibleChanged();
     void bookTickerVisibleChanged();
     void tradeAmountScaleChanged();
@@ -115,6 +119,13 @@ class ChartItem : public QQuickPaintedItem {
     std::int64_t hoveredTradePriceE8_{0};
     std::int64_t hoveredTradeQtyE8_{0};
     bool hoveredTradeSideBuy_{true};
+    int hoveredLiquidationIndex_{-1};
+    std::int64_t hoveredLiquidationTsNs_{0};
+    std::int64_t hoveredLiquidationPriceE8_{0};
+    std::int64_t hoveredLiquidationQtyE8_{0};
+    std::int64_t hoveredLiquidationAvgPriceE8_{0};
+    std::int64_t hoveredLiquidationFilledQtyE8_{0};
+    bool hoveredLiquidationSideBuy_{true};
     int hoveredBookKind_{0};
     std::int64_t hoveredBookPriceE8_{0};
     std::int64_t hoveredBookQtyE8_{0};
@@ -122,6 +133,7 @@ class ChartItem : public QQuickPaintedItem {
     std::int64_t hoveredBookTsStartNs_{0};
     std::int64_t hoveredBookTsEndNs_{0};
     bool tradesVisible_{true};
+    bool liquidationsVisible_{true};
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};
     qreal tradeAmountScale_{0.45};

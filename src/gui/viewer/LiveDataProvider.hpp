@@ -22,6 +22,7 @@ namespace hftrec::gui::viewer {
 struct LiveDataBatch {
     std::uint64_t id{0};
     std::vector<hftrec::replay::TradeRow> trades{};
+    std::vector<hftrec::replay::LiquidationRow> liquidations{};
     std::vector<hftrec::replay::BookTickerRow> bookTickers{};
     std::vector<hftrec::replay::DepthRow> depths{};
     std::vector<hftrec::replay::SnapshotDocument> snapshots{};
@@ -44,6 +45,7 @@ struct LiveDataRangeRequest {
 
 struct LiveDataStats {
     std::uint64_t tradesTotal{0};
+    std::uint64_t liquidationsTotal{0};
     std::uint64_t bookTickersTotal{0};
     std::uint64_t depthsTotal{0};
     std::uint64_t snapshotsTotal{0};
@@ -100,12 +102,14 @@ class JsonTailLiveDataProvider final : public ILiveDataProvider {
 
     std::filesystem::path sessionDir_{};
     TailFile trades_{};
+    TailFile liquidations_{};
     TailFile bookTicker_{};
     TailFile depth_{};
     std::filesystem::path snapshotPath_{};
     bool snapshotLoaded_{false};
     hftrec::replay::SnapshotDocument snapshot_{};
     std::vector<hftrec::replay::TradeRow> tradesHistory_{};
+    std::vector<hftrec::replay::LiquidationRow> liquidationHistory_{};
     std::vector<hftrec::replay::BookTickerRow> bookTickerHistory_{};
     std::vector<hftrec::replay::DepthRow> depthHistory_{};
     std::uint64_t version_{0};
@@ -134,6 +138,7 @@ class InMemoryLiveDataProvider final : public ILiveDataProvider {
     struct SourceState {
         SourceRef ref{};
         std::size_t seenTrades{0};
+        std::size_t seenLiquidations{0};
         std::size_t seenBookTickers{0};
         std::size_t seenDepths{0};
         std::size_t seenSnapshots{0};

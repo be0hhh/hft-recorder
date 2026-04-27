@@ -27,6 +27,14 @@ constexpr char bidQty[] = {'b','i','d','Q','t','y','\0'};
 constexpr char askPrice[] = {'a','s','k','P','r','i','c','e','\0'};
 constexpr char askQty[] = {'a','s','k','Q','t','y','\0'};
 constexpr char updateId[] = {'u','p','d','a','t','e','I','d','\0'};
+constexpr char avgPrice[] = {'a','v','g','P','r','i','c','e','\0'};
+constexpr char filledQty[] = {'f','i','l','l','e','d','Q','t','y','\0'};
+constexpr char orderType[] = {'o','r','d','e','r','T','y','p','e','\0'};
+constexpr char timeInForce[] = {'t','i','m','e','I','n','F','o','r','c','e','\0'};
+constexpr char status[] = {'s','t','a','t','u','s','\0'};
+constexpr char sourceMode[] = {'s','o','u','r','c','e','M','o','d','e','\0'};
+constexpr char captureSeq[] = {'c','a','p','t','u','r','e','S','e','q','\0'};
+constexpr char ingestSeq[] = {'i','n','g','e','s','t','S','e','q','\0'};
 
 template <typename AppendFn>
 void appendValue(std::string& out, bool& first, AppendFn&& appendFn) {
@@ -115,6 +123,56 @@ std::string renderTradeJsonLine(const replay::TradeRow& trade,
         else if (alias == symbol) appendValue(out, first, [&] { appendString(out, trade.symbol); });
         else if (alias == exchange) appendValue(out, first, [&] { appendString(out, trade.exchange); });
         else if (alias == market) appendValue(out, first, [&] { appendString(out, trade.market); });
+    }
+    out.push_back(']');
+    return out;
+}
+
+std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation) {
+    std::string out;
+    out.reserve(256);
+    out.push_back('[');
+    appendInt(out, liquidation.priceE8); out.push_back(',');
+    appendInt(out, liquidation.qtyE8); out.push_back(',');
+    appendInt(out, liquidation.side); out.push_back(',');
+    appendInt(out, liquidation.tsNs); out.push_back(',');
+    appendInt(out, liquidation.avgPriceE8); out.push_back(',');
+    appendInt(out, liquidation.filledQtyE8); out.push_back(',');
+    appendString(out, liquidation.symbol); out.push_back(',');
+    appendString(out, liquidation.exchange); out.push_back(',');
+    appendString(out, liquidation.market); out.push_back(',');
+    appendInt(out, liquidation.orderType); out.push_back(',');
+    appendInt(out, liquidation.timeInForce); out.push_back(',');
+    appendInt(out, liquidation.status); out.push_back(',');
+    appendInt(out, liquidation.sourceMode); out.push_back(',');
+    appendInt(out, liquidation.captureSeq); out.push_back(',');
+    appendInt(out, liquidation.ingestSeq);
+    out.push_back(']');
+    return out;
+}
+
+std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation,
+                                      const std::vector<std::string>& aliases) {
+    std::string out;
+    out.reserve(256);
+    out.push_back('[');
+    bool first = true;
+    for (const auto& alias : aliases) {
+        if (alias == price) appendValue(out, first, [&] { appendInt(out, liquidation.priceE8); });
+        else if (alias == amount) appendValue(out, first, [&] { appendInt(out, liquidation.qtyE8); });
+        else if (alias == side) appendValue(out, first, [&] { appendInt(out, liquidation.side); });
+        else if (alias == timestamp) appendValue(out, first, [&] { appendInt(out, liquidation.tsNs); });
+        else if (alias == avgPrice) appendValue(out, first, [&] { appendInt(out, liquidation.avgPriceE8); });
+        else if (alias == filledQty) appendValue(out, first, [&] { appendInt(out, liquidation.filledQtyE8); });
+        else if (alias == symbol) appendValue(out, first, [&] { appendString(out, liquidation.symbol); });
+        else if (alias == exchange) appendValue(out, first, [&] { appendString(out, liquidation.exchange); });
+        else if (alias == market) appendValue(out, first, [&] { appendString(out, liquidation.market); });
+        else if (alias == orderType) appendValue(out, first, [&] { appendInt(out, liquidation.orderType); });
+        else if (alias == timeInForce) appendValue(out, first, [&] { appendInt(out, liquidation.timeInForce); });
+        else if (alias == status) appendValue(out, first, [&] { appendInt(out, liquidation.status); });
+        else if (alias == sourceMode) appendValue(out, first, [&] { appendInt(out, liquidation.sourceMode); });
+        else if (alias == captureSeq) appendValue(out, first, [&] { appendInt(out, liquidation.captureSeq); });
+        else if (alias == ingestSeq) appendValue(out, first, [&] { appendInt(out, liquidation.ingestSeq); });
     }
     out.push_back(']');
     return out;

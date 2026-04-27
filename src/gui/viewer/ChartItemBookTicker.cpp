@@ -28,6 +28,7 @@ RenderSnapshot buildInteractiveTickerSnapshot(ChartController& controller,
     const SnapshotInputs tickerInputs{
         false,
         false,
+        false,
         item.bookTickerVisible(),
         false,
         item.overlayOnly(),

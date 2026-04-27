@@ -70,6 +70,15 @@ cxet::UnifiedRequestBuilder makeBookTickerBuilder(const std::string& symbolText)
         .symbol(symbol);
 }
 
+cxet::UnifiedRequestBuilder makeLiquidationBuilder(const std::string& symbolText) noexcept {
+    auto symbol = makeSymbol(symbolText);
+    return cxet::subscribe()
+        .object(cxet::composite::out::SubscribeObject::Liquidation)
+        .exchange(canon::kExchangeIdBinance)
+        .market(canon::kMarketTypeFutures)
+        .symbol(symbol);
+}
+
 cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const std::string& symbolText) noexcept {
     auto symbol = makeSymbol(symbolText);
     return cxet::subscribe()

@@ -34,6 +34,7 @@ class ChartController : public QObject {
     Q_PROPERTY(qint64 priceMaxE8 READ priceMaxE8 NOTIFY viewportChanged)
 
     Q_PROPERTY(bool hasTrades READ hasTrades NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasLiquidations READ hasLiquidations NOTIFY sessionChanged)
     Q_PROPERTY(bool hasBookTicker READ hasBookTicker NOTIFY sessionChanged)
     Q_PROPERTY(bool hasOrderbook READ hasOrderbook NOTIFY sessionChanged)
     Q_PROPERTY(bool gpuRendererAvailable READ gpuRendererAvailable CONSTANT)
@@ -69,6 +70,12 @@ class ChartController : public QObject {
             || !liveDataCache_.overlayRows.trades.empty()
             || !liveOverlayState_.trades.empty();
     }
+    bool hasLiquidations() const noexcept {
+        return !replay_.liquidations().empty()
+            || !liveDataCache_.stableRows.liquidations.empty()
+            || !liveDataCache_.overlayRows.liquidations.empty()
+            || !liveOverlayState_.liquidations.empty();
+    }
     bool hasBookTicker() const noexcept {
         return !replay_.bookTickers().empty()
             || !liveDataCache_.stableRows.bookTickers.empty()
@@ -99,6 +106,7 @@ class ChartController : public QObject {
     Q_INVOKABLE void activateLiveOnlyMode();
     Q_INVOKABLE void resetSession();
     Q_INVOKABLE bool addTradesFile(const QString& path);
+    Q_INVOKABLE bool addLiquidationsFile(const QString& path);
     Q_INVOKABLE bool addBookTickerFile(const QString& path);
     Q_INVOKABLE bool addDepthFile(const QString& path);
     Q_INVOKABLE bool addSnapshotFile(const QString& path);
@@ -210,6 +218,7 @@ class ChartController : public QObject {
     void reconcileOverlayWithStable_();
     void refreshLoadedStateFromSources_() noexcept;
     void initializeViewportFromLiveDataOnce_() noexcept;
+    void applyRecordedRenderWindowViewport_() noexcept;
     void markUserViewportControl_() noexcept;
     std::int64_t latestRenderableTsNs_() const noexcept;
     std::int64_t latestOrderbookTsNs_() const noexcept;

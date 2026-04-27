@@ -22,6 +22,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     Q_PROPERTY(hftrec::gui::viewer::ChartController* controller
                    READ controller WRITE setController NOTIFY controllerChanged)
     Q_PROPERTY(bool tradesVisible READ tradesVisible WRITE setTradesVisible NOTIFY tradesVisibleChanged)
+    Q_PROPERTY(bool liquidationsVisible READ liquidationsVisible WRITE setLiquidationsVisible NOTIFY liquidationsVisibleChanged)
     Q_PROPERTY(bool orderbookVisible READ orderbookVisible WRITE setOrderbookVisible NOTIFY orderbookVisibleChanged)
     Q_PROPERTY(bool bookTickerVisible READ bookTickerVisible WRITE setBookTickerVisible NOTIFY bookTickerVisibleChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
@@ -39,6 +40,8 @@ class GpuChartItem : public QQuickFramebufferObject {
     void setController(ChartController* c);
     bool tradesVisible() const noexcept { return tradesVisible_; }
     void setTradesVisible(bool value);
+    bool liquidationsVisible() const noexcept { return liquidationsVisible_; }
+    void setLiquidationsVisible(bool value);
     bool orderbookVisible() const noexcept { return orderbookVisible_; }
     void setOrderbookVisible(bool value);
     bool bookTickerVisible() const noexcept { return bookTickerVisible_; }
@@ -64,6 +67,7 @@ class GpuChartItem : public QQuickFramebufferObject {
   signals:
     void controllerChanged();
     void tradesVisibleChanged();
+    void liquidationsVisibleChanged();
     void orderbookVisibleChanged();
     void bookTickerVisibleChanged();
     void tradeAmountScaleChanged();
@@ -102,6 +106,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     std::int64_t hoveredBookTsStartNs_{0};
     std::int64_t hoveredBookTsEndNs_{0};
     bool tradesVisible_{true};
+    bool liquidationsVisible_{true};
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};
     qreal tradeAmountScale_{0.45};

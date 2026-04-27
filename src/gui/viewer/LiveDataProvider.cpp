@@ -22,9 +22,16 @@ namespace hftrec::gui::viewer {
 namespace {
 
 bool hasRows(const LiveDataBatch& batch) noexcept {
-    return !batch.trades.empty() || !batch.bookTickers.empty() || !batch.depths.empty() || !batch.snapshots.empty();
+    return !batch.trades.empty() || !batch.liquidations.empty() || !batch.bookTickers.empty() || !batch.depths.empty() || !batch.snapshots.empty();
 }
 
+std::filesystem::path liveChannelPath(const std::filesystem::path& sessionDir, const char* fileName) {
+    const auto nextPath = sessionDir / "jsonl" / fileName;
+    std::error_code ec;
+    if (std::filesystem::exists(nextPath, ec) && !ec) return nextPath;
+    if (std::filesystem::exists(nextPath.parent_path(), ec) && !ec) return nextPath;
+    return sessionDir / fileName;
+}
 template <typename Row>
 void appendSortedRange(const std::vector<Row>& rows,
                        std::int64_t tsMin,
@@ -91,7 +98,7 @@ void tailRows(JsonTailLiveDataProvider::TailFile& file,
             const auto st = consumeLine(std::string_view{line});
             const auto parseNs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - parseStart).count());
-            hftrec::metrics::recordLiveJsonTailParse(parseNs);
+            hftrec::metrics::recordLiveJsonTailParse(parseNs, label);
             if (!isOk(st)) {
                 result.reloadRequired = true;
                 result.failureStatus = st;
@@ -113,12 +120,14 @@ void tailRows(JsonTailLiveDataProvider::TailFile& file,
 void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
     sessionDir_ = config.sessionDir;
     tradesHistory_.clear();
+    liquidationHistory_.clear();
     bookTickerHistory_.clear();
     depthHistory_.clear();
     ++version_;
-    trades_ = TailFile{sessionDir_ / "trades.jsonl", 0, {}};
-    bookTicker_ = TailFile{sessionDir_ / "bookticker.jsonl", 0, {}};
-    depth_ = TailFile{sessionDir_ / "depth.jsonl", 0, {}};
+    trades_ = TailFile{liveChannelPath(sessionDir_, "trades.jsonl"), 0, {}};
+    liquidations_ = TailFile{liveChannelPath(sessionDir_, "liquidations.jsonl"), 0, {}};
+    bookTicker_ = TailFile{liveChannelPath(sessionDir_, "bookticker.jsonl"), 0, {}};
+    depth_ = TailFile{liveChannelPath(sessionDir_, "depth.jsonl"), 0, {}};
     snapshotPath_ = findLatestSnapshotPath_();
     snapshot_ = hftrec::replay::SnapshotDocument{};
     snapshotLoaded_ = false;
@@ -130,6 +139,7 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
         }
     }
     syncTailOffset_(trades_);
+    syncTailOffset_(liquidations_);
     syncTailOffset_(bookTicker_);
     syncTailOffset_(depth_);
 }
@@ -137,12 +147,14 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
 void JsonTailLiveDataProvider::stop() noexcept {
     sessionDir_.clear();
     trades_ = TailFile{};
+    liquidations_ = TailFile{};
     bookTicker_ = TailFile{};
     depth_ = TailFile{};
     snapshotPath_.clear();
     snapshotLoaded_ = false;
     snapshot_ = hftrec::replay::SnapshotDocument{};
     tradesHistory_.clear();
+    liquidationHistory_.clear();
     bookTickerHistory_.clear();
     depthHistory_.clear();
     ++version_;
@@ -195,6 +207,17 @@ LiveDataPollResult JsonTailLiveDataProvider::pollHot(std::uint64_t nextBatchId) 
              result);
     if (result.reloadRequired || !isOk(result.failureStatus)) return result;
 
+    tailRows(liquidations_,
+             [&result](std::string_view line) {
+                 hftrec::replay::LiquidationRow row{};
+                 const auto st = hftrec::replay::parseLiquidationLine(line, row);
+                 if (isOk(st)) result.batch.liquidations.push_back(std::move(row));
+                 return st;
+             },
+             "liquidations",
+             result);
+    if (result.reloadRequired || !isOk(result.failureStatus)) return result;
+
     tailRows(bookTicker_,
              [&result](std::string_view line) {
                  hftrec::replay::BookTickerRow row{};
@@ -219,6 +242,7 @@ LiveDataPollResult JsonTailLiveDataProvider::pollHot(std::uint64_t nextBatchId) 
     result.appendedRows = result.appendedRows || hasRows(result.batch);
     if (hasRows(result.batch)) {
         tradesHistory_.insert(tradesHistory_.end(), result.batch.trades.begin(), result.batch.trades.end());
+        liquidationHistory_.insert(liquidationHistory_.end(), result.batch.liquidations.begin(), result.batch.liquidations.end());
         bookTickerHistory_.insert(bookTickerHistory_.end(), result.batch.bookTickers.begin(), result.batch.bookTickers.end());
         depthHistory_.insert(depthHistory_.end(), result.batch.depths.begin(), result.batch.depths.end());
         ++version_;
@@ -247,6 +271,18 @@ LiveDataBatch JsonTailLiveDataProvider::materializeRange(const LiveDataRangeRequ
         request.tsMax,
         [](std::int64_t ts, const hftrec::replay::TradeRow& row) noexcept { return ts < row.tsNs; });
     batch.trades.insert(batch.trades.end(), tradesBegin, tradesEnd);
+
+    const auto liqBegin = std::lower_bound(
+        liquidationHistory_.begin(),
+        liquidationHistory_.end(),
+        request.tsMin,
+        [](const hftrec::replay::LiquidationRow& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
+    const auto liqEnd = std::upper_bound(
+        liqBegin,
+        liquidationHistory_.end(),
+        request.tsMax,
+        [](std::int64_t ts, const hftrec::replay::LiquidationRow& row) noexcept { return ts < row.tsNs; });
+    batch.liquidations.insert(batch.liquidations.end(), liqBegin, liqEnd);
 
     const auto tickerBegin = std::lower_bound(
         bookTickerHistory_.begin(),
@@ -280,6 +316,7 @@ LiveDataBatch JsonTailLiveDataProvider::materializeRange(const LiveDataRangeRequ
 LiveDataStats JsonTailLiveDataProvider::stats() const noexcept {
     return LiveDataStats{
         static_cast<std::uint64_t>(tradesHistory_.size()),
+        static_cast<std::uint64_t>(liquidationHistory_.size()),
         static_cast<std::uint64_t>(bookTickerHistory_.size()),
         static_cast<std::uint64_t>(depthHistory_.size()),
         snapshotLoaded_ ? 1u : 0u,
@@ -291,7 +328,7 @@ InMemoryLiveDataProvider::InMemoryLiveDataProvider(std::vector<SourceRef> source
     sources_.reserve(sources.size());
     for (auto& source : sources) {
         if (source.source == nullptr) continue;
-        sources_.push_back(SourceState{std::move(source), 0u, 0u, 0u, 0u});
+        sources_.push_back(SourceState{std::move(source), 0u, 0u, 0u, 0u, 0u});
     }
 }
 
@@ -300,6 +337,7 @@ void InMemoryLiveDataProvider::start(const LiveDataProviderConfig& config) {
     activeSymbol_ = config.symbol;
     for (auto& state : sources_) {
         state.seenTrades = 0u;
+        state.seenLiquidations = 0u;
         state.seenBookTickers = 0u;
         state.seenDepths = 0u;
         state.seenSnapshots = 0u;
@@ -313,6 +351,7 @@ void InMemoryLiveDataProvider::stop() noexcept {
     activeSymbol_.clear();
     for (auto& state : sources_) {
         state.seenTrades = 0u;
+        state.seenLiquidations = 0u;
         state.seenBookTickers = 0u;
         state.seenDepths = 0u;
         state.seenSnapshots = 0u;
@@ -329,43 +368,51 @@ LiveDataPollResult InMemoryLiveDataProvider::pollHot(std::uint64_t nextBatchId) 
     for (auto& state : sources_) {
         if (!sourceMatches_(state, activeSourceId_, activeSymbol_)) continue;
         std::size_t tradesTotal = 0u;
+        std::size_t liquidationsTotal = 0u;
         std::size_t bookTickersTotal = 0u;
         std::size_t depthsTotal = 0u;
         std::size_t snapshotsTotal = 0u;
         if (const auto* hotCache = dynamic_cast<const hftrec::storage::IHotEventCache*>(state.ref.source)) {
             const auto stats = hotCache->stats();
             tradesTotal = static_cast<std::size_t>(stats.tradesTotal);
+            liquidationsTotal = static_cast<std::size_t>(stats.liquidationsTotal);
             bookTickersTotal = static_cast<std::size_t>(stats.bookTickersTotal);
             depthsTotal = static_cast<std::size_t>(stats.depthsTotal);
             snapshotsTotal = static_cast<std::size_t>(stats.snapshotsTotal);
         } else {
-            const auto currentRows = state.ref.source->readSince(0u, 0u, 0u, 0u);
+            const auto currentRows = state.ref.source->readSince(0u, 0u, 0u, 0u, 0u);
             tradesTotal = currentRows.trades.size();
+            liquidationsTotal = currentRows.liquidations.size();
             bookTickersTotal = currentRows.bookTickers.size();
             depthsTotal = currentRows.depths.size();
             snapshotsTotal = currentRows.snapshots.size();
         }
 
         nextStats.tradesTotal += static_cast<std::uint64_t>(tradesTotal);
+        nextStats.liquidationsTotal += static_cast<std::uint64_t>(liquidationsTotal);
         nextStats.bookTickersTotal += static_cast<std::uint64_t>(bookTickersTotal);
         nextStats.depthsTotal += static_cast<std::uint64_t>(depthsTotal);
         nextStats.snapshotsTotal += static_cast<std::uint64_t>(snapshotsTotal);
 
         if (state.seenTrades > tradesTotal) state.seenTrades = 0u;
+        if (state.seenLiquidations > liquidationsTotal) state.seenLiquidations = 0u;
         if (state.seenBookTickers > bookTickersTotal) state.seenBookTickers = 0u;
         if (state.seenDepths > depthsTotal) state.seenDepths = 0u;
         if (state.seenSnapshots > snapshotsTotal) state.seenSnapshots = 0u;
 
         const auto delta = state.ref.source->readSince(state.seenTrades,
+                                                       state.seenLiquidations,
                                                        state.seenBookTickers,
                                                        state.seenDepths,
                                                        state.seenSnapshots);
         result.batch.trades.insert(result.batch.trades.end(), delta.trades.begin(), delta.trades.end());
+        result.batch.liquidations.insert(result.batch.liquidations.end(), delta.liquidations.begin(), delta.liquidations.end());
         result.batch.bookTickers.insert(result.batch.bookTickers.end(), delta.bookTickers.begin(), delta.bookTickers.end());
         result.batch.depths.insert(result.batch.depths.end(), delta.depths.begin(), delta.depths.end());
         result.batch.snapshots.insert(result.batch.snapshots.end(), delta.snapshots.begin(), delta.snapshots.end());
 
         state.seenTrades = tradesTotal;
+        state.seenLiquidations = liquidationsTotal;
         state.seenBookTickers = bookTickersTotal;
         state.seenDepths = depthsTotal;
         state.seenSnapshots = snapshotsTotal;
@@ -403,6 +450,7 @@ LiveDataBatch InMemoryLiveDataProvider::materializeRange(const LiveDataRangeRequ
         }
 
         appendSortedRange(allRows.trades, request.tsMin, request.tsMax, batch.trades);
+        appendSortedRange(allRows.liquidations, request.tsMin, request.tsMax, batch.liquidations);
         appendSortedRange(allRows.bookTickers, request.tsMin, request.tsMax, batch.bookTickers);
         appendSortedRange(allRows.depths, depthTsMin, request.tsMax, batch.depths);
     }

@@ -2,6 +2,7 @@
 
 #include "primitives/composite/BookTickerData.hpp"
 #include "primitives/composite/BookTickerRuntimeV1.hpp"
+#include "primitives/composite/LiquidationEvent.hpp"
 #include "primitives/composite/OrderBookDeltaRuntimeV1.hpp"
 #include "primitives/composite/OrderBookSnapshot.hpp"
 #include "primitives/composite/RuntimeCompatibility.hpp"
@@ -63,6 +64,24 @@ CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite
         cxet::composite::compat::materializeBookTickerDataV1(bookTicker, meta),
         true,
         true);
+}
+
+CapturedLiquidationRow CxetCaptureBridge::captureLiquidation(const cxet::composite::LiquidationEvent& event) {
+    CapturedLiquidationRow row{};
+    row.symbol = event.symbol.data;
+    row.exchangeId = static_cast<std::uint64_t>(event.exchangeId.raw);
+    row.tsNs = static_cast<std::uint64_t>(event.ts.raw);
+    row.priceE8 = static_cast<std::int64_t>(event.price.raw);
+    row.qtyE8 = static_cast<std::int64_t>(event.amount.raw);
+    row.avgPriceE8 = static_cast<std::int64_t>(event.avgPrice.raw);
+    row.filledQtyE8 = static_cast<std::int64_t>(event.filledAmount.raw);
+    row.side = static_cast<std::int64_t>(event.side.raw);
+    row.sideBuy = static_cast<std::uint8_t>(event.side.raw) == 1u;
+    row.orderType = static_cast<std::int64_t>(event.orderType);
+    row.timeInForce = static_cast<std::int64_t>(event.timeInForce);
+    row.status = static_cast<std::int64_t>(event.orderStatus);
+    row.sourceMode = static_cast<std::int64_t>(event.sourceMode);
+    return row;
 }
 
 CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot) {

@@ -22,7 +22,8 @@ class SessionReplay {
     enum class EventKind : std::uint8_t {
         Depth      = 0,
         Trade      = 1,
-        BookTicker = 2,
+        Liquidation = 2,
+        BookTicker = 3,
     };
 
     struct Event {
@@ -52,6 +53,7 @@ class SessionReplay {
     // to merge files.
     void   reset() noexcept;
     Status addTradesFile(const std::filesystem::path& path) noexcept;
+    Status addLiquidationsFile(const std::filesystem::path& path) noexcept;
     Status addBookTickerFile(const std::filesystem::path& path) noexcept;
     Status addDepthFile(const std::filesystem::path& path) noexcept;
     Status addSnapshotFile(const std::filesystem::path& path) noexcept;
@@ -67,12 +69,14 @@ class SessionReplay {
     const hftrec::corpus::LoadReport& loadReport() const noexcept { return loadReport_; }
 
     const std::vector<TradeRow>&      trades()      const noexcept { return trades_;      }
+    const std::vector<LiquidationRow>& liquidations() const noexcept { return liquidations_; }
     const std::vector<BookTickerRow>& bookTickers() const noexcept { return bookTickers_; }
     const std::vector<DepthRow>&      depths()      const noexcept { return depths_;      }
     const std::vector<Event>&         events()      const noexcept { return events_;      }
     const std::vector<ReplayBucket>&  buckets()     const noexcept { return buckets_;     }
 
     void appendTradeRow(TradeRow row);
+    void appendLiquidationRow(LiquidationRow row);
     void appendBookTickerRow(BookTickerRow row);
     void appendDepthRow(DepthRow row);
     void appendSnapshotDocument(SnapshotDocument snapshot);
@@ -97,6 +101,7 @@ class SessionReplay {
     struct ManifestHints {
         bool present{false};
         bool tradesEnabled{true};
+        bool liquidationsEnabled{true};
         bool bookTickerEnabled{true};
         bool orderbookEnabled{true};
     };
@@ -117,6 +122,7 @@ class SessionReplay {
     void maybeWriteIntegrityReport_() noexcept;
 
     std::vector<TradeRow>      trades_{};
+    std::vector<LiquidationRow> liquidations_{};
     std::vector<BookTickerRow> bookTickers_{};
     std::vector<DepthRow>      depths_{};
     std::vector<Event>         events_{};   // transitional flat timeline

@@ -12,7 +12,7 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture <trades|bookticker|orderbook> [seconds] [output_dir]");
+    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook> [seconds] [output_dir]");
     std::puts("  Current scope: Binance FAPI, one symbol per run, canonical JSON corpus output.");
     std::puts("");
     std::puts("Examples:");
@@ -56,6 +56,8 @@ int runCapture(int argc, char** argv) {
     Status startStatus = Status::InvalidArgument;
     if (channel == "trades") {
         startStatus = coordinator.startTrades(config);
+    } else if (channel == "liquidations" || channel == "liquidation" || channel == "forceOrder") {
+        startStatus = coordinator.startLiquidations(config);
     } else if (channel == "bookticker") {
         startStatus = coordinator.startBookTicker(config);
     } else if (channel == "orderbook") {

@@ -28,6 +28,25 @@ struct TradeRow {
     std::uint8_t sideBuy{0};  // 1 = taker-buy, 0 = taker-sell
 };
 
+struct LiquidationRow {
+    std::string symbol{};
+    std::string exchange{};
+    std::string market{};
+    std::int64_t tsNs{0};
+    std::int64_t captureSeq{0};
+    std::int64_t ingestSeq{0};
+    std::int64_t priceE8{0};
+    std::int64_t qtyE8{0};
+    std::int64_t avgPriceE8{0};
+    std::int64_t filledQtyE8{0};
+    std::int64_t side{0};
+    std::uint8_t sideBuy{0};
+    std::int64_t orderType{0};
+    std::int64_t timeInForce{0};
+    std::int64_t status{0};
+    std::int64_t sourceMode{0};
+};
+
 struct BookTickerRow {
     std::string symbol{};
     std::string exchange{};

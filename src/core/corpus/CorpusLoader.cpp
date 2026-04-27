@@ -21,6 +21,10 @@ Status parseTradeCanonicalLine(std::string_view line, hftrec::replay::TradeRow& 
     return hftrec::replay::parseTradeLine(line, row);
 }
 
+Status parseLiquidationCanonicalLine(std::string_view line, hftrec::replay::LiquidationRow& row) noexcept {
+    return hftrec::replay::parseLiquidationLine(line, row);
+}
+
 Status parseBookTickerCanonicalLine(std::string_view line, hftrec::replay::BookTickerRow& row) noexcept {
     return hftrec::replay::parseBookTickerLine(line, row);
 }
@@ -57,6 +61,20 @@ std::uint64_t fileSizeOrZero(const std::filesystem::path& path) noexcept {
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
     return ec ? 0u : static_cast<std::uint64_t>(size);
+}
+std::filesystem::path resolveChannelPath(const std::filesystem::path& sessionDir,
+                                        bool manifestPresent,
+                                        const std::string& manifestPath,
+                                        const char* legacyFileName) noexcept {
+    std::vector<std::filesystem::path> candidates;
+    if (manifestPresent && !manifestPath.empty()) candidates.push_back(sessionDir / manifestPath);
+    candidates.push_back(sessionDir / "jsonl" / legacyFileName);
+    candidates.push_back(sessionDir / legacyFileName);
+    for (const auto& candidate : candidates) {
+        std::error_code ec;
+        if (std::filesystem::exists(candidate, ec) && !ec) return candidate;
+    }
+    return candidates.empty() ? std::filesystem::path{} : candidates.front();
 }
 
 void addIssue(LoadReport& report,
@@ -360,6 +378,7 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
 
     const std::unordered_map<std::string, SourceArtifactInfo> currentSources{
         {"trades.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.tradesPath), static_cast<std::uint64_t>(corpus.tradeLines.size())}},
+        {"liquidations.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.liquidationsPath), static_cast<std::uint64_t>(corpus.liquidationLines.size())}},
         {"bookticker.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.bookTickerPath), static_cast<std::uint64_t>(corpus.bookTickerLines.size())}},
         {"depth.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.depthPath), static_cast<std::uint64_t>(corpus.depthLines.size())}},
     };
@@ -467,12 +486,14 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     }
 
     const bool requireTrades = report.manifestPresent ? (out.manifest.tradesEnabled && out.manifest.tradesRequiredWhenEnabled) : false;
+    const bool requireLiquidations = report.manifestPresent ? (out.manifest.liquidationsEnabled && out.manifest.liquidationsRequiredWhenEnabled) : false;
     const bool requireBookTicker = report.manifestPresent ? (out.manifest.bookTickerEnabled && out.manifest.bookTickerRequiredWhenEnabled) : false;
     const bool requireDepth = report.manifestPresent ? (out.manifest.orderbookEnabled && out.manifest.orderbookRequiredWhenEnabled) : false;
 
-    const auto tradesPath = sessionDir / (report.manifestPresent ? out.manifest.tradesPath : "trades.jsonl");
-    const auto bookTickerPath = sessionDir / (report.manifestPresent ? out.manifest.bookTickerPath : "bookticker.jsonl");
-    const auto depthPath = sessionDir / (report.manifestPresent ? out.manifest.depthPath : "depth.jsonl");
+    const auto tradesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.tradesPath, "trades.jsonl");
+    const auto liquidationsPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.liquidationsPath, "liquidations.jsonl");
+    const auto bookTickerPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.bookTickerPath, "bookticker.jsonl");
+    const auto depthPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.depthPath, "depth.jsonl");
 
     if (!isOk(loadJsonLines<decltype(&parseTradeCanonicalLine), hftrec::replay::TradeRow>(
                             tradesPath,
@@ -483,6 +504,18 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
                             tradesPath.filename().string(),
                             requireTrades,
                             report.tradesState))) {
+        out.report = report;
+        return report.finalStatus;
+    }
+    if (!isOk(loadJsonLines<decltype(&parseLiquidationCanonicalLine), hftrec::replay::LiquidationRow>(
+                            liquidationsPath,
+                            out.liquidationLines,
+                            parseLiquidationCanonicalLine,
+                            report,
+                            "liquidations",
+                            liquidationsPath.filename().string(),
+                            requireLiquidations,
+                            report.liquidationsState))) {
         out.report = report;
         return report.finalStatus;
     }

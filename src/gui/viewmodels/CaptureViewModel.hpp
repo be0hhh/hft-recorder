@@ -25,9 +25,11 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(QString symbolsText READ symbolsText WRITE setSymbolsText NOTIFY symbolsTextChanged)
     Q_PROPERTY(QString normalizedSymbolsText READ normalizedSymbolsText NOTIFY symbolsTextChanged)
     Q_PROPERTY(QStringList tradesAvailableAliases READ tradesAvailableAliases NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QStringList liquidationsAvailableAliases READ liquidationsAvailableAliases NOTIFY requestBuilderChanged)
     Q_PROPERTY(QStringList bookTickerAvailableAliases READ bookTickerAvailableAliases NOTIFY requestBuilderChanged)
     Q_PROPERTY(QStringList orderbookAvailableAliases READ orderbookAvailableAliases NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString tradesRequestPreview READ tradesRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString liquidationsRequestPreview READ liquidationsRequestPreview NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString bookTickerRequestPreview READ bookTickerRequestPreview NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString orderbookRequestPreview READ orderbookRequestPreview NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString sessionId READ sessionId NOTIFY sessionStateChanged)
@@ -38,9 +40,11 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(QString captureUnavailableReason READ captureUnavailableReason CONSTANT)
     Q_PROPERTY(bool sessionOpen READ sessionOpen NOTIFY sessionStateChanged)
     Q_PROPERTY(bool tradesRunning READ tradesRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(bool liquidationsRunning READ liquidationsRunning NOTIFY channelStateChanged)
     Q_PROPERTY(bool bookTickerRunning READ bookTickerRunning NOTIFY channelStateChanged)
     Q_PROPERTY(bool orderbookRunning READ orderbookRunning NOTIFY channelStateChanged)
     Q_PROPERTY(qulonglong tradesCount READ tradesCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong liquidationsCount READ liquidationsCount NOTIFY countersChanged)
     Q_PROPERTY(qulonglong bookTickerCount READ bookTickerCount NOTIFY countersChanged)
     Q_PROPERTY(qulonglong depthCount READ depthCount NOTIFY countersChanged)
 
@@ -51,9 +55,11 @@ class CaptureViewModel : public QObject {
     QString symbolsText() const;
     QString normalizedSymbolsText() const;
     QStringList tradesAvailableAliases() const;
+    QStringList liquidationsAvailableAliases() const;
     QStringList bookTickerAvailableAliases() const;
     QStringList orderbookAvailableAliases() const;
     QString tradesRequestPreview() const;
+    QString liquidationsRequestPreview() const;
     QString bookTickerRequestPreview() const;
     QString orderbookRequestPreview() const;
     QString sessionId() const;
@@ -64,9 +70,11 @@ class CaptureViewModel : public QObject {
     QString captureUnavailableReason() const;
     bool sessionOpen() const;
     bool tradesRunning() const;
+    bool liquidationsRunning() const;
     bool bookTickerRunning() const;
     bool orderbookRunning() const;
     qulonglong tradesCount() const;
+    qulonglong liquidationsCount() const;
     qulonglong bookTickerCount() const;
     qulonglong depthCount() const;
 
@@ -79,6 +87,8 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE QString channelWeightSummary(const QString& channel) const;
     Q_INVOKABLE bool startTrades();
     Q_INVOKABLE void stopTrades();
+    Q_INVOKABLE bool startLiquidations();
+    Q_INVOKABLE void stopLiquidations();
     Q_INVOKABLE bool startBookTicker();
     Q_INVOKABLE void stopBookTicker();
     Q_INVOKABLE bool startOrderbook();
@@ -119,9 +129,11 @@ class CaptureViewModel : public QObject {
     QString outputDirectory_{"./recordings"};
     QString symbolsText_{"ETH"};
     QStringList tradesAvailableAliases_{};
+    QStringList liquidationsAvailableAliases_{};
     QStringList bookTickerAvailableAliases_{};
     QStringList orderbookAvailableAliases_{};
     QStringList selectedTradesAliases_{};
+    QStringList selectedLiquidationsAliases_{};
     QStringList selectedBookTickerAliases_{};
     QStringList selectedOrderbookAliases_{};
     QString statusText_{"Ready to capture symbols into canonical JSON session folders"};
@@ -129,9 +141,11 @@ class CaptureViewModel : public QObject {
     QString lastSessionId_{};
     QString lastSessionPath_{};
     bool lastTradesRunning_{false};
+    bool lastLiquidationsRunning_{false};
     bool lastBookTickerRunning_{false};
     bool lastOrderbookRunning_{false};
     qulonglong lastTradesCount_{0};
+    qulonglong lastLiquidationsCount_{0};
     qulonglong lastBookTickerCount_{0};
     qulonglong lastDepthCount_{0};
 };

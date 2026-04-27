@@ -17,6 +17,18 @@ Status CaptureCoordinator::stopTrades() noexcept {
     return Status::Ok;
 }
 
+Status CaptureCoordinator::startLiquidations(const CaptureConfig&) noexcept {
+    lastError_ = kNoCxet;
+    return Status::Unimplemented;
+}
+
+Status CaptureCoordinator::stopLiquidations() noexcept {
+    liquidationsStop_.store(true, std::memory_order_release);
+    if (liquidationsThread_.joinable()) liquidationsThread_.join();
+    liquidationsRunning_.store(false, std::memory_order_release);
+    return Status::Ok;
+}
+
 Status CaptureCoordinator::startBookTicker(const CaptureConfig&) noexcept {
     lastError_ = kNoCxet;
     return Status::Unimplemented;

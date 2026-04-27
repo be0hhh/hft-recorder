@@ -116,7 +116,7 @@ void renderBookOverlay(const RenderContext& ctx) {
     const auto& hov  = ctx.hov;
     if (!hov.contextActive) return;
     if (!(snap.bookTickerVisible || snap.orderbookVisible)) return;
-    if (hov.tradeHit) return;
+    if (hov.tradeHit || hov.liquidationHit) return;
     if (hov.bookKind == 0) return;
 
     const bool isBid = hov.bookKind == 1 || hov.bookKind == 3;
@@ -167,6 +167,36 @@ void renderBookOverlay(const RenderContext& ctx) {
     renderObjectCard(ctx.p, lines, accent, center.x(), center.y(), snap.vp.w, snap.vp.h);
 }
 
+void renderLiquidationOverlay(const RenderContext& ctx) {
+    const auto& snap = ctx.s;
+    const auto& hov = ctx.hov;
+    if (!hov.contextActive || !snap.liquidationsVisible || !hov.liquidationHit) return;
+    if (hov.liquidationTsNs < snap.vp.tMin || hov.liquidationTsNs > snap.vp.tMax) return;
+    if (hov.liquidationPriceE8 < snap.vp.pMin || hov.liquidationPriceE8 > snap.vp.pMax) return;
+
+    const QPointF center{snap.vp.toX(hov.liquidationTsNs), snap.vp.toY(hov.liquidationPriceE8)};
+    const QColor accent = hov.liquidationSideBuy ? QColor(255, 221, 0) : QColor(255, 255, 255);
+    const auto amountE8 = detail::multiplyScaledE8(hov.liquidationQtyE8, hov.liquidationPriceE8);
+    const qreal radius = detail::amountRadiusScale(amountE8, snap.tradeAmountScale, false);
+
+    QPen haloPen(accent);
+    haloPen.setWidthF(3.0);
+    ctx.p->setPen(haloPen);
+    ctx.p->setBrush(Qt::NoBrush);
+    ctx.p->drawEllipse(center, radius + 3.5, radius + 3.5);
+
+    QStringList lines;
+    lines << QStringLiteral("%1 liquidation")
+                 .arg(hov.liquidationSideBuy ? QStringLiteral("BUY") : QStringLiteral("SELL"));
+    lines << QStringLiteral("Price     %1").arg(detail::formatTrimmedE8(hov.liquidationPriceE8));
+    lines << QStringLiteral("Qty       %1").arg(detail::formatTrimmedE8(hov.liquidationQtyE8));
+    lines << QStringLiteral("AvgPrice  %1").arg(detail::formatTrimmedE8(hov.liquidationAvgPriceE8));
+    lines << QStringLiteral("FilledQty %1").arg(detail::formatTrimmedE8(hov.liquidationFilledQtyE8));
+    lines << QStringLiteral("Amount    %1").arg(detail::formatTrimmedE8(amountE8));
+    lines << QStringLiteral("Time      %1").arg(detail::formatTimeNs(hov.liquidationTsNs));
+
+    renderObjectCard(ctx.p, lines, accent, center.x(), center.y(), snap.vp.w, snap.vp.h);
+}
 void renderTradeOverlay(const RenderContext& ctx) {
     const auto& snap = ctx.s;
     const auto& hov  = ctx.hov;
@@ -207,6 +237,7 @@ void renderTradeOverlay(const RenderContext& ctx) {
 void renderOverlay(const RenderContext& ctx) {
     renderVerticalMarkers(ctx);
     renderBookOverlay(ctx);
+    renderLiquidationOverlay(ctx);
     renderTradeOverlay(ctx);
 }
 

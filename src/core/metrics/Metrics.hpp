@@ -25,6 +25,7 @@ struct ReplayRuntimeMetrics {
     std::uint64_t rowsLoadedTotal{0};
     std::uint64_t replaySeekCountTotal{0};
     std::uint64_t replayParseFailuresTotal{0};
+    std::uint64_t replayParseFailuresLiquidationsTotal{0};
     std::uint64_t lastSessionLoadNs{0};
 };
 
@@ -47,6 +48,7 @@ struct LabRuntimeMetrics {
 
 struct LiveRuntimeMetrics {
     std::uint64_t tradesRows{0};
+    std::uint64_t liquidationsRows{0};
     std::uint64_t bookTickerRows{0};
     std::uint64_t depthRows{0};
     std::uint64_t snapshotRows{0};
@@ -59,6 +61,9 @@ struct LiveRuntimeMetrics {
     std::uint64_t jsonTailParseCountTotal{0};
     std::uint64_t jsonTailParseNsTotal{0};
     std::uint64_t jsonTailParseNsMax{0};
+    std::uint64_t jsonTailParseLiquidationsCountTotal{0};
+    std::uint64_t jsonTailParseLiquidationsNsTotal{0};
+    std::uint64_t jsonTailParseLiquidationsNsMax{0};
 };
 
 struct GuiRuntimeMetrics {
@@ -93,6 +98,7 @@ struct GuiRuntimeMetrics {
     std::uint64_t bookTickerLines{0};
     std::uint64_t bookTickerSamples{0};
     std::uint64_t tradeDots{0};
+    std::uint64_t liquidationDots{0};
     std::uint64_t lastFrameTsc{0};
 };
 
@@ -137,12 +143,13 @@ void recordLabRun(std::size_t inputBytes,
                   bool roundtripFailed) noexcept;
 
 void setLiveRows(std::uint64_t trades,
+                 std::uint64_t liquidations,
                  std::uint64_t bookTickers,
                  std::uint64_t depths,
                  std::uint64_t snapshots) noexcept;
 void recordLivePoll(std::uint64_t ns) noexcept;
 void recordLiveMaterialize(std::uint64_t ns) noexcept;
-void recordLiveJsonTailParse(std::uint64_t ns) noexcept;
+void recordLiveJsonTailParse(std::uint64_t ns, std::string_view source = {}) noexcept;
 
 void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndTsc) noexcept;
 void recordGuiSnapshotBuild(std::uint64_t ns) noexcept;
@@ -157,7 +164,8 @@ void incGuiLayerCacheRebuild() noexcept;
 void setGuiObjectCounts(std::uint64_t orderbookSegments,
                         std::uint64_t bookTickerLines,
                         std::uint64_t bookTickerSamples,
-                        std::uint64_t tradeDots) noexcept;
+                        std::uint64_t tradeDots,
+                        std::uint64_t liquidationDots) noexcept;
 
 MetricsSnapshot snapshot() noexcept;
 void renderPrometheus(std::string& out) noexcept;

@@ -185,6 +185,32 @@ void computeHover(const RenderSnapshot& snap,
         }
     }
 
+    if (snap.liquidationsVisible) {
+        constexpr double kHitRadiusPx = 9.0;
+        const double hitSq = kHitRadiusPx * kHitRadiusPx;
+        double bestSq = hitSq;
+        for (const auto& dot : snap.liquidationDots) {
+            const double x = vp.toX(dot.tsNs);
+            if (x < (point.x() - kHitRadiusPx)) continue;
+            if (x > (point.x() + kHitRadiusPx)) break;
+            const double dx = x - point.x();
+            const double dy = vp.toY(dot.priceE8) - point.y();
+            const double distSq = dx * dx + dy * dy;
+            if (distSq <= bestSq) {
+                bestSq = distSq;
+                out.liquidationHit = true;
+                out.liquidationOrigIndex = dot.origIndex;
+                out.liquidationTsNs = dot.tsNs;
+                out.liquidationPriceE8 = dot.priceE8;
+                out.liquidationQtyE8 = dot.qtyE8;
+                out.liquidationAvgPriceE8 = dot.avgPriceE8;
+                out.liquidationFilledQtyE8 = dot.filledQtyE8;
+                out.liquidationSideBuy = dot.sideBuy;
+            }
+        }
+        if (out.liquidationHit) return;
+    }
+
     if (!snap.tradesVisible) return;
 
     constexpr double kHitRadiusPx = 9.0;

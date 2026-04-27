@@ -35,7 +35,7 @@ QString liveModeLabel(int intervalMs) {
 }
 
 bool hasRows(const LiveDataBatch& batch) noexcept {
-    return !batch.trades.empty() || !batch.bookTickers.empty() || !batch.depths.empty();
+    return !batch.trades.empty() || !batch.liquidations.empty() || !batch.bookTickers.empty() || !batch.depths.empty();
 }
 
 QString recordedSourceIdFromPath(const QString& dir) {
@@ -125,9 +125,11 @@ void ChartController::pollLiveData_() {
     const auto oldPriceMax = priceMaxE8_;
     const auto oldLoaded = loaded_;
     const bool oldHasTrades = hasTrades();
+    const bool oldHasLiquidations = hasLiquidations();
     const bool oldHasBookTicker = hasBookTicker();
     const bool oldHasOrderbook = hasOrderbook();
     const auto oldTradeCount = replay_.trades().size();
+    const auto oldLiquidationCount = replay_.liquidations().size();
     const auto oldDepthCount = replay_.depths().size();
     const auto oldBookTickerCount = replay_.bookTickers().size();
 
@@ -213,9 +215,9 @@ void ChartController::pollLiveData_() {
     currentBookTickerIndex_ = -1;
 
     const auto nextStatus = isOk(replay_.status())
-        ? QStringLiteral("Live %1 | trades=%2 depth=%3 bookticker=%4")
+        ? QStringLiteral("Live %1 | trades+liq=%2 depth=%3 bookticker=%4")
               .arg(liveModeLabel(liveUpdateIntervalMs_))
-              .arg(replay_.trades().size() + liveDataStats_.tradesTotal)
+               .arg(replay_.trades().size() + liveDataStats_.tradesTotal + replay_.liquidations().size() + liveDataStats_.liquidationsTotal)
               .arg(replay_.depths().size() + liveDataStats_.depthsTotal)
               .arg(replay_.bookTickers().size() + liveDataStats_.bookTickersTotal)
         : replayFailureText(replay_, replay_.status(), QStringLiteral("Live integrity failed"));
@@ -223,9 +225,11 @@ void ChartController::pollLiveData_() {
         || (priceMinE8_ != oldPriceMin) || (priceMaxE8_ != oldPriceMax);
     const bool sessionChangedFlag = (loaded_ != oldLoaded)
         || (hasTrades() != oldHasTrades)
+        || (hasLiquidations() != oldHasLiquidations)
         || (hasBookTicker() != oldHasBookTicker)
         || (hasOrderbook() != oldHasOrderbook)
         || (replay_.trades().size() != oldTradeCount)
+        || (replay_.liquidations().size() != oldLiquidationCount)
         || (replay_.depths().size() != oldDepthCount)
         || (replay_.bookTickers().size() != oldBookTickerCount);
 
@@ -265,6 +269,7 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
         if (isOk(st)) {
             loaded_ = !replay_.buckets().empty()
                 || !replay_.trades().empty()
+                || !replay_.liquidations().empty()
                 || !replay_.bookTickers().empty()
                 || !replay_.depths().empty()
                 || !replay_.book().bids().empty()
@@ -347,6 +352,24 @@ bool ChartController::addTradesFile(const QString& path) {
     return true;
 }
 
+bool ChartController::addLiquidationsFile(const QString& path) {
+    if (path.trimmed().isEmpty()) {
+        statusText_ = QStringLiteral("No path. Enter a liquidations.jsonl path first.");
+        emit statusChanged();
+        return false;
+    }
+
+    const auto st = replay_.addLiquidationsFile(stripFileUrl(path));
+    if (!isOk(st)) {
+        statusText_ = replayFailureText(replay_, st, QStringLiteral("liquidations load failed"));
+        emit statusChanged();
+        return false;
+    }
+
+    statusText_ = QStringLiteral("+ liquidations (now %1 rows)").arg(replay_.liquidations().size());
+    emit statusChanged();
+    return true;
+}
 bool ChartController::addBookTickerFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
         statusText_ = QStringLiteral("No path. Enter a bookticker.jsonl path first.");
@@ -420,7 +443,8 @@ void ChartController::finalizeFiles() {
 
     loaded_ = !replay_.buckets().empty()
         || !replay_.trades().empty()
-        || !replay_.bookTickers().empty()
+                || !replay_.liquidations().empty()
+                || !replay_.bookTickers().empty()
         || !replay_.depths().empty()
         || !replay_.book().bids().empty()
         || !replay_.book().asks().empty();
@@ -466,19 +490,23 @@ bool ChartController::loadSession(const QString& dir) {
 
     loaded_ = !replay_.buckets().empty()
         || !replay_.trades().empty()
-        || !replay_.bookTickers().empty()
+                || !replay_.liquidations().empty()
+                || !replay_.bookTickers().empty()
         || !replay_.depths().empty()
         || !replay_.book().bids().empty()
         || !replay_.book().asks().empty();
     currentBookTickerIndex_ = -1;
-    statusText_ = QStringLiteral("Loaded trades=%1 depth=%2 bookticker=%3")
-                      .arg(replay_.trades().size())
+    statusText_ = QStringLiteral("Loaded trades+liq=%1 depth=%2 bookticker=%3")
+                       .arg(replay_.trades().size() + replay_.liquidations().size())
                       .arg(replay_.depths().size())
                       .arg(replay_.bookTickers().size());
     if (!replay_.errorDetail().empty()) {
         statusText_ += QStringLiteral(" | %1").arg(QString::fromStdString(std::string{replay_.errorDetail()}));
     }
-    if (loaded_) computeInitialViewport_();
+    if (loaded_) {
+        computeInitialViewport_();
+        applyRecordedRenderWindowViewport_();
+    }
     emit sessionChanged();
     emit statusChanged();
     emit viewportChanged();

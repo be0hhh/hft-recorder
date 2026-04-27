@@ -21,6 +21,7 @@ long long nowSec() noexcept;
 #if HFTREC_WITH_CXET
 cxet::UnifiedRequestBuilder makeTradesBuilder(const std::string& symbolText) noexcept;
 cxet::UnifiedRequestBuilder makeBookTickerBuilder(const std::string& symbolText) noexcept;
+cxet::UnifiedRequestBuilder makeLiquidationBuilder(const std::string& symbolText) noexcept;
 cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const std::string& symbolText) noexcept;
 
 bool applyRequestedAliases(const std::vector<std::string>& aliasNames,

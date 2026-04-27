@@ -9,6 +9,7 @@ Rectangle {
     required property var chart
     required property var interaction
     required property bool showTradesLayer
+    required property bool showLiquidationsLayer
     required property bool showOrderbookLayer
     required property bool showBookTickerLayer
     required property bool effectiveBookTickerLayer
@@ -21,6 +22,7 @@ Rectangle {
     required property color accentBuyColor
 
     signal toggleTrades()
+    signal toggleLiquidations()
     signal toggleOrderbook()
     signal toggleBookTicker()
 
@@ -68,6 +70,19 @@ Rectangle {
             mutedTextColor: bar.mutedTextColor
             accentBuyColor: bar.accentBuyColor
             onClicked: bar.toggleTrades()
+        }
+
+        ViewerChannelButton {
+            text: "Liquidations"
+            active: bar.showLiquidationsLayer
+            enabled: bar.chart.hasLiquidations
+            panelColor: bar.panelColor
+            panelAltColor: bar.panelAltColor
+            borderColor: bar.borderColor
+            textColor: bar.textColor
+            mutedTextColor: bar.mutedTextColor
+            accentBuyColor: bar.accentBuyColor
+            onClicked: bar.toggleLiquidations()
         }
 
         ViewerChannelButton {
@@ -425,13 +440,5 @@ Rectangle {
         }
 
         Label { text: "%"; color: bar.mutedTextColor; font.pixelSize: 12 }
-
-        Item { Layout.fillWidth: true }
-
-        Label {
-            text: bar.appVm.renderDiagnosticsText
-            color: bar.mutedTextColor
-            font.pixelSize: 12
-        }
-    }
+}
 }

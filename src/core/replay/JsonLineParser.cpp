@@ -26,6 +26,14 @@ constexpr char bidQty[] = {'b','i','d','Q','t','y','\0'};
 constexpr char askPrice[] = {'a','s','k','P','r','i','c','e','\0'};
 constexpr char askQty[] = {'a','s','k','Q','t','y','\0'};
 constexpr char updateId[] = {'u','p','d','a','t','e','I','d','\0'};
+constexpr char avgPrice[] = {'a','v','g','P','r','i','c','e','\0'};
+constexpr char filledQty[] = {'f','i','l','l','e','d','Q','t','y','\0'};
+constexpr char orderType[] = {'o','r','d','e','r','T','y','p','e','\0'};
+constexpr char timeInForce[] = {'t','i','m','e','I','n','F','o','r','c','e','\0'};
+constexpr char status[] = {'s','t','a','t','u','s','\0'};
+constexpr char sourceMode[] = {'s','o','u','r','c','e','M','o','d','e','\0'};
+constexpr char captureSeq[] = {'c','a','p','t','u','r','e','S','e','q','\0'};
+constexpr char ingestSeq[] = {'i','n','g','e','s','t','S','e','q','\0'};
 
 bool parsePricePair(JsonParser& parser, PricePair& out) noexcept {
     std::int64_t side = 0;
@@ -192,6 +200,100 @@ Status parseTradeLine(std::string_view line,
             if (!parser.parseString(out.exchange)) return Status::CorruptData;
         } else if (alias == market) {
             if (!parser.parseString(out.market)) return Status::CorruptData;
+        }
+        firstValue = false;
+    }
+    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    return Status::Ok;
+}
+
+Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept {
+    out = LiquidationRow{};
+    JsonParser parser{line};
+    if (!parser.parseArrayStart()) return Status::CorruptData;
+    if (!parser.parseInt64(out.priceE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.qtyE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.side)) return Status::CorruptData;
+    if (out.side != 0 && out.side != 1) return Status::CorruptData;
+    out.sideBuy = static_cast<std::uint8_t>(out.side);
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.avgPriceE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.filledQtyE8)) return Status::CorruptData;
+    if (parser.peek(']')) {
+        if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+        return Status::Ok;
+    }
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseString(out.symbol)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseString(out.exchange)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseString(out.market)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.orderType)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.timeInForce)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.status)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.sourceMode)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
+    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    return Status::Ok;
+}
+
+Status parseLiquidationLine(std::string_view line,
+                            LiquidationRow& out,
+                            const std::vector<std::string>& aliases) noexcept {
+    out = LiquidationRow{};
+    JsonParser parser{line};
+    if (!parser.parseArrayStart()) return Status::CorruptData;
+    bool firstValue = true;
+    for (const auto& alias : aliases) {
+        if (!firstValue) {
+            if (parser.peek(']')) break;
+            if (!parser.parseComma()) return Status::CorruptData;
+        }
+        if (alias == price) {
+            if (!parser.parseInt64(out.priceE8)) return Status::CorruptData;
+        } else if (alias == amount) {
+            if (!parser.parseInt64(out.qtyE8)) return Status::CorruptData;
+        } else if (alias == side) {
+            if (!parser.parseInt64(out.side)) return Status::CorruptData;
+            if (out.side != 0 && out.side != 1) return Status::CorruptData;
+            out.sideBuy = static_cast<std::uint8_t>(out.side);
+        } else if (alias == timestamp) {
+            if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+        } else if (alias == avgPrice) {
+            if (!parser.parseInt64(out.avgPriceE8)) return Status::CorruptData;
+        } else if (alias == filledQty) {
+            if (!parser.parseInt64(out.filledQtyE8)) return Status::CorruptData;
+        } else if (alias == symbol) {
+            if (!parser.parseString(out.symbol)) return Status::CorruptData;
+        } else if (alias == exchange) {
+            if (!parser.parseString(out.exchange)) return Status::CorruptData;
+        } else if (alias == market) {
+            if (!parser.parseString(out.market)) return Status::CorruptData;
+        } else if (alias == orderType) {
+            if (!parser.parseInt64(out.orderType)) return Status::CorruptData;
+        } else if (alias == timeInForce) {
+            if (!parser.parseInt64(out.timeInForce)) return Status::CorruptData;
+        } else if (alias == status) {
+            if (!parser.parseInt64(out.status)) return Status::CorruptData;
+        } else if (alias == sourceMode) {
+            if (!parser.parseInt64(out.sourceMode)) return Status::CorruptData;
+        } else if (alias == captureSeq) {
+            if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
+        } else if (alias == ingestSeq) {
+            if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
         }
         firstValue = false;
     }

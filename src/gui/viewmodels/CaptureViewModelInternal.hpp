@@ -17,9 +17,11 @@ struct CaptureBatchSnapshot {
     QString sessionPath{};
     QString errorText{};
     bool tradesRunning{false};
+    bool liquidationsRunning{false};
     bool bookTickerRunning{false};
     bool orderbookRunning{false};
     qulonglong tradesCount{0};
+    qulonglong liquidationsCount{0};
     qulonglong bookTickerCount{0};
     qulonglong depthCount{0};
 };
@@ -38,9 +40,11 @@ std::vector<std::string> normalizedSymbols(const QString& symbolsText);
 std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QString& symbolsText,
                                                 const QStringList& tradesAvailableAliases,
+                                                const QStringList& liquidationsAvailableAliases,
                                                 const QStringList& bookTickerAvailableAliases,
                                                 const QStringList& orderbookAvailableAliases,
                                                 const QStringList& selectedTradesAliases,
+                                                const QStringList& selectedLiquidationsAliases,
                                                 const QStringList& selectedBookTickerAliases,
                                                 const QStringList& selectedOrderbookAliases);
 CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel);

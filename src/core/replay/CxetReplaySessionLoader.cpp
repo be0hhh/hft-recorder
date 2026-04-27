@@ -17,6 +17,8 @@ Status toStatus(cxet::replay::ReplayLoadStatus status) noexcept {
         case cxet::replay::ReplayLoadStatus::InvalidArgument: return Status::InvalidArgument;
         case cxet::replay::ReplayLoadStatus::IoError: return Status::IoError;
         case cxet::replay::ReplayLoadStatus::CorruptData: return Status::CorruptData;
+        case cxet::replay::ReplayLoadStatus::CallbackStopped: return Status::IoError;
+        case cxet::replay::ReplayLoadStatus::DependencyUnavailable: return Status::Unimplemented;
     }
     return Status::CorruptData;
 }
@@ -129,25 +131,70 @@ SnapshotDocument convert(const cxet::replay::SnapshotDocument& row) {
     return out;
 }
 
+struct StreamContext {
+    SessionReplay* out{nullptr};
+};
+
+bool appendTrade(const cxet::replay::TradeRow& row, void* userData) noexcept {
+    auto* context = static_cast<StreamContext*>(userData);
+    if (context == nullptr || context->out == nullptr) return false;
+    context->out->appendTradeRow(convert(row));
+    return true;
+}
+
+bool appendBookTicker(const cxet::replay::BookTickerRow& row, void* userData) noexcept {
+    auto* context = static_cast<StreamContext*>(userData);
+    if (context == nullptr || context->out == nullptr) return false;
+    context->out->appendBookTickerRow(convert(row));
+    return true;
+}
+
+bool appendDepth(const cxet::replay::DepthRow& row, void* userData) noexcept {
+    auto* context = static_cast<StreamContext*>(userData);
+    if (context == nullptr || context->out == nullptr) return false;
+    context->out->appendDepthRow(convert(row));
+    return true;
+}
+
+bool appendSnapshot(const cxet::replay::SnapshotDocument& row, void* userData) noexcept {
+    auto* context = static_cast<StreamContext*>(userData);
+    if (context == nullptr || context->out == nullptr) return false;
+    context->out->appendSnapshotDocument(convert(row));
+    return true;
+}
+
 }  // namespace
 
 Status CxetReplaySessionLoader::loadRenderOnce(const std::filesystem::path& sessionDir,
                                                SessionReplay& out,
                                                std::string& errorDetail) const noexcept {
-    cxet::replay::ReplaySession session{};
-    const auto status = cxet::replay::loadSessionRenderOnce(
-        cxet::replay::ReplayLoadConfig{sessionDir, true},
-        session);
+    return loadRenderOnce(sessionDir, {}, true, out, errorDetail);
+}
+
+Status CxetReplaySessionLoader::loadRenderOnce(const std::filesystem::path& sessionDir,
+                                               const std::filesystem::path& compressedRoot,
+                                               bool preferCompressed,
+                                               SessionReplay& out,
+                                               std::string& errorDetail) const noexcept {
+    out.reset();
+    StreamContext context{&out};
+    cxet::replay::ReplayLoadError error{};
+    const cxet::replay::ReplayStreamCallbacks callbacks{
+        &context,
+        appendTrade,
+        appendBookTicker,
+        appendDepth,
+        appendSnapshot,
+    };
+    const auto status = cxet::replay::streamSession(
+        cxet::replay::ReplayLoadConfig{sessionDir, true, compressedRoot, preferCompressed},
+        callbacks,
+        error);
     if (status != cxet::replay::ReplayLoadStatus::Ok) {
-        errorDetail = formatError(session.error);
+        errorDetail = formatError(error);
         return toStatus(status);
     }
 
-    out.reset();
-    for (const auto& snapshot : session.snapshots) out.appendSnapshotDocument(convert(snapshot));
-    for (const auto& trade : session.trades) out.appendTradeRow(convert(trade));
-    for (const auto& bookTicker : session.bookTickers) out.appendBookTickerRow(convert(bookTicker));
-    for (const auto& depth : session.depths) out.appendDepthRow(convert(depth));
     out.finalize();
     if (!isOk(out.status())) {
         errorDetail = out.errorDetail().empty()
@@ -166,6 +213,15 @@ Status CxetReplaySessionLoader::loadRenderOnce(const std::filesystem::path& sess
 namespace hftrec::replay {
 
 Status CxetReplaySessionLoader::loadRenderOnce(const std::filesystem::path&,
+                                               SessionReplay&,
+                                               std::string& errorDetail) const noexcept {
+    errorDetail = "CXET replay-core integration is disabled";
+    return Status::InvalidArgument;
+}
+
+Status CxetReplaySessionLoader::loadRenderOnce(const std::filesystem::path&,
+                                               const std::filesystem::path&,
+                                               bool,
                                                SessionReplay&,
                                                std::string& errorDetail) const noexcept {
     errorDetail = "CXET replay-core integration is disabled";
