@@ -349,36 +349,32 @@ std::int64_t ChartController::latestOrderbookTsNs_() const noexcept {
 }
 
 std::int64_t ChartController::latestRenderableTsNs_() const noexcept {
-    std::int64_t latest = std::max<std::int64_t>(replay_.lastTsNs(), 0);
-    const auto absorbTradeRows = [&latest](const auto& rows) noexcept {
-        if (!rows.empty()) latest = std::max(latest, rows.back().tsNs);
-    };
-    const auto absorbTickerRows = [&latest](const auto& rows) noexcept {
-        if (!rows.empty()) latest = std::max(latest, rows.back().tsNs);
-    };
-    const auto absorbDepthRows = [&latest](const auto& rows) noexcept {
-        if (!rows.empty()) latest = std::max(latest, rows.back().tsNs);
-    };
-    const auto absorbSnapshotRows = [&latest](const auto& rows) noexcept {
-        if (!rows.empty()) latest = std::max(latest, rows.back().tsNs);
+    std::int64_t latest = 0;
+    std::int64_t latestLiquidation = 0;
+    const auto absorbRows = [](std::int64_t& target, const auto& rows) noexcept {
+        if (!rows.empty()) target = std::max(target, rows.back().tsNs);
     };
 
-    absorbTradeRows(liveDataCache_.stableRows.trades);
-    absorbTradeRows(liveDataCache_.stableRows.liquidations);
-    absorbTradeRows(liveDataCache_.overlayRows.trades);
-    absorbTradeRows(liveDataCache_.overlayRows.liquidations);
-    absorbTradeRows(liveOverlayState_.trades);
-    absorbTradeRows(liveOverlayState_.liquidations);
-    absorbTickerRows(liveDataCache_.stableRows.bookTickers);
-    absorbTickerRows(liveDataCache_.overlayRows.bookTickers);
-    absorbTickerRows(liveOverlayState_.bookTickers);
-    absorbDepthRows(liveDataCache_.stableRows.depths);
-    absorbDepthRows(liveDataCache_.overlayRows.depths);
-    absorbDepthRows(liveOverlayState_.depths);
-    absorbSnapshotRows(liveDataCache_.stableRows.snapshots);
-    absorbSnapshotRows(liveDataCache_.overlayRows.snapshots);
-    absorbSnapshotRows(liveOverlayState_.snapshots);
-    return latest;
+    absorbRows(latest, replay_.trades());
+    absorbRows(latest, replay_.bookTickers());
+    absorbRows(latest, replay_.depths());
+    absorbRows(latestLiquidation, replay_.liquidations());
+    absorbRows(latest, liveDataCache_.stableRows.trades);
+    absorbRows(latest, liveDataCache_.overlayRows.trades);
+    absorbRows(latest, liveOverlayState_.trades);
+    absorbRows(latest, liveDataCache_.stableRows.bookTickers);
+    absorbRows(latest, liveDataCache_.overlayRows.bookTickers);
+    absorbRows(latest, liveOverlayState_.bookTickers);
+    absorbRows(latest, liveDataCache_.stableRows.depths);
+    absorbRows(latest, liveDataCache_.overlayRows.depths);
+    absorbRows(latest, liveOverlayState_.depths);
+    absorbRows(latest, liveDataCache_.stableRows.snapshots);
+    absorbRows(latest, liveDataCache_.overlayRows.snapshots);
+    absorbRows(latest, liveOverlayState_.snapshots);
+    absorbRows(latestLiquidation, liveDataCache_.stableRows.liquidations);
+    absorbRows(latestLiquidation, liveDataCache_.overlayRows.liquidations);
+    absorbRows(latestLiquidation, liveOverlayState_.liquidations);
+    return latest > 0 ? latest : latestLiquidation;
 }
 
 std::int64_t ChartController::effectiveRenderMinTs_(std::int64_t latestTsNs) const noexcept {
@@ -430,17 +426,20 @@ void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
     };
 
     absorbTradeRows(liveDataCache_.stableRows.trades);
-    absorbTradeRows(liveDataCache_.stableRows.liquidations);
     absorbTradeRows(liveDataCache_.overlayRows.trades);
-    absorbTradeRows(liveDataCache_.overlayRows.liquidations);
     absorbTradeRows(liveOverlayState_.trades);
-    absorbTradeRows(liveOverlayState_.liquidations);
     absorbTickerRows(liveDataCache_.stableRows.bookTickers);
     absorbTickerRows(liveDataCache_.overlayRows.bookTickers);
     absorbTickerRows(liveOverlayState_.bookTickers);
     absorbDepthRows(liveDataCache_.stableRows.depths);
     absorbDepthRows(liveDataCache_.overlayRows.depths);
     absorbDepthRows(liveOverlayState_.depths);
+
+    if (!found) {
+        absorbTradeRows(liveDataCache_.stableRows.liquidations);
+        absorbTradeRows(liveDataCache_.overlayRows.liquidations);
+        absorbTradeRows(liveOverlayState_.liquidations);
+    }
 
     if (!found) return;
 
@@ -477,6 +476,5 @@ void ChartController::applyRecordedRenderWindowViewport_() noexcept {
 }
 
 }  // namespace hftrec::gui::viewer
-
 
 

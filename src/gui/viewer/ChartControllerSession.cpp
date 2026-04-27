@@ -215,9 +215,10 @@ void ChartController::pollLiveData_() {
     currentBookTickerIndex_ = -1;
 
     const auto nextStatus = isOk(replay_.status())
-        ? QStringLiteral("Live %1 | trades+liq=%2 depth=%3 bookticker=%4")
+        ? QStringLiteral("Live %1 | trades=%2 liq=%3 depth=%4 bookticker=%5")
               .arg(liveModeLabel(liveUpdateIntervalMs_))
-               .arg(replay_.trades().size() + liveDataStats_.tradesTotal + replay_.liquidations().size() + liveDataStats_.liquidationsTotal)
+              .arg(replay_.trades().size() + liveDataStats_.tradesTotal)
+              .arg(replay_.liquidations().size() + liveDataStats_.liquidationsTotal)
               .arg(replay_.depths().size() + liveDataStats_.depthsTotal)
               .arg(replay_.bookTickers().size() + liveDataStats_.bookTickersTotal)
         : replayFailureText(replay_, replay_.status(), QStringLiteral("Live integrity failed"));
@@ -496,8 +497,9 @@ bool ChartController::loadSession(const QString& dir) {
         || !replay_.book().bids().empty()
         || !replay_.book().asks().empty();
     currentBookTickerIndex_ = -1;
-    statusText_ = QStringLiteral("Loaded trades+liq=%1 depth=%2 bookticker=%3")
-                       .arg(replay_.trades().size() + replay_.liquidations().size())
+    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 depth=%3 bookticker=%4")
+                       .arg(replay_.trades().size())
+                      .arg(replay_.liquidations().size())
                       .arg(replay_.depths().size())
                       .arg(replay_.bookTickers().size());
     if (!replay_.errorDetail().empty()) {
@@ -514,7 +516,6 @@ bool ChartController::loadSession(const QString& dir) {
 }
 
 }  // namespace hftrec::gui::viewer
-
 
 
 

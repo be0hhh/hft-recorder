@@ -115,9 +115,7 @@ int nextTradeOrigIndex(const RenderSnapshot& snap) noexcept {
 }
 
 std::int64_t maxTradeTs(const RenderSnapshot& snap) noexcept {
-    std::int64_t ts = snap.tradeDots.empty() ? 0 : snap.tradeDots.back().tsNs;
-    if (!snap.liquidationDots.empty()) ts = std::max(ts, snap.liquidationDots.back().tsNs);
-    return ts;
+    return snap.tradeDots.empty() ? 0 : snap.tradeDots.back().tsNs;
 }
 
 std::int64_t maxOrderbookTs(const RenderSnapshot& snap) noexcept {
@@ -1115,6 +1113,5 @@ void ChartItem::paint(QPainter* painter) {
 }
 
 }  // namespace hftrec::gui::viewer
-
 
 

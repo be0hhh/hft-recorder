@@ -32,6 +32,11 @@ Rectangle {
     property color liveControlPopup: '#090909'
     property color liveControlActive: '#1fd0d8'
     property color liveControlActiveText: '#031114'
+    property bool compact: width < 1780
+    property int toolbarSpacing: compact ? 5 : 8
+    property int sliderMinWidth: compact ? 58 : 72
+    property int sliderPreferredWidth: compact ? 84 : 120
+    property int usdInputWidth: compact ? 62 : 76
 
     function clamp(value, lo, hi) {
         return Math.max(lo, Math.min(hi, value))
@@ -57,7 +62,7 @@ Rectangle {
         anchors.fill: parent
         anchors.leftMargin: 14
         anchors.rightMargin: 14
-        spacing: 8
+        spacing: bar.toolbarSpacing
 
         ViewerChannelButton {
             text: "Trades"
@@ -111,8 +116,6 @@ Rectangle {
             onClicked: bar.toggleBookTicker()
         }
 
-        Item { Layout.fillWidth: true }
-
         Label {
             text: "Live"
             color: bar.mutedTextColor
@@ -121,7 +124,7 @@ Rectangle {
 
         ComboBox {
             id: liveModeCombo
-            Layout.preferredWidth: 108
+            Layout.preferredWidth: bar.compact ? 96 : 108
             model: ["Tick", "100 ms", "250 ms", "500 ms"]
             currentIndex: bar.liveModeIndex()
             font.pixelSize: 12
@@ -226,7 +229,7 @@ Rectangle {
         }
 
         Label {
-            text: bar.appVm.liveUpdateMode === "tick" ? "JSON aggressive polling" : "JSON polling"
+            text: bar.compact ? (bar.appVm.liveUpdateMode === "tick" ? "Aggressive" : "Polling") : (bar.appVm.liveUpdateMode === "tick" ? "JSON aggressive polling" : "JSON polling")
             color: bar.mutedTextColor
             font.pixelSize: 12
         }
@@ -270,13 +273,15 @@ Rectangle {
         Label { text: "s"; color: bar.mutedTextColor; font.pixelSize: 12 }
 
         Label {
-            text: "Trades Size"
+            text: bar.compact ? "Trades" : "Trades Size"
             color: bar.mutedTextColor
             font.pixelSize: 12
         }
 
         Slider {
-            Layout.preferredWidth: 120
+            Layout.fillWidth: true
+            Layout.minimumWidth: bar.sliderMinWidth
+            Layout.preferredWidth: bar.sliderPreferredWidth
             from: 0.0
             to: 1.0
             value: bar.appVm.tradeAmountScale
@@ -314,13 +319,15 @@ Rectangle {
         Label { text: "%"; color: bar.mutedTextColor; font.pixelSize: 12 }
 
         Label {
-            text: "Full Bright @"
+            text: bar.compact ? "Bright @" : "Full Bright @"
             color: bar.mutedTextColor
             font.pixelSize: 12
         }
 
         Slider {
-            Layout.preferredWidth: 120
+            Layout.fillWidth: true
+            Layout.minimumWidth: bar.sliderMinWidth
+            Layout.preferredWidth: bar.sliderPreferredWidth
             from: 0.0
             to: 1.0
             value: bar.interaction.usdValueToSlider(bar.appVm.bookBrightnessUsdRef)
@@ -329,7 +336,7 @@ Rectangle {
 
         TextField {
             id: fullBrightInput
-            Layout.preferredWidth: 76
+            Layout.preferredWidth: bar.usdInputWidth
             text: ""
             color: bar.textColor
             selectionColor: bar.accentBuyColor
@@ -355,13 +362,16 @@ Rectangle {
         }
 
         Label {
-            text: "Min Visible"
+            text: bar.compact ? "Min"
+                              : "Min Visible"
             color: bar.mutedTextColor
             font.pixelSize: 12
         }
 
         Slider {
-            Layout.preferredWidth: 120
+            Layout.fillWidth: true
+            Layout.minimumWidth: bar.sliderMinWidth
+            Layout.preferredWidth: bar.sliderPreferredWidth
             from: 0.0
             to: 1.0
             value: bar.interaction.usdValueToSlider(bar.appVm.bookMinVisibleUsd)
@@ -370,7 +380,7 @@ Rectangle {
 
         TextField {
             id: minVisibleInput
-            Layout.preferredWidth: 76
+            Layout.preferredWidth: bar.usdInputWidth
             text: ""
             color: bar.textColor
             selectionColor: bar.accentBuyColor
@@ -396,13 +406,15 @@ Rectangle {
         }
 
         Label {
-            text: "Depth Window"
+            text: bar.compact ? "Depth" : "Depth Window"
             color: bar.mutedTextColor
             font.pixelSize: 12
         }
 
         Slider {
-            Layout.preferredWidth: 110
+            Layout.fillWidth: true
+            Layout.minimumWidth: bar.sliderMinWidth
+            Layout.preferredWidth: bar.sliderPreferredWidth
             from: 1
             to: 25
             stepSize: 1

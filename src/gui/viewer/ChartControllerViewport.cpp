@@ -548,8 +548,29 @@ void buildLatestBookTickerTrace(RenderSnapshot& snap,
 }  // namespace
 
 void ChartController::computeInitialViewport_() {
-    tsMin_ = replay_.firstTsNs();
-    tsMax_ = replay_.lastTsNs();
+    std::int64_t marketTsMin = 0;
+    std::int64_t marketTsMax = 0;
+    bool hasMarketTs = false;
+    const auto absorbTs = [&](const auto& rows) noexcept {
+        if (rows.empty()) return;
+        const auto first = rows.front().tsNs;
+        const auto last = rows.back().tsNs;
+        if (!hasMarketTs) {
+            marketTsMin = first;
+            marketTsMax = last;
+            hasMarketTs = true;
+            return;
+        }
+        marketTsMin = std::min(marketTsMin, first);
+        marketTsMax = std::max(marketTsMax, last);
+    };
+    absorbTs(replay_.trades());
+    absorbTs(replay_.bookTickers());
+    absorbTs(replay_.depths());
+    if (!hasMarketTs) absorbTs(replay_.liquidations());
+
+    tsMin_ = hasMarketTs ? marketTsMin : replay_.firstTsNs();
+    tsMax_ = hasMarketTs ? marketTsMax : replay_.lastTsNs();
     if (tsMax_ == tsMin_) tsMax_ = tsMin_ + 1;
 
     std::int64_t pMin = 0;
@@ -561,10 +582,6 @@ void ChartController::computeInitialViewport_() {
         absorbPrice(trade.priceE8, hasPrice, pMin, pMax);
         hasTradeOrTickerPrice = hasPrice;
     }
-    for (const auto& liquidation : replay_.liquidations()) {
-        absorbPrice(liquidation.priceE8, hasPrice, pMin, pMax);
-        hasTradeOrTickerPrice = hasPrice;
-    }
     for (const auto& ticker : replay_.bookTickers()) {
         absorbPrice(ticker.bidPriceE8, hasPrice, pMin, pMax);
         absorbPrice(ticker.askPriceE8, hasPrice, pMin, pMax);
@@ -574,6 +591,12 @@ void ChartController::computeInitialViewport_() {
     if (!hasTradeOrTickerPrice) {
         absorbBookLevels(replay_.book().bids(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
         absorbBookLevels(replay_.book().asks(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
+    }
+
+    if (!hasPrice) {
+        for (const auto& liquidation : replay_.liquidations()) {
+            absorbPrice(liquidation.priceE8, hasPrice, pMin, pMax);
+        }
     }
 
     if (!hasPrice) {
