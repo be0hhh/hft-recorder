@@ -5,8 +5,11 @@
 #include <QUrl>
 #include <QVariantList>
 
+#include "hft_compressor/result.hpp"
+
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace hft_compressor {
 class MetricsServer;
@@ -26,7 +29,17 @@ class CompressionViewModel : public QObject {
     Q_PROPERTY(QString outputRoot READ outputRoot NOTIFY selectionChanged)
     Q_PROPERTY(QString outputFilePreview READ outputFilePreview NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList outputRootChoices READ outputRootChoices NOTIFY outputRootChoicesChanged)
-    Q_PROPERTY(QVariantList pipelines READ pipelines CONSTANT)
+    Q_PROPERTY(QVariantList pipelines READ pipelines NOTIFY selectedChannelChanged)
+    Q_PROPERTY(QVariantList pipelineGroups READ pipelineGroups CONSTANT)
+    Q_PROPERTY(QVariantList channelStats READ channelStats NOTIFY channelStatsChanged)
+    Q_PROPERTY(QVariantList runRows READ runRows NOTIFY runRowsChanged)
+    Q_PROPERTY(QVariantList verifyRows READ verifyRows NOTIFY verifyRowsChanged)
+    Q_PROPERTY(QVariantList compressionBars READ compressionBars NOTIFY runRowsChanged)
+    Q_PROPERTY(QVariantList decodeBars READ decodeBars NOTIFY verifyRowsChanged)
+    Q_PROPERTY(QVariantList speedSeries READ speedSeries NOTIFY runRowsChanged)
+    Q_PROPERTY(QVariantList decodeSpeedSeries READ decodeSpeedSeries NOTIFY verifyRowsChanged)
+    Q_PROPERTY(QString emptyStateText READ emptyStateText NOTIFY sessionsChanged)
+    Q_PROPERTY(QString metricsEndpointText READ metricsEndpointText CONSTANT)
     Q_PROPERTY(QString selectedPipelineId READ selectedPipelineId WRITE setSelectedPipelineId NOTIFY selectedPipelineChanged)
     Q_PROPERTY(QString selectedPipelineLabel READ selectedPipelineLabel NOTIFY selectedPipelineChanged)
     Q_PROPERTY(QString selectedPipelineSummary READ selectedPipelineSummary NOTIFY selectedPipelineChanged)
@@ -42,6 +55,16 @@ class CompressionViewModel : public QObject {
     Q_PROPERTY(QString sizeText READ sizeText NOTIFY resultChanged)
     Q_PROPERTY(QString timingText READ timingText NOTIFY resultChanged)
     Q_PROPERTY(bool canRun READ canRun NOTIFY canRunChanged)
+    Q_PROPERTY(bool canDecodeVerify READ canDecodeVerify NOTIFY canDecodeVerifyChanged)
+    Q_PROPERTY(bool running READ running NOTIFY runningChanged)
+    Q_PROPERTY(bool verifying READ verifying NOTIFY verifyingChanged)
+    Q_PROPERTY(bool hasSessions READ hasSessions NOTIFY sessionsChanged)
+    Q_PROPERTY(QString verifyStatusText READ verifyStatusText NOTIFY verifyResultChanged)
+    Q_PROPERTY(QString verifyFile READ verifyFile NOTIFY verifyResultChanged)
+    Q_PROPERTY(QString verifyCanonicalFile READ verifyCanonicalFile NOTIFY verifyResultChanged)
+    Q_PROPERTY(QString verifySpeedText READ verifySpeedText NOTIFY verifyResultChanged)
+    Q_PROPERTY(QString verifyExactText READ verifyExactText NOTIFY verifyResultChanged)
+    Q_PROPERTY(QString verifyMismatchText READ verifyMismatchText NOTIFY verifyResultChanged)
 
   public:
     explicit CompressionViewModel(QObject* parent = nullptr);
@@ -58,6 +81,16 @@ class CompressionViewModel : public QObject {
     QString outputFilePreview() const;
     QVariantList outputRootChoices() const;
     QVariantList pipelines() const;
+    QVariantList pipelineGroups() const;
+    QVariantList channelStats() const;
+    QVariantList runRows() const;
+    QVariantList verifyRows() const;
+    QVariantList compressionBars() const;
+    QVariantList decodeBars() const;
+    QVariantList speedSeries() const;
+    QVariantList decodeSpeedSeries() const;
+    QString emptyStateText() const;
+    QString metricsEndpointText() const;
     QString selectedPipelineId() const { return selectedPipelineId_; }
     QString selectedPipelineLabel() const;
     QString selectedPipelineSummary() const;
@@ -73,6 +106,16 @@ class CompressionViewModel : public QObject {
     QString sizeText() const;
     QString timingText() const;
     bool canRun() const;
+    bool canDecodeVerify() const;
+    bool running() const { return running_; }
+    bool verifying() const { return verifying_; }
+    bool hasSessions() const;
+    QString verifyStatusText() const { return verifyStatusText_; }
+    QString verifyFile() const { return verifyFile_; }
+    QString verifyCanonicalFile() const { return verifyCanonicalFile_; }
+    QString verifySpeedText() const;
+    QString verifyExactText() const;
+    QString verifyMismatchText() const;
 
     Q_INVOKABLE void reloadSessions();
     Q_INVOKABLE void setSelectedSessionId(const QString& sessionId);
@@ -83,6 +126,9 @@ class CompressionViewModel : public QObject {
     Q_INVOKABLE void setOutputRootUrl(const QUrl& url);
     Q_INVOKABLE void setSelectedPipelineId(const QString& pipelineId);
     Q_INVOKABLE void runCompression();
+    Q_INVOKABLE void runAllAvailableChannels();
+    Q_INVOKABLE void decodeVerifySelected();
+    Q_INVOKABLE void decodeVerifyAllAvailable();
 
   signals:
     void sessionsChanged();
@@ -95,7 +141,14 @@ class CompressionViewModel : public QObject {
     void outputRootChoicesChanged();
     void selectedPipelineChanged();
     void canRunChanged();
+    void canDecodeVerifyChanged();
     void resultChanged();
+    void verifyResultChanged();
+    void channelStatsChanged();
+    void runRowsChanged();
+    void verifyRowsChanged();
+    void runningChanged();
+    void verifyingChanged();
 
   private:
     QString existingChannelPath_(const QString& sessionPath, const QString& channel) const;
@@ -103,16 +156,44 @@ class CompressionViewModel : public QObject {
     QString firstAvailableChannel_(const QString& sessionPath) const;
     QString channelFileName_(const QString& channel) const;
     void emitSelectionChanged_();
+    void reloadStoredRunRows_();
+    void reloadStoredVerifyRows_();
+    void appendResultRow_(const QVariantMap& row);
+    void appendVerifyRow_(const QVariantMap& row);
+    void applyResult_(const hft_compressor::CompressionResult& result);
+    void applyResults_(const std::vector<hft_compressor::CompressionResult>& results);
+    void applyVerifyResult_(const hft_compressor::DecodeVerifyResult& result);
+    void applyVerifyResults_(const std::vector<hft_compressor::DecodeVerifyResult>& results);
+    QVariantMap resultRow_(const hft_compressor::CompressionResult& result) const;
+    QVariantMap verifyRow_(const hft_compressor::DecodeVerifyResult& result) const;
+    QVariantMap metricsRow_(const QString& metricsPath) const;
+    QVariantMap verifyMetricsRow_(const QString& metricsPath) const;
+    QVariantList rowsForSelectedChannel_(const QVariantList& rows) const;
+    QString firstAvailablePipelineId_() const;
+    QString outputFilePreviewFor_(const QString& channel) const;
+    QString verifyFilePreviewFor_(const QString& channel) const;
 
     QString selectedSessionId_{};
     QString selectedChannel_{"trades"};
     QString selectedPipelineId_{};
     QString manualInputFile_{};
     QString manualOutputRoot_{};
-    QString statusText_{"Select a recording session and channel"};
+    QString statusText_{"Жду выбор сессии и канала"};
     QString outputFile_{};
     QString metricsFile_{};
     QString resultPipelineText_{};
+    QVariantList runRows_{};
+    QVariantList verifyRows_{};
+    bool running_{false};
+    bool verifying_{false};
+    QString verifyStatusText_{"Декодирование еще не запускалось"};
+    QString verifyFile_{};
+    QString verifyCanonicalFile_{};
+    std::uint64_t verifyDecodedBytes_{0};
+    std::uint64_t verifyCanonicalBytes_{0};
+    std::uint64_t verifyMismatchOffset_{0};
+    double verifyDecodeMbPerSec_{0.0};
+    bool verifyExact_{false};
     std::uint64_t inputBytes_{0};
     std::uint64_t outputBytes_{0};
     std::uint64_t encodeNs_{0};
@@ -126,3 +207,8 @@ class CompressionViewModel : public QObject {
 };
 
 }  // namespace hftrec::gui
+
+
+
+
+

@@ -164,7 +164,7 @@ set -euo pipefail
 APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
 INSTALL_DIR="\${HOME}/.local/cxet"
 COMPRESSOR_LIB_DIR="$compressor_lib_dir"
-export LD_LIBRARY_PATH="\$INSTALL_DIR/lib:\$COMPRESSOR_LIB_DIR:\${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 export HFTREC_METRICS_PORT="\${HFTREC_METRICS_PORT:-8080}"
 export HFTREC_METRICS_MODE="\${HFTREC_METRICS_MODE:-full}"
 
@@ -280,6 +280,9 @@ _require_linux_build_env
 case "$MODE" in
     compressor-only)
         _build_compressor
+        COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        compressor_lib_dir="$(cd "$(dirname "$COMPRESSOR_LIB")" && pwd)"
+        _write_start_launcher "$compressor_lib_dir"
         ;;
     app-with-cxet)
         _install_cxet_force
