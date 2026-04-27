@@ -10,6 +10,7 @@
 #include <thread>
 
 #if HFTREC_WITH_CXET
+#include "metrics/ClockSyncMetrics.hpp"
 #include "metrics/MetricsControl.hpp"
 #include "metrics/MetricsThread.hpp"
 #include "metrics/ProbeRegistry.hpp"
@@ -27,6 +28,13 @@ namespace {
 void renderHftrecMetrics(std::string& out) {
     hftrec::metrics::renderPrometheus(out);
 }
+
+#if HFTREC_WITH_CXET
+void renderCxetAndHftrecExtraMetrics(std::string& out) {
+    cxet::metrics::renderClockSyncMetrics(out);
+    hftrec::metrics::renderPrometheus(out);
+}
+#endif
 
 std::uint16_t metricsPort() noexcept {
     const char* raw = std::getenv("HFTREC_METRICS_PORT");
@@ -167,7 +175,7 @@ MetricsBootstrap::MetricsBootstrap() noexcept {
     impl_ = new Impl();
     hftrec::metrics::init();
 #if HFTREC_WITH_CXET
-    cxet::metrics::ProbeRegistry::setExtraRenderHook(&renderHftrecMetrics);
+    cxet::metrics::ProbeRegistry::setExtraRenderHook(&renderCxetAndHftrecExtraMetrics);
     cxet::metrics::setMode(metricsMode());
 #endif
     impl_->thread.start();
