@@ -73,10 +73,16 @@ independent ranking family.
 
 Canonical replay time is the row `tsNs`.
 
+Algo-facing replay semantics are defined by
+`REPLAY_TO_CXETCPP_FANOUT.md`. The important distinction is that file/channel
+loading order is not the market-data order seen by algorithms.
+
 Replay is bucketed by timestamp:
 - all rows with the same `tsNs` belong to one replay moment
 - same-`tsNs` rows are rendered at the same visual position/frame
 - there is no visible channel priority between channels for equal timestamps
+- algo-facing delivery must merge channel rows by `tsNs`, then `ingestSeq`, then
+  a stable tie-breaker before CXETCPP fanout
 
 State reconstruction rules:
 - exact L2 reconstruction is driven by `snapshot + depth`

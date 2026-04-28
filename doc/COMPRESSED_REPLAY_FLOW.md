@@ -52,6 +52,10 @@ The key memory rule is that the 3 GB compressed representation may be resident,
 but the 10 GB decoded corpus must not be expanded into RAM. Decoding must be a
 streaming operation.
 
+This rule applies to both viewer replay and algo-facing replay. A local exchange
+run may keep compressed bytes or memory-mapped compressed blocks available, but
+it must emit decoded rows/events incrementally through the replay clock.
+
 ## Future architecture seam
 
 The next storage seam should be a backend-neutral session reader above file
@@ -68,6 +72,11 @@ compressed .hfc blocks
 
 That provider should satisfy the same event semantics as the current JSON
 `SessionReplay`, but without requiring full historical materialization.
+
+For algo-facing replay, this provider is not enough by itself. Rows must pass
+through the local exchange fanout contract in
+`REPLAY_TO_CXETCPP_FANOUT.md`, which merges channel rows into timestamp buckets
+before CXETCPP delivers them to subscribers.
 
 For the viewer this means visible-window reads and cursor seeks should be backed
 by an on-demand source rather than full vectors for every channel.
@@ -97,15 +106,20 @@ Future compressed replay/backtest path:
 .hfc artifacts
   -> hft-compressor streaming decoder
   -> recorder-owned normalized replay rows
-  -> recorder replay/backtest adapter
-  -> CXETCPP-facing local/replay venue API
-  -> algorithm code
+  -> ReplayTimelineMerger / ReplayClock
+  -> CXETCPP local market-data source for hftrecorder_local
+  -> CXETCPP subscribe/fanout APIs
+  -> algorithm code and other subscribers
 ```
 
 The algorithm must talk through CXETCPP, not through recorder DTOs or storage
 paths. Recorder is the bridge that converts compressed corpus data into the
 same semantic market-data stream that an algo would receive from the CXETCPP
 side.
+
+`hftrecorder_local` is a local exchange id, not a hidden `is_backtest` switch.
+Algorithms should subscribe to it through ordinary CXETCPP builders in the same
+style as real exchange subscriptions.
 
 Rules:
 
@@ -131,6 +145,7 @@ Implemented now:
 
 Not implemented yet:
 
+- merged replay timeline fanout from recorded rows into CXETCPP subscribers;
 - GUI compressed-source selection/discovery;
 - compressed session manifest/index discovery;
 - streaming `.hfc` file decoder API that does not require loading the whole

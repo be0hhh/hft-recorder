@@ -53,6 +53,10 @@ CXETCPP talks to real exchange or hft-recorder local venue
 hft-recorder decides how to visualize/store execution events
 ```
 
+For market-data replay, `hftrecorder_local` is treated as a normal local
+exchange id in CXETCPP, not as a hidden backtest flag. The detailed fanout
+contract is in `doc/REPLAY_TO_CXETCPP_FANOUT.md`.
+
 ## Live Market Mode: Target
 
 Target flow for real exchange in the moment:
@@ -94,9 +98,9 @@ Target flow for recorded data:
 ```text
 recorded canonical JSONL/corpus
   -> replay clock
-  -> CXETCPP-compatible market-data stream
-  -> hft-recorder local venue state
-  -> algo market-data processor
+  -> merged market event bus
+  -> CXETCPP hftrecorder_local market-data fanout
+  -> algo market-data processor and hft-recorder local venue state
 
 algo sends order through CXETCPP
   -> same local venue WebSocket path as live mode
@@ -122,6 +126,7 @@ What is not complete:
 
 - there is no finished replay streamer that feeds historical rows into CXETCPP/algo and `LocalOrderEngine` in one controlled timeline;
 - replay currently loads and visualizes data, but it is not yet a real exchange-like event clock for algorithms;
+- the existing `cxet_replay_core::streamSession()` helper streams artifacts by channel and must not be treated as the final market-data timeline;
 - no deterministic backtest order/execution timeline is persisted yet.
 
 ## Current Implementation Map
@@ -370,10 +375,10 @@ src/core/replay_runtime/
 Responsibilities:
 
 - read canonical JSONL/corpus;
-- merge trades/bookticker/depth by timestamp and sequence;
+- merge trades/bookticker/depth by timestamp and sequence before any algo-facing delivery;
 - emit events in deterministic order;
 - support speed modes: paused, step, realtime, x10, max;
-- feed the same event to local venue state and algo-facing CXETCPP path.
+- feed the same event to local venue state and CXETCPP `hftrecorder_local` market-data fanout.
 
 Done when:
 
@@ -389,15 +394,16 @@ Goal: the algorithm should see replay data through the same conceptual CXETCPP m
 
 Possible approaches:
 
-1. Add CXETCPP replay transport that reads hft-recorder replay events.
-2. Add hft-recorder local market-data WebSocket that mimics exchange streams and let CXETCPP parse it.
-3. Add in-process adapter for benchmark/backtest mode.
+1. Add CXETCPP local market-data source for `hftrecorder_local` that consumes recorder replay events.
+2. Add a local market-data WebSocket protocol such as `hftrecorder.marketdata.v1` and let CXETCPP parse it as a local exchange adapter.
+3. Add in-process adapter for deterministic benchmark/backtest mode after the event model is stable.
 
 Recommended order:
 
-1. start with in-process/local adapter for deterministic testing;
-2. add WebSocket market-data server after the event model is stable;
-3. only then mimic real exchange protocols if needed.
+1. start with merged replay event model and deterministic tests;
+2. connect it to CXETCPP as `hftrecorder_local` for trades/bookticker;
+3. add WebSocket transport if process isolation is needed;
+4. avoid mimicking real exchange JSON unless a specific compatibility target requires it.
 
 Done when:
 
