@@ -13,8 +13,7 @@ using hftrec::replay::SnapshotDocument;
 TEST(BookState, SnapshotDropsZeroQtyLevels) {
     SnapshotDocument snap{};
     snap.tsNs = 100;
-    snap.bids = {{30000, 1'000}, {29900, 0}, {29800, 500}};
-    snap.asks = {{30100, 2'000}, {30200, 0}};
+    snap.levels = {{30000, 1'000, 0}, {29900, 0, 0}, {29800, 500, 0}, {30100, 2'000, 1}, {30200, 0, 1}};
 
     BookState b{};
     b.applySnapshot(snap);
@@ -28,21 +27,18 @@ TEST(BookState, SnapshotDropsZeroQtyLevels) {
 TEST(BookState, DeltaOverwritesModifiesAndRemoves) {
     SnapshotDocument snap{};
     snap.tsNs = 100;
-    snap.bids = {{30000, 1'000}, {29900, 500}};
-    snap.asks = {{30100, 2'000}, {30200, 1'000}};
+    snap.levels = {{30000, 1'000, 0}, {29900, 500, 0}, {30100, 2'000, 1}, {30200, 1'000, 1}};
     BookState b{};
     b.applySnapshot(snap);
 
     DepthRow d{};
     d.tsNs = 200;
-    d.bids = {
-        {30000, 1'500},   // modify top bid
-        {29800, 300},     // add new bid level
-        {29900, 0},       // remove 29900 bid level
-    };
-    d.asks = {
-        {30100, 0},       // remove top ask
-        {30300, 700},     // add new ask level
+    d.levels = {
+        {30000, 1'500, 0},   // modify top bid
+        {29800, 300, 0},     // add new bid level
+        {29900, 0, 0},       // remove 29900 bid level
+        {30100, 0, 1},       // remove top ask
+        {30300, 700, 1},     // add new ask level
     };
     b.applyDelta(d);
 
@@ -65,15 +61,13 @@ TEST(BookState, DeltaOverwritesModifiesAndRemoves) {
 
 TEST(BookState, StickyLevelsPreservedBetweenDeltas) {
     SnapshotDocument snap{};
-    snap.bids = {{100, 5}, {99, 5}, {98, 5}};
-    snap.asks = {{101, 5}, {102, 5}, {103, 5}};
+    snap.levels = {{100, 5, 0}, {99, 5, 0}, {98, 5, 0}, {101, 5, 1}, {102, 5, 1}, {103, 5, 1}};
     BookState b{};
     b.applySnapshot(snap);
 
     DepthRow d{};
     d.tsNs = 1;
-    d.bids = {{100, 7}};   // only touch the top bid
-    d.asks = {{103, 0}};   // remove one specific ask
+    d.levels = {{100, 7, 0}, {103, 0, 1}};
     b.applyDelta(d);
 
     // Untouched levels still there.
@@ -89,8 +83,7 @@ TEST(BookState, StickyLevelsPreservedBetweenDeltas) {
 TEST(BookState, ResetClears) {
     BookState b{};
     SnapshotDocument snap{};
-    snap.bids = {{1, 1}};
-    snap.asks = {{2, 1}};
+    snap.levels = {{1, 1, 0}, {2, 1, 1}};
     b.applySnapshot(snap);
     b.reset();
     EXPECT_TRUE(b.bids().empty());

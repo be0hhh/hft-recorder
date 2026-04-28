@@ -10,9 +10,9 @@ using hftrec::lab::sampleGroundTruthBookFrames;
 
 TEST(BookTickerExactness, GroundTruthSamplerDoesNotCarryTickerAcrossDepthEvents) {
     hftrec::corpus::SessionCorpus corpus{};
-    corpus.bookTickerLines.push_back("[30000,7,30100,8,2000,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]");
-    corpus.depthLines.push_back("[[[30000,9,0,0]],[],3000,\"BTCUSDT\",\"binance\",\"futures_usd\",11,11,2,2]");
-    corpus.depthLines.push_back("[[],[[30100,10,1,0]],4000,\"BTCUSDT\",\"binance\",\"futures_usd\",12,12,3,3]");
+    corpus.bookTickerLines.push_back("[30000,7,30100,8,2000]");
+    corpus.depthLines.push_back("[[30000,9,0],3000]");
+    corpus.depthLines.push_back("[[30100,10,1],4000]");
 
     std::vector<BookFrame> frames;
     ASSERT_EQ(sampleGroundTruthBookFrames(corpus, 8, frames), Status::Ok);

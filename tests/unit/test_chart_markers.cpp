@@ -34,14 +34,11 @@ void writeFile(const fs::path& path, const std::string& data) {
     out << data;
 }
 
-std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8, std::int64_t captureSeq) {
+std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8, std::int64_t) {
     return "[" + std::to_string(priceE8)
         + "," + std::to_string(e8(1))
         + ",1"
         + "," + std::to_string(tsNs)
-        + R"(,0,0,0,0,0,"BTCUSDT","binance","futures_usd",)"
-        + std::to_string(captureSeq)
-        + "," + std::to_string(captureSeq)
         + "]"
         + "\n";
 }
@@ -49,15 +46,12 @@ std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8, std::int64_t capt
 std::string bookTickerLine(std::int64_t tsNs,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8,
-                           std::int64_t captureSeq) {
+                           std::int64_t) {
     return "[" + std::to_string(bidPriceE8)
         + "," + std::to_string(e8(1))
         + "," + std::to_string(askPriceE8)
         + "," + std::to_string(e8(1))
         + "," + std::to_string(tsNs)
-        + R"(,"BTCUSDT","binance","futures_usd",)"
-        + std::to_string(captureSeq)
-        + "," + std::to_string(captureSeq)
         + "]"
         + "\n";
 }

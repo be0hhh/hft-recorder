@@ -666,16 +666,11 @@ void SessionReplay::finalizeChannelStates_() noexcept {
             depthSummary.state = ChannelHealthState::Degraded;
             depthSummary.exactReplayEligible = false;
         }
-    } else if (!sequenceValidationAvailable_) {
-        depthSummary.state = ChannelHealthState::Degraded;
-        depthSummary.exactReplayEligible = false;
-        if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "exactness_unprovable";
-        if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth continuity cannot be proven from sequence metadata";
     } else if (depthSummary.incidentCount == 0u) {
         depthSummary.state = ChannelHealthState::Clean;
-        depthSummary.exactReplayEligible = true;
+        depthSummary.exactReplayEligible = false;
         if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "ok";
-        if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth continuity validated";
+        if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth rows loaded";
     }
 }
 

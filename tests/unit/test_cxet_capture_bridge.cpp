@@ -79,15 +79,10 @@ TEST(CxetCaptureBridge, RuntimeOrderBookRestoresRecorderLevelSemantics) {
 
     ASSERT_EQ(row.bids.size(), 1u);
     ASSERT_EQ(row.asks.size(), 2u);
-    EXPECT_EQ(row.symbol, "BTCUSDT");
-    EXPECT_EQ(row.updateId, 120u);
-    EXPECT_EQ(row.firstUpdateId, 118u);
     EXPECT_EQ(row.bids[0].priceI64, 3'000'000'000'000LL);
     EXPECT_EQ(row.bids[0].qtyI64, 0LL);
     EXPECT_EQ(row.bids[0].side, 0);
-    EXPECT_EQ(row.bids[0].levelId, 0u);
     EXPECT_EQ(row.asks[1].side, 1);
-    EXPECT_EQ(row.asks[1].levelId, 1u);
 }
 
 }  // namespace

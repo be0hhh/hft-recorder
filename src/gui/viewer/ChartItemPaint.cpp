@@ -239,8 +239,12 @@ void appendVisibleLiveLevels(const BookMap& levels,
 template <typename Row>
 bool eventKeyLess(const Row& lhs, const Row& rhs) noexcept {
     if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
-    if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
-    return lhs.ingestSeq < rhs.ingestSeq;
+    if constexpr (requires { lhs.captureSeq; lhs.ingestSeq; }) {
+        if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
+        return lhs.ingestSeq < rhs.ingestSeq;
+    } else {
+        return false;
+    }
 }
 
 template <typename Row>
@@ -1113,5 +1117,4 @@ void ChartItem::paint(QPainter* painter) {
 }
 
 }  // namespace hftrec::gui::viewer
-
 

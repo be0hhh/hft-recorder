@@ -43,7 +43,7 @@ std::string formatError(const cxet::replay::ReplayLoadError& error) {
 }
 
 PricePair convert(const cxet::replay::PricePair& row) noexcept {
-    return PricePair{row.priceE8, row.qtyE8, row.side, row.levelId};
+    return PricePair{row.priceE8, row.qtyE8, row.side};
 }
 
 std::vector<PricePair> convertLevels(const std::vector<cxet::replay::PricePair>& rows) {
@@ -51,6 +51,19 @@ std::vector<PricePair> convertLevels(const std::vector<cxet::replay::PricePair>&
     out.reserve(rows.size());
     for (const auto& row : rows) out.push_back(convert(row));
     return out;
+}
+
+template <typename Row>
+std::vector<PricePair> convertOrderbookLevels(const Row& row) {
+    if constexpr (requires { row.levels; }) {
+        return convertLevels(row.levels);
+    } else {
+        std::vector<PricePair> out;
+        out.reserve(row.bids.size() + row.asks.size());
+        for (const auto& level : row.bids) out.push_back(convert(level));
+        for (const auto& level : row.asks) out.push_back(convert(level));
+        return out;
+    }
 }
 
 TradeRow convert(const cxet::replay::TradeRow& row) {
@@ -90,44 +103,15 @@ BookTickerRow convert(const cxet::replay::BookTickerRow& row) {
 
 DepthRow convert(const cxet::replay::DepthRow& row) {
     DepthRow out{};
-    out.symbol = row.symbol;
-    out.exchange = row.exchange;
-    out.market = row.market;
     out.tsNs = row.tsNs;
-    out.captureSeq = row.captureSeq;
-    out.ingestSeq = row.ingestSeq;
-    out.hasUpdateId = row.hasUpdateId;
-    out.hasFirstUpdateId = row.hasFirstUpdateId;
-    out.updateId = row.updateId;
-    out.firstUpdateId = row.firstUpdateId;
-    out.bids = convertLevels(row.bids);
-    out.asks = convertLevels(row.asks);
+    out.levels = convertOrderbookLevels(row);
     return out;
 }
 
 SnapshotDocument convert(const cxet::replay::SnapshotDocument& row) {
     SnapshotDocument out{};
     out.tsNs = row.tsNs;
-    out.captureSeq = row.captureSeq;
-    out.ingestSeq = row.ingestSeq;
-    out.hasUpdateId = row.hasUpdateId;
-    out.hasFirstUpdateId = row.hasFirstUpdateId;
-    out.updateId = row.updateId;
-    out.firstUpdateId = row.firstUpdateId;
-    out.snapshotKind = row.snapshotKind;
-    out.source = row.source;
-    out.exchange = row.exchange;
-    out.market = row.market;
-    out.symbol = row.symbol;
-    out.sourceTsNs = row.sourceTsNs;
-    out.ingestTsNs = row.ingestTsNs;
-    out.hasAnchorUpdateId = row.hasAnchorUpdateId;
-    out.hasAnchorFirstUpdateId = row.hasAnchorFirstUpdateId;
-    out.anchorUpdateId = row.anchorUpdateId;
-    out.anchorFirstUpdateId = row.anchorFirstUpdateId;
-    out.trustedReplayAnchor = row.trustedReplayAnchor;
-    out.bids = convertLevels(row.bids);
-    out.asks = convertLevels(row.asks);
+    out.levels = convertOrderbookLevels(row);
     return out;
 }
 

@@ -30,23 +30,13 @@ void writeFile(const fs::path& p, const std::string& data) {
 }
 
 std::string makeSnapshotJson(std::int64_t tsNs,
-                             std::int64_t captureSeq,
-                             std::int64_t ingestSeq,
-                             std::int64_t updateId,
-                             std::int64_t firstUpdateId) {
-    return "[[[30000,5,0,0],[29900,3,0,1]],[[30100,4,1,0]],"
+                             std::int64_t,
+                             std::int64_t,
+                             std::int64_t,
+                             std::int64_t) {
+    return "[[30000,5,0],[29900,3,0],[30100,4,1],"
         + std::to_string(tsNs)
-        + ",\"BTCUSDT\",\"binance\",\"futures_usd\","
-        + std::to_string(updateId)
-        + "," + std::to_string(firstUpdateId)
-        + "," + std::to_string(tsNs)
-        + "," + std::to_string(tsNs + 10)
-        + ",1,"
-        + std::to_string(captureSeq)
-        + "," + std::to_string(ingestSeq)
-        + "," + std::to_string(updateId)
-        + "," + std::to_string(firstUpdateId)
-        + ",\"initial\",\"rest_orderbook_snapshot\"]\n";
+        + "]\n";
 }
 
 void writeManifest(const fs::path& dir,
@@ -80,19 +70,19 @@ TEST(SessionReplay, EndToEnd) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "[[[30000,7,0,0]],[],2000,\"BTCUSDT\",\"binance\",\"futures_usd\",11,11,2,2]\n"
-              "[[],[[30100,0,1,0],[30200,8,1,1]],3500,\"BTCUSDT\",\"binance\",\"futures_usd\",12,12,3,4]\n");
+              "[[30000,7,0],2000]\n"
+              "[[30100,0,1],[30200,8,1],3500]\n");
 
     writeFile(dir / "trades.jsonl",
-              "[30050,1,1,2500,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",4,3]\n"
-              "[30200,2,0,4000,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",5,5]\n");
+              "[30050,1,1,2500]\n"
+              "[30200,2,0,4000]\n");
 
     SessionReplay replay{};
     ASSERT_EQ(replay.open(dir), Status::Ok);
-    EXPECT_TRUE(replay.sequenceValidationAvailable());
+    EXPECT_FALSE(replay.sequenceValidationAvailable());
     EXPECT_FALSE(replay.gapDetected());
     EXPECT_EQ(replay.integritySummary().sessionHealth, hftrec::SessionHealth::Clean);
-    EXPECT_TRUE(replay.integritySummary().depth.exactReplayEligible);
+    EXPECT_FALSE(replay.integritySummary().depth.exactReplayEligible);
 
     EXPECT_EQ(replay.trades().size(), 2u);
     EXPECT_EQ(replay.depths().size(), 2u);
@@ -137,8 +127,8 @@ TEST(SessionReplay, InvalidJsonLineReportsFileAndLine) {
     writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "[30050,1,1,2500,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]\n"
-              "[30051,1,\"bad\",2600,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",2,2]\n");
+              "[30050,1,1,2500]\n"
+              "[30051,1,\"bad\",2600]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -149,76 +139,50 @@ TEST(SessionReplay, InvalidJsonLineReportsFileAndLine) {
     fs::remove_all(dir, ec);
 }
 
-TEST(SessionReplay, DetectsDepthGapWhenSequenceIdsPresent) {
-    const auto dir = makeTmpDir();
-    writeManifest(dir, false, false, true, 0u, 0u, 2u, 1u);
-
-    writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
-
-    writeFile(dir / "depth.jsonl",
-              "[[[30000,7,0,0]],[],2000,\"BTCUSDT\",\"binance\",\"futures_usd\",11,11,2,2]\n"
-              "[[],[[30100,0,1,0]],3000,\"BTCUSDT\",\"binance\",\"futures_usd\",15,15,3,3]\n");
-
-    SessionReplay replay{};
-    EXPECT_EQ(replay.open(dir), Status::CorruptData);
-    EXPECT_TRUE(replay.sequenceValidationAvailable());
-    EXPECT_TRUE(replay.gapDetected());
-    EXPECT_EQ(replay.integrityFailureCount(), 1u);
-    EXPECT_NE(std::string{replay.errorDetail()}.find("expected update 12"), std::string::npos);
-    EXPECT_EQ(replay.integritySummary().depth.state, hftrec::ChannelHealthState::Corrupt);
-
-    std::error_code ec;
-    fs::remove_all(dir, ec);
-}
-
-TEST(SessionReplay, DetectsDepthUpdateRangeInversion) {
-    const auto dir = makeTmpDir();
-    writeManifest(dir, false, false, true, 0u, 0u, 1u, 1u);
-
-    writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
-
-    writeFile(dir / "depth.jsonl",
-              "[[[30000,7,0,0]],[],2000,\"BTCUSDT\",\"binance\",\"futures_usd\",11,12,2,2]\n");
-
-    SessionReplay replay{};
-    EXPECT_EQ(replay.open(dir), Status::CorruptData);
-    EXPECT_TRUE(replay.sequenceValidationAvailable());
-    EXPECT_TRUE(replay.gapDetected());
-    EXPECT_NE(std::string{replay.errorDetail()}.find("updateId < firstUpdateId"), std::string::npos);
-    EXPECT_EQ(replay.integritySummary().depth.state, hftrec::ChannelHealthState::Corrupt);
-
-    std::error_code ec;
-    fs::remove_all(dir, ec);
-}
-
-TEST(SessionReplay, DetectsNonIncreasingCaptureSequence) {
+TEST(SessionReplay, MinimalRowsHaveNoSequenceValidation) {
     const auto dir = makeTmpDir();
     writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "[30050,1,1,2500,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",2,1]\n"
-              "[30051,1,1,2600,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",2,2]\n");
+              "[30050,1,1,2500]\n"
+              "[30051,1,1,2600]\n");
+
+    SessionReplay replay{};
+    EXPECT_EQ(replay.open(dir), Status::Ok);
+    EXPECT_FALSE(replay.sequenceValidationAvailable());
+    EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Clean);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(SessionReplay, RejectsMalformedMinimalTradeLine) {
+    const auto dir = makeTmpDir();
+    writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
+
+    writeFile(dir / "trades.jsonl",
+              "[30050,1,1,2500]\n"
+              "[30051,1,1,\"bad\"]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
-    EXPECT_NE(std::string{replay.errorDetail()}.find("non-increasing captureSeq"), std::string::npos);
+    EXPECT_NE(std::string{replay.errorDetail()}.find("trades.jsonl line 2"), std::string::npos);
     EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Corrupt);
 
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
 
-TEST(SessionReplay, DetectsMixedIngestSequenceMetadata) {
+TEST(SessionReplay, RejectsLegacyExtendedTradeRows) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
+    writeManifest(dir, true, false, false, 1u, 0u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "[30050,1,1,2500,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]\n"
-              "[30051,1,1,2600,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",\"bad\"]\n");
+              "[30050,1,1,2500,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
-    EXPECT_NE(std::string{replay.errorDetail()}.find("trades.jsonl line 2"), std::string::npos);
+    EXPECT_NE(std::string{replay.errorDetail()}.find("trades.jsonl line 1"), std::string::npos);
     EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Corrupt);
 
     std::error_code ec;
@@ -232,13 +196,13 @@ TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "[[[30000,7,0,0]],[],2000,\"BTCUSDT\",\"binance\",\"futures_usd\",11,11,2,2]\n");
+              "[[30000,7,0],2000]\n");
 
     writeFile(dir / "trades.jsonl",
-              "[30050,1,1,2000,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",3,3]\n");
+              "[30050,1,1,2000]\n");
 
     writeFile(dir / "bookticker.jsonl",
-              "[30000,7,30100,4,2000,\"BTCUSDT\",\"binance\",\"futures_usd\",4,4]\n");
+              "[30000,7,30100,4,2000]\n");
 
     SessionReplay replay{};
     ASSERT_EQ(replay.open(dir), Status::Ok);
@@ -267,11 +231,11 @@ TEST(SessionReplay, CrossChannelIngestSequenceDoesNotDegradeWhenTimestampOrderDi
 
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 4, 10, 10));
     writeFile(dir / "depth.jsonl",
-              "[[[30000,7,0,0]],[],3000,\"BTCUSDT\",\"binance\",\"futures_usd\",11,11,1,5]\n");
+              "[[30000,7,0],3000]\n");
     writeFile(dir / "trades.jsonl",
-              "[30050,1,1,2000,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,6]\n");
+              "[30050,1,1,2000]\n");
     writeFile(dir / "bookticker.jsonl",
-              "[30000,7,30100,4,1500,\"BTCUSDT\",\"binance\",\"futures_usd\",1,7]\n");
+              "[30000,7,30100,4,1500]\n");
 
     SessionReplay replay{};
     ASSERT_EQ(replay.open(dir), Status::Ok);
@@ -306,7 +270,7 @@ TEST(SessionReplay, ShortDepthArrayIsCorrupt) {
     writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
 
     writeFile(dir / "depth.jsonl",
-              "[[[30000,7,0,0]],[],2000,\"BTCUSDT\",\"binance\",\"futures_usd\",\"bad\",11,2,2]\n");
+              "[[30000,7],2000]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);

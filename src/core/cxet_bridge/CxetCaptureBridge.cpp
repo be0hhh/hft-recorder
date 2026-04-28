@@ -86,20 +86,13 @@ CapturedLiquidationRow CxetCaptureBridge::captureLiquidation(const cxet::composi
 
 CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot) {
     CapturedOrderBookRow row{};
-    row.symbol = snapshot.symbol.data;
-    row.exchangeId = static_cast<std::uint64_t>(snapshot.exchangeId.raw);
     row.tsNs = static_cast<std::uint64_t>(snapshot.ts.raw);
-    row.hasUpdateId = snapshot.updateId.raw > 0u;
-    row.hasFirstUpdateId = snapshot.firstUpdateId.raw > 0u;
-    row.updateId = static_cast<std::uint64_t>(snapshot.updateId.raw);
-    row.firstUpdateId = static_cast<std::uint64_t>(snapshot.firstUpdateId.raw);
     row.bids.reserve(snapshot.bidCount.raw);
     for (std::uint32_t i = 0; i < snapshot.bidCount.raw; ++i) {
         row.bids.push_back(CapturedLevel{
             static_cast<std::int64_t>(snapshot.bids[i].price.raw),
             static_cast<std::int64_t>(snapshot.bids[i].amount.raw),
-            static_cast<std::int64_t>(snapshot.bids[i].side.raw),
-            static_cast<std::uint64_t>(snapshot.bids[i].levelId.raw)
+            static_cast<std::int64_t>(snapshot.bids[i].side.raw)
         });
     }
     row.asks.reserve(snapshot.askCount.raw);
@@ -107,30 +100,23 @@ CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::
         row.asks.push_back(CapturedLevel{
             static_cast<std::int64_t>(snapshot.asks[i].price.raw),
             static_cast<std::int64_t>(snapshot.asks[i].amount.raw),
-            static_cast<std::int64_t>(snapshot.asks[i].side.raw),
-            static_cast<std::uint64_t>(snapshot.asks[i].levelId.raw)
+            static_cast<std::int64_t>(snapshot.asks[i].side.raw)
         });
     }
     return row;
 }
 
 CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookDeltaRuntimeV1& delta,
-                                                         const cxet::composite::StreamMeta& meta) {
+                                                          const cxet::composite::StreamMeta& meta) {
+    (void)meta;
     CapturedOrderBookRow row{};
-    row.symbol = meta.symbol.data;
-    row.exchangeId = static_cast<std::uint64_t>(meta.exchangeId.raw);
     row.tsNs = static_cast<std::uint64_t>(delta.ts.raw);
-    row.hasUpdateId = delta.updateId.raw > 0u;
-    row.hasFirstUpdateId = delta.firstUpdateId.raw > 0u;
-    row.updateId = static_cast<std::uint64_t>(delta.updateId.raw);
-    row.firstUpdateId = static_cast<std::uint64_t>(delta.firstUpdateId.raw);
     row.bids.reserve(delta.bidCount.raw);
     for (std::uint32_t i = 0; i < delta.bidCount.raw; ++i) {
         row.bids.push_back(CapturedLevel{
             static_cast<std::int64_t>(delta.bids[i].px.raw),
             static_cast<std::int64_t>(delta.bids[i].qty.raw),
-            0,
-            static_cast<std::uint64_t>(i)
+            0
         });
     }
     row.asks.reserve(delta.askCount.raw);
@@ -138,8 +124,7 @@ CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::
         row.asks.push_back(CapturedLevel{
             static_cast<std::int64_t>(delta.asks[i].px.raw),
             static_cast<std::int64_t>(delta.asks[i].qty.raw),
-            1,
-            static_cast<std::uint64_t>(i)
+            1
         });
     }
     return row;

@@ -129,105 +129,6 @@ void SessionReplay::seek(std::int64_t targetTsNs) {
 }
 
 bool SessionReplay::validateDepthStream_() noexcept {
-    if (depths_.empty()) {
-        return true;
-    }
-
-    auto& depthSummary = summaryFor_(IntegrityChannel::Depth);
-    std::int64_t previousUpdateId = snapshot_.updateId;
-    bool havePreviousUpdateId = snapshotLoaded_ && snapshot_.hasUpdateId;
-
-    for (std::size_t i = 0; i < depths_.size(); ++i) {
-        const auto& row = depths_[i];
-        const bool hasIds = row.hasUpdateId && row.hasFirstUpdateId;
-        if (!hasIds) {
-            continue;
-        }
-
-        sequenceValidationAvailable_ = true;
-        if (row.updateId < row.firstUpdateId) {
-            gapDetected_ = true;
-            ++integrityFailureCount_;
-            depthSummary.state = ChannelHealthState::Corrupt;
-            errorDetail_ = "depth integrity failure at row " + std::to_string(i)
-                + ": updateId < firstUpdateId";
-            noteIncident_(IntegrityIncident{
-                IntegrityChannel::Depth,
-                IntegrityIncidentKind::DepthNonMonotonic,
-                IntegritySeverity::Error,
-                "depth_non_monotonic",
-                errorDetail_,
-                row.tsNs,
-                i,
-                "updateId >= firstUpdateId",
-                "updateId=" + std::to_string(row.updateId) + ", firstUpdateId=" + std::to_string(row.firstUpdateId),
-                true
-            });
-            return false;
-        }
-
-        if (!havePreviousUpdateId) {
-            previousUpdateId = row.updateId;
-            havePreviousUpdateId = true;
-            continue;
-        }
-
-        const auto expectedNext = previousUpdateId + 1;
-        if (row.updateId <= previousUpdateId) {
-            gapDetected_ = true;
-            ++integrityFailureCount_;
-            depthSummary.state = ChannelHealthState::Corrupt;
-            errorDetail_ = "depth integrity failure at row " + std::to_string(i)
-                + ": non-increasing updateId";
-            noteIncident_(IntegrityIncident{
-                IntegrityChannel::Depth,
-                IntegrityIncidentKind::DepthNonMonotonic,
-                IntegritySeverity::Error,
-                "depth_non_monotonic",
-                errorDetail_,
-                row.tsNs,
-                i,
-                "updateId > previousUpdateId",
-                "previous=" + std::to_string(previousUpdateId) + ", updateId=" + std::to_string(row.updateId),
-                true
-            });
-            return false;
-        }
-        if (row.firstUpdateId > expectedNext || row.updateId < expectedNext) {
-            gapDetected_ = true;
-            ++integrityFailureCount_;
-            depthSummary.state = ChannelHealthState::Corrupt;
-            errorDetail_ = "depth integrity failure at row " + std::to_string(i)
-                + ": expected update " + std::to_string(expectedNext)
-                + " but saw range [" + std::to_string(row.firstUpdateId)
-                + ", " + std::to_string(row.updateId) + "]";
-            noteIncident_(IntegrityIncident{
-                IntegrityChannel::Depth,
-                IntegrityIncidentKind::DepthSequenceGap,
-                IntegritySeverity::Error,
-                "depth_sequence_gap",
-                errorDetail_,
-                row.tsNs,
-                i,
-                std::to_string(expectedNext),
-                "[" + std::to_string(row.firstUpdateId) + "," + std::to_string(row.updateId) + "]",
-                true
-            });
-            hftrec::corpus::appendLoadIssue(loadReport_, hftrec::corpus::LoadIssue{
-                hftrec::corpus::LoadIssueCode::DepthGapDetected,
-                hftrec::corpus::LoadIssueSeverity::Fatal,
-                Status::CorruptData,
-                "depth",
-                "depth.jsonl",
-                i + 1u,
-                errorDetail_,
-            });
-            return false;
-        }
-
-        previousUpdateId = row.updateId;
-    }
-
     return true;
 }
 
@@ -338,7 +239,7 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
             return false;
         }
 
-        if (!anyHaveCaptureSeq || !anyHaveIngestSeq) {
+        if (anyHaveCaptureSeq != anyHaveIngestSeq) {
             auto& summary = summaryFor_(channel);
             if (summary.state != ChannelHealthState::Corrupt) {
                 summary.state = ChannelHealthState::Degraded;
@@ -366,49 +267,18 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
         return true;
     };
 
-    if (snapshotLoaded_) {
-        if (snapshot_.captureSeq <= 0 || snapshot_.ingestSeq <= 0) {
-            auto& summary = summaryFor_(IntegrityChannel::Snapshot);
-            summary.state = ChannelHealthState::Degraded;
-            noteIncident_(IntegrityIncident{
-                IntegrityChannel::Snapshot,
-                IntegrityIncidentKind::ExactnessUnprovable,
-                IntegritySeverity::Warning,
-                "missing_snapshot_sequence",
-                "snapshot sequence metadata is missing or non-positive; exact ordering is unprovable",
-                snapshot_.tsNs,
-                0,
-                "positive captureSeq and ingestSeq",
-                {},
-                true
-            });
-        } else {
-            sequenceValidationAvailable_ = true;
-        }
-    }
-
     const bool tradesOk = validateChannel(IntegrityChannel::Trades, trades_, "trades");
     const bool liquidationsOk = validateChannel(IntegrityChannel::Liquidations, liquidations_, "liquidations");
     const bool bookTickerOk = validateChannel(IntegrityChannel::BookTicker, bookTickers_, "bookticker");
-    const bool depthOk = validateChannel(IntegrityChannel::Depth, depths_, "depth");
-    if (!(tradesOk && liquidationsOk && bookTickerOk && depthOk)) {
+    if (!(tradesOk && liquidationsOk && bookTickerOk)) {
         return false;
     }
 
-    // EN: Snapshot is a replay anchor, not necessarily the first persisted
-    // event in ingest order. Capture may write snapshot metadata after earlier
-    // trades/bookticker rows already exist, so seeding merged ingest-sequence
-    // validation from snapshot_.ingestSeq produces false "non-increasing"
-    // failures for otherwise valid sessions.
-    // RU: Snapshot — это anchor для replay, а не обязательно первое событие по
-    // ingestSeq. Он может быть записан позже уже сохранённых trades/bookticker,
-    // поэтому начинать merged-проверку с snapshot_.ingestSeq нельзя: это даёт
-    // ложные ошибки non-increasing на валидных сессиях.
     std::vector<std::int64_t> mergedIngestSeqs;
     mergedIngestSeqs.reserve(events_.size());
     for (const auto& event : events_) {
         if (event.ingestSeq <= 0) {
-            return true;
+            continue;
         }
         mergedIngestSeqs.push_back(event.ingestSeq);
     }
@@ -447,7 +317,7 @@ void SessionReplay::rebuildEvents_() noexcept {
     events_.clear();
     events_.reserve(trades_.size() + liquidations_.size() + bookTickers_.size() + depths_.size());
     for (std::size_t i = 0; i < depths_.size(); ++i) {
-        events_.push_back(Event{depths_[i].tsNs, depths_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::Depth});
+        events_.push_back(Event{depths_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::Depth});
     }
     for (std::size_t i = 0; i < trades_.size(); ++i) {
         events_.push_back(Event{trades_[i].tsNs, trades_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::Trade});

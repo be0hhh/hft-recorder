@@ -41,11 +41,6 @@ void recordCxetLatencyIfEnabled(cxet::metrics::LatencyProbe& probe,
     }
 }
 
-std::string snapshotSymbolString(const cxet::composite::OrderBookSnapshot& snapshot) {
-    return std::string(snapshot.symbol.data);
-}
-
-
 replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
                               std::string_view exchange,
                               std::string_view market,
@@ -115,55 +110,29 @@ std::vector<replay::PricePair> makePricePairs(const std::vector<cxet_bridge::Cap
     std::vector<replay::PricePair> out;
     out.reserve(levels.size());
     for (const auto& level : levels) {
-        out.push_back(replay::PricePair{level.priceI64, level.qtyI64, level.side, level.levelId});
+        out.push_back(replay::PricePair{level.priceI64, level.qtyI64, level.side});
     }
     return out;
 }
 
-replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth,
-                              std::string_view exchange,
-                              std::string_view market,
-                              const EventSequenceIds& sequenceIds) {
+std::vector<replay::PricePair> makeOrderbookLevels(const cxet_bridge::CapturedOrderBookRow& depth) {
+    auto out = makePricePairs(depth.bids);
+    const auto asks = makePricePairs(depth.asks);
+    out.insert(out.end(), asks.begin(), asks.end());
+    return out;
+}
+
+replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth) {
     replay::DepthRow row{};
-    row.symbol = depth.symbol;
-    row.exchange = std::string(exchange);
-    row.market = std::string(market);
     row.tsNs = static_cast<std::int64_t>(depth.tsNs);
-    row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
-    row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
-    row.hasUpdateId = depth.hasUpdateId;
-    row.hasFirstUpdateId = depth.hasFirstUpdateId;
-    row.updateId = static_cast<std::int64_t>(depth.updateId);
-    row.firstUpdateId = static_cast<std::int64_t>(depth.firstUpdateId);
-    row.bids = makePricePairs(depth.bids);
-    row.asks = makePricePairs(depth.asks);
+    row.levels = makeOrderbookLevels(depth);
     return row;
 }
 
-replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBookRow& snapshot,
-                                              const SnapshotProvenance& provenance) {
+replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBookRow& snapshot) {
     replay::SnapshotDocument document{};
     document.tsNs = static_cast<std::int64_t>(snapshot.tsNs);
-    document.captureSeq = static_cast<std::int64_t>(provenance.sequence.captureSeq);
-    document.ingestSeq = static_cast<std::int64_t>(provenance.sequence.ingestSeq);
-    document.hasUpdateId = snapshot.hasUpdateId;
-    document.hasFirstUpdateId = snapshot.hasFirstUpdateId;
-    document.updateId = static_cast<std::int64_t>(snapshot.updateId);
-    document.firstUpdateId = static_cast<std::int64_t>(snapshot.firstUpdateId);
-    document.snapshotKind = provenance.snapshotKind;
-    document.source = provenance.source;
-    document.exchange = provenance.exchange;
-    document.market = provenance.market;
-    document.symbol = provenance.symbol;
-    document.sourceTsNs = provenance.sourceTsNs;
-    document.ingestTsNs = provenance.ingestTsNs;
-    document.hasAnchorUpdateId = provenance.hasAnchorUpdateId;
-    document.hasAnchorFirstUpdateId = provenance.hasAnchorFirstUpdateId;
-    document.anchorUpdateId = static_cast<std::int64_t>(provenance.anchorUpdateId);
-    document.anchorFirstUpdateId = static_cast<std::int64_t>(provenance.anchorFirstUpdateId);
-    document.trustedReplayAnchor = provenance.trustedReplayAnchor ? 1u : 0u;
-    document.bids = makePricePairs(snapshot.bids);
-    document.asks = makePricePairs(snapshot.asks);
+    document.levels = makeOrderbookLevels(snapshot);
     return document;
 }
 
@@ -674,7 +643,16 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
     }
 
     auto subscribeBuilder = internal::makeOrderbookSubscribeBuilder(config.symbols.front());
-    if (!internal::applyRequestedAliases(config.orderbookAliases, subscribeBuilder, lastError_)) {
+    auto orderbookAliases = config.orderbookAliases;
+    if (orderbookAliases.empty()) {
+        orderbookAliases = {"bidPrice", "bidQty", "askPrice", "askQty", "side", "timestamp"};
+    }
+    for (const auto* requiredAlias : {"bidPrice", "bidQty", "askPrice", "askQty", "side", "timestamp"}) {
+        if (std::find(orderbookAliases.begin(), orderbookAliases.end(), requiredAlias) == orderbookAliases.end()) {
+            orderbookAliases.push_back(requiredAlias);
+        }
+    }
+    if (!internal::applyRequestedAliases(orderbookAliases, subscribeBuilder, lastError_)) {
         return Status::InvalidArgument;
     }
 
@@ -699,20 +677,15 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
     }
 
     const auto sessionId = manifest_.sessionId;
-    const auto exchange = manifest_.exchange;
-    const auto market = manifest_.market;
-    const auto orderbookAliases = config.orderbookAliases;
-    orderbookThread_ = std::thread([this, subscribeBuilder, sessionId, exchange, market, orderbookAliases]() mutable noexcept {
+    orderbookThread_ = std::thread([this, subscribeBuilder, sessionId, orderbookAliases]() mutable noexcept {
         MessageBuffer payloadBuf{};
         MessageBuffer deltaRecvBuf{};
 
         struct CallbackContext {
             CaptureCoordinator* self;
             std::string sessionId;
-            std::string exchange;
-            std::string market;
             std::vector<std::string> aliases;
-        } callbackContext{this, sessionId, exchange, market, orderbookAliases};
+        } callbackContext{this, sessionId, orderbookAliases};
 
         const bool subscribeOk = cxet::api::runSubscribeOrderBookRuntimeByConfig(
             subscribeBuilder,
@@ -724,13 +697,12 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
                 auto* context = static_cast<CallbackContext*>(userData);
                 auto* self = context->self;
                 self->depthCount_.fetch_add(1, std::memory_order_acq_rel);
-                const auto sequenceIds = nextEventSequenceIds(self->depthCaptureSeq_, self->ingestSeq_);
                 const bool captureMetrics = cxet::metrics::shouldCaptureLatency();
 
                 TscTick bridgeStartTsc{};
                 if (captureMetrics) bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(delta, meta);
-                const auto row = makeDepthRow(capturedDepth, context->exchange, context->market, sequenceIds);
+                const auto row = makeDepthRow(capturedDepth);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
 
                 TscTick jsonRenderStartTsc{};
@@ -813,22 +785,11 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
         fileName += std::to_string(snapshotIndex);
         fileName += ".json";
     }
-    SnapshotProvenance provenance{};
-    provenance.sequence = nextEventSequenceIds(snapshotCaptureSeq_, ingestSeq_);
-    provenance.snapshotKind = std::string(snapshotKind);
-    provenance.source = std::string(source);
-    provenance.exchange = config_.exchange;
-    provenance.market = config_.market;
-    provenance.symbol = snapshotSymbolString(snapshot);
-    provenance.sourceTsNs = static_cast<std::int64_t>(snapshot.ts.raw);
-    provenance.ingestTsNs = internal::nowNs();
-    provenance.hasAnchorUpdateId = snapshot.updateId.raw > 0u;
-    provenance.hasAnchorFirstUpdateId = snapshot.firstUpdateId.raw > 0u;
-    provenance.anchorUpdateId = static_cast<std::uint64_t>(snapshot.updateId.raw);
-    provenance.anchorFirstUpdateId = static_cast<std::uint64_t>(snapshot.firstUpdateId.raw);
-    provenance.trustedReplayAnchor = trustedReplayAnchor;
+    (void)snapshotKind;
+    (void)source;
+    (void)trustedReplayAnchor;
     const auto capturedSnapshot = cxet_bridge::CxetCaptureBridge::captureOrderBook(snapshot);
-    const auto document = makeSnapshotDocument(capturedSnapshot, provenance);
+    const auto document = makeSnapshotDocument(capturedSnapshot);
     if (!isOk(eventSink_.appendSnapshot(document, snapshotIndex))) return Status::IoError;
     {
         std::lock_guard<std::mutex> lock(stateMutex_);

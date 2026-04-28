@@ -114,8 +114,6 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::atomic<std::uint64_t> tradesCaptureSeq_{0};
     std::atomic<std::uint64_t> liquidationsCaptureSeq_{0};
     std::atomic<std::uint64_t> bookTickerCaptureSeq_{0};
-    std::atomic<std::uint64_t> depthCaptureSeq_{0};
-    std::atomic<std::uint64_t> snapshotCaptureSeq_{0};
     std::atomic<std::uint64_t> ingestSeq_{0};
     mutable std::mutex stateMutex_{};
     std::thread tradesThread_{};

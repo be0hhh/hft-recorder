@@ -81,8 +81,12 @@ std::int64_t percentScaledE8(std::int64_t firstPriceE8, std::int64_t lastPriceE8
 template <typename Row>
 bool eventKeyLess(const Row& lhs, const Row& rhs) noexcept {
     if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
-    if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
-    return lhs.ingestSeq < rhs.ingestSeq;
+    if constexpr (requires { lhs.captureSeq; lhs.ingestSeq; }) {
+        if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
+        return lhs.ingestSeq < rhs.ingestSeq;
+    } else {
+        return false;
+    }
 }
 
 template <typename Row>
@@ -429,19 +433,18 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
         if (depth.tsNs > range.timeEndNs) break;
         bool rowMatched = false;
 
-        for (const auto& level : depth.bids) {
+        for (const auto& level : depth.levels) {
             if (level.priceE8 < range.priceMinE8 || level.priceE8 > range.priceMaxE8) continue;
             rowMatched = true;
-            ++summary.bidLevelUpdates;
-            if (level.qtyE8 == 0) ++summary.bidRemovals;
-            else summary.bidQtyUpdatedE8 += level.qtyE8;
-        }
-        for (const auto& level : depth.asks) {
-            if (level.priceE8 < range.priceMinE8 || level.priceE8 > range.priceMaxE8) continue;
-            rowMatched = true;
-            ++summary.askLevelUpdates;
-            if (level.qtyE8 == 0) ++summary.askRemovals;
-            else summary.askQtyUpdatedE8 += level.qtyE8;
+            if (level.side == 0) {
+                ++summary.bidLevelUpdates;
+                if (level.qtyE8 == 0) ++summary.bidRemovals;
+                else summary.bidQtyUpdatedE8 += level.qtyE8;
+            } else {
+                ++summary.askLevelUpdates;
+                if (level.qtyE8 == 0) ++summary.askRemovals;
+                else summary.askQtyUpdatedE8 += level.qtyE8;
+            }
         }
 
         if (rowMatched) ++summary.depthEventCount;
@@ -450,19 +453,18 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
     const auto absorbDepth = [&](const hftrec::replay::DepthRow& depth) {
         bool rowMatched = false;
 
-        for (const auto& level : depth.bids) {
+        for (const auto& level : depth.levels) {
             if (level.priceE8 < range.priceMinE8 || level.priceE8 > range.priceMaxE8) continue;
             rowMatched = true;
-            ++summary.bidLevelUpdates;
-            if (level.qtyE8 == 0) ++summary.bidRemovals;
-            else summary.bidQtyUpdatedE8 += level.qtyE8;
-        }
-        for (const auto& level : depth.asks) {
-            if (level.priceE8 < range.priceMinE8 || level.priceE8 > range.priceMaxE8) continue;
-            rowMatched = true;
-            ++summary.askLevelUpdates;
-            if (level.qtyE8 == 0) ++summary.askRemovals;
-            else summary.askQtyUpdatedE8 += level.qtyE8;
+            if (level.side == 0) {
+                ++summary.bidLevelUpdates;
+                if (level.qtyE8 == 0) ++summary.bidRemovals;
+                else summary.bidQtyUpdatedE8 += level.qtyE8;
+            } else {
+                ++summary.askLevelUpdates;
+                if (level.qtyE8 == 0) ++summary.askRemovals;
+                else summary.askQtyUpdatedE8 += level.qtyE8;
+            }
         }
 
         if (rowMatched) ++summary.depthEventCount;

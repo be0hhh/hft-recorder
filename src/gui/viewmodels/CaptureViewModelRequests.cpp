@@ -65,6 +65,7 @@ QStringList canonicalBookTickerAliases() {
         QStringLiteral("bidQty"),
         QStringLiteral("askPrice"),
         QStringLiteral("askQty"),
+        QStringLiteral("side"),
         QStringLiteral("timestamp"),
         QStringLiteral("symbol"),
         QStringLiteral("exchange"),
@@ -78,11 +79,8 @@ QStringList canonicalOrderbookAliases() {
         QStringLiteral("bidQty"),
         QStringLiteral("askPrice"),
         QStringLiteral("askQty"),
+        QStringLiteral("side"),
         QStringLiteral("timestamp"),
-        QStringLiteral("symbol"),
-        QStringLiteral("exchange"),
-        QStringLiteral("market"),
-        QStringLiteral("updateId"),
     };
 }
 
@@ -121,6 +119,7 @@ QStringList requiredOrderbookAliases() {
         QStringLiteral("bidQty"),
         QStringLiteral("askPrice"),
         QStringLiteral("askQty"),
+        QStringLiteral("side"),
         QStringLiteral("timestamp"),
     };
 }
@@ -203,6 +202,9 @@ QString channelWeightSummary(const QString& channel, const QStringList& selected
             if (alias == QStringLiteral("timestamp") || alias == QStringLiteral("symbol") ||
                 alias == QStringLiteral("exchange") || alias == QStringLiteral("market")) {
                 baseBytes += aliasWeightBytes(alias);
+            } else if (alias == QStringLiteral("side")) {
+                perBidBytes += aliasWeightBytes(alias);
+                perAskBytes += aliasWeightBytes(alias);
             } else if (alias == QStringLiteral("bidPrice") || alias == QStringLiteral("bidQty")) {
                 perBidBytes += aliasWeightBytes(alias);
             } else if (alias == QStringLiteral("askPrice") || alias == QStringLiteral("askQty")) {

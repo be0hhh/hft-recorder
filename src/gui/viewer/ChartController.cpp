@@ -41,8 +41,12 @@ bool envForcesSoftwareRenderer() {
 template <typename Row>
 bool eventKeyLess(const Row& lhs, const Row& rhs) noexcept {
     if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
-    if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
-    return lhs.ingestSeq < rhs.ingestSeq;
+    if constexpr (requires { lhs.captureSeq; lhs.ingestSeq; }) {
+        if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
+        return lhs.ingestSeq < rhs.ingestSeq;
+    } else {
+        return false;
+    }
 }
 
 template <typename Row>
@@ -420,8 +424,7 @@ void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
     };
     const auto absorbDepthRows = [&](const auto& rows) noexcept {
         for (const auto& row : rows) {
-            for (const auto& level : row.bids) absorbCandidate(row.tsNs, level.priceE8);
-            for (const auto& level : row.asks) absorbCandidate(row.tsNs, level.priceE8);
+            for (const auto& level : row.levels) absorbCandidate(row.tsNs, level.priceE8);
         }
     };
 
@@ -476,5 +479,3 @@ void ChartController::applyRecordedRenderWindowViewport_() noexcept {
 }
 
 }  // namespace hftrec::gui::viewer
-
-

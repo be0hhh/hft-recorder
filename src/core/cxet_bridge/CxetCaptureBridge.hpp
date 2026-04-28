@@ -66,17 +66,10 @@ struct CapturedLevel {
     std::int64_t priceI64{0};
     std::int64_t qtyI64{0};
     std::int64_t side{0};
-    std::uint64_t levelId{0};
 };
 
 struct CapturedOrderBookRow {
-    std::string symbol{};
-    std::uint64_t exchangeId{0};
     std::uint64_t tsNs{0};
-    bool hasUpdateId{false};
-    bool hasFirstUpdateId{false};
-    std::uint64_t updateId{0};
-    std::uint64_t firstUpdateId{0};
     std::vector<CapturedLevel> bids{};
     std::vector<CapturedLevel> asks{};
 };

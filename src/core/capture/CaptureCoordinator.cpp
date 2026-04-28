@@ -49,12 +49,12 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.bookTickerPath = std::string{channelJsonlRelativePath(ChannelKind::BookTicker)};
     manifest_.depthPath = std::string{channelJsonlRelativePath(ChannelKind::DepthDelta)};
     manifest_.canonicalArtifacts = {"manifest.json", manifest_.instrumentMetadataPath};
-    manifest_.captureContractVersion = "hftrec.cxet_alias_rows_json.v4";
-    manifest_.tradesRowSchema = "cxet_trade_alias_first_v3";
+    manifest_.captureContractVersion = "hftrec.strict_canonical_rows_json.v1";
+    manifest_.tradesRowSchema = "cxet_trade_strict_v1";
     manifest_.liquidationsRowSchema = "cxet_liquidation_alias_first_v1";
-    manifest_.bookTickerRowSchema = "cxet_bookticker_alias_first_v3";
-    manifest_.depthRowSchema = "cxet_orderbook_alias_first_v4";
-    manifest_.snapshotSchema = "cxet_orderbook_snapshot_alias_first_v4";
+    manifest_.bookTickerRowSchema = "cxet_bookticker_strict_v1";
+    manifest_.depthRowSchema = "cxet_orderbook_flat_levels_v1";
+    manifest_.snapshotSchema = "cxet_orderbook_snapshot_flat_levels_v1";
 
     sessionDir_ = config.outputDir / manifest_.sessionId;
     std::error_code ec;
@@ -196,8 +196,6 @@ void CaptureCoordinator::resetSessionState() noexcept {
     tradesCaptureSeq_.store(0, std::memory_order_release);
     liquidationsCaptureSeq_.store(0, std::memory_order_release);
     bookTickerCaptureSeq_.store(0, std::memory_order_release);
-    depthCaptureSeq_.store(0, std::memory_order_release);
-    snapshotCaptureSeq_.store(0, std::memory_order_release);
     ingestSeq_.store(0, std::memory_order_release);
     liveStore_.clear();
     eventSink_.clearSinks();

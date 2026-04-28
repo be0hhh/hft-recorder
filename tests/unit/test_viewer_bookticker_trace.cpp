@@ -40,7 +40,7 @@ void writeFile(const fs::path& path, const std::string& data) {
 }
 
 std::string bookTickerLine(std::int64_t tsNs,
-                           std::int64_t captureSeq,
+                           std::int64_t,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8) {
     return "[" + std::to_string(bidPriceE8)
@@ -48,9 +48,7 @@ std::string bookTickerLine(std::int64_t tsNs,
         + "," + std::to_string(askPriceE8)
         + "," + std::to_string(e8(3))
         + "," + std::to_string(tsNs)
-        + ",\"BTCUSDT\",\"binance\",\"futures_usd\""
-        + "," + std::to_string(captureSeq)
-        + "," + std::to_string(captureSeq) + "]\n";
+        + "]\n";
 }
 
 hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
@@ -69,19 +67,13 @@ hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
 }
 
 hftrec::replay::DepthRow depthRow(std::int64_t tsNs,
-                                  std::int64_t captureSeq,
+                                  std::int64_t,
                                   std::int64_t bidPriceE8,
                                   std::int64_t askPriceE8) {
     hftrec::replay::DepthRow row{};
     row.tsNs = tsNs;
-    row.captureSeq = captureSeq;
-    row.ingestSeq = captureSeq;
-    row.hasUpdateId = true;
-    row.hasFirstUpdateId = true;
-    row.updateId = captureSeq;
-    row.firstUpdateId = captureSeq;
-    row.bids.push_back(hftrec::replay::PricePair{bidPriceE8, e8(2), 0, 0});
-    row.asks.push_back(hftrec::replay::PricePair{askPriceE8, e8(3), 1, 0});
+    row.levels.push_back(hftrec::replay::PricePair{bidPriceE8, e8(2), 0});
+    row.levels.push_back(hftrec::replay::PricePair{askPriceE8, e8(3), 1});
     return row;
 }
 

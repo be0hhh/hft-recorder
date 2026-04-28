@@ -71,6 +71,7 @@ else()
 endif()
 
 find_package(Threads REQUIRED)
+find_package(absl CONFIG REQUIRED)
 find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2 Network QUIET)
 
 set(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/include" CACHE PATH "Path to hft-compressor public headers")

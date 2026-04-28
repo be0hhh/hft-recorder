@@ -103,17 +103,15 @@ TEST(EventStorage, LiveStoreReadsSnapshotDeltaFromOffsets) {
     hftrec::storage::LiveEventStore store{};
     hftrec::replay::SnapshotDocument first{};
     first.tsNs = 100;
-    first.updateId = 10;
     hftrec::replay::SnapshotDocument second{};
     second.tsNs = 200;
-    second.updateId = 20;
 
     ASSERT_EQ(store.appendSnapshot(first, 0u), hftrec::Status::Ok);
     ASSERT_EQ(store.appendSnapshot(second, 1u), hftrec::Status::Ok);
 
     const auto delta = store.readSince(0u, 0u, 0u, 0u, 1u);
     ASSERT_EQ(delta.snapshots.size(), 1u);
-    EXPECT_EQ(delta.snapshots[0].updateId, 20);
+    EXPECT_EQ(delta.snapshots[0].tsNs, 200);
 }
 
 TEST(EventStorage, CompositeSinkFansOutToAllSinks) {
@@ -137,7 +135,7 @@ TEST(EventStorage, JsonSessionSinkWritesCurrentTradeSchema) {
     ASSERT_EQ(sink.close(), hftrec::Status::Ok);
 
     const auto text = readFile(dir / "jsonl" / "trades.jsonl");
-    EXPECT_NE(text.find("[30000,10,1,100,0,0,0,0,0,\"\",\"\",\"\",1,7]"), std::string::npos);
+    EXPECT_NE(text.find("[30000,10,1,100]"), std::string::npos);
 
     EXPECT_STREQ(sink.backendId(), kJsonSessionId);
     EXPECT_EQ(stats.tradesTotal, 1u);
@@ -178,5 +176,3 @@ TEST(EventStorage, InMemoryProviderReadsOnlySelectedLiveSource) {
     EXPECT_EQ(registry.snapshotSources().size(), 2u);
     registry.clear();
 }
-
-

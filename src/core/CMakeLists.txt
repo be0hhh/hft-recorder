@@ -57,6 +57,7 @@ target_include_directories(hftrec_core
 target_link_libraries(hftrec_core
     PUBLIC
         Threads::Threads
+        absl::flat_hash_map
         spdlog::spdlog
         fmt::fmt
 )

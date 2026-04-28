@@ -389,11 +389,13 @@ bool parseChannelIntegrityGroupObject(JsonParser& parser, SessionManifest& manif
 
 
 bool isSupportedCaptureContractVersion(std::string_view version) noexcept {
-    return version == "hftrec.cxet_alias_rows_json.v4";
+    return version == "hftrec.strict_canonical_rows_json.v1"
+        || version == "hftrec.cxet_alias_rows_json.v5";
 }
 
 bool isSupportedTradesRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_trade_alias_first_v3";
+    return schema == "cxet_trade_strict_v1"
+        || schema == "cxet_trade_alias_first_v3";
 }
 
 bool isSupportedLiquidationsRowSchema(std::string_view schema) noexcept {
@@ -401,15 +403,18 @@ bool isSupportedLiquidationsRowSchema(std::string_view schema) noexcept {
 }
 
 bool isSupportedBookTickerRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_bookticker_alias_first_v3";
+    return schema == "cxet_bookticker_strict_v1"
+        || schema == "cxet_bookticker_alias_first_v3";
 }
 
 bool isSupportedDepthRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_orderbook_alias_first_v4";
+    return schema == "cxet_orderbook_flat_levels_v1"
+        || schema == "cxet_orderbook_alias_first_v5";
 }
 
 bool isSupportedSnapshotSchema(std::string_view schema) noexcept {
-    return schema == "cxet_orderbook_snapshot_alias_first_v4";
+    return schema == "cxet_orderbook_snapshot_flat_levels_v1"
+        || schema == "cxet_orderbook_snapshot_alias_first_v5";
 }
 
 void populateCanonicalArtifacts(SessionManifest& manifest) {

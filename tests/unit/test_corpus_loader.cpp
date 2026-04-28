@@ -81,12 +81,11 @@ TEST(SessionReplay, FixtureReplayUsesSharedLoaderVerdict) {
     EXPECT_EQ(replay.book().bestAskPrice(), 30100);
 }
 
-TEST(SessionReplay, FixtureDepthGapIsReflectedInLoadReport) {
+TEST(SessionReplay, MinimalDepthFixtureDoesNotInferRemovedUpdateIdGaps) {
     hftrec::replay::SessionReplay replay{};
-    ASSERT_EQ(replay.open(fixtureDir("corrupt_depth_gap")), hftrec::Status::CorruptData);
-    EXPECT_TRUE(replay.gapDetected());
-    ASSERT_FALSE(replay.loadReport().issues.empty());
-    EXPECT_EQ(replay.loadReport().issues.back().code, hftrec::corpus::LoadIssueCode::DepthGapDetected);
+    ASSERT_EQ(replay.open(fixtureDir("corrupt_depth_gap")), hftrec::Status::Ok);
+    EXPECT_FALSE(replay.gapDetected());
+    EXPECT_EQ(replay.integritySummary().depth.state, hftrec::ChannelHealthState::Clean);
 }
 
 }  // namespace

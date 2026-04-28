@@ -41,31 +41,28 @@ void writeFile(const fs::path& path, const std::string& data) {
     out << data;
 }
 
-std::string level(std::int64_t priceE8, std::int64_t qtyE8) {
-    return "[" + std::to_string(priceE8) + "," + std::to_string(qtyE8) + ",0,0]";
+std::string level(std::int64_t priceE8, std::int64_t qtyE8, std::int64_t side) {
+    return "[" + std::to_string(priceE8) + "," + std::to_string(qtyE8) + "," + std::to_string(side) + "]";
 }
 
 std::string depthLine(std::int64_t tsNs,
-                      std::int64_t updateId,
+                      std::int64_t,
                       const std::vector<BookLevel>& bids,
                       const std::vector<BookLevel>& asks) {
-    std::string out = "[[";
+    std::string out = "[";
+    bool first = true;
     for (std::size_t i = 0; i < bids.size(); ++i) {
-        if (i != 0u) out += ",";
-        out += level(bids[i].priceE8, bids[i].qtyE8);
+        if (!first) out += ",";
+        out += level(bids[i].priceE8, bids[i].qtyE8, 0);
+        first = false;
     }
-    out += "],[";
     for (std::size_t i = 0; i < asks.size(); ++i) {
-        if (i != 0u) out += ",";
-        out += level(asks[i].priceE8, asks[i].qtyE8);
+        if (!first) out += ",";
+        out += level(asks[i].priceE8, asks[i].qtyE8, 1);
+        first = false;
     }
-    out += "]," + std::to_string(tsNs)
-        + ",\"BTCUSDT\",\"binance\",\"futures_usd\","
-        + std::to_string(updateId)
-        + "," + std::to_string(updateId)
-        + "," + std::to_string(updateId)
-        + "," + std::to_string(updateId)
-        + "]\n";
+    if (!first) out += ",";
+    out += std::to_string(tsNs) + "]\n";
     return out;
 }
 
@@ -77,8 +74,7 @@ std::string bookTickerLine(std::int64_t tsNs,
         + "," + std::to_string(askPriceE8)
         + "," + std::to_string(e8(2))
         + "," + std::to_string(tsNs)
-        + ",\"BTCUSDT\",\"binance\",\"futures_usd\""
-        + ",100,100]\n";
+        + "]\n";
 }
 
 std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8) {
@@ -86,7 +82,7 @@ std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8) {
         + "," + std::to_string(e8(1))
         + ",1"
         + "," + std::to_string(tsNs)
-        + ",0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",200,200]\n";
+        + "]\n";
 }
 
 SnapshotInputs orderbookInputs(qreal depthWindowPct) {

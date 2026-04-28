@@ -64,46 +64,16 @@ struct PricePair {
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
     std::int64_t side{0};
-    std::uint64_t levelId{0};
 };
 
 struct DepthRow {
-    std::string symbol{};
-    std::string exchange{};
-    std::string market{};
     std::int64_t tsNs{0};
-    std::int64_t captureSeq{0};
-    std::int64_t ingestSeq{0};
-    bool hasUpdateId{false};
-    bool hasFirstUpdateId{false};
-    std::int64_t updateId{0};
-    std::int64_t firstUpdateId{0};
-    std::vector<PricePair> bids;
-    std::vector<PricePair> asks;
+    std::vector<PricePair> levels;
 };
 
 struct SnapshotDocument {
     std::int64_t tsNs{0};
-    std::int64_t captureSeq{0};
-    std::int64_t ingestSeq{0};
-    bool hasUpdateId{false};
-    bool hasFirstUpdateId{false};
-    std::int64_t updateId{0};
-    std::int64_t firstUpdateId{0};
-    std::string snapshotKind{};
-    std::string source{};
-    std::string exchange{};
-    std::string market{};
-    std::string symbol{};
-    std::int64_t sourceTsNs{0};
-    std::int64_t ingestTsNs{0};
-    bool hasAnchorUpdateId{false};
-    bool hasAnchorFirstUpdateId{false};
-    std::int64_t anchorUpdateId{0};
-    std::int64_t anchorFirstUpdateId{0};
-    std::uint8_t trustedReplayAnchor{1};
-    std::vector<PricePair> bids;
-    std::vector<PricePair> asks;
+    std::vector<PricePair> levels;
 };
 
 }  // namespace hftrec::replay
