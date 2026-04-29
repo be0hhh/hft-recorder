@@ -58,12 +58,25 @@ struct BookSegment {
     std::int64_t maxAskQty{1};
 };
 
+struct TradeGroupEntry {
+    std::int64_t priceE8{0};
+    std::int64_t qtyE8{0};
+    std::int64_t amountE8{0};
+    bool         sideBuy{true};
+    int          origIndex{-1};
+};
+
 struct TradeDot {
     std::int64_t tsNs{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
     bool         sideBuy{true};
     int          origIndex{-1};  // index into SessionReplay::trades()
+    int          firstOrigIndex{-1};
+    int          lastOrigIndex{-1};
+    std::int64_t totalQtyE8{0};
+    std::int64_t totalAmountE8{0};
+    std::vector<TradeGroupEntry> groupEntries;
 };
 
 struct LiquidationDot {
@@ -92,7 +105,10 @@ struct HoverInfo {
     std::int64_t tradeTsNs{0};
     std::int64_t tradePriceE8{0};
     std::int64_t tradeQtyE8{0};
+    std::int64_t tradeTotalQtyE8{0};
+    std::int64_t tradeTotalAmountE8{0};
     bool         tradeSideBuy{true};
+    std::vector<TradeGroupEntry> tradeGroupEntries;
 
     // Liquidation hit-test result.
     bool         liquidationHit{false};

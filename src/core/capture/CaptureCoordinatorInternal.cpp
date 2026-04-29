@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <string_view>
 
 #if HFTREC_WITH_CXET
 #include "api/dispatch/BuildDispatch.hpp"
@@ -19,6 +20,16 @@ namespace hftrec::capture::internal {
 #if HFTREC_WITH_CXET
 namespace {
 
+bool symbolTextIsAll(std::string_view symbolText) noexcept {
+    if (symbolText.size() != 3u) return false;
+    char a = symbolText[0];
+    char l0 = symbolText[1];
+    char l1 = symbolText[2];
+    if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
+    if (l0 >= 'A' && l0 <= 'Z') l0 = static_cast<char>(l0 + ('a' - 'A'));
+    if (l1 >= 'A' && l1 <= 'Z') l1 = static_cast<char>(l1 + ('a' - 'A'));
+    return a == 'a' && l0 == 'l' && l1 == 'l';
+}
 Symbol makeSymbol(const std::string& symbolText) noexcept {
     Symbol symbol{};
     symbol.copyFrom(symbolText.c_str());
@@ -71,12 +82,13 @@ cxet::UnifiedRequestBuilder makeBookTickerBuilder(const std::string& symbolText)
 }
 
 cxet::UnifiedRequestBuilder makeLiquidationBuilder(const std::string& symbolText) noexcept {
-    auto symbol = makeSymbol(symbolText);
-    return cxet::subscribe()
+    auto builder = cxet::subscribe()
         .object(cxet::composite::out::SubscribeObject::Liquidation)
         .exchange(canon::kExchangeIdBinance)
-        .market(canon::kMarketTypeFutures)
-        .symbol(symbol);
+        .market(canon::kMarketTypeFutures);
+    if (symbolTextIsAll(symbolText)) return builder.symbol(canon::SlotScope::All);
+    auto symbol = makeSymbol(symbolText);
+    return builder.symbol(symbol);
 }
 
 cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const std::string& symbolText) noexcept {

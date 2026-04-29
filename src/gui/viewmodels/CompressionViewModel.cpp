@@ -975,7 +975,70 @@ void CompressionViewModel::runCompression() {
 }
 
 void CompressionViewModel::runAllAvailableChannels() {
-    runCompression();
+    runAllAvailablePipelines();
+}
+
+void CompressionViewModel::runAllAvailablePipelines() {
+    if (running_ || verifying_) return;
+    const QString input = inputFile();
+    if (input.isEmpty() || !QFileInfo::exists(input)) return;
+
+    QVariantList rows;
+    for (const auto& value : pipelines()) {
+        const QVariantMap row = value.toMap();
+        if (variantBool(row, QStringLiteral("available"))) rows.push_back(row);
+    }
+    if (rows.empty()) return;
+
+    const QString output = outputRoot();
+    running_ = true;
+    statusText_ = QStringLiteral("Compression batch running...");
+    emit runningChanged();
+    emit resultChanged();
+    emit canRunChanged();
+    emit canDecodeVerifyChanged();
+
+    QPointer<CompressionViewModel> self(this);
+    std::thread([self, input, output, rows]() {
+        std::vector<hft_compressor::CompressionResult> cppResults;
+        QVariantList pythonResults;
+        for (const auto& value : rows) {
+            const QString pipelineId = value.toMap().value(QStringLiteral("id")).toString();
+            if (pipelineId.isEmpty()) continue;
+            if (isPythonPipelineId(pipelineId)) {
+                const QJsonDocument document = runPythonCodecCli(QStringList{QStringLiteral("compress"), input, QStringLiteral("--codec"), pipelineId, QStringLiteral("--output-root"), output}, 600000);
+                QVariantMap result = document.isObject() ? document.object().toVariantMap() : QVariantMap{};
+                if (result.isEmpty()) {
+                    result.insert(QStringLiteral("status"), QStringLiteral("decode_error"));
+                    result.insert(QStringLiteral("ok"), false);
+                    result.insert(QStringLiteral("codec_id"), pipelineId);
+                    result.insert(QStringLiteral("input_path"), input);
+                }
+                pythonResults.push_back(result);
+                continue;
+            }
+            hft_compressor::CompressionRequest request{};
+            request.inputPath = input.toStdString();
+            request.outputRoot = output.toStdString();
+            request.pipelineId = pipelineId.toStdString();
+            cppResults.push_back(hft_compressor::compress(request));
+        }
+        if (!self) return;
+        QMetaObject::invokeMethod(self, [self, cppResults, pythonResults]() {
+            if (!self) return;
+            if (!cppResults.empty()) self->applyResults_(cppResults);
+            for (const auto& value : pythonResults) self->applyPythonResult_(value.toMap());
+            self->running_ = false;
+            self->statusText_ = QStringLiteral("Compression batch complete");
+            emit self->runningChanged();
+            emit self->resultChanged();
+            emit self->runRowsChanged();
+            emit self->channelStatsChanged();
+            emit self->canRunChanged();
+            emit self->canDecodeVerifyChanged();
+            emit self->artifactAvailabilityChanged();
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 void CompressionViewModel::decodeVerifySelected() {
@@ -999,6 +1062,7 @@ void CompressionViewModel::decodeVerifySelected() {
         pendingRow.insert(QStringLiteral("decodeText"), QStringLiteral("декодирую..."));
         pendingRow.insert(QStringLiteral("decodedSizeText"), QStringLiteral("0 bytes"));
         pendingRow.insert(QStringLiteral("canonicalSizeText"), bytesText(static_cast<std::uint64_t>(QFileInfo(canonical).size())));
+        pendingRow.insert(QStringLiteral("compressedSizeText"), bytesText(static_cast<std::uint64_t>(QFileInfo(artifact).size())));
         pendingRow.insert(QStringLiteral("sizeText"), QStringLiteral("декодирование выполняется"));
         pendingRow.insert(QStringLiteral("mismatchPercent"), 0.0);
         pendingRow.insert(QStringLiteral("mismatchPercentText"), QStringLiteral("0.00%"));
@@ -1057,6 +1121,7 @@ void CompressionViewModel::decodeVerifySelected() {
     pendingRow.insert(QStringLiteral("decodeText"), QStringLiteral("декодирую..."));
     pendingRow.insert(QStringLiteral("decodedSizeText"), QStringLiteral("0 bytes"));
     pendingRow.insert(QStringLiteral("canonicalSizeText"), bytesText(static_cast<std::uint64_t>(QFileInfo(inputFile()).size())));
+    pendingRow.insert(QStringLiteral("compressedSizeText"), bytesText(static_cast<std::uint64_t>(QFileInfo(QString::fromStdString(request.compressedPath.string())).size())));
     pendingRow.insert(QStringLiteral("sizeText"), QStringLiteral("декодирование выполняется"));
     pendingRow.insert(QStringLiteral("mismatchPercent"), 0.0);
     pendingRow.insert(QStringLiteral("mismatchPercentText"), QStringLiteral("0.00%"));
@@ -1081,7 +1146,73 @@ void CompressionViewModel::decodeVerifySelected() {
 }
 
 void CompressionViewModel::decodeVerifyAllAvailable() {
-    decodeVerifySelected();
+    if (running_ || verifying_) return;
+    const QString canonical = inputFile();
+    if (canonical.isEmpty() || !QFileInfo::exists(canonical)) return;
+
+    QVariantList rows;
+    for (const auto& value : pipelines()) {
+        QVariantMap row = value.toMap();
+        const QString pipelineId = row.value(QStringLiteral("id")).toString();
+        if (pipelineId.isEmpty()) continue;
+        if (!variantBool(row, QStringLiteral("available"))) continue;
+        const QString artifact = encodedArtifactPath_(selectedChannel_, pipelineId);
+        if (artifact.isEmpty()) continue;
+        row.insert(QStringLiteral("artifact"), artifact);
+        rows.push_back(row);
+    }
+    if (rows.empty()) return;
+
+    verifying_ = true;
+    verifyStatusText_ = QStringLiteral("Verification batch running...");
+    emit verifyingChanged();
+    emit verifyResultChanged();
+    emit canRunChanged();
+    emit canDecodeVerifyChanged();
+
+    QPointer<CompressionViewModel> self(this);
+    std::thread([self, canonical, rows]() {
+        std::vector<hft_compressor::DecodeVerifyResult> cppResults;
+        QVariantList pythonResults;
+        for (const auto& value : rows) {
+            const QVariantMap row = value.toMap();
+            const QString pipelineId = row.value(QStringLiteral("id")).toString();
+            const QString artifact = row.value(QStringLiteral("artifact")).toString();
+            if (pipelineId.isEmpty() || artifact.isEmpty()) continue;
+            if (isPythonPipelineId(pipelineId)) {
+                const QJsonDocument document = runPythonCodecCli(QStringList{QStringLiteral("verify"), artifact, canonical, QStringLiteral("--codec"), pipelineId}, 600000);
+                QVariantMap result = document.isObject() ? document.object().toVariantMap() : QVariantMap{};
+                if (result.isEmpty()) {
+                    result.insert(QStringLiteral("status"), QStringLiteral("decode_error"));
+                    result.insert(QStringLiteral("ok"), false);
+                    result.insert(QStringLiteral("codec_id"), pipelineId);
+                    result.insert(QStringLiteral("artifact_path"), artifact);
+                    result.insert(QStringLiteral("canonical_path"), canonical);
+                }
+                pythonResults.push_back(result);
+                continue;
+            }
+            hft_compressor::DecodeVerifyRequest request{};
+            request.compressedPath = artifact.toStdString();
+            request.canonicalPath = canonical.toStdString();
+            request.pipelineId = pipelineId.toStdString();
+            cppResults.push_back(hft_compressor::decodeAndVerify(request));
+        }
+        if (!self) return;
+        QMetaObject::invokeMethod(self, [self, cppResults, pythonResults]() {
+            if (!self) return;
+            if (!cppResults.empty()) self->applyVerifyResults_(cppResults);
+            for (const auto& value : pythonResults) self->applyPythonVerifyResult_(value.toMap());
+            self->verifying_ = false;
+            self->verifyStatusText_ = QStringLiteral("Verification batch complete");
+            emit self->verifyingChanged();
+            emit self->verifyResultChanged();
+            emit self->verifyRowsChanged();
+            emit self->channelStatsChanged();
+            emit self->canRunChanged();
+            emit self->canDecodeVerifyChanged();
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 QString CompressionViewModel::existingChannelPath_(const QString& sessionPath, const QString& channel) const {
@@ -1366,7 +1497,8 @@ void CompressionViewModel::applyPythonVerifyResult_(const QVariantMap& result) {
     row.insert(QStringLiteral("ok"), verified);
     row.insert(QStringLiteral("verified"), verified);
     row.insert(QStringLiteral("exactText"), verified ? QStringLiteral("exact") : QStringLiteral("mismatch"));
-    row.insert(QStringLiteral("compressedBytes"), static_cast<qulonglong>(QFileInfo(result.value(QStringLiteral("artifact_path")).toString()).size()));
+    const auto compressedBytes = static_cast<std::uint64_t>(QFileInfo(result.value(QStringLiteral("artifact_path")).toString()).size());
+    row.insert(QStringLiteral("compressedBytes"), static_cast<qulonglong>(compressedBytes));
     row.insert(QStringLiteral("decodedBytes"), static_cast<qulonglong>(decodedBytes));
     row.insert(QStringLiteral("canonicalBytes"), static_cast<qulonglong>(canonicalBytes));
     row.insert(QStringLiteral("comparedBytes"), static_cast<qulonglong>(std::min(decodedBytes, canonicalBytes)));
@@ -1377,6 +1509,7 @@ void CompressionViewModel::applyPythonVerifyResult_(const QVariantMap& result) {
     row.insert(QStringLiteral("blockCount"), static_cast<qulonglong>(1));
     row.insert(QStringLiteral("decodeMbPerSec"), decode);
     row.insert(QStringLiteral("decodeText"), mbps(decode));
+    row.insert(QStringLiteral("compressedSizeText"), bytesText(compressedBytes));
     row.insert(QStringLiteral("decodedSizeText"), bytesText(decodedBytes));
     row.insert(QStringLiteral("canonicalSizeText"), bytesText(canonicalBytes));
     row.insert(QStringLiteral("sizeText"), bytesText(decodedBytes) + QStringLiteral(" / эталон ") + bytesText(canonicalBytes));
@@ -1412,7 +1545,7 @@ QVariantMap CompressionViewModel::resultRow_(const hft_compressor::CompressionRe
     const double encode = hft_compressor::encodeMbPerSec(result);
     const double decode = hft_compressor::decodeMbPerSec(result);
     row.insert(QStringLiteral("pipelineId"), QString::fromStdString(result.pipelineId));
-    row.insert(QStringLiteral("pipelineLabel"), selectedPipelineLabel());
+    row.insert(QStringLiteral("pipelineLabel"), pipelineLabelFor(QString::fromStdString(result.pipelineId)));
     row.insert(QStringLiteral("stream"), viewString(hft_compressor::streamTypeToString(result.streamType)));
     row.insert(QStringLiteral("streamLabel"), displayChannel(viewString(hft_compressor::streamTypeToString(result.streamType))));
     row.insert(QStringLiteral("profile"), QString::fromStdString(result.profile));
@@ -1463,6 +1596,7 @@ QVariantMap CompressionViewModel::verifyRow_(const hft_compressor::DecodeVerifyR
     row.insert(QStringLiteral("blockCount"), static_cast<qulonglong>(result.blockCount));
     row.insert(QStringLiteral("decodeMbPerSec"), decode);
     row.insert(QStringLiteral("decodeText"), mbps(decode));
+    row.insert(QStringLiteral("compressedSizeText"), bytesText(result.compressedBytes));
     row.insert(QStringLiteral("decodedSizeText"), bytesText(result.decodedBytes));
     row.insert(QStringLiteral("canonicalSizeText"), bytesText(result.canonicalBytes));
     row.insert(QStringLiteral("sizeText"), bytesText(result.decodedBytes) + QStringLiteral(" / эталон ") + bytesText(result.canonicalBytes));
@@ -1563,6 +1697,7 @@ QVariantMap CompressionViewModel::verifyMetricsRow_(const QString& metricsPath) 
     row.insert(QStringLiteral("blockCount"), static_cast<qulonglong>(jsonUInt64(object, "block_count")));
     row.insert(QStringLiteral("decodeMbPerSec"), decode);
     row.insert(QStringLiteral("decodeText"), mbps(decode));
+    row.insert(QStringLiteral("compressedSizeText"), bytesText(jsonUInt64(object, "compressed_bytes")));
     row.insert(QStringLiteral("decodedSizeText"), bytesText(decodedBytes));
     row.insert(QStringLiteral("canonicalSizeText"), bytesText(canonicalBytes));
     row.insert(QStringLiteral("sizeText"), bytesText(decodedBytes) + QStringLiteral(" / эталон ") + bytesText(canonicalBytes));

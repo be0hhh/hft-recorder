@@ -230,7 +230,10 @@ void computeHover(const RenderSnapshot& snap,
             out.tradeTsNs = dot.tsNs;
             out.tradePriceE8 = dot.priceE8;
             out.tradeQtyE8 = dot.qtyE8;
+            out.tradeTotalQtyE8 = dot.totalQtyE8;
+            out.tradeTotalAmountE8 = dot.totalAmountE8;
             out.tradeSideBuy = dot.sideBuy;
+            out.tradeGroupEntries = dot.groupEntries;
         }
     }
 }

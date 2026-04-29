@@ -152,6 +152,17 @@ bool LocalOrderEngine::submitOrder(
     order.acceptedTsNs = effectiveTsNs;
     order.status = delayNs == 0u ? canon::OrderStatus::Placed : canon::OrderStatus::Pending;
 
+    const LocalOrderErrorCode reduceOnlyValidation = validateReduceOnlyLocked_(order);
+    if (reduceOnlyValidation != LocalOrderErrorCode::None) {
+        order.status = canon::OrderStatus::Rejected;
+        fillAckFromOrder_(order, false, reduceOnlyValidation, ack);
+        publishExecutionEventLocked_(order,
+                                     execution::ExecutionEventKind::Reject,
+                                     false,
+                                     reduceOnlyValidation);
+        return false;
+    }
+
     if (delayNs == 0u) {
         const auto marketIt = marketBySymbol_.find(order.symbol);
         const SymbolMarketData* marketData = marketIt == marketBySymbol_.end() ? nullptr : &marketIt->second;
@@ -290,6 +301,18 @@ std::int64_t LocalOrderEngine::remainingQtyRaw_(const LocalOrder& order) noexcep
     return order.quantityRaw - order.filledQtyRaw;
 }
 
+std::int64_t LocalOrderEngine::reduceOnlyFillCapLocked_(const LocalOrder& order, std::int64_t desiredQtyRaw) const noexcept {
+    if (desiredQtyRaw <= 0) return 0;
+    if (!order.reduceOnly) return desiredQtyRaw;
+    const auto posIt = positionBySymbol_.find(order.symbol);
+    const std::int64_t currentQty = posIt == positionBySymbol_.end() ? 0 : posIt->second.qtyRaw;
+    std::int64_t closableQtyRaw = 0;
+    if (order.sideRaw == kSideBuy && currentQty < 0) closableQtyRaw = -currentQty;
+    else if (order.sideRaw == kSideSell && currentQty > 0) closableQtyRaw = currentQty;
+    if (closableQtyRaw <= 0) return 0;
+    return desiredQtyRaw < closableQtyRaw ? desiredQtyRaw : closableQtyRaw;
+}
+
 bool LocalOrderEngine::tryFillMarketOrder_(LocalOrder& order,
                                            const SymbolMarketData* marketData,
                                            std::uint64_t tsNs,
@@ -316,14 +339,19 @@ bool LocalOrderEngine::tryFillMarketOrder_(LocalOrder& order,
         return false;
     }
 
-    const std::int64_t fillQtyRaw = availableQtyRaw < remainingQty ? availableQtyRaw : remainingQty;
+    const std::int64_t desiredFillQtyRaw = availableQtyRaw < remainingQty ? availableQtyRaw : remainingQty;
+    const std::int64_t fillQtyRaw = reduceOnlyFillCapLocked_(order, desiredFillQtyRaw);
+    if (fillQtyRaw <= 0) {
+        errorCode = order.reduceOnly ? LocalOrderErrorCode::ReduceOnlyWouldIncrease : LocalOrderErrorCode::MissingQuantity;
+        return false;
+    }
     const LocalOrderErrorCode accept = canAcceptExposureLocked_(order, fillPriceE8, fillQtyRaw);
     if (accept != LocalOrderErrorCode::None) {
         errorCode = accept;
         return false;
     }
     applyFillLocked_(order, fillPriceE8, fillQtyRaw, tsNs);
-    if (remainingQtyRaw_(order) > 0) order.waitingForMarketFill = true;
+    if (remainingQtyRaw_(order) > 0 && order.status != canon::OrderStatus::Closed) order.waitingForMarketFill = true;
     return true;
 }
 
@@ -350,7 +378,12 @@ bool LocalOrderEngine::tryFillImmediateLimitOrder_(LocalOrder& order,
     }
     if (!marketable || availableQtyRaw <= 0) return false;
 
-    const std::int64_t fillQtyRaw = availableQtyRaw < remainingQty ? availableQtyRaw : remainingQty;
+    const std::int64_t desiredFillQtyRaw = availableQtyRaw < remainingQty ? availableQtyRaw : remainingQty;
+    const std::int64_t fillQtyRaw = reduceOnlyFillCapLocked_(order, desiredFillQtyRaw);
+    if (fillQtyRaw <= 0) {
+        errorCode = order.reduceOnly ? LocalOrderErrorCode::ReduceOnlyWouldIncrease : LocalOrderErrorCode::MissingQuantity;
+        return false;
+    }
     const LocalOrderErrorCode accept = canAcceptExposureLocked_(order, fillPriceE8, fillQtyRaw);
     if (accept != LocalOrderErrorCode::None) {
         errorCode = accept;
@@ -365,7 +398,9 @@ bool LocalOrderEngine::tryFillRestingLimitOnTrade_(LocalOrder& order,
     if (!shouldFillLimitOnTrade_(order, trade)) return false;
     const std::int64_t remainingQty = remainingQtyRaw_(order);
     if (remainingQty <= 0 || trade.qtyE8 <= 0) return false;
-    const std::int64_t fillQtyRaw = trade.qtyE8 < remainingQty ? trade.qtyE8 : remainingQty;
+    const std::int64_t desiredFillQtyRaw = trade.qtyE8 < remainingQty ? trade.qtyE8 : remainingQty;
+    const std::int64_t fillQtyRaw = reduceOnlyFillCapLocked_(order, desiredFillQtyRaw);
+    if (fillQtyRaw <= 0) return false;
     const LocalOrderErrorCode accept = canAcceptExposureLocked_(order, order.priceRaw, fillQtyRaw);
     if (accept != LocalOrderErrorCode::None) return false;
     applyFillLocked_(order, order.priceRaw, fillQtyRaw, trade.tsNs);
@@ -390,7 +425,9 @@ bool LocalOrderEngine::tryFillRestingLimitOnBookTicker_(LocalOrder& order,
     }
     if (!passThrough || availableQtyRaw <= 0) return false;
 
-    const std::int64_t fillQtyRaw = availableQtyRaw < remainingQty ? availableQtyRaw : remainingQty;
+    const std::int64_t desiredFillQtyRaw = availableQtyRaw < remainingQty ? availableQtyRaw : remainingQty;
+    const std::int64_t fillQtyRaw = reduceOnlyFillCapLocked_(order, desiredFillQtyRaw);
+    if (fillQtyRaw <= 0) return false;
     const LocalOrderErrorCode accept = canAcceptExposureLocked_(order, order.priceRaw, fillQtyRaw);
     if (accept != LocalOrderErrorCode::None) return false;
     applyFillLocked_(order, order.priceRaw, fillQtyRaw, tsNs);
@@ -412,6 +449,26 @@ LocalOrderErrorCode LocalOrderEngine::canAcceptExposureLocked_(const LocalOrder&
         if (notional > account_.availableBalanceRaw) return LocalOrderErrorCode::InsufficientBalance;
     }
     return LocalOrderErrorCode::None;
+}
+
+LocalOrderErrorCode LocalOrderEngine::validateReduceOnlyLocked_(const LocalOrder& order) const noexcept {
+    if (!order.reduceOnly) return LocalOrderErrorCode::None;
+    const std::int64_t reduceQtyRaw = remainingQtyRaw_(order);
+    if (reduceQtyRaw <= 0) return LocalOrderErrorCode::MissingQuantity;
+
+    const auto posIt = positionBySymbol_.find(order.symbol);
+    const std::int64_t currentQty = posIt == positionBySymbol_.end() ? 0 : posIt->second.qtyRaw;
+    if (currentQty == 0) return LocalOrderErrorCode::ReduceOnlyWouldIncrease;
+
+    if (order.sideRaw == kSideBuy) {
+        if (currentQty >= 0) return LocalOrderErrorCode::ReduceOnlyWouldIncrease;
+        return LocalOrderErrorCode::None;
+    }
+    if (order.sideRaw == kSideSell) {
+        if (currentQty <= 0) return LocalOrderErrorCode::ReduceOnlyWouldIncrease;
+        return LocalOrderErrorCode::None;
+    }
+    return LocalOrderErrorCode::MissingSide;
 }
 
 std::int64_t LocalOrderEngine::scaledNotionalRaw_(std::int64_t priceE8, std::int64_t qtyE8) noexcept {
@@ -470,7 +527,7 @@ void LocalOrderEngine::applyFillLocked_(LocalOrder& order,
     order.positionQtyRaw = pos.qtyRaw;
     order.avgEntryPriceE8 = pos.avgEntryPriceE8;
     order.fillTsNs = tsNs;
-    if (remainingQtyRaw_(order) == 0) {
+    if (remainingQtyRaw_(order) == 0 || (order.reduceOnly && pos.qtyRaw == 0)) {
         order.waitingForMarketFill = false;
         order.status = canon::OrderStatus::Closed;
     } else {
@@ -518,6 +575,7 @@ void LocalOrderEngine::processTradeLocked_(const cxet_bridge::CapturedTradeRow& 
     const auto marketIt = marketBySymbol_.find(trade.symbol);
     const SymbolMarketData* marketData = marketIt == marketBySymbol_.end() ? nullptr : &marketIt->second;
     std::vector<std::string> closed{};
+    std::vector<std::string> rejected{};
     for (auto& entry : pendingOrders_) {
         LocalOrder& order = entry.second;
         if (order.symbol != trade.symbol) continue;
@@ -528,6 +586,16 @@ void LocalOrderEngine::processTradeLocked_(const cxet_bridge::CapturedTradeRow& 
                                          execution::ExecutionEventKind::StateChange,
                                          true,
                                          LocalOrderErrorCode::None);
+        }
+        const LocalOrderErrorCode reduceOnlyValidation = validateReduceOnlyLocked_(order);
+        if (reduceOnlyValidation != LocalOrderErrorCode::None) {
+            order.status = canon::OrderStatus::Rejected;
+            publishExecutionEventLocked_(order,
+                                         execution::ExecutionEventKind::Reject,
+                                         false,
+                                         reduceOnlyValidation);
+            rejected.push_back(entry.first);
+            continue;
         }
         if (tryFillRestingLimitOnTrade_(order, trade)) {
             publishFillLifecycleLocked_(order);
@@ -541,9 +609,17 @@ void LocalOrderEngine::processTradeLocked_(const cxet_bridge::CapturedTradeRow& 
             if (tryFillMarketOrder_(order, marketData, trade.tsNs, fillError)) {
                 publishFillLifecycleLocked_(order);
                 if (order.status == canon::OrderStatus::Closed) closed.push_back(entry.first);
+            } else if (fillError == LocalOrderErrorCode::ReduceOnlyWouldIncrease) {
+                order.status = canon::OrderStatus::Rejected;
+                publishExecutionEventLocked_(order,
+                                             execution::ExecutionEventKind::Reject,
+                                             false,
+                                             fillError);
+                rejected.push_back(entry.first);
             }
         }
     }
+    closed.insert(closed.end(), rejected.begin(), rejected.end());
     for (const std::string& orderId : closed) {
         const auto it = pendingOrders_.find(orderId);
         if (it != pendingOrders_.end() && !it->second.clientOrderId.empty()) clientOrderToOrderId_.erase(it->second.clientOrderId);
@@ -555,6 +631,7 @@ void LocalOrderEngine::processBookTickerLocked_(const cxet_bridge::CapturedBookT
     const auto marketIt = marketBySymbol_.find(bookTicker.symbol);
     const SymbolMarketData* marketData = marketIt == marketBySymbol_.end() ? nullptr : &marketIt->second;
     std::vector<std::string> closed{};
+    std::vector<std::string> rejected{};
     for (auto& entry : pendingOrders_) {
         LocalOrder& order = entry.second;
         if (order.symbol != bookTicker.symbol) continue;
@@ -566,10 +643,20 @@ void LocalOrderEngine::processBookTickerLocked_(const cxet_bridge::CapturedBookT
                                          true,
                                          LocalOrderErrorCode::None);
         }
+        const LocalOrderErrorCode reduceOnlyValidation = validateReduceOnlyLocked_(order);
+        if (reduceOnlyValidation != LocalOrderErrorCode::None) {
+            order.status = canon::OrderStatus::Rejected;
+            publishExecutionEventLocked_(order,
+                                         execution::ExecutionEventKind::Reject,
+                                         false,
+                                         reduceOnlyValidation);
+            rejected.push_back(entry.first);
+            continue;
+        }
 
         bool filled = false;
+        LocalOrderErrorCode fillError = LocalOrderErrorCode::None;
         if (order.waitingForMarketFill) {
-            LocalOrderErrorCode fillError = LocalOrderErrorCode::None;
             filled = tryFillMarketOrder_(order, marketData, bookTicker.tsNs, fillError);
         } else {
             filled = tryFillRestingLimitOnBookTicker_(order, marketData, bookTicker.tsNs);
@@ -577,8 +664,16 @@ void LocalOrderEngine::processBookTickerLocked_(const cxet_bridge::CapturedBookT
         if (filled) {
             publishFillLifecycleLocked_(order);
             if (order.status == canon::OrderStatus::Closed) closed.push_back(entry.first);
+        } else if (fillError == LocalOrderErrorCode::ReduceOnlyWouldIncrease) {
+            order.status = canon::OrderStatus::Rejected;
+            publishExecutionEventLocked_(order,
+                                         execution::ExecutionEventKind::Reject,
+                                         false,
+                                         fillError);
+            rejected.push_back(entry.first);
         }
     }
+    closed.insert(closed.end(), rejected.begin(), rejected.end());
     for (const std::string& orderId : closed) {
         const auto it = pendingOrders_.find(orderId);
         if (it != pendingOrders_.end() && !it->second.clientOrderId.empty()) clientOrderToOrderId_.erase(it->second.clientOrderId);

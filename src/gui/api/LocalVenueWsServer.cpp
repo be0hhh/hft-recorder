@@ -1,4 +1,5 @@
 #include "gui/api/LocalVenueWsServer.hpp"
+#include "gui/api/LocalVenueOrderParser.hpp"
 
 #include <QByteArray>
 #include <QCryptographicHash>
@@ -323,6 +324,79 @@ bool parseBinanceReduceOnly(const QJsonObject& params, std::uint8_t& setOut, std
     return false;
 }
 
+bool parseOptionalBoolText(const QJsonObject& params, const char* key, bool& presentOut, bool& valueOut) noexcept {
+    const QString qKey = QString::fromLatin1(key);
+    if (!params.contains(qKey)) {
+        presentOut = false;
+        valueOut = false;
+        return true;
+    }
+    presentOut = true;
+    const QJsonValue value = params.value(qKey);
+    if (value.isBool()) {
+        valueOut = value.toBool();
+        return true;
+    }
+    const QString text = value.toString().trimmed().toLower();
+    if (text == QStringLiteral("true") || text == QStringLiteral("1")) { valueOut = true; return true; }
+    if (text == QStringLiteral("false") || text == QStringLiteral("0")) { valueOut = false; return true; }
+    return false;
+}
+
+bool rejectUnsupportedBinanceFlags(const QJsonObject& params, QString& error) noexcept {
+    const QString positionSide = jsonTextValue(params, "positionSide").toUpper();
+    if (!positionSide.isEmpty() && positionSide != QStringLiteral("BOTH")) {
+        error = QStringLiteral("unsupported_position_side");
+        return false;
+    }
+
+    bool present = false;
+    bool boolValue = false;
+    if (!parseOptionalBoolText(params, "closePosition", present, boolValue)) {
+        error = QStringLiteral("bad_close_position");
+        return false;
+    }
+    if (present && boolValue) {
+        error = QStringLiteral("unsupported_close_position");
+        return false;
+    }
+
+    if (!parseOptionalBoolText(params, "priceProtect", present, boolValue)) {
+        error = QStringLiteral("bad_price_protect");
+        return false;
+    }
+    if (present && boolValue) {
+        error = QStringLiteral("unsupported_price_protect");
+        return false;
+    }
+
+    const QString responseType = jsonTextValue(params, "newOrderRespType").toUpper();
+    if (!responseType.isEmpty() && responseType != QStringLiteral("ACK")) {
+        error = QStringLiteral("unsupported_order_resp_type");
+        return false;
+    }
+    const QString priceMatch = jsonTextValue(params, "priceMatch").toUpper();
+    if (!priceMatch.isEmpty() && priceMatch != QStringLiteral("NONE")) {
+        error = QStringLiteral("unsupported_price_match");
+        return false;
+    }
+    const QString stp = jsonTextValue(params, "selfTradePreventionMode").toUpper();
+    if (!stp.isEmpty() && stp != QStringLiteral("NONE")) {
+        error = QStringLiteral("unsupported_self_trade_prevention");
+        return false;
+    }
+    if (params.contains(QStringLiteral("goodTillDate"))) {
+        error = QStringLiteral("unsupported_good_till_date");
+        return false;
+    }
+    if (params.contains(QStringLiteral("activationPrice")) || params.contains(QStringLiteral("callbackRate")) ||
+        params.contains(QStringLiteral("workingType"))) {
+        error = QStringLiteral("unsupported_trigger_option");
+        return false;
+    }
+    return true;
+}
+
 bool buildBinanceOrderPlaceRequest(const QJsonObject& root,
                                    cxet::network::local::hftrecorder::OrderRequestFrame& frame,
                                    QString& error) noexcept {
@@ -335,6 +409,7 @@ bool buildBinanceOrderPlaceRequest(const QJsonObject& root,
         error = QStringLiteral("missing_params");
         return false;
     }
+    if (!rejectUnsupportedBinanceFlags(params, error)) return false;
 
     frame = cxet::network::local::hftrecorder::OrderRequestFrame{};
     frame.operationRaw = static_cast<std::uint8_t>(cxet::UnifiedRequestSpec::Operation::SendWs);
@@ -377,6 +452,10 @@ bool buildBinanceOrderPlaceRequest(const QJsonObject& root,
         }
         canon::TimeInForce tif = canon::TimeInForce::Unknown;
         if (!parseBinanceTimeInForce(jsonTextValue(params, "timeInForce"), tif)) tif = canon::TimeInForce::GTC;
+        if (tif != canon::TimeInForce::GTC) {
+            error = QStringLiteral("unsupported_time_in_force");
+            return false;
+        }
         frame.timeInForceRaw = static_cast<std::uint8_t>(tif);
         frame.subtypeRaw = static_cast<std::uint8_t>(tif);
     } else if (frame.typeRaw == static_cast<std::uint8_t>(canon::OrderType::Stop)) {
@@ -430,9 +509,9 @@ bool buildBinanceOrderCancelRequest(const QJsonObject& root,
     }
     return true;
 }
-bool buildOrderRequest(const QJsonObject& root,
-                       cxet::network::local::hftrecorder::OrderRequestFrame& frame,
-                       QString& error) noexcept {
+bool buildOrderRequestImpl(const QJsonObject& root,
+                           cxet::network::local::hftrecorder::OrderRequestFrame& frame,
+                           QString& error) noexcept {
     if (root.value(QStringLiteral("method")).toString() == QStringLiteral("order.place")) {
         return buildBinanceOrderPlaceRequest(root, frame, error);
     }
@@ -594,6 +673,16 @@ bool parseOneFrame(QByteArray& buffer, ParsedFrame& frame) {
 
 }  // namespace
 
+namespace detail {
+
+bool buildOrderRequest(const QJsonObject& root,
+                       cxet::network::local::hftrecorder::OrderRequestFrame& frame,
+                       QString& error) noexcept {
+    return buildOrderRequestImpl(root, frame, error);
+}
+
+}  // namespace detail
+
 struct LocalVenueWsServer::ClientState {
     QByteArray buffer{};
     bool handshaken{false};
@@ -735,7 +824,7 @@ void LocalVenueWsServer::handleTextFrame_(QTcpSocket* socket, const QByteArray& 
     }
     cxet::network::local::hftrecorder::OrderRequestFrame request{};
     QString error;
-    if (!buildOrderRequest(root, request, error)) {
+    if (!detail::buildOrderRequest(root, request, error)) {
         sendText_(socket, ackJson(root, false, error, nullptr));
         return;
     }

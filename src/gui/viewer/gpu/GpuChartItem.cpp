@@ -468,22 +468,6 @@ HoverInfo GpuChartItem::buildHoverInfo_() const {
     hover.bookTsStartNs = hoveredBookTsStartNs_;
     hover.bookTsEndNs = hoveredBookTsEndNs_;
 
-    if (hoveredTradeIndex_ < 0 || controller_ == nullptr) {
-        return hover;
-    }
-
-    const auto& trades = controller_->replay().trades();
-    if (hoveredTradeIndex_ >= static_cast<int>(trades.size())) {
-        return hover;
-    }
-
-    const auto& trade = trades[static_cast<std::size_t>(hoveredTradeIndex_)];
-    hover.tradeHit = true;
-    hover.tradeOrigIndex = hoveredTradeIndex_;
-    hover.tradeTsNs = trade.tsNs;
-    hover.tradePriceE8 = trade.priceE8;
-    hover.tradeQtyE8 = trade.qtyE8;
-    hover.tradeSideBuy = trade.sideBuy;
     return hover;
 }
 

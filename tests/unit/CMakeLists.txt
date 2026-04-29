@@ -42,6 +42,14 @@ if(Qt6_FOUND)
     )
 endif()
 
+if(Qt6_FOUND AND HFTREC_WITH_CXET)
+    target_sources(hftrec_unit_tests
+        PRIVATE
+            test_local_venue_ws_order_parser.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/api/LocalVenueWsServer.cpp
+    )
+endif()
+
 target_include_directories(hftrec_unit_tests
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
@@ -61,6 +69,7 @@ if(Qt6_FOUND)
         PRIVATE
             Qt6::Core
             Qt6::Gui
+            Qt6::Network
     )
 endif()
 

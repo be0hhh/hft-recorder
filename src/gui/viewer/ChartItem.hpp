@@ -9,6 +9,8 @@
 
 #include <core/replay/EventRows.hpp>
 
+#include "gui/viewer/RenderSnapshot.hpp"
+
 class QPainter;
 
 namespace hftrec::gui::viewer {
@@ -118,7 +120,10 @@ class ChartItem : public QQuickPaintedItem {
     std::int64_t hoveredTradeTsNs_{0};
     std::int64_t hoveredTradePriceE8_{0};
     std::int64_t hoveredTradeQtyE8_{0};
+    std::int64_t hoveredTradeTotalQtyE8_{0};
+    std::int64_t hoveredTradeTotalAmountE8_{0};
     bool hoveredTradeSideBuy_{true};
+    std::vector<TradeGroupEntry> hoveredTradeGroupEntries_{};
     int hoveredLiquidationIndex_{-1};
     std::int64_t hoveredLiquidationTsNs_{0};
     std::int64_t hoveredLiquidationPriceE8_{0};
@@ -170,4 +175,3 @@ class ChartItem : public QQuickPaintedItem {
 };
 
 }  // namespace hftrec::gui::viewer
-

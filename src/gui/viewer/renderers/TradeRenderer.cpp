@@ -13,6 +13,7 @@
 #include "gui/viewer/RenderContext.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
 #include "gui/viewer/detail/BookMath.hpp"
+#include "gui/viewer/detail/TradeGrouping.hpp"
 
 namespace hftrec::gui::viewer::renderers {
 
@@ -43,11 +44,11 @@ void renderTrades(const RenderContext& ctx) {
             const int x = static_cast<int>(std::round(vp.toX(dot.tsNs)));
             const int y = static_cast<int>(std::round(vp.toY(dot.priceE8)));
             const QPointF pt{static_cast<qreal>(x), static_cast<qreal>(y)};
-            if (prevOrig == dot.origIndex - 1 && prev != pt) {
+            if (prevOrig >= 0 && dot.firstOrigIndex >= 0 && prevOrig + 1 == dot.firstOrigIndex && prev != pt) {
                 ctx.p->drawLine(prev, pt);
             }
             prev = pt;
-            prevOrig = dot.origIndex;
+            prevOrig = dot.lastOrigIndex >= 0 ? dot.lastOrigIndex : dot.origIndex;
         }
         ctx.p->restore();
     }
@@ -58,7 +59,7 @@ void renderTrades(const RenderContext& ctx) {
     if (ctx.s.tradesVisible) for (const auto& dot : dots) {
         const qreal x = vp.toX(dot.tsNs);
         const qreal y = vp.toY(dot.priceE8);
-        const auto amountE8 = detail::multiplyScaledE8(dot.qtyE8, dot.priceE8);
+        const auto amountE8 = detail::displayTradeAmountE8(dot);
         const qreal radius = detail::amountRadiusScale(amountE8, ctx.s.tradeAmountScale, ctx.s.interactiveMode);
         if ((x + radius) < 0.0 || (x - radius) > vp.w || (y + radius) < 0.0 || (y - radius) > vp.h) continue;
         if ((radius * 2.0) < 1.0) continue;

@@ -16,3 +16,5 @@ bench-output/
 recordings/
 build-offline/
 *.jsonl
+.venv/
+build-offline/

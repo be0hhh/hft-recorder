@@ -79,7 +79,10 @@ void ChartItem::clearHover() {
     hoveredTradeTsNs_ = 0;
     hoveredTradePriceE8_ = 0;
     hoveredTradeQtyE8_ = 0;
+    hoveredTradeTotalQtyE8_ = 0;
+    hoveredTradeTotalAmountE8_ = 0;
     hoveredTradeSideBuy_ = true;
+    hoveredTradeGroupEntries_.clear();
     hoveredLiquidationIndex_ = -1;
     hoveredLiquidationTsNs_ = 0;
     hoveredLiquidationPriceE8_ = 0;
@@ -101,7 +104,10 @@ void ChartItem::updateHover_() {
     hoveredTradeTsNs_ = 0;
     hoveredTradePriceE8_ = 0;
     hoveredTradeQtyE8_ = 0;
+    hoveredTradeTotalQtyE8_ = 0;
+    hoveredTradeTotalAmountE8_ = 0;
     hoveredTradeSideBuy_ = true;
+    hoveredTradeGroupEntries_.clear();
     hoveredLiquidationIndex_ = -1;
     hoveredLiquidationTsNs_ = 0;
     hoveredLiquidationPriceE8_ = 0;
@@ -132,7 +138,10 @@ void ChartItem::updateHover_() {
     hoveredTradeTsNs_ = hover.tradeHit ? hover.tradeTsNs : 0;
     hoveredTradePriceE8_ = hover.tradeHit ? hover.tradePriceE8 : 0;
     hoveredTradeQtyE8_ = hover.tradeHit ? hover.tradeQtyE8 : 0;
+    hoveredTradeTotalQtyE8_ = hover.tradeHit ? hover.tradeTotalQtyE8 : 0;
+    hoveredTradeTotalAmountE8_ = hover.tradeHit ? hover.tradeTotalAmountE8 : 0;
     hoveredTradeSideBuy_ = hover.tradeSideBuy;
+    hoveredTradeGroupEntries_ = hover.tradeHit ? hover.tradeGroupEntries : std::vector<TradeGroupEntry>{};
     hoveredLiquidationIndex_ = hover.liquidationHit ? hover.liquidationOrigIndex : -1;
     hoveredLiquidationTsNs_ = hover.liquidationHit ? hover.liquidationTsNs : 0;
     hoveredLiquidationPriceE8_ = hover.liquidationHit ? hover.liquidationPriceE8 : 0;
@@ -184,7 +193,10 @@ HoverInfo buildHoverInfo(const ChartItem& item) {
     hover.tradeTsNs = item.hoveredTradeTsNs_;
     hover.tradePriceE8 = item.hoveredTradePriceE8_;
     hover.tradeQtyE8 = item.hoveredTradeQtyE8_;
+    hover.tradeTotalQtyE8 = item.hoveredTradeTotalQtyE8_;
+    hover.tradeTotalAmountE8 = item.hoveredTradeTotalAmountE8_;
     hover.tradeSideBuy = item.hoveredTradeSideBuy_;
+    hover.tradeGroupEntries = item.hoveredTradeGroupEntries_;
     return hover;
 }
 

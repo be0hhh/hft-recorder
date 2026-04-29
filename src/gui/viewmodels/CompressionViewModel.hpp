@@ -135,6 +135,7 @@ class CompressionViewModel : public QObject {
     Q_INVOKABLE QVariantMap previewJsonl(const QString& path = QString{}) const;
     Q_INVOKABLE QVariantMap previewArtifact(const QString& path = QString{}) const;
     Q_INVOKABLE void runCompression();
+    Q_INVOKABLE void runAllAvailablePipelines();
     Q_INVOKABLE void runAllAvailableChannels();
     Q_INVOKABLE void decodeVerifySelected();
     Q_INVOKABLE void decodeVerifyAllAvailable();

@@ -24,6 +24,7 @@
 #include "gui/viewer/ColorScheme.hpp"
 #include "gui/viewer/RenderContext.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
+#include "gui/viewer/detail/TradeGrouping.hpp"
 #include "gui/viewer/renderers/BookRenderer.hpp"
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
@@ -108,10 +109,13 @@ RenderSnapshot baseSnapshotForCache(const RenderSnapshot& snap) {
 
 int nextTradeOrigIndex(const RenderSnapshot& snap) noexcept {
     if (snap.tradeDots.empty()) return 0;
-    if (snap.tradeDots.back().origIndex >= std::numeric_limits<int>::max()) {
+    const int lastOrigIndex = snap.tradeDots.back().lastOrigIndex >= 0
+        ? snap.tradeDots.back().lastOrigIndex
+        : snap.tradeDots.back().origIndex;
+    if (lastOrigIndex >= std::numeric_limits<int>::max()) {
         return std::numeric_limits<int>::max();
     }
-    return snap.tradeDots.back().origIndex + 1;
+    return lastOrigIndex + 1;
 }
 
 std::int64_t maxTradeTs(const RenderSnapshot& snap) noexcept {
@@ -646,7 +650,7 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
             if (tradeOrigIndex < std::numeric_limits<int>::max()) ++tradeOrigIndex;
             if (row.tsNs < live.vp.tMin || row.tsNs > live.vp.tMax) continue;
             if (row.priceE8 < live.vp.pMin || row.priceE8 > live.vp.pMax) continue;
-            live.tradeDots.push_back(TradeDot{row.tsNs, row.priceE8, row.qtyE8, row.sideBuy != 0, rowOrigIndex});
+            detail::appendGroupedTradeDot(live.tradeDots, TradeDot{row.tsNs, row.priceE8, row.qtyE8, row.sideBuy != 0, rowOrigIndex});
         }
     };
     appendTradeRows(cache.stableRows.trades);
@@ -728,7 +732,9 @@ void drawTradeBridge(QPainter* painter, const RenderSnapshot& base, const Render
     if (!base.tradesVisible || base.tradeDots.empty() || live.tradeDots.empty()) return;
     const auto& prev = base.tradeDots.back();
     const auto& last = live.tradeDots.front();
-    if (prev.origIndex + 1 != last.origIndex) return;
+    const int prevLastOrig = prev.lastOrigIndex >= 0 ? prev.lastOrigIndex : prev.origIndex;
+    const int lastFirstOrig = last.firstOrigIndex >= 0 ? last.firstOrigIndex : last.origIndex;
+    if (prevLastOrig + 1 != lastFirstOrig) return;
 
     const QPointF p0{base.vp.toX(prev.tsNs), base.vp.toY(prev.priceE8)};
     const QPointF p1{base.vp.toX(last.tsNs), base.vp.toY(last.priceE8)};

@@ -27,6 +27,7 @@ enum class LocalOrderErrorCode : std::uint32_t {
     InsufficientBalance = 10,
     MissingOrderRef = 11,
     UnknownOrder = 12,
+    UnsupportedOrderFlag = 13,
 };
 
 class LocalOrderEngine : public execution::IExecutionVenue {
@@ -116,6 +117,7 @@ class LocalOrderEngine : public execution::IExecutionVenue {
     static std::uint64_t orderEntryJitterNs_() noexcept;
 
     static std::int64_t remainingQtyRaw_(const LocalOrder& order) noexcept;
+    std::int64_t reduceOnlyFillCapLocked_(const LocalOrder& order, std::int64_t desiredQtyRaw) const noexcept;
     bool tryFillMarketOrder_(LocalOrder& order,
                              const SymbolMarketData* marketData,
                              std::uint64_t tsNs,
@@ -132,6 +134,7 @@ class LocalOrderEngine : public execution::IExecutionVenue {
     LocalOrderErrorCode canAcceptExposureLocked_(const LocalOrder& order,
                                                  std::int64_t fillPriceE8,
                                                  std::int64_t fillQtyRaw) const noexcept;
+    LocalOrderErrorCode validateReduceOnlyLocked_(const LocalOrder& order) const noexcept;
     static std::int64_t scaledNotionalRaw_(std::int64_t priceE8, std::int64_t qtyE8) noexcept;
     void applyFillLocked_(LocalOrder& order,
                           std::int64_t fillPriceE8,

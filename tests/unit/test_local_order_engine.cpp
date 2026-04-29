@@ -116,6 +116,175 @@ TEST_F(LocalOrderEngineFixture, ReduceOnlyBuyRejectsWithoutShortPosition) {
     EXPECT_EQ(ack.errorCode, static_cast<std::uint32_t>(hftrec::local_exchange::LocalOrderErrorCode::ReduceOnlyWouldIncrease));
 }
 
+TEST_F(LocalOrderEngineFixture, ReduceOnlyLimitBuyRejectsWithoutShortPositionAtSubmit) {
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    auto request = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Limit), 1u, 100000000, 90000000, "btcusdt");
+    request.reduceOnlySet = 1u;
+    request.reduceOnly = 1u;
+
+    EXPECT_FALSE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(request, ack));
+    EXPECT_EQ(ack.success, 0u);
+    EXPECT_EQ(ack.statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Rejected));
+    EXPECT_EQ(ack.errorCode, static_cast<std::uint32_t>(hftrec::local_exchange::LocalOrderErrorCode::ReduceOnlyWouldIncrease));
+
+    pushTrade("btcusdt", 90000000, false, 20u);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+}
+
+TEST_F(LocalOrderEngineFixture, ReduceOnlySellOversizeClipsToLongPosition) {
+    pushBookTicker("btcusdt", 99000000, 101000000, 10u);
+
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    const auto buy = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 1u, 100000000, 0, "btcusdt");
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(buy, ack));
+    ASSERT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 100000000);
+
+    hftrec::execution::LiveExecutionStore store{};
+    hftrec::local_exchange::globalLocalOrderEngine().setEventSink(&store);
+
+    pushBookTicker("btcusdt", 100000000, 102000000, 20u, 200000000, 200000000);
+    auto sell = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 0u, 200000000, 0, "btcusdt");
+    sell.reduceOnlySet = 1u;
+    sell.reduceOnly = 1u;
+
+    EXPECT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(sell, ack));
+    EXPECT_EQ(ack.success, 1u);
+    EXPECT_EQ(ack.statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Closed));
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+
+    const auto events = store.readAll();
+    ASSERT_GE(events.events.size(), 3u);
+    EXPECT_EQ(events.events[2].kind, hftrec::execution::ExecutionEventKind::Fill);
+    EXPECT_EQ(events.events[2].quantityRaw, 200000000);
+    EXPECT_EQ(events.events[2].filledQtyRaw, 100000000);
+
+    hftrec::local_exchange::globalLocalOrderEngine().setEventSink(nullptr);
+}
+
+TEST_F(LocalOrderEngineFixture, ReduceOnlyBuyClosesShortPosition) {
+    pushBookTicker("btcusdt", 99000000, 101000000, 10u);
+
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    const auto sell = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 0u, 100000000, 0, "btcusdt");
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(sell, ack));
+    ASSERT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), -100000000);
+
+    pushBookTicker("btcusdt", 98000000, 100000000, 20u);
+    auto buy = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 1u, 100000000, 0, "btcusdt");
+    buy.reduceOnlySet = 1u;
+    buy.reduceOnly = 1u;
+
+    EXPECT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(buy, ack));
+    EXPECT_EQ(ack.statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Closed));
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+}
+
+TEST_F(LocalOrderEngineFixture, ReduceOnlyBuyOversizeClipsToShortPosition) {
+    pushBookTicker("btcusdt", 99000000, 101000000, 10u, 200000000, 200000000);
+
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    const auto sell = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 0u, 100000000, 0, "btcusdt");
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(sell, ack));
+    ASSERT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), -100000000);
+
+    pushBookTicker("btcusdt", 98000000, 100000000, 20u, 200000000, 200000000);
+    auto buy = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 1u, 200000000, 0, "btcusdt");
+    buy.reduceOnlySet = 1u;
+    buy.reduceOnly = 1u;
+
+    EXPECT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(buy, ack));
+    EXPECT_EQ(ack.statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Closed));
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+}
+
+TEST_F(LocalOrderEngineFixture, ReduceOnlyRestingLimitSellPartiallyFillsAndClosesAtZero) {
+    pushBookTicker("btcusdt", 99000000, 101000000, 10u, 200000000, 200000000);
+
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    const auto buy = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 1u, 100000000, 0, "btcusdt");
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(buy, ack));
+    ASSERT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 100000000);
+
+    auto sell = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Limit), 0u, 200000000, 105000000, "btcusdt");
+    sell.reduceOnlySet = 1u;
+    sell.reduceOnly = 1u;
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(sell, ack));
+    ASSERT_EQ(ack.statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Placed));
+
+    pushTrade("btcusdt", 105000000, true, 20u, 50000000);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 50000000);
+
+    pushTrade("btcusdt", 106000000, true, 30u, 100000000);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+
+    pushTrade("btcusdt", 107000000, true, 40u, 100000000);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+}
+
+TEST_F(LocalOrderEngineFixture, NonReduceOnlyPartialLimitCanFlipAfterClosingPosition) {
+    pushBookTicker("btcusdt", 99000000, 101000000, 10u, 200000000, 200000000);
+
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    const auto buy = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 1u, 100000000, 0, "btcusdt");
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(buy, ack));
+
+    const auto sell = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Limit), 0u, 200000000, 105000000, "btcusdt");
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(sell, ack));
+    ASSERT_EQ(ack.statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Placed));
+
+    pushTrade("btcusdt", 105000000, true, 20u, 50000000);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 50000000);
+
+    pushTrade("btcusdt", 106000000, true, 30u, 150000000);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), -100000000);
+}
+
+TEST_F(LocalOrderEngineFixture, ReduceOnlyRestingOrderDoesNotFillAfterPositionAlreadyClosed) {
+    pushBookTicker("btcusdt", 99000000, 101000000, 10u, 200000000, 200000000);
+
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    const auto buy = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 1u, 100000000, 0, "btcusdt");
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(buy, ack));
+
+    auto restingSell = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Limit), 0u, 100000000, 105000000, "btcusdt");
+    restingSell.reduceOnlySet = 1u;
+    restingSell.reduceOnly = 1u;
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(restingSell, ack));
+
+    pushBookTicker("btcusdt", 100000000, 102000000, 20u, 200000000, 200000000);
+    auto closingSell = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 0u, 100000000, 0, "btcusdt");
+    closingSell.reduceOnlySet = 1u;
+    closingSell.reduceOnly = 1u;
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(closingSell, ack));
+    ASSERT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+
+    pushTrade("btcusdt", 106000000, true, 30u, 100000000);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+}
+
+TEST_F(LocalOrderEngineFixture, DelayedReduceOnlyMarketClipsAtExecutionTime) {
+    pushBookTicker("btcusdt", 99000000, 101000000, 10u, 200000000, 200000000);
+
+    cxet::network::local::hftrecorder::OrderAckFrame ack{};
+    const auto sell = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 0u, 100000000, 0, "btcusdt");
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(sell, ack));
+    ASSERT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), -100000000);
+
+    setEnv("HFTREC_LOCAL_ORDER_BASE_ONE_WAY_NS", "50");
+    setEnv("HFTREC_LOCAL_ORDER_JITTER_NS", "0");
+    auto buy = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Market), 1u, 200000000, 0, "btcusdt");
+    buy.reduceOnlySet = 1u;
+    buy.reduceOnly = 1u;
+    ASSERT_TRUE(hftrec::local_exchange::globalLocalOrderEngine().submitOrder(buy, ack));
+    ASSERT_EQ(ack.statusRaw, static_cast<std::uint8_t>(canon::OrderStatus::Pending));
+
+    pushBookTicker("btcusdt", 98000000, 100000000, 59u, 200000000, 200000000);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), -100000000);
+
+    pushBookTicker("btcusdt", 98000000, 100000000, 60u, 200000000, 200000000);
+    EXPECT_EQ(hftrec::local_exchange::globalLocalOrderEngine().positionQtyRaw("btcusdt"), 0);
+}
+
 TEST_F(LocalOrderEngineFixture, SellClosesLongAndUpdatesPosition) {
     pushBookTicker("btcusdt", 99000000, 101000000, 10u);
 
@@ -157,6 +326,8 @@ TEST_F(LocalOrderEngineFixture, RestingLimitBuyDoesNotFillOnQuoteEqualityAlone) 
 }
 
 TEST_F(LocalOrderEngineFixture, RestingLimitBuyFillsOnSellTradeAtOrBelowLimit) {
+    pushBookTicker("btcusdt", 98000000, 101000000, 10u);
+
     cxet::network::local::hftrecorder::OrderAckFrame ack{};
     const auto request = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Limit), 1u, 100000000, 100000000, "btcusdt");
 
@@ -171,6 +342,8 @@ TEST_F(LocalOrderEngineFixture, RestingLimitBuyFillsOnSellTradeAtOrBelowLimit) {
 }
 
 TEST_F(LocalOrderEngineFixture, RestingLimitSellFillsOnBuyTradeAtOrAboveLimit) {
+    pushBookTicker("btcusdt", 99000000, 101000000, 10u);
+
     cxet::network::local::hftrecorder::OrderAckFrame ack{};
     const auto request = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Limit), 0u, 100000000, 100000000, "btcusdt");
 
@@ -185,6 +358,8 @@ TEST_F(LocalOrderEngineFixture, RestingLimitSellFillsOnBuyTradeAtOrAboveLimit) {
 }
 
 TEST_F(LocalOrderEngineFixture, RestingLimitBuyFillsOnStrictAskPassThrough) {
+    pushBookTicker("btcusdt", 98000000, 101000000, 10u);
+
     cxet::network::local::hftrecorder::OrderAckFrame ack{};
     const auto request = makeRequest(static_cast<std::uint8_t>(canon::OrderType::Limit), 1u, 100000000, 100000000, "btcusdt");
 

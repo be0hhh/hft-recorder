@@ -171,7 +171,7 @@ Pane {
         property string subtext: ""
         property color accent: root.accentColor
         Layout.fillWidth: true
-        Layout.preferredHeight: 62
+        Layout.preferredHeight: 56
         radius: 8
         color: root.panelSoftColor
         border.color: root.borderColor
@@ -182,12 +182,12 @@ Pane {
             anchors.fill: parent
             anchors.leftMargin: 12
             anchors.rightMargin: 10
-            anchors.topMargin: 8
-            anchors.bottomMargin: 7
-            spacing: 4
-            Label { text: title; color: root.mutedTextColor; font.pixelSize: 10 }
-            Label { Layout.fillWidth: true; text: value; color: root.textColor; font.pixelSize: 16; font.bold: true; elide: Text.ElideRight }
-            Label { Layout.fillWidth: true; text: subtext; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight }
+            anchors.topMargin: 6
+            anchors.bottomMargin: 6
+            spacing: 3
+            Label { text: title; color: root.mutedTextColor; font.pixelSize: 9 }
+            Label { Layout.fillWidth: true; text: value; color: root.textColor; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight }
+            Label { Layout.fillWidth: true; text: subtext; color: root.mutedTextColor; font.pixelSize: 9; elide: Text.ElideRight }
         }
     }
 
@@ -298,6 +298,12 @@ Pane {
             if (mode === "size") rows.push({ isReference: true, pipelineLabel: "JSONL", ratioText: "1.0x" })
             for (var i = 0; i < rowsModel.length; ++i) rows.push(rowsModel[i])
             if (rows.length < 1) return emptyText
+            function summaryMetric(row) {
+                if (mode === "speed") return row.encodeMbPerSec || 0
+                if (mode === "decode") return row.decodeMbPerSec || 0
+                return row.ratio || 0
+            }
+            rows.sort(function(a, b) { return summaryMetric(b) - summaryMetric(a) })
             var out = []
             for (var j = 0; j < rows.length && j < 32; ++j) {
                 var row = rows[j]
@@ -352,7 +358,7 @@ Pane {
                 }
                 var compact = rows.length > 12
                 var left = 38
-                var bottom = height - (compact ? 34 : 52)
+                var bottom = height - (compact ? 26 : 52)
                 var top = 16
                 var chartW = width - left - 16
                 var chartH = bottom - top
@@ -379,16 +385,16 @@ Pane {
                     ctx.fillStyle = root.textColor
                     ctx.font = compact ? "8px sans-serif" : "10px sans-serif"
                     ctx.fillText(shortLabel(rows[k], k, compact), x, bottom + 15)
-                    if (!compact || barW > 18) {
+                    if (!compact) {
                         ctx.fillStyle = rows[k].isReference ? root.mutedTextColor : (mode === "size" ? root.greenColor : barColor)
                         ctx.font = "9px sans-serif"
-                        ctx.fillText(valueText(rows[k]), x - 4, bottom + (compact ? 28 : 34))
+                        ctx.fillText(valueText(rows[k]), x - 4, bottom + 34)
                     }
                 }
                 if (compact) {
                     ctx.fillStyle = root.mutedTextColor
                     ctx.font = "9px sans-serif"
-                    ctx.fillText("compact: hover for full names", left, height - 4)
+                    ctx.fillText("наведи: полный рейтинг", left, top + 11)
                 }
             }
         }
@@ -604,7 +610,7 @@ Pane {
                         }
 
                         RowLayout {
-                            Layout.preferredWidth: 520
+                            Layout.preferredWidth: 690
                             Layout.preferredHeight: 42
                             spacing: 8
                             DarkButton { text: "Обновить"; enabledValue: true; onClicked: root.compressionVm.reloadSessions() }
@@ -612,6 +618,11 @@ Pane {
                                 text: root.activePage === 0 ? (root.compressionVm.running ? "Кодирую..." : "Кодировать") : (root.compressionVm.verifying ? "Декодирую..." : "Раскодировать")
                                 enabledValue: root.activePage === 0 ? root.compressionVm.canRun : root.compressionVm.canDecodeVerify
                                 onClicked: root.activePage === 0 ? root.compressionVm.runCompression() : root.compressionVm.decodeVerifySelected()
+                            }
+                            DarkButton {
+                                text: root.activePage === 0 ? "Кодировать все" : "Раскодировать все"
+                                enabledValue: root.activePage === 0 ? root.compressionVm.canRun : (!root.compressionVm.running && !root.compressionVm.verifying && root.compressionVm.inputFile.length > 0)
+                                onClicked: root.activePage === 0 ? root.compressionVm.runAllAvailablePipelines() : root.compressionVm.decodeVerifyAllAvailable()
                             }
                             DarkButton {
                                 text: root.activePage === 0 ? "К декоду" : "Вернуться"
@@ -689,10 +700,10 @@ Pane {
                     columns: 4
                     columnSpacing: 10
                     rowSpacing: 10
-                    MetricCard { title: "Проверка"; value: root.latestVerifyRow() ? (root.latestVerifyRow().verified ? "совпадает" : "не совпало") : "не проверено"; subtext: root.latestVerifyRow() ? root.latestVerifyRow().status : "проверка еще не запускалась"; accent: root.latestVerifyRow() && root.latestVerifyRow().verified ? root.greenColor : root.warnColor }
-                    MetricCard { title: "Скорость декода"; value: root.latestVerifyRow() ? root.latestVerifyRow().decodeText : "0.00 MB/s"; subtext: "без сохранения файла на диск"; accent: root.violetColor }
-                    MetricCard { title: "Декод / эталон"; value: root.latestVerifyRow() ? root.latestVerifyRow().decodedSizeText : "нет данных"; subtext: root.latestVerifyRow() ? "эталон " + root.latestVerifyRow().canonicalSizeText : root.selectedChannelTitle() + ", сравнение в ОЗУ"; accent: root.accentColor }
-                    MetricCard { title: "Расхождение"; value: root.latestVerifyRow() ? root.latestVerifyRow().mismatchPercentText : "0.00%"; subtext: root.latestVerifyRow() ? (root.latestVerifyRow().verified ? "байты совпадают" : "есть расхождения") : "проверка еще не запускалась"; accent: root.badColor }
+                    MetricCard { title: "Артефакт"; value: root.latestVerifyRow() ? (root.latestVerifyRow().compressedSizeText || "0 bytes") : "0 bytes"; subtext: root.latestVerifyRow() ? (root.latestVerifyRow().pipelineLabel || root.latestVerifyRow().pipelineId) : root.selectedChannelTitle(); accent: root.warnColor }
+                    MetricCard { title: "Декод"; value: root.latestVerifyRow() ? root.latestVerifyRow().decodedSizeText : "0 bytes"; subtext: root.latestVerifyRow() ? "эталон " + root.latestVerifyRow().canonicalSizeText : "эталон 0 bytes"; accent: root.accentColor }
+                    MetricCard { title: "Скорость"; value: root.latestVerifyRow() ? root.latestVerifyRow().decodeText : "0.00 MB/s"; subtext: root.latestVerifyRow() ? root.latestVerifyRow().streamLabel : root.selectedChannelTitle(); accent: root.violetColor }
+                    MetricCard { title: "Точность"; value: root.latestVerifyRow() ? root.latestVerifyRow().mismatchPercentText : "0.00%"; subtext: root.latestVerifyRow() ? (root.latestVerifyRow().verified ? "exact" : "mismatch") : "not checked"; accent: root.latestVerifyRow() && root.latestVerifyRow().verified ? root.greenColor : root.badColor }
                 }
 SectionCard {
                     title: "Скорость декодирования: " + root.selectedChannelTitle()
@@ -702,30 +713,38 @@ SectionCard {
                 }
                 SectionCard {
                     title: "Проверка эталона: " + root.selectedChannelTitle()
-                    cardHeight: 160
+                    cardHeight: 190
                     subtitle: "скорость декодирования и процент несовпадения"
-                    ColumnLayout {
-                        width: parent.width
-                        spacing: 8
-                        EmptyBox { visible: root.compressionVm.verifyRows.length === 0; text: "Проверок пока нет. Запусти декодирование после кодирования .hfc." }
-                        Repeater {
+                    Item {
+                        anchors.fill: parent
+                        EmptyBox { anchors.fill: parent; visible: root.compressionVm.verifyRows.length === 0; text: "Проверок пока нет. Запусти декодирование после кодирования .hfc." }
+                        GridView {
+                            id: verifyGrid
+                            anchors.fill: parent
+                            visible: root.compressionVm.verifyRows.length > 0
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            cellWidth: Math.max(260, Math.floor(width / 4))
+                            cellHeight: 33
                             model: root.compressionVm.decodeBars
+                            ScrollBar.vertical: ScrollBar { policy: verifyGrid.contentHeight > verifyGrid.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded }
                             delegate: Rectangle {
                                 required property var modelData
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 46
-                                radius: 7
+                                width: verifyGrid.cellWidth - 6
+                                height: 29
+                                radius: 5
                                 color: root.panelDeepColor
+                                border.width: 1
                                 border.color: modelData.verified ? root.greenColor : root.badColor
                                 RowLayout {
                                     anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 8
-                                    Label { text: modelData.streamLabel; color: root.textColor; font.bold: true; Layout.preferredWidth: 86; elide: Text.ElideRight; clip: true }
-                                    Label { text: modelData.pipelineLabel || modelData.pipelineId; color: root.mutedTextColor; elide: Text.ElideRight; Layout.fillWidth: true; clip: true }
-                                    Label { text: modelData.decodeText; color: root.violetColor; font.bold: true; Layout.preferredWidth: 116; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight; clip: true }
-                                    Label { text: modelData.verified ? "совпадает" : ("не совпало: " + modelData.mismatchPercentText); color: modelData.verified ? root.greenColor : root.badColor; font.bold: true; Layout.preferredWidth: 168; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; clip: true }
-                                    Label { text: modelData.sizeText; color: root.mutedTextColor; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight; Layout.preferredWidth: 250; clip: true }
+                                    anchors.leftMargin: 7
+                                    anchors.rightMargin: 7
+                                    spacing: 6
+                                    Label { text: modelData.streamLabel; color: root.textColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 54; elide: Text.ElideRight; clip: true }
+                                    Label { text: root.shortPipelineLabel(modelData.pipelineLabel || modelData.pipelineId); color: root.mutedTextColor; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight; clip: true }
+                                    Label { text: modelData.decodeText; color: root.violetColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 82; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight; clip: true }
+                                    Label { text: modelData.verified ? "ok" : modelData.mismatchPercentText; color: modelData.verified ? root.greenColor : root.badColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 46; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight; clip: true }
                                 }
                             }
                         }

@@ -29,6 +29,7 @@ namespace hftrec::capture {
 namespace {
 
 constexpr unsigned kRecorderTradesKeepaliveMs = 0u;
+constexpr unsigned kRecorderQuietStreamKeepaliveMs = 30000u;
 
 EventSequenceIds nextEventSequenceIds(std::atomic<std::uint64_t>& channelCounter,
                                       std::atomic<std::uint64_t>& ingestCounter) noexcept {
@@ -52,6 +53,18 @@ bool sleepBeforeRecorderRestart(std::atomic<bool>& stopRequested) noexcept {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     return !stopRequested.load(std::memory_order_acquire);
+}
+
+bool symbolEqualsIgnoreCaseAscii(std::string_view lhs, std::string_view rhs) noexcept {
+    if (lhs.size() != rhs.size()) return false;
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        char a = lhs[i];
+        char b = rhs[i];
+        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
+        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + ('a' - 'A'));
+        if (a != b) return false;
+    }
+    return true;
 }
 
 replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
@@ -396,7 +409,8 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
 
     const auto exchange = manifest_.exchange;
     const auto market = manifest_.market;
-    liquidationsThread_ = std::thread([this, subscribeBuilder, exchange, market, aliases]() mutable noexcept {
+    const auto symbol = config.symbols.front();
+    liquidationsThread_ = std::thread([this, subscribeBuilder, exchange, market, symbol, aliases]() mutable noexcept {
         MessageBuffer payloadBuf{};
         MessageBuffer recvBuf{};
         std::FILE* debugOut = std::fopen("/dev/null", "w");
@@ -406,9 +420,10 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
             CaptureCoordinator* self;
             std::string exchange;
             std::string market;
+            std::string symbol;
             std::vector<std::string> aliases;
             bool fatalStop{false};
-        } callbackContext{this, exchange, market, aliases};
+        } callbackContext{this, exchange, market, symbol, aliases};
 
         while (!liquidationsStop_.load(std::memory_order_acquire)) {
             const bool subscribeOk = cxet::api::runSubscribeLiquidationByConfig(
@@ -419,6 +434,9 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
             [](const cxet::composite::LiquidationEvent& event, void* userData) noexcept -> bool {
                 auto* context = static_cast<CallbackContext*>(userData);
                 auto* self = context->self;
+                if (!context->symbol.empty() && !symbolEqualsIgnoreCaseAscii(context->symbol, "all") && !symbolEqualsIgnoreCaseAscii(event.symbol.data, context->symbol)) {
+                    return !self->liquidationsStop_.load(std::memory_order_acquire);
+                }
                 self->liquidationsCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(self->liquidationsCaptureSeq_, self->ingestSeq_);
                 const bool captureMetrics = cxet::metrics::shouldCaptureLatency();
@@ -466,7 +484,7 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
             0,
             &liquidationsStop_,
             10,
-            1000,
+            kRecorderQuietStreamKeepaliveMs,
             debugOut);
             (void)subscribeOk;
             if (callbackContext.fatalStop || liquidationsStop_.load(std::memory_order_acquire)) break;

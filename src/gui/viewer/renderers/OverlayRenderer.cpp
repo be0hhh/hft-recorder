@@ -15,6 +15,7 @@
 #include "gui/viewer/RenderContext.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
 #include "gui/viewer/detail/BookMath.hpp"
+#include "gui/viewer/detail/TradeGrouping.hpp"
 
 namespace hftrec::gui::viewer::renderers {
 
@@ -206,7 +207,9 @@ void renderTradeOverlay(const RenderContext& ctx) {
 
     const QPointF center{snap.vp.toX(hov.tradeTsNs), snap.vp.toY(hov.tradePriceE8)};
     const QColor accent = hov.tradeSideBuy ? tradeBuyColor() : tradeSellColor();
-    const auto amountE8 = detail::multiplyScaledE8(hov.tradeQtyE8, hov.tradePriceE8);
+    const auto amountE8 = hov.tradeTotalAmountE8 != 0
+        ? hov.tradeTotalAmountE8
+        : detail::multiplyScaledE8(hov.tradeQtyE8, hov.tradePriceE8);
     const qreal tradeRadius = detail::amountRadiusScale(amountE8, snap.tradeAmountScale, false);
 
     QPen haloPen(hov.tradeSideBuy ? haloBuyColor() : haloSellColor());
@@ -222,12 +225,38 @@ void renderTradeOverlay(const RenderContext& ctx) {
     ctx.p->drawEllipse(center, tradeRadius + 1.7, tradeRadius + 1.7);
 
     QStringList lines;
-    lines << QStringLiteral("%1 trade")
-                 .arg(hov.tradeSideBuy ? QStringLiteral("BUY") : QStringLiteral("SELL"));
-    lines << QStringLiteral("Price  %1").arg(detail::formatTrimmedE8(hov.tradePriceE8));
-    lines << QStringLiteral("Qty    %1").arg(detail::formatTrimmedE8(hov.tradeQtyE8));
-    lines << QStringLiteral("Amount %1").arg(detail::formatTrimmedE8(amountE8));
-    lines << QStringLiteral("Time   %1").arg(detail::formatTimeNs(hov.tradeTsNs));
+    if (hov.tradeGroupEntries.size() <= 1u) {
+        lines << QStringLiteral("%1 trade")
+                     .arg(hov.tradeSideBuy ? QStringLiteral("BUY") : QStringLiteral("SELL"));
+        lines << QStringLiteral("Price  %1").arg(detail::formatTrimmedE8(hov.tradePriceE8));
+        lines << QStringLiteral("Qty    %1").arg(detail::formatTrimmedE8(hov.tradeQtyE8));
+        lines << QStringLiteral("Amount %1").arg(detail::formatTrimmedE8(amountE8));
+        lines << QStringLiteral("Time   %1").arg(detail::formatTimeNs(hov.tradeTsNs));
+    } else {
+        constexpr int kMaxTooltipTrades = 12;
+        lines << QStringLiteral("Trades %1 @ same timestamp").arg(hov.tradeGroupEntries.size());
+        lines << QStringLiteral("Total Qty    %1").arg(detail::formatTrimmedE8(hov.tradeTotalQtyE8));
+        lines << QStringLiteral("Total Amount %1").arg(detail::formatTrimmedE8(amountE8));
+        lines << QStringLiteral("Time         %1").arg(detail::formatTimeNs(hov.tradeTsNs));
+        lines << QStringLiteral("Largest      %1 %2 x %3")
+                     .arg(hov.tradeSideBuy ? QStringLiteral("BUY") : QStringLiteral("SELL"))
+                     .arg(detail::formatTrimmedE8(hov.tradeQtyE8))
+                     .arg(detail::formatTrimmedE8(hov.tradePriceE8));
+        lines << QString{};
+        const int shown = std::min<int>(static_cast<int>(hov.tradeGroupEntries.size()), kMaxTooltipTrades);
+        for (int i = 0; i < shown; ++i) {
+            const auto& entry = hov.tradeGroupEntries[static_cast<std::size_t>(i)];
+            lines << QStringLiteral("%1. %2 %3 x %4 = %5")
+                         .arg(i + 1)
+                         .arg(entry.sideBuy ? QStringLiteral("BUY ") : QStringLiteral("SELL"))
+                         .arg(detail::formatTrimmedE8(entry.qtyE8))
+                         .arg(detail::formatTrimmedE8(entry.priceE8))
+                         .arg(detail::formatTrimmedE8(entry.amountE8));
+        }
+        if (shown < static_cast<int>(hov.tradeGroupEntries.size())) {
+            lines << QStringLiteral("... %1 more").arg(static_cast<int>(hov.tradeGroupEntries.size()) - shown);
+        }
+    }
 
     renderObjectCard(ctx.p, lines, accent, center.x(), center.y(), snap.vp.w, snap.vp.h);
 }

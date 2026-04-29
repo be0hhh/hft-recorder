@@ -12,6 +12,7 @@
 #include "gui/viewer/ColorScheme.hpp"
 #include "gui/viewer/detail/BookMath.hpp"
 #include "gui/viewer/detail/Formatters.hpp"
+#include "gui/viewer/detail/TradeGrouping.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -849,13 +850,8 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             ? static_cast<std::size_t>(std::max<qreal>(32.0, std::ceil(widthPx) * 4.0))
             : visibleTradeCount);
 
-    TradePixelBin pixelBin{};
-    bool pixelBinActive = false;
-    auto flushTradeBin = [&]() {
-        if (!pixelBinActive) return;
-        pixelBin.appendTo(snap.tradeDots);
-        pixelBinActive = false;
-    };
+    std::vector<TradeDot> groupedTradeDots;
+    groupedTradeDots.reserve(visibleTradeCount);
 
     for (auto it = tradeBegin; it != tradeEnd; ++it) {
         const auto& t = *it;
@@ -869,25 +865,38 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
 
         const auto origIndex = static_cast<int>(std::distance(trades.begin(), it));
         const TradeDot dot{t.tsNs, t.priceE8, t.qtyE8, t.sideBuy != 0, origIndex};
-        if (!snap.tradeDecimated) {
-            snap.tradeDots.push_back(dot);
-            continue;
-        }
-
-        const int xPx = std::clamp(
-            static_cast<int>(std::floor(x)),
-            0,
-            std::max(0, static_cast<int>(std::ceil(widthPx)) - 1));
-        if (!pixelBinActive || pixelBin.xPx != xPx) {
-            flushTradeBin();
-            pixelBin.reset(xPx);
-            pixelBinActive = true;
-        }
-
-        if (dot.sideBuy) pixelBin.buy.absorb(dot);
-        else pixelBin.sell.absorb(dot);
+        detail::appendGroupedTradeDot(groupedTradeDots, dot);
     }
-    flushTradeBin();
+
+    if (!snap.tradeDecimated) {
+        snap.tradeDots = std::move(groupedTradeDots);
+    } else {
+        TradePixelBin pixelBin{};
+        bool pixelBinActive = false;
+        auto flushTradeBin = [&]() {
+            if (!pixelBinActive) return;
+            pixelBin.appendTo(snap.tradeDots);
+            pixelBinActive = false;
+        };
+
+        for (const auto& dot : groupedTradeDots) {
+            const auto x = snap.vp.toX(dot.tsNs);
+
+            const int xPx = std::clamp(
+                static_cast<int>(std::floor(x)),
+                0,
+                std::max(0, static_cast<int>(std::ceil(widthPx)) - 1));
+            if (!pixelBinActive || pixelBin.xPx != xPx) {
+                flushTradeBin();
+                pixelBin.reset(xPx);
+                pixelBinActive = true;
+            }
+
+            if (dot.sideBuy) pixelBin.buy.absorb(dot);
+            else pixelBin.sell.absorb(dot);
+        }
+        flushTradeBin();
+    }
 
     if (in.liquidationsVisible) {
         const auto& liquidations = replay_.liquidations();
