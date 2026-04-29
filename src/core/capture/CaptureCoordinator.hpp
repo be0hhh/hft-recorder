@@ -30,7 +30,7 @@ struct CaptureConfig {
     std::string market{"futures_usd"};
     std::vector<std::string> symbols{};
     std::filesystem::path outputDir{"./recordings"};
-    std::int64_t durationSec{1800};
+    std::int64_t durationSec{0};
     std::int64_t snapshotIntervalSec{60};
     std::vector<std::string> tradesAliases{};
     std::vector<std::string> liquidationAliases{};
@@ -49,14 +49,19 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
 
     Status ensureSession(const CaptureConfig& config) noexcept;
     Status startTrades(const CaptureConfig& config) noexcept;
+    Status requestStopTrades() noexcept;
     Status stopTrades() noexcept;
     Status startLiquidations(const CaptureConfig& config) noexcept;
+    Status requestStopLiquidations() noexcept;
     Status stopLiquidations() noexcept;
     Status startBookTicker(const CaptureConfig& config) noexcept;
+    Status requestStopBookTicker() noexcept;
     Status stopBookTicker() noexcept;
     Status startOrderbook(const CaptureConfig& config) noexcept;
+    Status requestStopOrderbook() noexcept;
     Status stopOrderbook() noexcept;
     Status finalizeSession() noexcept;
+    void reapStoppedThreads() noexcept;
 
     const SessionManifest& manifest() const noexcept { return manifest_; }
     SessionManifest manifestCopy() const;

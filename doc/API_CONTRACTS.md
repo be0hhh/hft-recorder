@@ -2,6 +2,11 @@
 
 ## Stable backend contracts to define early
 
+For the full `hftrecorder_local` venue direction, including replay fanout,
+private streams, balance, positions, fees, funding and local auth, use the
+canonical `LOCAL_EXCHANGE_*` documents. This file defines the broader backend
+seams and remains compatible with that direction.
+
 The following backend types are part of the new stable direction.
 
 ### `storage::IHotEventCache`

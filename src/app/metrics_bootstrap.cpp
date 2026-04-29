@@ -25,6 +25,14 @@
 namespace hftrec::app {
 namespace {
 
+#if !defined(HFTREC_HOTPATH_METRICS_DEFAULT)
+#define HFTREC_HOTPATH_METRICS_DEFAULT 1
+#endif
+
+bool hotPathMetricsBuildDefault() noexcept {
+    return HFTREC_HOTPATH_METRICS_DEFAULT != 0;
+}
+
 void renderHftrecMetrics(std::string& out) {
     hftrec::metrics::renderPrometheus(out);
 }
@@ -52,7 +60,8 @@ bool metricsOff() noexcept {
 #if HFTREC_WITH_CXET
 cxet::metrics::Mode metricsMode() noexcept {
     const char* raw = std::getenv("HFTREC_METRICS_MODE");
-    if (raw == nullptr || raw[0] == '\0') return cxet::metrics::Mode::CountersOnly;
+    if (!hotPathMetricsBuildDefault()) return cxet::metrics::Mode::Off;
+    if (raw == nullptr || raw[0] == '\0') return cxet::metrics::Mode::FullLatency;
     if (std::strcmp(raw, "off") == 0) return cxet::metrics::Mode::Off;
     if (std::strcmp(raw, "counters") == 0) return cxet::metrics::Mode::CountersOnly;
     if (std::strcmp(raw, "sampled") == 0) return cxet::metrics::Mode::SampledLatency;
@@ -165,18 +174,18 @@ struct MetricsBootstrap::Impl {
 
 MetricsBootstrap::MetricsBootstrap() noexcept {
 #if HFTREC_WITH_CXET
-    if (metricsMode() == cxet::metrics::Mode::Off) {
-        cxet::metrics::setMode(cxet::metrics::Mode::Off);
-        return;
-    }
+    const cxet::metrics::Mode selectedMode = metricsMode();
 #else
-    if (metricsOff()) return;
+    const bool selectedOff = metricsOff() || !hotPathMetricsBuildDefault();
 #endif
     impl_ = new Impl();
     hftrec::metrics::init();
 #if HFTREC_WITH_CXET
+    hftrec::metrics::setHotPathEnabled(selectedMode != cxet::metrics::Mode::Off);
     cxet::metrics::ProbeRegistry::setExtraRenderHook(&renderCxetAndHftrecExtraMetrics);
-    cxet::metrics::setMode(metricsMode());
+    cxet::metrics::setMode(selectedMode);
+#else
+    hftrec::metrics::setHotPathEnabled(!selectedOff);
 #endif
     impl_->thread.start();
 }

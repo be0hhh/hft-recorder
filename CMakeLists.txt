@@ -20,6 +20,12 @@ set(CXET_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_lib shared libra
 set(CXET_REPLAY_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_replay_core shared library")
 set(HFTREC_CXET_MODE "AUTO" CACHE STRING "CXET integration mode: AUTO, ON, or OFF")
 set_property(CACHE HFTREC_CXET_MODE PROPERTY STRINGS AUTO ON OFF)
+option(HFTREC_HOTPATH_METRICS_DEFAULT "Enable hft-recorder/CXET hot-path metrics by default" ON)
+if(HFTREC_HOTPATH_METRICS_DEFAULT)
+    set(HFTREC_HOTPATH_METRICS_DEFAULT_VALUE 1)
+else()
+    set(HFTREC_HOTPATH_METRICS_DEFAULT_VALUE 0)
+endif()
 string(TOUPPER "${HFTREC_CXET_MODE}" HFTREC_CXET_MODE_NORMALIZED)
 
 set(HFTREC_WITH_CXET OFF)

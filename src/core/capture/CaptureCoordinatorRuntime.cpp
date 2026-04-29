@@ -1,9 +1,11 @@
 #include "core/capture/CaptureCoordinator.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <thread>
 
 
@@ -11,6 +13,7 @@
 #include "core/capture/CaptureCoordinatorInternal.hpp"
 #include "core/capture/JsonSerializers.hpp"
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
+#include "core/local_exchange/LocalMarketDataBus.hpp"
 #include "core/local_exchange/LocalOrderEngine.hpp"
 #include "core/metrics/Metrics.hpp"
 #include "primitives/composite/OrderBookDeltaRuntimeV1.hpp"
@@ -24,6 +27,8 @@
 namespace hftrec::capture {
 
 namespace {
+
+constexpr unsigned kRecorderTradesKeepaliveMs = 0u;
 
 EventSequenceIds nextEventSequenceIds(std::atomic<std::uint64_t>& channelCounter,
                                       std::atomic<std::uint64_t>& ingestCounter) noexcept {
@@ -39,6 +44,14 @@ void recordCxetLatencyIfEnabled(cxet::metrics::LatencyProbe& probe,
     if (captureMetrics) {
         probe.record(startTsc, cxet::probes::captureTsc());
     }
+}
+
+bool sleepBeforeRecorderRestart(std::atomic<bool>& stopRequested) noexcept {
+    for (unsigned i = 0; i < 10u; ++i) {
+        if (stopRequested.load(std::memory_order_acquire)) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return !stopRequested.load(std::memory_order_acquire);
 }
 
 replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
@@ -188,6 +201,7 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
             std::string exchange;
             std::string market;
             std::vector<std::string> aliases;
+            bool fatalStop{false};
         } callbackContext{this, sessionId, exchange, market, tradesAliases};
 
         struct TradesDiagContext {
@@ -243,7 +257,9 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
             diag->streamEnded = true;
         };
 
-        const bool subscribeOk = cxet::api::runSubscribeTradeRuntimeByConfigStream(
+        while (!tradesStop_.load(std::memory_order_acquire)) {
+            diagContext = {};
+            const bool subscribeOk = cxet::api::runSubscribeTradeRuntimeByConfigStream(
             subscribeBuilder,
             payloadBuf,
             combinedPayloadBuf,
@@ -276,6 +292,8 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                 const auto jsonLine = renderTradeJsonLine(row, context->aliases);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
 
+                local_exchange::globalLocalMarketDataBus().publish("trades", row.symbol, jsonLine);
+
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
                 const auto liveStatus = self->liveStore_.appendTrade(row);
@@ -292,6 +310,7 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
                         "failed to write trades.jsonl",
                         false);
                     self->lastError_ = failure.channel + ": " + failure.detail;
+                    context->fatalStop = true;
                     return false;
                 }
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
@@ -311,36 +330,14 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
             &diagnostics,
             &tradesStop_,
             10,
-            0);
-
-        if (!subscribeOk && !tradesStop_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            if (lastError_.empty()) {
-                lastError_ = "trades subscription stopped with failure";
-                if (diagContext.sawConnectOk && !diagContext.connectOk) {
-                    lastError_ += " | connect=false";
-                }
-                if (diagContext.sawSend) {
-                    lastError_ += " | payload=" + diagContext.lastPayload;
-                }
-                if (!diagContext.lastPath.empty()) {
-                    lastError_ += " | path=" + diagContext.lastPath;
-                }
-                if (diagContext.recvCount > 0u) {
-                    lastError_ += " | recvCount=" + std::to_string(diagContext.recvCount);
-                    lastError_ += " lastRecvBytes=" + std::to_string(diagContext.lastRecvSize);
-                    lastError_ += " lastParseOk=" + std::string(diagContext.lastParseOk ? "true" : "false");
-                }
-                if (diagContext.readTimeoutCount > 0u) {
-                    lastError_ += " | readTimeouts=" + std::to_string(diagContext.readTimeoutCount);
-                }
-                if (diagContext.reconnectCount > 0u) {
-                    lastError_ += " | reconnects=" + std::to_string(diagContext.reconnectCount);
-                }
+            kRecorderTradesKeepaliveMs);
+            (void)subscribeOk;
+            if (diagContext.reconnectCount > 0u) {
+                metrics::addWsReconnects("trades", static_cast<std::uint64_t>(diagContext.reconnectCount));
             }
-        }
-        if (diagContext.reconnectCount > 0u) {
-            metrics::addWsReconnects("trades", static_cast<std::uint64_t>(diagContext.reconnectCount));
+            if (callbackContext.fatalStop || tradesStop_.load(std::memory_order_acquire)) break;
+            metrics::recordWsRestart("trades");
+            if (!sleepBeforeRecorderRestart(tradesStop_)) break;
         }
         tradesRunning_.store(false, std::memory_order_release);
     });
@@ -348,8 +345,13 @@ Status CaptureCoordinator::startTrades(const CaptureConfig& config) noexcept {
     return Status::Ok;
 }
 
-Status CaptureCoordinator::stopTrades() noexcept {
+Status CaptureCoordinator::requestStopTrades() noexcept {
     tradesStop_.store(true, std::memory_order_release);
+    return Status::Ok;
+}
+
+Status CaptureCoordinator::stopTrades() noexcept {
+    (void)requestStopTrades();
     if (tradesThread_.joinable()) {
         tradesThread_.join();
     }
@@ -405,10 +407,12 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
             std::string exchange;
             std::string market;
             std::vector<std::string> aliases;
+            bool fatalStop{false};
         } callbackContext{this, exchange, market, aliases};
 
-        const bool subscribeOk = cxet::api::runSubscribeLiquidationByConfig(
-            subscribeBuilder,
+        while (!liquidationsStop_.load(std::memory_order_acquire)) {
+            const bool subscribeOk = cxet::api::runSubscribeLiquidationByConfig(
+                subscribeBuilder,
             payloadBuf,
             recvBuf,
             subscribeBuilder.requestedFields(),
@@ -444,6 +448,7 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
                         "failed to write liquidations.jsonl",
                         false);
                     self->lastError_ = failure.channel + ": " + failure.detail;
+                    context->fatalStop = true;
                     return false;
                 }
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
@@ -461,22 +466,27 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
             0,
             &liquidationsStop_,
             10,
-            0,
+            1000,
             debugOut);
-
-        if (debugOut != nullptr && debugOut != stdout) std::fclose(debugOut);
-        if (!subscribeOk && !liquidationsStop_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            if (lastError_.empty()) lastError_ = "liquidations subscription stopped with failure";
+            (void)subscribeOk;
+            if (callbackContext.fatalStop || liquidationsStop_.load(std::memory_order_acquire)) break;
+            metrics::recordWsRestart("liquidations");
+            if (!sleepBeforeRecorderRestart(liquidationsStop_)) break;
         }
+        if (debugOut != nullptr && debugOut != stdout) std::fclose(debugOut);
         liquidationsRunning_.store(false, std::memory_order_release);
     });
 
     return Status::Ok;
 }
 
-Status CaptureCoordinator::stopLiquidations() noexcept {
+Status CaptureCoordinator::requestStopLiquidations() noexcept {
     liquidationsStop_.store(true, std::memory_order_release);
+    return Status::Ok;
+}
+
+Status CaptureCoordinator::stopLiquidations() noexcept {
+    (void)requestStopLiquidations();
     if (liquidationsThread_.joinable()) liquidationsThread_.join();
     liquidationsRunning_.store(false, std::memory_order_release);
     return Status::Ok;
@@ -539,10 +549,12 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
             std::string exchange;
             std::string market;
             std::vector<std::string> aliases;
+            bool fatalStop{false};
         } callbackContext{this, exchange, market, persistedBookTickerAliases};
 
-        const bool subscribeOk = cxet::api::runSubscribeBookTickerRuntimeByConfig(
-            subscribeBuilder,
+        while (!bookTickerStop_.load(std::memory_order_acquire)) {
+            const bool subscribeOk = cxet::api::runSubscribeBookTickerRuntimeByConfig(
+                subscribeBuilder,
             payloadBuf,
             recvBuf,
             [](const cxet::composite::BookTickerRuntimeV1& bookTicker,
@@ -570,6 +582,8 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
                 const auto jsonLine = renderBookTickerJsonLine(row, context->aliases);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
 
+                local_exchange::globalLocalMarketDataBus().publish("bookticker", row.symbol, jsonLine);
+
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
                 const auto liveStatus = self->liveStore_.appendBookTicker(row);
@@ -586,6 +600,7 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
                         "failed to write bookticker.jsonl",
                         false);
                     self->lastError_ = failure.channel + ": " + failure.detail;
+                    context->fatalStop = true;
                     return false;
                 }
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
@@ -603,18 +618,16 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
             0,
             &bookTickerStop_,
             10,
-            0,
+            1000,
             debugOut);
+            (void)subscribeOk;
+            if (callbackContext.fatalStop || bookTickerStop_.load(std::memory_order_acquire)) break;
+            metrics::recordWsRestart("bookticker");
+            if (!sleepBeforeRecorderRestart(bookTickerStop_)) break;
+        }
 
         if (debugOut != nullptr && debugOut != stdout) {
             std::fclose(debugOut);
-        }
-
-        if (!subscribeOk && !bookTickerStop_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            if (lastError_.empty()) {
-                lastError_ = "bookticker subscription stopped with failure";
-            }
         }
 
         bookTickerRunning_.store(false, std::memory_order_release);
@@ -623,8 +636,13 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
     return Status::Ok;
 }
 
-Status CaptureCoordinator::stopBookTicker() noexcept {
+Status CaptureCoordinator::requestStopBookTicker() noexcept {
     bookTickerStop_.store(true, std::memory_order_release);
+    return Status::Ok;
+}
+
+Status CaptureCoordinator::stopBookTicker() noexcept {
+    (void)requestStopBookTicker();
     if (bookTickerThread_.joinable()) {
         bookTickerThread_.join();
     }
@@ -685,10 +703,12 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
             CaptureCoordinator* self;
             std::string sessionId;
             std::vector<std::string> aliases;
+            bool fatalStop{false};
         } callbackContext{this, sessionId, orderbookAliases};
 
-        const bool subscribeOk = cxet::api::runSubscribeOrderBookRuntimeByConfig(
-            subscribeBuilder,
+        while (!orderbookStop_.load(std::memory_order_acquire)) {
+            const bool subscribeOk = cxet::api::runSubscribeOrderBookRuntimeByConfig(
+                subscribeBuilder,
             payloadBuf,
             deltaRecvBuf,
             [](const cxet::composite::OrderBookDeltaRuntimeV1& delta,
@@ -710,6 +730,8 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
                 const auto jsonLine = renderDepthJsonLine(row, context->aliases);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
 
+                local_exchange::globalLocalMarketDataBus().publish("orderbook.delta", std::string_view{meta.symbol.data}, jsonLine);
+
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
                 const auto liveStatus = self->liveStore_.appendDepth(row);
@@ -726,6 +748,7 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
                         "failed to write depth.jsonl",
                         false);
                     self->lastError_ = failure.channel + ": " + failure.detail;
+                    context->fatalStop = true;
                     return false;
                 }
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
@@ -743,13 +766,11 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
             0,
             &orderbookStop_,
             10,
-            0);
-
-        if (!subscribeOk && !orderbookStop_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            if (lastError_.empty()) {
-                lastError_ = "orderbook delta subscription stopped with failure";
-            }
+            1000);
+            (void)subscribeOk;
+            if (callbackContext.fatalStop || orderbookStop_.load(std::memory_order_acquire)) break;
+            metrics::recordWsRestart("depth");
+            if (!sleepBeforeRecorderRestart(orderbookStop_)) break;
         }
 
         orderbookRunning_.store(false, std::memory_order_release);
@@ -758,13 +779,25 @@ Status CaptureCoordinator::startOrderbook(const CaptureConfig& config) noexcept 
     return Status::Ok;
 }
 
-Status CaptureCoordinator::stopOrderbook() noexcept {
+Status CaptureCoordinator::requestStopOrderbook() noexcept {
     orderbookStop_.store(true, std::memory_order_release);
+    return Status::Ok;
+}
+
+Status CaptureCoordinator::stopOrderbook() noexcept {
+    (void)requestStopOrderbook();
     if (orderbookThread_.joinable()) {
         orderbookThread_.join();
     }
     orderbookRunning_.store(false, std::memory_order_release);
     return Status::Ok;
+}
+
+void CaptureCoordinator::reapStoppedThreads() noexcept {
+    if (tradesThread_.joinable() && !tradesRunning_.load(std::memory_order_acquire)) tradesThread_.join();
+    if (liquidationsThread_.joinable() && !liquidationsRunning_.load(std::memory_order_acquire)) liquidationsThread_.join();
+    if (bookTickerThread_.joinable() && !bookTickerRunning_.load(std::memory_order_acquire)) bookTickerThread_.join();
+    if (orderbookThread_.joinable() && !orderbookRunning_.load(std::memory_order_acquire)) orderbookThread_.join();
 }
 
 Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSnapshot& snapshot,
@@ -790,6 +823,9 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
     (void)trustedReplayAnchor;
     const auto capturedSnapshot = cxet_bridge::CxetCaptureBridge::captureOrderBook(snapshot);
     const auto document = makeSnapshotDocument(capturedSnapshot);
+    std::string snapshotPayload = renderSnapshotJson(document);
+    if (!snapshotPayload.empty() && snapshotPayload.back() == '\n') snapshotPayload.pop_back();
+    local_exchange::globalLocalMarketDataBus().publish("orderbook.snapshot", std::string_view{snapshot.symbol.data}, snapshotPayload);
     if (!isOk(eventSink_.appendSnapshot(document, snapshotIndex))) return Status::IoError;
     {
         std::lock_guard<std::mutex> lock(stateMutex_);

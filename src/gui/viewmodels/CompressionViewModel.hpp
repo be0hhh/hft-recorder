@@ -4,6 +4,7 @@
 #include <QString>
 #include <QUrl>
 #include <QVariantList>
+#include <QVariantMap>
 
 #include "hft_compressor/result.hpp"
 
@@ -28,6 +29,8 @@ class CompressionViewModel : public QObject {
     Q_PROPERTY(QString inputFile READ inputFile NOTIFY selectionChanged)
     Q_PROPERTY(QString outputRoot READ outputRoot NOTIFY selectionChanged)
     Q_PROPERTY(QString outputFilePreview READ outputFilePreview NOTIFY selectionChanged)
+    Q_PROPERTY(QString selectedArtifactFile READ selectedArtifactFile NOTIFY artifactAvailabilityChanged)
+    Q_PROPERTY(bool selectedArtifactAvailable READ selectedArtifactAvailable NOTIFY artifactAvailabilityChanged)
     Q_PROPERTY(QVariantList outputRootChoices READ outputRootChoices NOTIFY outputRootChoicesChanged)
     Q_PROPERTY(QVariantList pipelines READ pipelines NOTIFY selectedChannelChanged)
     Q_PROPERTY(QVariantList pipelineGroups READ pipelineGroups CONSTANT)
@@ -79,6 +82,8 @@ class CompressionViewModel : public QObject {
     QString inputFile() const;
     QString outputRoot() const;
     QString outputFilePreview() const;
+    QString selectedArtifactFile() const;
+    bool selectedArtifactAvailable() const;
     QVariantList outputRootChoices() const;
     QVariantList pipelines() const;
     QVariantList pipelineGroups() const;
@@ -125,6 +130,10 @@ class CompressionViewModel : public QObject {
     Q_INVOKABLE void setOutputRoot(const QString& path);
     Q_INVOKABLE void setOutputRootUrl(const QUrl& url);
     Q_INVOKABLE void setSelectedPipelineId(const QString& pipelineId);
+    Q_INVOKABLE bool hasEncodedArtifact(const QString& pipelineId) const;
+    Q_INVOKABLE QString firstEncodedPipelineId() const;
+    Q_INVOKABLE QVariantMap previewJsonl(const QString& path = QString{}) const;
+    Q_INVOKABLE QVariantMap previewArtifact(const QString& path = QString{}) const;
     Q_INVOKABLE void runCompression();
     Q_INVOKABLE void runAllAvailableChannels();
     Q_INVOKABLE void decodeVerifySelected();
@@ -149,6 +158,7 @@ class CompressionViewModel : public QObject {
     void verifyRowsChanged();
     void runningChanged();
     void verifyingChanged();
+    void artifactAvailabilityChanged();
 
   private:
     QString existingChannelPath_(const QString& sessionPath, const QString& channel) const;
@@ -170,6 +180,8 @@ class CompressionViewModel : public QObject {
     QVariantMap verifyMetricsRow_(const QString& metricsPath) const;
     QVariantList rowsForSelectedChannel_(const QVariantList& rows) const;
     QString firstAvailablePipelineId_() const;
+    QString encodedArtifactPath_(const QString& channel, const QString& pipelineId) const;
+    bool encodedArtifactExists_(const QString& channel, const QString& pipelineId) const;
     QString outputFilePreviewFor_(const QString& channel) const;
     QString verifyFilePreviewFor_(const QString& channel) const;
 

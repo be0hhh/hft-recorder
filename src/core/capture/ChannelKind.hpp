@@ -19,6 +19,7 @@ constexpr std::string_view channelFileName(ChannelKind k) noexcept {
         case ChannelKind::BookTicker: return "bookticker.jsonl";
         case ChannelKind::DepthDelta: return "depth.jsonl";
         case ChannelKind::Snapshot:   return "snapshot_000.json";
+        case ChannelKind::Liquidations: return "liquidations.jsonl";
     }
     return "unknown";
 }

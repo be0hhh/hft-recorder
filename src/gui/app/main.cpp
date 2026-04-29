@@ -10,8 +10,8 @@
 #include "gui/api/ChartApiServer.hpp"
 #if HFTREC_WITH_CXET
 #include "gui/api/ExecutionChartAdapter.hpp"
+#include "gui/api/LocalMarketDataWsServer.hpp"
 #include "gui/api/LocalVenueWsServer.hpp"
-#include "core/local_exchange/LocalExchangeServer.hpp"
 #endif
 #include "gui/models/SessionListModel.hpp"
 #include "gui/models/ViewerSourceListModel.hpp"
@@ -55,11 +55,13 @@ void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
+#if HFTREC_WITH_CXET
+    if (qEnvironmentVariableIsEmpty("CXET_WS_RUNTIME")) qputenv("CXET_WS_RUNTIME", "sync");
+#endif
     QGuiApplication app(argc, argv);
     hftrec::app::MetricsBootstrap metricsBootstrap{};
 #if HFTREC_WITH_CXET
-    hftrec::local_exchange::LocalExchangeServer localExchangeServer;
-    localExchangeServer.start();
+    hftrec::gui::api::LocalMarketDataWsServer localMarketDataWsServer;
     hftrec::gui::api::LocalVenueWsServer localVenueWsServer;
     hftrec::gui::api::ExecutionChartAdapter executionChartAdapter;
 #endif
@@ -101,14 +103,15 @@ int main(int argc, char* argv[]) {
         ? nullptr
         : engine.rootObjects().constFirst()->findChild<hftrec::gui::viewer::ChartController*>(QStringLiteral("chartController"));
     executionChartAdapter.setChartController(chartController);
-    localExchangeServer.setEventSink(&executionChartAdapter);
+    localVenueWsServer.setDownstreamSink(&executionChartAdapter);
+    localMarketDataWsServer.startFromEnvironment();
     localVenueWsServer.startFromEnvironment();
 #endif
 
     const int rc = app.exec();
 #if HFTREC_WITH_CXET
     localVenueWsServer.stop();
-    localExchangeServer.stop();
+    localMarketDataWsServer.stop();
 #endif
     return rc;
 }

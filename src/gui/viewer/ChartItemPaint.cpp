@@ -270,14 +270,10 @@ std::int64_t liveBookEventTs(const LiveBookEventRef& event) noexcept {
 }
 
 std::int64_t liveBookEventCaptureSeq(const LiveBookEventRef& event) noexcept {
-    if (event.snapshot != nullptr) return event.snapshot->captureSeq;
-    if (event.depth != nullptr) return event.depth->captureSeq;
     return event.bookTicker != nullptr ? event.bookTicker->captureSeq : 0;
 }
 
 std::int64_t liveBookEventIngestSeq(const LiveBookEventRef& event) noexcept {
-    if (event.snapshot != nullptr) return event.snapshot->ingestSeq;
-    if (event.depth != nullptr) return event.depth->ingestSeq;
     return event.bookTicker != nullptr ? event.bookTicker->ingestSeq : 0;
 }
 
@@ -1117,4 +1113,3 @@ void ChartItem::paint(QPainter* painter) {
 }
 
 }  // namespace hftrec::gui::viewer
-

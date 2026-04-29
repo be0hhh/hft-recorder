@@ -288,7 +288,7 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
         config.market = "futures_usd";
         config.symbols = {symbol};
         config.outputDir = std::filesystem::path{outputDirectory.toStdString()};
-        config.durationSec = 1800;
+        config.durationSec = 0;
         config.snapshotIntervalSec = 60;
 
         const auto symbolDsl = toDslSymbol(symbol);

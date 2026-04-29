@@ -29,7 +29,8 @@ Pane {
     property bool showLiquidationsLayer: false
     property bool showOrderbookLayer: false
     property bool showBookTickerLayer: false
-    property bool effectiveBookTickerLayer: showBookTickerLayer || showOrderbookLayer
+    property bool effectiveBookTickerLayer: showBookTickerLayer
+    property bool userHasExplicitLayerSelection: false
     property bool useDedicatedGpuPath: false
     property bool useGpuRenderer: true
 
@@ -63,6 +64,9 @@ Pane {
     }
 
     function ensureVisibleLayerSelection() {
+        if (root.userHasExplicitLayerSelection)
+            return
+
         if (chart.hasTrades || chart.hasLiquidations) {
             if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
                 if (chart.hasTrades)
@@ -226,13 +230,26 @@ Pane {
             mutedTextColor: root.mutedTextColor
             accentBuyColor: root.accentBuyColor
             onToggleTrades: {
+                root.userHasExplicitLayerSelection = true
                 root.showTradesLayer = !root.showTradesLayer
-                if (root.showTradesLayer && !chart.loaded && root.selectedSourceId !== "")
+                if (root.showTradesLayer && !chart.loaded && root.selectedSourceId !== "") {
+                    root.userHasExplicitLayerSelection = false
                     root.applySourceSelection(root.selectedSourceId)
+                    root.userHasExplicitLayerSelection = true
+                }
             }
-            onToggleLiquidations: root.showLiquidationsLayer = !root.showLiquidationsLayer
-            onToggleOrderbook: root.showOrderbookLayer = !root.showOrderbookLayer
-            onToggleBookTicker: root.showBookTickerLayer = !root.showBookTickerLayer
+            onToggleLiquidations: {
+                root.userHasExplicitLayerSelection = true
+                root.showLiquidationsLayer = !root.showLiquidationsLayer
+            }
+            onToggleOrderbook: {
+                root.userHasExplicitLayerSelection = true
+                root.showOrderbookLayer = !root.showOrderbookLayer
+            }
+            onToggleBookTicker: {
+                root.userHasExplicitLayerSelection = true
+                root.showBookTickerLayer = !root.showBookTickerLayer
+            }
         }
 
         Item {
@@ -501,7 +518,7 @@ Pane {
                 Label {
                     id: layerStatusText
                     anchors.centerIn: parent
-                    text: root.showLiquidationsLayer ? "Liquidations" : !root.showTradesLayer ? "Trades hidden" : root.showOrderbookLayer ? "Orderbook + BookTicker" : "BookTicker mode"
+                    text: root.showLiquidationsLayer ? "Liquidations" : !root.showTradesLayer ? "Trades hidden" : root.showOrderbookLayer ? "Orderbook" : "BookTicker mode"
                     color: root.mutedTextColor
                     font.pixelSize: 12
                 }

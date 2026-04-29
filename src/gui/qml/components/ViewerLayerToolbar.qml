@@ -67,7 +67,6 @@ Rectangle {
         ViewerChannelButton {
             text: "Trades"
             active: bar.showTradesLayer
-            enabled: bar.chart.hasTrades
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor
@@ -80,7 +79,6 @@ Rectangle {
         ViewerChannelButton {
             text: "Liquidations"
             active: bar.showLiquidationsLayer
-            enabled: bar.chart.hasLiquidations
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor
@@ -93,7 +91,6 @@ Rectangle {
         ViewerChannelButton {
             text: "Orderbook"
             active: bar.showOrderbookLayer
-            enabled: bar.chart.hasOrderbook
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor
@@ -106,7 +103,6 @@ Rectangle {
         ViewerChannelButton {
             text: "BookTicker"
             active: bar.effectiveBookTickerLayer
-            enabled: bar.chart.hasBookTicker
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor

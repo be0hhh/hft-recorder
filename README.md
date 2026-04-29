@@ -29,6 +29,10 @@ User build/run entrypoints:
 - `./compile.sh --force-cxet`
   - forcibly rebuilds and reinstalls `CXETCPP` before building `hft-recorder`
   - use this when public headers in `~/.local/cxet` became stale relative to the current repo
+- `./compile.sh --force clang`
+  - rebuilds hft-compressor, CXETCPP, and hft-recorder with Clang, replacing the active `~/.local/cxet` install and `build/` app binaries
+- `./compile.sh --force gcc`
+  - same flow with GCC, intended for back-to-back metric comparisons
 - `./build/start`
   - launches the Qt GUI in CPU-safe software mode
 - `./build/start --gpu`
@@ -40,6 +44,7 @@ Current runtime truth:
 - `--gpu` enables a hardware-backed Qt Quick/OpenGL setup for validation
 - the active viewer path is still `ChartItem` (`QQuickPaintedItem`)
 - this means current `--gpu` is hardware-backed compositing, not yet a separate GPU-native chart renderer
+- `./build/start` exports `HFTREC_METRICS_PORT=8080` and `HFTREC_METRICS_MODE=full` by default; `/metrics` includes `hftrec_build_info{compiler="..."}` so Prometheus/Grafana can separate Clang and GCC runs
 
 Primary user workflow:
 1. Open the GUI.

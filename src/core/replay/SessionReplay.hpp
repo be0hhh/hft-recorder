@@ -72,6 +72,8 @@ class SessionReplay {
     const std::vector<LiquidationRow>& liquidations() const noexcept { return liquidations_; }
     const std::vector<BookTickerRow>& bookTickers() const noexcept { return bookTickers_; }
     const std::vector<DepthRow>&      depths()      const noexcept { return depths_;      }
+    bool hasSnapshot() const noexcept { return snapshotLoaded_; }
+    const SnapshotDocument& snapshot() const noexcept { return snapshot_; }
     const std::vector<Event>&         events()      const noexcept { return events_;      }
     const std::vector<ReplayBucket>&  buckets()     const noexcept { return buckets_;     }
 

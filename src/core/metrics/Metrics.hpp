@@ -16,6 +16,7 @@ struct StreamRuntimeMetrics {
     std::uint64_t writeErrorsTotal{0};
     std::uint64_t snapshotFetchFailuresTotal{0};
     std::uint64_t wsReconnectsTotal{0};
+    std::uint64_t wsRestartsTotal{0};
     std::uint64_t lastEventTsNs{0};
     std::uint64_t lastWriteTsNs{0};
 };
@@ -113,6 +114,8 @@ struct MetricsSnapshot {
 
 void init() noexcept;
 void shutdown() noexcept;
+bool hotPathEnabled() noexcept;
+void setHotPathEnabled(bool enabled) noexcept;
 
 void incEventsCaptured(std::string_view stream) noexcept;
 void incEventsDropped(std::string_view stream, std::string_view reason) noexcept;
@@ -126,6 +129,7 @@ void recordCaptureEvent(std::string_view stream,
 void recordCaptureWriteError(std::string_view stream) noexcept;
 void recordSnapshotFetchFailure(std::string_view stream) noexcept;
 void addWsReconnects(std::string_view stream, std::uint64_t n) noexcept;
+void recordWsRestart(std::string_view stream) noexcept;
 
 void recordReplayLoad(std::size_t rowsLoaded, std::uint64_t loadNs) noexcept;
 void recordReplaySeek() noexcept;

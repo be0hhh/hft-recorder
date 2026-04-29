@@ -11,21 +11,38 @@ enum class ExecutionEventKind : std::uint8_t {
     Ack = 0,
     Reject = 1,
     StateChange = 2,
+    Fill = 3,
+    PositionChange = 4,
+    BalanceChange = 5,
+    Fee = 6,
+    Funding = 7,
 };
 
 struct ExecutionEvent {
     ExecutionEventKind kind{ExecutionEventKind::Ack};
     std::string symbol{};
     std::string orderId{};
+    std::string clientOrderId{};
+    std::string execId{};
     std::uint8_t exchangeRaw{0};
     std::uint8_t marketRaw{0};
     std::uint8_t sideRaw{0};
     std::uint8_t typeRaw{0};
+    std::uint8_t timeInForceRaw{0};
+    std::uint8_t reduceOnly{0};
     std::uint8_t statusRaw{0};
     std::uint32_t errorCode{0};
     std::int64_t quantityRaw{0};
     std::int64_t priceRaw{0};
     std::int64_t fillPriceE8{0};
+    std::int64_t filledQtyRaw{0};
+    std::int64_t feeRaw{0};
+    std::int64_t realizedPnlRaw{0};
+    std::int64_t positionQtyRaw{0};
+    std::int64_t avgEntryPriceE8{0};
+    std::int64_t walletBalanceRaw{0};
+    std::int64_t availableBalanceRaw{0};
+    std::int64_t equityRaw{0};
     std::uint64_t tsNs{0};
     bool success{false};
 };

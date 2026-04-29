@@ -101,14 +101,14 @@ TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
     chart.setViewport(0, 70000000000ll, e8(90), e8(110));
 
     chart.setRenderWindowSeconds(0);
-    auto snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, true});
+    auto snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false, true});
     EXPECT_EQ(snap.tradeDots.size(), 3u);
     EXPECT_FALSE(snap.bookTickerTrace.samples.empty());
 
     chart.setRenderWindowSeconds(30);
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
     EXPECT_EQ(chart.tsMin(), 31000000000ll);
-    snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, true});
+    snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false, true});
     ASSERT_EQ(snap.tradeDots.size(), 2u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 31000000000ll);
     EXPECT_EQ(snap.tradeDots.back().tsNs, 61000000000ll);
@@ -116,7 +116,7 @@ TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
     chart.setRenderWindowSeconds(-1);
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
     EXPECT_EQ(chart.tsMin(), 60999999999ll);
-    snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, true});
+    snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false, true});
     ASSERT_EQ(snap.tradeDots.size(), 1u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 61000000000ll);
     ASSERT_EQ(snap.bookTickerTrace.samples.size(), 1u);
@@ -131,6 +131,14 @@ TEST(ChartRenderWindow, LoadSessionOpensAtLatestWindowWhenConfigured) {
     writeFile(dir / "trades.jsonl",
               tradeLine(1000000000ll, e8(100), 1)
               + tradeLine(61000000000ll, e8(102), 2));
+    writeFile(dir / "manifest.json", R"json({
+  "manifest_schema_version": 1,
+  "corpus_schema_version": 2,
+  "replay": { "structurally_loadable": true },
+  "channels": {
+    "trades": { "enabled": true, "required_when_enabled": true, "path": "trades.jsonl" }
+  }
+})json");
 
     ChartController chart;
     chart.setRenderWindowSeconds(30);

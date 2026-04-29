@@ -43,6 +43,7 @@ if(HFTREC_WITH_CXET)
     target_sources(hft-recorder-gui
         PRIVATE
             api/ExecutionChartAdapter.cpp
+            api/LocalMarketDataWsServer.cpp
             api/LocalVenueWsServer.cpp
     )
 endif()

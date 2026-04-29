@@ -37,8 +37,9 @@ if(HFTREC_WITH_CXET)
     list(APPEND HFTREC_CORE_SOURCES
         capture/CaptureCoordinatorRuntime.cpp
         cxet_bridge/CxetCaptureBridge.cpp
-        local_exchange/LocalExchangeServer.cpp
+        local_exchange/LocalMarketDataBus.cpp
         local_exchange/LocalOrderEngine.cpp
+        local_exchange/LocalReplayRunner.cpp
     )
 else()
     list(APPEND HFTREC_CORE_SOURCES
@@ -75,5 +76,7 @@ if(HFTREC_WITH_CXET_REPLAY)
 else()
     target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET_REPLAY=0)
 endif()
+
+target_compile_definitions(hftrec_core PUBLIC HFTREC_HOTPATH_METRICS_DEFAULT=${HFTREC_HOTPATH_METRICS_DEFAULT_VALUE})
 
 target_compile_features(hftrec_core PUBLIC cxx_std_23)

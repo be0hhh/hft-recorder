@@ -1,7 +1,9 @@
 #include "core/metrics/Metrics.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <mutex>
@@ -12,6 +14,15 @@
 namespace hftrec::metrics {
 
 namespace {
+
+#if !defined(HFTREC_HOTPATH_METRICS_DEFAULT)
+#define HFTREC_HOTPATH_METRICS_DEFAULT 1
+#endif
+
+std::atomic<bool>& hotPathEnabledStorage() noexcept {
+    static std::atomic<bool> enabled{HFTREC_HOTPATH_METRICS_DEFAULT != 0};
+    return enabled;
+}
 
 struct MetricsState {
     MetricsSnapshot snapshot{};
@@ -25,6 +36,20 @@ MetricsState& state() noexcept {
 std::mutex& stateMutex() noexcept {
     static std::mutex mutex{};
     return mutex;
+}
+
+std::string prometheusLabelValue(const char* raw) {
+    if (raw == nullptr || raw[0] == '\0') return "unknown";
+    std::string out;
+    for (const char* p = raw; *p != '\0'; ++p) {
+        switch (*p) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            default: out.push_back(*p); break;
+        }
+    }
+    return out;
 }
 
 StreamRuntimeMetrics& streamMetrics_(std::string_view stream) {
@@ -86,17 +111,28 @@ void init() noexcept {
 
 void shutdown() noexcept {}
 
+bool hotPathEnabled() noexcept {
+    return hotPathEnabledStorage().load(std::memory_order_acquire);
+}
+
+void setHotPathEnabled(bool enabled) noexcept {
+    hotPathEnabledStorage().store(enabled, std::memory_order_release);
+}
+
 void incEventsCaptured(std::string_view stream) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     ++streamMetrics_(stream).eventsCapturedTotal;
 }
 
 void incEventsDropped(std::string_view stream, std::string_view) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     ++streamMetrics_(stream).eventsDroppedTotal;
 }
 
 void addBytesWritten(std::string_view stream, std::uint64_t n) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     streamMetrics_(stream).bytesWrittenTotal += n;
 }
@@ -107,6 +143,7 @@ void recordCaptureEvent(std::string_view stream,
                         std::uint64_t eventTsNs,
                         std::uint64_t bytesWritten,
                         std::uint64_t writeTsNs) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& metrics = streamMetrics_(stream);
     ++metrics.eventsCapturedTotal;
@@ -116,21 +153,31 @@ void recordCaptureEvent(std::string_view stream,
 }
 
 void recordCaptureWriteError(std::string_view stream) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     ++streamMetrics_(stream).writeErrorsTotal;
 }
 
 void recordSnapshotFetchFailure(std::string_view stream) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     ++streamMetrics_(stream).snapshotFetchFailuresTotal;
 }
 
 void addWsReconnects(std::string_view stream, std::uint64_t n) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     streamMetrics_(stream).wsReconnectsTotal += n;
 }
 
+void recordWsRestart(std::string_view stream) noexcept {
+    if (!hotPathEnabled()) return;
+    std::lock_guard<std::mutex> lock(stateMutex());
+    ++streamMetrics_(stream).wsRestartsTotal;
+}
+
 void recordReplayLoad(std::size_t rowsLoaded, std::uint64_t loadNs) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     ++state().snapshot.replay.sessionLoadsTotal;
     state().snapshot.replay.rowsLoadedTotal += static_cast<std::uint64_t>(rowsLoaded);
@@ -138,11 +185,13 @@ void recordReplayLoad(std::size_t rowsLoaded, std::uint64_t loadNs) noexcept {
 }
 
 void recordReplaySeek() noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     ++state().snapshot.replay.replaySeekCountTotal;
 }
 
 void recordReplayParseFailure(std::string_view source) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& replay = state().snapshot.replay;
     ++replay.replayParseFailuresTotal;
@@ -153,6 +202,7 @@ void recordValidationRun(std::size_t eventsTotal,
                          std::size_t eventsExactMatch,
                          std::size_t eventsMismatch,
                          std::uint64_t runNs) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& metrics = state().snapshot.validation;
     ++metrics.runsTotal;
@@ -167,6 +217,7 @@ void recordLabRun(std::size_t inputBytes,
                   std::uint64_t encodeNs,
                   std::uint64_t decodeNs,
                   bool roundtripFailed) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& metrics = state().snapshot.lab;
     ++metrics.runsTotal;
@@ -184,6 +235,7 @@ void setLiveRows(std::uint64_t trades,
                  std::uint64_t bookTickers,
                  std::uint64_t depths,
                  std::uint64_t snapshots) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& live = state().snapshot.live;
     live.tradesRows = trades;
@@ -194,18 +246,21 @@ void setLiveRows(std::uint64_t trades,
 }
 
 void recordLivePoll(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& live = state().snapshot.live;
     addLatency(ns, live.pollCountTotal, live.pollNsTotal, live.pollNsMax);
 }
 
 void recordLiveMaterialize(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& live = state().snapshot.live;
     addLatency(ns, live.materializeCountTotal, live.materializeNsTotal, live.materializeNsMax);
 }
 
 void recordLiveJsonTailParse(std::uint64_t ns, std::string_view source) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& live = state().snapshot.live;
     addLatency(ns, live.jsonTailParseCountTotal, live.jsonTailParseNsTotal, live.jsonTailParseNsMax);
@@ -218,6 +273,7 @@ void recordLiveJsonTailParse(std::uint64_t ns, std::string_view source) noexcept
 }
 
 void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndTsc) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     ++gui.frameTotal;
@@ -235,53 +291,62 @@ void recordGuiPaint(std::uint64_t ns, std::uint64_t frameEndTsc) noexcept {
 }
 
 void recordGuiSnapshotBuild(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.snapshotBuildCountTotal, gui.snapshotBuildNsTotal, gui.snapshotBuildNsMax);
 }
 
 void recordGuiLiveSnapshotBuild(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.liveSnapshotBuildCountTotal, gui.liveSnapshotBuildNsTotal, gui.liveSnapshotBuildNsMax);
 }
 
 void recordGuiLiveSnapshotDraw(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.liveSnapshotDrawCountTotal, gui.liveSnapshotDrawNsTotal, gui.liveSnapshotDrawNsMax);
 }
 
 void recordGuiRenderOrderbook(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.renderOrderbookCountTotal, gui.renderOrderbookNsTotal, gui.renderOrderbookNsMax);
 }
 
 void recordGuiRenderBookTicker(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.renderBookTickerCountTotal, gui.renderBookTickerNsTotal, gui.renderBookTickerNsMax);
 }
 
 void recordGuiRenderTrades(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.renderTradesCountTotal, gui.renderTradesNsTotal, gui.renderTradesNsMax);
 }
 
 void recordGuiOverlayRender(std::uint64_t ns) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     addLatency(ns, gui.overlayRenderCountTotal, gui.overlayRenderNsTotal, gui.overlayRenderNsMax);
 }
 
 void incGuiLayerCacheHit() noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     ++state().snapshot.gui.layerCacheHitTotal;
 }
 
 void incGuiLayerCacheRebuild() noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     ++state().snapshot.gui.layerCacheRebuildTotal;
 }
@@ -291,6 +356,7 @@ void setGuiObjectCounts(std::uint64_t orderbookSegments,
                         std::uint64_t bookTickerSamples,
                         std::uint64_t tradeDots,
                         std::uint64_t liquidationDots) noexcept {
+    if (!hotPathEnabled()) return;
     std::lock_guard<std::mutex> lock(stateMutex());
     auto& gui = state().snapshot.gui;
     gui.orderbookSegments = orderbookSegments;
@@ -309,6 +375,8 @@ void renderPrometheus(std::string& out) noexcept {
     const MetricsSnapshot snap = snapshot();
     const std::uint64_t rssBytes = parseStatusBytes("VmRSS:");
     const std::uint64_t vmSizeBytes = parseStatusBytes("VmSize:");
+    const std::string buildCompiler = prometheusLabelValue(std::getenv("HFTREC_BUILD_COMPILER"));
+    const std::string buildCxx = prometheusLabelValue(std::getenv("HFTREC_BUILD_CXX"));
     const auto avg = [](std::uint64_t total, std::uint64_t count) noexcept -> std::uint64_t {
         return count == 0u ? 0u : total / count;
     };
@@ -320,6 +388,12 @@ void renderPrometheus(std::string& out) noexcept {
         out.push_back('\n');
     };
 
+    out += "hftrec_build_info{compiler=\"";
+    out += buildCompiler;
+    out += "\",cxx=\"";
+    out += buildCxx;
+    out += "\"} 1\n";
+
     char buf[1024];
     for (const auto& stream : snap.streams) {
         std::snprintf(buf, sizeof(buf),
@@ -329,6 +403,7 @@ void renderPrometheus(std::string& out) noexcept {
                       "hftrec_stream_write_errors_total{stream=\"%s\"} %llu\n"
                       "hftrec_stream_snapshot_fetch_failures_total{stream=\"%s\"} %llu\n"
                       "hftrec_stream_ws_reconnects_total{stream=\"%s\"} %llu\n"
+                      "hftrec_stream_ws_restarts_total{stream=\"%s\"} %llu\n"
                       "hftrec_stream_last_event_ts_ns{stream=\"%s\"} %llu\n"
                       "hftrec_stream_last_write_ts_ns{stream=\"%s\"} %llu\n",
                       stream.stream.c_str(), static_cast<unsigned long long>(stream.eventsCapturedTotal),
@@ -337,6 +412,7 @@ void renderPrometheus(std::string& out) noexcept {
                       stream.stream.c_str(), static_cast<unsigned long long>(stream.writeErrorsTotal),
                       stream.stream.c_str(), static_cast<unsigned long long>(stream.snapshotFetchFailuresTotal),
                       stream.stream.c_str(), static_cast<unsigned long long>(stream.wsReconnectsTotal),
+                      stream.stream.c_str(), static_cast<unsigned long long>(stream.wsRestartsTotal),
                       stream.stream.c_str(), static_cast<unsigned long long>(stream.lastEventTsNs),
                       stream.stream.c_str(), static_cast<unsigned long long>(stream.lastWriteTsNs));
         out += buf;
@@ -425,5 +501,4 @@ void renderPrometheus(std::string& out) noexcept {
     appendMetric("hftrec_gui_last_frame_tsc", snap.gui.lastFrameTsc);
 }
 }  // namespace hftrec::metrics
-
 

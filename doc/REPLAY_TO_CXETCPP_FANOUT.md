@@ -1,5 +1,18 @@
 # hft-recorder - replay to CXETCPP fanout
 
+Canonical local exchange docs now live in:
+
+- `LOCAL_EXCHANGE_OVERVIEW.md`
+- `LOCAL_EXCHANGE_EXECUTION_MODEL.md`
+- `LOCAL_EXCHANGE_PROTOCOLS.md`
+- `LOCAL_EXCHANGE_REPLAY_AND_FANOUT.md`
+- `LOCAL_EXCHANGE_CONFIG.md`
+- `LOCAL_EXCHANGE_TESTING.md`
+
+This file remains the focused fanout contract. If there is a conflict, the
+`LOCAL_EXCHANGE_*` docs are the newer source of truth for the full local venue
+simulation direction.
+
 ## Purpose
 
 This document freezes the intended contract for recorded-session replay as a
@@ -118,8 +131,14 @@ session files, or include recorder DTOs.
 The first local market-data wire protocol should be recorder/CXET-owned, not a
 fake Binance protocol:
 
+The implemented first step reuses the recorder compact JSON arrays directly over
+local WebSocket paths. The protocol is selected by query string:
+
 ```text
-hftrecorder.marketdata.v1
+/api/v1/local-marketdata/ws?channel=trades&symbol=btcusdt
+/api/v1/local-marketdata/ws?channel=bookticker&symbol=btcusdt
+/api/v1/local-marketdata/ws?channel=orderbook.delta&symbol=btcusdt
+/api/v1/local-marketdata/ws?channel=funding&symbol=btcusdt
 ```
 
 Rationale:
@@ -134,23 +153,24 @@ Rationale:
 The local market-data protocol is domain data only. It must not carry GUI draw
 commands, chart settings, compression settings, or recorder file paths.
 
-Minimum v1 event families:
+Implemented v1 event families:
 
-- `trade` from canonical `trades.jsonl` rows;
+- `trades` from canonical `trades.jsonl` rows;
 - `bookticker` from canonical `bookticker.jsonl` rows;
-- `depth_delta` after snapshot/delta replay integrity is enforced;
-- `snapshot_anchor` for replay state anchoring, not as a tick-by-tick stream.
+- `orderbook.delta` from canonical `depth.jsonl` rows;
+- `orderbook.snapshot` from canonical snapshot documents;
+- `funding` reserved for future funding rows.
 
-Minimum v1 metadata per event:
+Implemented payloads intentionally carry no envelope or metadata because the
+recorder files already use compact arrays and CXET route metadata carries
+exchange/market/symbol:
 
-- `protocol`;
-- `event_type`;
-- `session_id`;
-- `exchange_raw` and `market_raw` for the local source;
-- `symbol`;
-- `ts_ns`;
-- `ingest_seq`;
-- `source_quality`, `source_format`, `origin`, and `feed_kind` when available.
+```text
+trades:          [priceE8, qtyE8, side, tsNs]
+bookticker:      [bidPriceE8, bidQtyE8, askPriceE8, askQtyE8, tsNs]
+orderbook:       [[priceE8, qtyE8, side], ..., tsNs]
+funding future:  [rateE8, nextFundingTsNs, tsNs]
+```
 
 ## Replay clock contract
 
@@ -233,4 +253,3 @@ storage paths. No compressor code should depend on CXETCPP internals.
 - Removing canonical JSONL while keeping valid `.hfc` artifacts still works once
   compressed replay is enabled, without materializing decoded 10 GB sessions in
   memory.
-

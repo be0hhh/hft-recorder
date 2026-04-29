@@ -17,7 +17,6 @@ if(HFTREC_WITH_CXET)
     list(APPEND HFTREC_UNIT_TEST_SOURCES
         test_capture_coordinator.cpp
         test_cxet_capture_bridge.cpp
-        test_local_exchange_server.cpp
         test_local_order_engine.cpp
     )
 endif()

@@ -52,10 +52,9 @@ bool CaptureViewModel::startTrades() {
 
 void CaptureViewModel::stopTrades() {
     for (auto& coordinator : coordinators_) {
-        if (coordinator) coordinator->stopTrades();
+        if (coordinator) coordinator->requestStopTrades();
     }
-    setStatusText(QStringLiteral("Trades capture stopped"));
-    registerLiveSources_();
+    setStatusText(QStringLiteral("Trades stop requested"));
     refreshState();
 }
 
@@ -83,10 +82,9 @@ bool CaptureViewModel::startLiquidations() {
 
 void CaptureViewModel::stopLiquidations() {
     for (auto& coordinator : coordinators_) {
-        if (coordinator) coordinator->stopLiquidations();
+        if (coordinator) coordinator->requestStopLiquidations();
     }
-    setStatusText(QStringLiteral("Liquidations capture stopped"));
-    registerLiveSources_();
+    setStatusText(QStringLiteral("Liquidations stop requested"));
     refreshState();
 }
 bool CaptureViewModel::startBookTicker() {
@@ -113,10 +111,9 @@ bool CaptureViewModel::startBookTicker() {
 
 void CaptureViewModel::stopBookTicker() {
     for (auto& coordinator : coordinators_) {
-        if (coordinator) coordinator->stopBookTicker();
+        if (coordinator) coordinator->requestStopBookTicker();
     }
-    setStatusText(QStringLiteral("BookTicker capture stopped"));
-    registerLiveSources_();
+    setStatusText(QStringLiteral("BookTicker stop requested"));
     refreshState();
 }
 
@@ -144,10 +141,9 @@ bool CaptureViewModel::startOrderbook() {
 
 void CaptureViewModel::stopOrderbook() {
     for (auto& coordinator : coordinators_) {
-        if (coordinator) coordinator->stopOrderbook();
+        if (coordinator) coordinator->requestStopOrderbook();
     }
-    setStatusText(QStringLiteral("Orderbook capture stopped"));
-    registerLiveSources_();
+    setStatusText(QStringLiteral("Orderbook stop requested"));
     refreshState();
 }
 
@@ -197,13 +193,12 @@ bool CaptureViewModel::startAllChannels() {
 void CaptureViewModel::stopAllChannels() {
     for (auto& coordinator : coordinators_) {
         if (!coordinator) continue;
-        coordinator->stopTrades();
-        coordinator->stopLiquidations();
-        coordinator->stopBookTicker();
-        coordinator->stopOrderbook();
+        coordinator->requestStopTrades();
+        coordinator->requestStopLiquidations();
+        coordinator->requestStopBookTicker();
+        coordinator->requestStopOrderbook();
     }
-    setStatusText(QStringLiteral("All capture channels stopped"));
-    registerLiveSources_();
+    setStatusText(QStringLiteral("All capture channels stop requested"));
     refreshState();
 }
 
@@ -328,4 +323,3 @@ QString CaptureViewModel::joinCoordinatorErrors_() const {
 }
 
 }  // namespace hftrec::gui
-
