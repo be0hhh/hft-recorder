@@ -172,8 +172,10 @@ class CompressionViewModel : public QObject {
     void appendVerifyRow_(const QVariantMap& row);
     void applyResult_(const hft_compressor::CompressionResult& result);
     void applyResults_(const std::vector<hft_compressor::CompressionResult>& results);
+    void applyPythonResult_(const QVariantMap& result);
     void applyVerifyResult_(const hft_compressor::DecodeVerifyResult& result);
     void applyVerifyResults_(const std::vector<hft_compressor::DecodeVerifyResult>& results);
+    void applyPythonVerifyResult_(const QVariantMap& result);
     QVariantMap resultRow_(const hft_compressor::CompressionResult& result) const;
     QVariantMap verifyRow_(const hft_compressor::DecodeVerifyResult& result) const;
     QVariantMap metricsRow_(const QString& metricsPath) const;

@@ -6,13 +6,16 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QLocale>
 #include <QMetaObject>
 #include <QPointer>
+#include <QProcess>
 #include <QTextStream>
 #include <QVariantMap>
+#include <QDirIterator>
 
 #include <algorithm>
 #include <array>
@@ -25,6 +28,10 @@
 
 namespace hftrec::gui {
 namespace {
+
+#ifndef HFT_COMPRESSOR_SOURCE_DIR
+#define HFT_COMPRESSOR_SOURCE_DIR "../hft-compressor"
+#endif
 
 QString mbps(double value) {
     return QLocale().toString(value, 'f', 2) + QStringLiteral(" MB/s");
@@ -46,6 +53,93 @@ QString viewString(std::string_view value) {
     return QString::fromUtf8(value.data(), static_cast<qsizetype>(value.size()));
 }
 
+QString displayProfile(const QString& profile);
+QString jsonString(const QJsonObject& object, const char* key);
+
+QString variantString(const QVariantMap& map, const QString& key, const QString& fallback = QString{}) {
+    const QString value = map.value(key).toString();
+    return value.isEmpty() ? fallback : value;
+}
+
+bool variantBool(const QVariantMap& map, const QString& key, bool fallback = false) {
+    return map.contains(key) ? map.value(key).toBool() : fallback;
+}
+
+double variantDouble(const QVariantMap& map, const QString& key, double fallback = 0.0) {
+    bool ok = false;
+    const double value = map.value(key).toDouble(&ok);
+    return ok ? value : fallback;
+}
+
+bool isPythonPipelineId(const QString& pipelineId) {
+    return pipelineId.startsWith(QStringLiteral("py."));
+}
+
+QString pythonCodecDir() {
+    return QDir(QStringLiteral(HFT_COMPRESSOR_SOURCE_DIR)).absoluteFilePath(QStringLiteral("src/codecs/python"));
+}
+
+QString pythonCodecCliPath() {
+    return QDir(pythonCodecDir()).absoluteFilePath(QStringLiteral("cli.py"));
+}
+
+QJsonDocument runPythonCodecCli(const QStringList& args, int timeoutMs = 120000) {
+    QProcess process;
+    process.setProgram(QStringLiteral("python3"));
+    process.setArguments(QStringList{pythonCodecCliPath()} + args);
+    process.setWorkingDirectory(pythonCodecDir());
+    process.start();
+    if (!process.waitForStarted(5000)) return {};
+    if (!process.waitForFinished(timeoutMs)) {
+        process.kill();
+        process.waitForFinished(1000);
+        return {};
+    }
+    const QByteArray output = process.readAllStandardOutput();
+    QJsonParseError error{};
+    const QJsonDocument document = QJsonDocument::fromJson(output, &error);
+    return error.error == QJsonParseError::NoError ? document : QJsonDocument{};
+}
+
+QVariantList pythonCodecPipelineRows() {
+    QVariantList out;
+    const QJsonDocument document = runPythonCodecCli(QStringList{QStringLiteral("list")}, 30000);
+    if (!document.isArray()) return out;
+    for (const auto& value : document.array()) {
+        const QJsonObject object = value.toObject();
+        const QString id = object.value(QStringLiteral("id")).toString();
+        if (id.isEmpty()) continue;
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), id);
+        row.insert(QStringLiteral("label"), object.value(QStringLiteral("label")).toString(id));
+        row.insert(QStringLiteral("streamScope"), QStringLiteral("all"));
+        row.insert(QStringLiteral("representation"), QStringLiteral("jsonl_bytes"));
+        row.insert(QStringLiteral("transform"), QStringLiteral("raw_jsonl"));
+        row.insert(QStringLiteral("entropy"), object.value(QStringLiteral("module")).toString(id));
+        row.insert(QStringLiteral("profile"), QStringLiteral("research"));
+        row.insert(QStringLiteral("profileLabel"), displayProfile(QStringLiteral("research")));
+        row.insert(QStringLiteral("implementationKind"), QStringLiteral("python"));
+        row.insert(QStringLiteral("group"), QStringLiteral("Python prototypes"));
+        const bool available = object.value(QStringLiteral("available")).toBool(false);
+        row.insert(QStringLiteral("availability"), available ? QStringLiteral("available") : QStringLiteral("dependency_unavailable"));
+        row.insert(QStringLiteral("availabilityReason"), object.value(QStringLiteral("availability_reason")).toString());
+        row.insert(QStringLiteral("available"), available);
+        row.insert(QStringLiteral("outputSlug"), object.value(QStringLiteral("slug")).toString(id));
+        row.insert(QStringLiteral("fileExtension"), object.value(QStringLiteral("extension")).toString());
+        row.insert(QStringLiteral("summary"), QStringLiteral("all | jsonl_bytes | raw_jsonl | %1").arg(row.value(QStringLiteral("entropy")).toString()));
+        out.push_back(row);
+    }
+    return out;
+}
+
+QVariantMap findPythonPipelineRow(const QString& pipelineId) {
+    for (const auto& value : pythonCodecPipelineRows()) {
+        const QVariantMap row = value.toMap();
+        if (row.value(QStringLiteral("id")).toString() == pipelineId) return row;
+    }
+    return {};
+}
+
 const hft_compressor::PipelineDescriptor* findPipeline(const QString& pipelineId) {
     return hft_compressor::findPipeline(pipelineId.toStdString());
 }
@@ -59,14 +153,28 @@ QString pipelineSummary(const hft_compressor::PipelineDescriptor& pipeline) {
 }
 QString pipelineLabelFor(const QString& pipelineId) {
     const auto* pipeline = findPipeline(pipelineId);
-    return pipeline == nullptr ? pipelineId : viewString(pipeline->label);
+    if (pipeline != nullptr) return viewString(pipeline->label);
+    const QVariantMap python = findPythonPipelineRow(pipelineId);
+    return python.isEmpty() ? pipelineId : variantString(python, QStringLiteral("label"), pipelineId);
 }
 
 QString pipelineFileExtensionFor(const QString& pipelineId) {
     const auto* pipeline = findPipeline(pipelineId);
-    return pipeline == nullptr || pipeline->fileExtension.empty()
-        ? QStringLiteral(".hfc")
-        : viewString(pipeline->fileExtension);
+    if (pipeline != nullptr && !pipeline->fileExtension.empty()) return viewString(pipeline->fileExtension);
+    const QVariantMap python = findPythonPipelineRow(pipelineId);
+    const QString extension = python.value(QStringLiteral("fileExtension")).toString();
+    return extension.isEmpty() ? QStringLiteral(".hfc") : extension;
+}
+
+QString pythonOutputSlugFor(const QString& pipelineId) {
+    const QVariantMap python = findPythonPipelineRow(pipelineId);
+    const QString slug = python.value(QStringLiteral("outputSlug")).toString();
+    return slug.isEmpty() ? QString(pipelineId).replace('.', '-') : slug;
+}
+
+double mbpsValue(std::uint64_t bytes, std::uint64_t ns) {
+    if (ns == 0u) return 0.0;
+    return (static_cast<double>(bytes) / (1024.0 * 1024.0)) / (static_cast<double>(ns) / 1000000000.0);
 }
 
 QString artifactPathFromMetricsPath(const QString& metricsPath, const QString& pipelineId, const QString& metricsSuffix) {
@@ -101,6 +209,21 @@ QString displayProfile(const QString& profile) {
     return QStringLiteral("Archive");
 }
 
+QString normalizedPipelineId(const QJsonObject& object) {
+    const QString pipelineId = jsonString(object, "pipeline_id");
+    return pipelineId.isEmpty() ? jsonString(object, "codec_id") : pipelineId;
+}
+
+QString normalizedInputPath(const QJsonObject& object) {
+    const QString path = jsonString(object, "input_path");
+    return path.isEmpty() ? jsonString(object, "canonical_path") : path;
+}
+
+QString normalizedOutputPath(const QJsonObject& object) {
+    const QString path = jsonString(object, "output_path");
+    return path.isEmpty() ? jsonString(object, "artifact_path") : path;
+}
+
 QString groupForPipeline(const hft_compressor::PipelineDescriptor& pipeline) {
     const QString id = viewString(pipeline.id);
     const QString transform = viewString(pipeline.transform);
@@ -115,6 +238,16 @@ QString groupForPipeline(const hft_compressor::PipelineDescriptor& pipeline) {
     }
     return QStringLiteral("Research pipelines");
 }
+
+bool isCompressTablePipeline(const hft_compressor::PipelineDescriptor& pipeline) {
+    return pipeline.availability != hft_compressor::PipelineAvailability::NotImplemented;
+}
+
+bool pipelineMatchesChannel(const hft_compressor::PipelineDescriptor& pipeline, const QString& channel) {
+    const QString scope = viewString(pipeline.streamScope);
+    return scope == QStringLiteral("all") || scope == channel;
+}
+
 std::uint64_t jsonUInt64(const QJsonObject& object, const char* key) {
     const auto value = object.value(QString::fromLatin1(key));
     if (value.isDouble()) return static_cast<std::uint64_t>(value.toDouble());
@@ -307,8 +440,11 @@ QVariantList CompressionViewModel::rowsForSelectedChannel_(const QVariantList& r
 QString CompressionViewModel::firstAvailablePipelineId_() const {
     for (const auto& pipeline : hft_compressor::listPipelines()) {
         if (pipeline.availability != hft_compressor::PipelineAvailability::Available) continue;
-        const QString scope = viewString(pipeline.streamScope);
-        if (scope == QStringLiteral("all") || scope == selectedChannel_) return viewString(pipeline.id);
+        if (pipelineMatchesChannel(pipeline, selectedChannel_)) return viewString(pipeline.id);
+    }
+    for (const auto& value : pythonCodecPipelineRows()) {
+        const QVariantMap row = value.toMap();
+        if (variantBool(row, QStringLiteral("available"))) return row.value(QStringLiteral("id")).toString();
     }
     return {};
 }
@@ -370,9 +506,8 @@ QVariantList CompressionViewModel::outputRootChoices() const {
 QVariantList CompressionViewModel::pipelines() const {
     QVariantList out;
     for (const auto& pipeline : hft_compressor::listPipelines()) {
-        if (pipeline.availability != hft_compressor::PipelineAvailability::Available) continue;
-        const QString scope = viewString(pipeline.streamScope);
-        if (scope != QStringLiteral("all") && scope != selectedChannel_) continue;
+        if (!isCompressTablePipeline(pipeline)) continue;
+        if (!pipelineMatchesChannel(pipeline, selectedChannel_)) continue;
         QVariantMap row;
         row.insert(QStringLiteral("id"), viewString(pipeline.id));
         row.insert(QStringLiteral("label"), viewString(pipeline.label));
@@ -390,6 +525,7 @@ QVariantList CompressionViewModel::pipelines() const {
         row.insert(QStringLiteral("summary"), pipelineSummary(pipeline));
         out.push_back(row);
     }
+    for (const auto& value : pythonCodecPipelineRows()) out.push_back(value);
     return out;
 }
 
@@ -406,9 +542,17 @@ QVariantList CompressionViewModel::pipelineGroups() const {
         int total = 0;
         int available = 0;
         for (const auto& pipeline : hft_compressor::listPipelines()) {
+            if (!isCompressTablePipeline(pipeline)) continue;
             if (groupForPipeline(pipeline) != name) continue;
             ++total;
             if (pipeline.availability == hft_compressor::PipelineAvailability::Available) ++available;
+        }
+        if (name == QStringLiteral("Python prototypes")) {
+            for (const auto& value : pythonCodecPipelineRows()) {
+                const QVariantMap pipeline = value.toMap();
+                ++total;
+                if (variantBool(pipeline, QStringLiteral("available"))) ++available;
+            }
         }
         row.insert(QStringLiteral("label"), name);
         row.insert(QStringLiteral("total"), total);
@@ -473,14 +617,17 @@ QString CompressionViewModel::selectedPipelineLabel() const {
 
 QString CompressionViewModel::selectedPipelineSummary() const {
     const auto* pipeline = findPipeline(selectedPipelineId_);
-    return pipeline == nullptr ? QString{} : pipelineSummary(*pipeline);
+    if (pipeline != nullptr) return pipelineSummary(*pipeline);
+    return findPythonPipelineRow(selectedPipelineId_).value(QStringLiteral("summary")).toString();
 }
 
 bool CompressionViewModel::selectedPipelineAvailable() const {
+    if (isPythonPipelineId(selectedPipelineId_)) {
+        return variantBool(findPythonPipelineRow(selectedPipelineId_), QStringLiteral("available"));
+    }
     const auto* pipeline = findPipeline(selectedPipelineId_);
     if (pipeline == nullptr || pipeline->availability != hft_compressor::PipelineAvailability::Available) return false;
-    const QString scope = viewString(pipeline->streamScope);
-    return scope == QStringLiteral("all") || scope == selectedChannel_;
+    return pipelineMatchesChannel(*pipeline, selectedChannel_);
 }
 
 QString CompressionViewModel::inferredStream() const {
@@ -639,9 +786,12 @@ bool CompressionViewModel::hasEncodedArtifact(const QString& pipelineId) const {
 QString CompressionViewModel::firstEncodedPipelineId() const {
     for (const auto& pipeline : hft_compressor::listPipelines()) {
         if (pipeline.availability != hft_compressor::PipelineAvailability::Available) continue;
-        const QString scope = viewString(pipeline.streamScope);
-        if (scope != QStringLiteral("all") && scope != selectedChannel_) continue;
+        if (!pipelineMatchesChannel(pipeline, selectedChannel_)) continue;
         const QString id = viewString(pipeline.id);
+        if (encodedArtifactExists_(selectedChannel_, id)) return id;
+    }
+    for (const auto& value : pythonCodecPipelineRows()) {
+        const QString id = value.toMap().value(QStringLiteral("id")).toString();
         if (encodedArtifactExists_(selectedChannel_, id)) return id;
     }
     return {};
@@ -767,6 +917,42 @@ QVariantMap CompressionViewModel::previewArtifact(const QString& path) const {
 
 void CompressionViewModel::runCompression() {
     if (!canRun()) return;
+    if (isPythonPipelineId(selectedPipelineId_)) {
+        const QString input = inputFile();
+        const QString output = outputRoot();
+        const QString pipelineId = selectedPipelineId_;
+        running_ = true;
+        statusText_ = QStringLiteral("Кодирование Python выполняется...");
+        emit runningChanged();
+        emit resultChanged();
+        emit canRunChanged();
+        emit canDecodeVerifyChanged();
+
+        QPointer<CompressionViewModel> self(this);
+        std::thread([self, input, output, pipelineId]() {
+            const QJsonDocument document = runPythonCodecCli(QStringList{
+                QStringLiteral("compress"),
+                input,
+                QStringLiteral("--codec"),
+                pipelineId,
+                QStringLiteral("--output-root"),
+                output,
+            }, 600000);
+            QVariantMap result = document.isObject() ? document.object().toVariantMap() : QVariantMap{};
+            if (result.isEmpty()) {
+                result.insert(QStringLiteral("status"), QStringLiteral("decode_error"));
+                result.insert(QStringLiteral("ok"), false);
+                result.insert(QStringLiteral("codec_id"), pipelineId);
+                result.insert(QStringLiteral("input_path"), input);
+                result.insert(QStringLiteral("error"), QStringLiteral("Python codec process failed"));
+            }
+            if (!self) return;
+            QMetaObject::invokeMethod(self, [self, result]() {
+                if (self) self->applyPythonResult_(result);
+            }, Qt::QueuedConnection);
+        }).detach();
+        return;
+    }
     hft_compressor::CompressionRequest request{};
     request.inputPath = inputFile().toStdString();
     request.outputPathOverride = outputFilePreview().toStdString();
@@ -794,6 +980,63 @@ void CompressionViewModel::runAllAvailableChannels() {
 
 void CompressionViewModel::decodeVerifySelected() {
     if (!canDecodeVerify()) return;
+    if (isPythonPipelineId(selectedPipelineId_)) {
+        const QString artifact = encodedArtifactPath_(selectedChannel_, selectedPipelineId_);
+        const QString canonical = inputFile();
+        const QString pipelineId = selectedPipelineId_;
+        verifying_ = true;
+        verifyStatusText_ = QStringLiteral("Python декодирование и проверка выполняются...");
+        QVariantMap pendingRow;
+        pendingRow.insert(QStringLiteral("pipelineId"), pipelineId);
+        pendingRow.insert(QStringLiteral("pipelineLabel"), selectedPipelineLabel());
+        pendingRow.insert(QStringLiteral("stream"), selectedChannel_);
+        pendingRow.insert(QStringLiteral("streamLabel"), displayChannel(selectedChannel_));
+        pendingRow.insert(QStringLiteral("status"), QStringLiteral("running"));
+        pendingRow.insert(QStringLiteral("ok"), false);
+        pendingRow.insert(QStringLiteral("verified"), false);
+        pendingRow.insert(QStringLiteral("exactText"), QStringLiteral("running"));
+        pendingRow.insert(QStringLiteral("decodeMbPerSec"), 0.0);
+        pendingRow.insert(QStringLiteral("decodeText"), QStringLiteral("декодирую..."));
+        pendingRow.insert(QStringLiteral("decodedSizeText"), QStringLiteral("0 bytes"));
+        pendingRow.insert(QStringLiteral("canonicalSizeText"), bytesText(static_cast<std::uint64_t>(QFileInfo(canonical).size())));
+        pendingRow.insert(QStringLiteral("sizeText"), QStringLiteral("декодирование выполняется"));
+        pendingRow.insert(QStringLiteral("mismatchPercent"), 0.0);
+        pendingRow.insert(QStringLiteral("mismatchPercentText"), QStringLiteral("0.00%"));
+        pendingRow.insert(QStringLiteral("compressedFile"), artifact);
+        pendingRow.insert(QStringLiteral("canonicalFile"), canonical);
+        pendingRow.insert(QStringLiteral("source"), QStringLiteral("running"));
+        appendVerifyRow_(pendingRow);
+        emit verifyingChanged();
+        emit verifyResultChanged();
+        emit verifyRowsChanged();
+        emit channelStatsChanged();
+        emit canDecodeVerifyChanged();
+
+        QPointer<CompressionViewModel> self(this);
+        std::thread([self, artifact, canonical, pipelineId]() {
+            const QJsonDocument document = runPythonCodecCli(QStringList{
+                QStringLiteral("verify"),
+                artifact,
+                canonical,
+                QStringLiteral("--codec"),
+                pipelineId,
+            }, 600000);
+            QVariantMap result = document.isObject() ? document.object().toVariantMap() : QVariantMap{};
+            if (result.isEmpty()) {
+                result.insert(QStringLiteral("status"), QStringLiteral("decode_error"));
+                result.insert(QStringLiteral("ok"), false);
+                result.insert(QStringLiteral("codec_id"), pipelineId);
+                result.insert(QStringLiteral("artifact_path"), artifact);
+                result.insert(QStringLiteral("canonical_path"), canonical);
+                result.insert(QStringLiteral("error"), QStringLiteral("Python codec process failed"));
+            }
+            if (!self) return;
+            QMetaObject::invokeMethod(self, [self, result]() {
+                if (self) self->applyPythonVerifyResult_(result);
+            }, Qt::QueuedConnection);
+        }).detach();
+        return;
+    }
     hft_compressor::DecodeVerifyRequest request{};
     request.compressedPath = encodedArtifactPath_(selectedChannel_, selectedPipelineId_).toStdString();
     request.canonicalPath = inputFile().toStdString();
@@ -878,10 +1121,15 @@ QString CompressionViewModel::outputFilePreviewFor_(const QString& channel) cons
     const QString root = outputRoot();
     QString baseName = channelFileName_(channel);
     if (root.isEmpty() || baseName.isEmpty()) return {};
-    const auto* pipeline = findPipeline(selectedPipelineId_);
-    const QString extension = pipeline == nullptr || pipeline->fileExtension.empty()
-        ? QStringLiteral(".hfc")
-        : viewString(pipeline->fileExtension);
+    if (isPythonPipelineId(selectedPipelineId_)) {
+        baseName.replace(QStringLiteral(".jsonl"), QStringLiteral(".pylab%1").arg(pipelineFileExtensionFor(selectedPipelineId_)));
+        const QString pythonSessionId = QFileInfo(inputFile()).dir().dirName().isEmpty()
+            ? QStringLiteral("manual")
+            : QFileInfo(inputFile()).dir().dirName();
+        return QDir(root).absoluteFilePath(QStringLiteral("%1/sessions/%2/%3")
+            .arg(pythonOutputSlugFor(selectedPipelineId_), pythonSessionId, baseName));
+    }
+    const QString extension = pipelineFileExtensionFor(selectedPipelineId_);
     const QString safePipelineId = selectedPipelineId_.trimmed().isEmpty()
         ? QStringLiteral("unknown")
         : QString(selectedPipelineId_).replace('.', '_');
@@ -910,28 +1158,16 @@ bool CompressionViewModel::encodedArtifactExists_(const QString& channel, const 
 QString CompressionViewModel::verifyFilePreviewFor_(const QString& channel) const {
     const QString encodedPath = encodedArtifactPath_(channel, selectedPipelineId_);
     if (!encodedPath.isEmpty()) return encodedPath;
-    const QString root = outputRoot();
-    QString baseName = channelFileName_(channel);
-    if (root.isEmpty() || baseName.isEmpty()) return {};
-    const auto* pipeline = findPipeline(selectedPipelineId_);
-    const QString extension = pipeline == nullptr || pipeline->fileExtension.empty()
-        ? QStringLiteral(".hfc")
-        : viewString(pipeline->fileExtension);
-    const QString safePipelineId = selectedPipelineId_.trimmed().isEmpty()
-        ? QStringLiteral("unknown")
-        : QString(selectedPipelineId_).replace('.', '_');
-    baseName.replace(QStringLiteral(".jsonl"), QStringLiteral(".%1%2").arg(safePipelineId, extension));
-    return QDir(root).absoluteFilePath(baseName);
+    return outputFilePreviewFor_(channel);
 }
 
 void CompressionViewModel::reloadStoredRunRows_() {
     runRows_.clear();
     const QString root = outputRoot();
     if (!root.isEmpty()) {
-        QDir dir(root);
-        const auto files = dir.entryList(QStringList{QStringLiteral("*.metrics.json")}, QDir::Files, QDir::Name);
-        for (const auto& file : files) {
-            const QVariantMap row = metricsRow_(dir.absoluteFilePath(file));
+        QDirIterator it(root, QStringList{QStringLiteral("*.metrics.json")}, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QVariantMap row = metricsRow_(it.next());
             if (!row.isEmpty()) runRows_.push_back(row);
         }
     }
@@ -943,10 +1179,9 @@ void CompressionViewModel::reloadStoredVerifyRows_() {
     verifyRows_.clear();
     const QString root = outputRoot();
     if (!root.isEmpty()) {
-        QDir dir(root);
-        const auto files = dir.entryList(QStringList{QStringLiteral("*.verify.json")}, QDir::Files, QDir::Name);
-        for (const auto& file : files) {
-            const QVariantMap row = verifyMetricsRow_(dir.absoluteFilePath(file));
+        QDirIterator it(root, QStringList{QStringLiteral("*.verify.json")}, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QVariantMap row = verifyMetricsRow_(it.next());
             if (!row.isEmpty()) verifyRows_.push_back(row);
         }
     }
@@ -1018,6 +1253,69 @@ void CompressionViewModel::applyResults_(const std::vector<hft_compressor::Compr
     emit artifactAvailabilityChanged();
 }
 
+void CompressionViewModel::applyPythonResult_(const QVariantMap& result) {
+    const QString pipelineId = variantString(result, QStringLiteral("codec_id"), selectedPipelineId_);
+    const QString stream = variantString(result, QStringLiteral("stream"), selectedChannel_);
+    const auto inputBytes = static_cast<std::uint64_t>(result.value(QStringLiteral("input_bytes")).toULongLong());
+    const auto outputBytes = static_cast<std::uint64_t>(result.value(QStringLiteral("output_bytes")).toULongLong());
+    const auto encodeNs = static_cast<std::uint64_t>(result.value(QStringLiteral("encode_ns")).toULongLong());
+    const auto decodeNs = static_cast<std::uint64_t>(result.value(QStringLiteral("decode_ns")).toULongLong());
+    const double ratio = variantDouble(result, QStringLiteral("ratio"), outputBytes == 0u ? 0.0 : static_cast<double>(inputBytes) / static_cast<double>(outputBytes));
+    const double encode = mbpsValue(inputBytes, encodeNs);
+    const double decode = mbpsValue(inputBytes, decodeNs);
+
+    QVariantMap row;
+    row.insert(QStringLiteral("pipelineId"), pipelineId);
+    row.insert(QStringLiteral("pipelineLabel"), pipelineLabelFor(pipelineId));
+    row.insert(QStringLiteral("stream"), stream);
+    row.insert(QStringLiteral("streamLabel"), displayChannel(stream));
+    row.insert(QStringLiteral("profile"), QStringLiteral("research"));
+    row.insert(QStringLiteral("profileLabel"), displayProfile(QStringLiteral("research")));
+    row.insert(QStringLiteral("status"), variantString(result, QStringLiteral("status"), QStringLiteral("decode_error")));
+    row.insert(QStringLiteral("ok"), variantBool(result, QStringLiteral("ok")));
+    row.insert(QStringLiteral("roundtrip"), variantBool(result, QStringLiteral("ok")));
+    row.insert(QStringLiteral("inputBytes"), static_cast<qulonglong>(inputBytes));
+    row.insert(QStringLiteral("outputBytes"), static_cast<qulonglong>(outputBytes));
+    row.insert(QStringLiteral("lineCount"), static_cast<qulonglong>(result.value(QStringLiteral("decoded_record_count")).toULongLong()));
+    row.insert(QStringLiteral("blockCount"), static_cast<qulonglong>(1));
+    row.insert(QStringLiteral("ratio"), ratio);
+    row.insert(QStringLiteral("ratioText"), ratioLabel(ratio));
+    row.insert(QStringLiteral("spaceSavedText"), inputBytes == 0u ? QStringLiteral("0%") : QLocale().toString((1.0 - (static_cast<double>(outputBytes) / static_cast<double>(inputBytes))) * 100.0, 'f', 1) + QStringLiteral("%"));
+    row.insert(QStringLiteral("encodeMbPerSec"), encode);
+    row.insert(QStringLiteral("decodeMbPerSec"), decode);
+    row.insert(QStringLiteral("encodeText"), mbps(encode));
+    row.insert(QStringLiteral("decodeText"), mbps(decode));
+    row.insert(QStringLiteral("sizeText"), bytesText(inputBytes) + QStringLiteral(" -> ") + bytesText(outputBytes));
+    row.insert(QStringLiteral("outputFile"), result.value(QStringLiteral("output_path")).toString());
+    row.insert(QStringLiteral("metricsFile"), result.value(QStringLiteral("metrics_path")).toString());
+    row.insert(QStringLiteral("source"), QStringLiteral("python"));
+
+    outputFile_ = row.value(QStringLiteral("outputFile")).toString();
+    metricsFile_ = row.value(QStringLiteral("metricsFile")).toString();
+    resultPipelineText_ = QStringLiteral("%1 | jsonl_bytes | raw_jsonl | python").arg(pipelineId);
+    inputBytes_ = inputBytes;
+    outputBytes_ = outputBytes;
+    encodeNs_ = encodeNs;
+    decodeNs_ = decodeNs;
+    encodeCycles_ = 0;
+    decodeCycles_ = 0;
+    ratio_ = ratio;
+    encodeMbPerSec_ = encode;
+    decodeMbPerSec_ = decode;
+    appendResultRow_(row);
+    statusText_ = row.value(QStringLiteral("ok")).toBool()
+        ? QStringLiteral("Python кодирование завершено")
+        : QStringLiteral("Ошибка Python кодирования: ") + variantString(result, QStringLiteral("error"), row.value(QStringLiteral("status")).toString());
+    running_ = false;
+    emit runningChanged();
+    emit resultChanged();
+    emit runRowsChanged();
+    emit channelStatsChanged();
+    emit canRunChanged();
+    emit canDecodeVerifyChanged();
+    emit artifactAvailabilityChanged();
+}
+
 void CompressionViewModel::applyVerifyResult_(const hft_compressor::DecodeVerifyResult& result) {
     applyVerifyResults_(std::vector<hft_compressor::DecodeVerifyResult>{result});
 }
@@ -1037,6 +1335,69 @@ void CompressionViewModel::applyVerifyResults_(const std::vector<hft_compressor:
             : QStringLiteral("Ошибка проверки: ") + QString::fromStdString(result.error);
     }
     if (results.size() > 1u) verifyStatusText_ = QStringLiteral("Пакетная проверка завершена");
+    verifying_ = false;
+    emit verifyingChanged();
+    emit verifyResultChanged();
+    emit verifyRowsChanged();
+    emit channelStatsChanged();
+    emit canDecodeVerifyChanged();
+}
+
+void CompressionViewModel::applyPythonVerifyResult_(const QVariantMap& result) {
+    const QString pipelineId = variantString(result, QStringLiteral("codec_id"), selectedPipelineId_);
+    const QString canonical = variantString(result, QStringLiteral("canonical_path"), inputFile());
+    const QString stream = viewString(hft_compressor::streamTypeToString(hft_compressor::inferStreamTypeFromPath(canonical.toStdString())));
+    const auto decodedBytes = static_cast<std::uint64_t>(result.value(QStringLiteral("decoded_bytes")).toULongLong());
+    const auto canonicalBytes = static_cast<std::uint64_t>(result.value(QStringLiteral("canonical_bytes")).toULongLong());
+    const auto decodeNs = static_cast<std::uint64_t>(result.value(QStringLiteral("decode_ns")).toULongLong());
+    const auto mismatchBytes = static_cast<std::uint64_t>(result.value(QStringLiteral("mismatch_bytes")).toULongLong());
+    const double mismatchPercent = canonicalBytes == 0u ? 0.0 : (static_cast<double>(mismatchBytes) / static_cast<double>(canonicalBytes)) * 100.0;
+    const double decode = mbpsValue(decodedBytes, decodeNs);
+    const bool verified = variantBool(result, QStringLiteral("ok"));
+
+    QVariantMap row;
+    row.insert(QStringLiteral("pipelineId"), pipelineId);
+    row.insert(QStringLiteral("pipelineLabel"), pipelineLabelFor(pipelineId));
+    row.insert(QStringLiteral("stream"), stream);
+    row.insert(QStringLiteral("streamLabel"), displayChannel(stream));
+    row.insert(QStringLiteral("profile"), QStringLiteral("research"));
+    row.insert(QStringLiteral("profileLabel"), displayProfile(QStringLiteral("research")));
+    row.insert(QStringLiteral("status"), variantString(result, QStringLiteral("status"), QStringLiteral("decode_error")));
+    row.insert(QStringLiteral("ok"), verified);
+    row.insert(QStringLiteral("verified"), verified);
+    row.insert(QStringLiteral("exactText"), verified ? QStringLiteral("exact") : QStringLiteral("mismatch"));
+    row.insert(QStringLiteral("compressedBytes"), static_cast<qulonglong>(QFileInfo(result.value(QStringLiteral("artifact_path")).toString()).size()));
+    row.insert(QStringLiteral("decodedBytes"), static_cast<qulonglong>(decodedBytes));
+    row.insert(QStringLiteral("canonicalBytes"), static_cast<qulonglong>(canonicalBytes));
+    row.insert(QStringLiteral("comparedBytes"), static_cast<qulonglong>(std::min(decodedBytes, canonicalBytes)));
+    row.insert(QStringLiteral("mismatchBytes"), static_cast<qulonglong>(mismatchBytes));
+    row.insert(QStringLiteral("mismatchPercent"), mismatchPercent);
+    row.insert(QStringLiteral("mismatchPercentText"), percentLabel(mismatchPercent));
+    row.insert(QStringLiteral("lineCount"), static_cast<qulonglong>(result.value(QStringLiteral("decoded_record_count")).toULongLong()));
+    row.insert(QStringLiteral("blockCount"), static_cast<qulonglong>(1));
+    row.insert(QStringLiteral("decodeMbPerSec"), decode);
+    row.insert(QStringLiteral("decodeText"), mbps(decode));
+    row.insert(QStringLiteral("decodedSizeText"), bytesText(decodedBytes));
+    row.insert(QStringLiteral("canonicalSizeText"), bytesText(canonicalBytes));
+    row.insert(QStringLiteral("sizeText"), bytesText(decodedBytes) + QStringLiteral(" / эталон ") + bytesText(canonicalBytes));
+    row.insert(QStringLiteral("mismatchOffset"), static_cast<qulonglong>(0));
+    row.insert(QStringLiteral("mismatchText"), verified ? QStringLiteral("совпадает") : QStringLiteral("не совпало на %1").arg(percentLabel(mismatchPercent)));
+    row.insert(QStringLiteral("compressedFile"), result.value(QStringLiteral("artifact_path")).toString());
+    row.insert(QStringLiteral("canonicalFile"), canonical);
+    row.insert(QStringLiteral("metricsFile"), QString{});
+    row.insert(QStringLiteral("source"), QStringLiteral("python"));
+
+    verifyFile_ = row.value(QStringLiteral("compressedFile")).toString();
+    verifyCanonicalFile_ = canonical;
+    verifyDecodedBytes_ = decodedBytes;
+    verifyCanonicalBytes_ = canonicalBytes;
+    verifyMismatchOffset_ = 0;
+    verifyDecodeMbPerSec_ = decode;
+    verifyExact_ = verified;
+    appendVerifyRow_(row);
+    verifyStatusText_ = verified
+        ? QStringLiteral("Python декодирование совпадает с JSONL")
+        : QStringLiteral("Ошибка Python проверки: ") + variantString(result, QStringLiteral("error"), row.value(QStringLiteral("status")).toString());
     verifying_ = false;
     emit verifyingChanged();
     emit verifyResultChanged();
@@ -1121,20 +1482,29 @@ QVariantMap CompressionViewModel::metricsRow_(const QString& metricsPath) const 
     if (!document.isObject()) return {};
     const QJsonObject object = document.object();
     const QString stream = jsonString(object, "stream");
-    const QString pipelineId = jsonString(object, "pipeline_id");
+    const QString pipelineId = normalizedPipelineId(object);
     if (stream.isEmpty() || pipelineId.isEmpty()) return {};
     const auto inputBytes = jsonUInt64(object, "input_bytes");
     const auto outputBytes = jsonUInt64(object, "output_bytes");
-    const double currentRatio = object.value(QStringLiteral("compression_ratio")).toDouble();
-    const double encode = object.value(QStringLiteral("encode_mb_per_sec")).toDouble();
-    const double decode = object.value(QStringLiteral("decode_mb_per_sec")).toDouble();
+    const auto encodeNs = jsonUInt64(object, "encode_ns");
+    const auto decodeNs = jsonUInt64(object, "decode_ns");
+    double currentRatio = object.value(QStringLiteral("compression_ratio")).toDouble();
+    if (currentRatio <= 0.0) currentRatio = object.value(QStringLiteral("ratio")).toDouble();
+    if (currentRatio <= 0.0 && outputBytes != 0u) currentRatio = static_cast<double>(inputBytes) / static_cast<double>(outputBytes);
+    const double encode = object.contains(QStringLiteral("encode_mb_per_sec"))
+        ? object.value(QStringLiteral("encode_mb_per_sec")).toDouble()
+        : mbpsValue(inputBytes, encodeNs);
+    const double decode = object.contains(QStringLiteral("decode_mb_per_sec"))
+        ? object.value(QStringLiteral("decode_mb_per_sec")).toDouble()
+        : mbpsValue(inputBytes, decodeNs);
     QVariantMap row;
     row.insert(QStringLiteral("pipelineId"), pipelineId);
     row.insert(QStringLiteral("pipelineLabel"), pipelineLabelFor(pipelineId));
     row.insert(QStringLiteral("stream"), stream);
     row.insert(QStringLiteral("streamLabel"), displayChannel(stream));
-    row.insert(QStringLiteral("profile"), jsonString(object, "profile"));
-    row.insert(QStringLiteral("profileLabel"), displayProfile(jsonString(object, "profile")));
+    const QString profile = jsonString(object, "profile").isEmpty() ? QStringLiteral("research") : jsonString(object, "profile");
+    row.insert(QStringLiteral("profile"), profile);
+    row.insert(QStringLiteral("profileLabel"), displayProfile(profile));
     row.insert(QStringLiteral("status"), jsonString(object, "status"));
     row.insert(QStringLiteral("ok"), jsonString(object, "status") == QStringLiteral("ok"));
     row.insert(QStringLiteral("roundtrip"), object.value(QStringLiteral("roundtrip_ok")).toBool());
@@ -1150,7 +1520,8 @@ QVariantMap CompressionViewModel::metricsRow_(const QString& metricsPath) const 
     row.insert(QStringLiteral("encodeText"), mbps(encode));
     row.insert(QStringLiteral("decodeText"), mbps(decode));
     row.insert(QStringLiteral("sizeText"), bytesText(inputBytes) + QStringLiteral(" -> ") + bytesText(outputBytes));
-    row.insert(QStringLiteral("outputFile"), artifactPathFromMetricsPath(metricsPath, pipelineId, QStringLiteral(".metrics")));
+    const QString outputPath = normalizedOutputPath(object);
+    row.insert(QStringLiteral("outputFile"), outputPath.isEmpty() ? artifactPathFromMetricsPath(metricsPath, pipelineId, QStringLiteral(".metrics")) : outputPath);
     row.insert(QStringLiteral("metricsFile"), metricsPath);
     row.insert(QStringLiteral("source"), QStringLiteral("stored"));
     return row;

@@ -93,6 +93,10 @@ target_link_libraries(hft-recorder-gui
 )
 
 target_compile_features(hft-recorder-gui PRIVATE cxx_std_23)
+target_compile_definitions(hft-recorder-gui
+    PRIVATE
+        HFT_COMPRESSOR_SOURCE_DIR="${CMAKE_SOURCE_DIR}/../hft-compressor"
+)
 
 if(WIN32 AND HFT_COMPRESSOR_RUNTIME_LIB)
     add_custom_command(TARGET hft-recorder-gui POST_BUILD

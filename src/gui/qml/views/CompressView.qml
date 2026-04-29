@@ -223,6 +223,14 @@ Pane {
         id: combo
         property string caption: ""
         property bool requireEncodedArtifact: false
+        property bool respectAvailability: false
+        function rowAvailable(row) { return !combo.respectAvailability || row.available !== false }
+        function rowSuffix(row) {
+            if (!combo.rowAvailable(row)) return "  - " + (row.availabilityReason || row.availability || "unavailable")
+            if (root.compressionVm.hasEncodedArtifact(row.id)) return "  [ready]"
+            if (combo.requireEncodedArtifact) return "  - no artifact"
+            return ""
+        }
         Layout.fillWidth: true
         Layout.preferredHeight: 42
         spacing: 0
@@ -254,8 +262,8 @@ Pane {
             required property var modelData
             width: combo.width
             height: 30
-            enabled: !combo.requireEncodedArtifact || root.compressionVm.hasEncodedArtifact(modelData.id)
-            contentItem: Text { leftPadding: 10; text: modelData.label + (root.compressionVm.hasEncodedArtifact(modelData.id) ? "  [ready]" : (combo.requireEncodedArtifact ? "  - no artifact" : "")); color: parent.enabled ? root.textColor : root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+            enabled: combo.rowAvailable(modelData) && (!combo.requireEncodedArtifact || root.compressionVm.hasEncodedArtifact(modelData.id))
+            contentItem: Text { leftPadding: 10; text: modelData.label + combo.rowSuffix(modelData); color: parent.enabled ? root.textColor : root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
             background: Rectangle { color: highlighted ? Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.16) : root.panelColor }
         }
     }
@@ -587,6 +595,7 @@ Pane {
                             Layout.preferredWidth: 230
                             caption: "Метод"
                             requireEncodedArtifact: root.activePage === 1
+                            respectAvailability: true
                             textRole: "label"
                             valueRole: "id"
                             model: root.compressionVm.pipelines
