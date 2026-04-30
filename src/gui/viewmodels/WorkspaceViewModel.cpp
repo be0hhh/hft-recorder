@@ -77,6 +77,7 @@ QString WorkspaceViewModel::tabTitle(const QString& tabId) const {
     if (tabId == QStringLiteral("capture")) return QStringLiteral("Capture");
     if (tabId == QStringLiteral("viewer")) return QStringLiteral("Viewer");
     if (tabId == QStringLiteral("compress")) return QStringLiteral("Compress");
+    if (tabId == QStringLiteral("trading")) return QStringLiteral("Trading");
     return tabId;
 }
 

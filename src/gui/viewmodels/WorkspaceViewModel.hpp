@@ -64,7 +64,7 @@ class WorkspaceViewModel : public QObject {
     QString nextFloatingHostId_();
 
     std::vector<HostState> hosts_{};
-    QStringList tabOrder_{QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("compress")};
+    QStringList tabOrder_{QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("compress"), QStringLiteral("trading")};
     int layoutRevision_{0};
     int nextFloatingIndex_{1};
     QSettings settings_{};

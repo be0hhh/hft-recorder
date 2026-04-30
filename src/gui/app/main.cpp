@@ -21,6 +21,7 @@
 #include "gui/viewmodels/AppViewModel.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
 #include "gui/viewmodels/CompressionViewModel.hpp"
+#include "gui/viewmodels/TradingControlViewModel.hpp"
 #include "gui/viewmodels/WorkspaceViewModel.hpp"
 
 namespace {
@@ -77,6 +78,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<hftrec::gui::AppViewModel>("HftRecorder", 1, 0, "AppViewModel");
     qmlRegisterType<hftrec::gui::CaptureViewModel>("HftRecorder", 1, 0, "CaptureViewModel");
     qmlRegisterType<hftrec::gui::CompressionViewModel>("HftRecorder", 1, 0, "CompressionViewModel");
+    qmlRegisterType<hftrec::gui::TradingControlViewModel>("HftRecorder", 1, 0, "TradingControlViewModel");
     qmlRegisterType<hftrec::gui::WorkspaceViewModel>("HftRecorder", 1, 0, "WorkspaceViewModel");
     qmlRegisterType<hftrec::gui::viewer::ChartController>("HftRecorder", 1, 0, "ChartController");
     qmlRegisterType<hftrec::gui::viewer::ChartItem>("HftRecorder", 1, 0, "ChartItem");

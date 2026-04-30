@@ -14,6 +14,7 @@ qt_add_executable(hft-recorder-gui
     viewmodels/CaptureViewModelRequests.cpp
     viewmodels/CaptureViewModelState.cpp
     viewmodels/CompressionViewModel.cpp
+    viewmodels/TradingControlViewModel.cpp
     viewmodels/WorkspaceViewModel.cpp
     viewer/ChartController.cpp
     viewer/ChartControllerSession.cpp
@@ -71,6 +72,7 @@ qt_add_qml_module(hft-recorder-gui
         qml/components/WorkspaceFloatingWindow.qml
         qml/views/CaptureView.qml
         qml/views/CompressView.qml
+        qml/views/TradingControlView.qml
         qml/views/SessionsView.qml
         qml/views/ValidationView.qml
         qml/views/LabView.qml
