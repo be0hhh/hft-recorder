@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <exception>
 #include <filesystem>
 #include <thread>
 #include <vector>
@@ -142,6 +143,30 @@ QVariantMap findPythonPipelineRow(const QString& pipelineId) {
 
 const hft_compressor::PipelineDescriptor* findPipeline(const QString& pipelineId) {
     return hft_compressor::findPipeline(pipelineId.toStdString());
+}
+
+hft_compressor::StreamType streamTypeForScope(const QString& scope) {
+    if (scope == QStringLiteral("trades")) return hft_compressor::StreamType::Trades;
+    if (scope == QStringLiteral("bookticker")) return hft_compressor::StreamType::BookTicker;
+    if (scope == QStringLiteral("depth")) return hft_compressor::StreamType::Depth;
+    return hft_compressor::StreamType::Unknown;
+}
+
+hft_compressor::CompressionResult failedCppCompressionResult(const QVariantMap& row,
+                                                             const QString& input,
+                                                             const QString& outputPath,
+                                                             const QString& error) {
+    hft_compressor::CompressionResult result{};
+    result.status = hft_compressor::Status::DecodeError;
+    result.inputPath = input.toStdString();
+    result.outputPath = outputPath.toStdString();
+    result.pipelineId = variantString(row, QStringLiteral("id")).toStdString();
+    result.representation = variantString(row, QStringLiteral("representation")).toStdString();
+    result.transform = variantString(row, QStringLiteral("transform")).toStdString();
+    result.entropy = variantString(row, QStringLiteral("entropy")).toStdString();
+    result.streamType = streamTypeForScope(variantString(row, QStringLiteral("streamScope")));
+    result.error = error.toStdString();
+    return result;
 }
 
 QString pipelineSummary(const hft_compressor::PipelineDescriptor& pipeline) {
@@ -850,6 +875,48 @@ QVariantMap CompressionViewModel::previewJsonl(const QString& path) const {
     return out;
 }
 
+QVariantMap CompressionViewModel::previewEncodedJson(const QString& path) const {
+    const QString previewPath = path.trimmed().isEmpty() ? selectedArtifactFile() : path.trimmed();
+    QFileInfo info(previewPath);
+    if (previewPath.isEmpty()) return previewError(previewPath, QStringLiteral("encoded artifact is not selected"));
+    if (!info.exists()) return previewError(previewPath, QStringLiteral("encoded artifact has not been created yet"));
+
+    std::string content;
+    constexpr std::size_t kMaxPreviewBytes = 512u * 1024u;
+    std::uint64_t producedBytes = 0;
+    const auto status = hft_compressor::inspectCompressedArtifact(
+        previewPath.toStdString(),
+        selectedPipelineId_.toStdString(),
+        std::string_view{"encoded-json"},
+        [&](std::span<const std::uint8_t> block) noexcept -> bool {
+            producedBytes += static_cast<std::uint64_t>(block.size());
+            const std::size_t remaining = content.size() >= kMaxPreviewBytes ? 0u : kMaxPreviewBytes - content.size();
+            const std::size_t take = std::min<std::size_t>(remaining, block.size());
+            if (take != 0u) content.append(reinterpret_cast<const char*>(block.data()), take);
+            return content.size() < kMaxPreviewBytes;
+        });
+    if (!hft_compressor::isOk(status) && status != hft_compressor::Status::CallbackStopped) {
+        return previewError(previewPath, QStringLiteral("encoded-json inspect is not available for this artifact"));
+    }
+
+    QVariantMap out = previewOkBase(info, QStringLiteral("encoded-json"));
+    const bool truncated = producedBytes > content.size() || status == hft_compressor::Status::CallbackStopped;
+    out.insert(QStringLiteral("summaryText"), QStringLiteral("%1, encoded JSON preview: %2%3")
+        .arg(bytesText(static_cast<std::uint64_t>(info.size())))
+        .arg(bytesText(static_cast<std::uint64_t>(content.size())))
+        .arg(truncated ? QStringLiteral(" (truncated)") : QString{}));
+    out.insert(QStringLiteral("contentText"), QString::fromUtf8(content.data(), static_cast<qsizetype>(content.size())).trimmed());
+    out.insert(QStringLiteral("truncated"), truncated);
+
+    QVariantList metadata;
+    metadata.push_back(metadataRow(QStringLiteral("View"), QStringLiteral("encoded-json")));
+    metadata.push_back(metadataRow(QStringLiteral("Method"), selectedPipelineLabel()));
+    metadata.push_back(metadataRow(QStringLiteral("Pipeline ID"), selectedPipelineId_));
+    metadata.push_back(metadataRow(QStringLiteral("Source"), info.fileName()));
+    out.insert(QStringLiteral("metadataRows"), metadata);
+    return out;
+}
+
 QVariantMap CompressionViewModel::previewArtifact(const QString& path) const {
     const QString previewPath = path.trimmed().isEmpty() ? selectedArtifactFile() : path.trimmed();
     QFileInfo info(previewPath);
@@ -985,8 +1052,11 @@ void CompressionViewModel::runAllAvailablePipelines() {
 
     QVariantList rows;
     for (const auto& value : pipelines()) {
-        const QVariantMap row = value.toMap();
-        if (variantBool(row, QStringLiteral("available"))) rows.push_back(row);
+        QVariantMap row = value.toMap();
+        if (!variantBool(row, QStringLiteral("available"))) continue;
+        const QString pipelineId = row.value(QStringLiteral("id")).toString();
+        row.insert(QStringLiteral("outputFilePreview"), outputFilePreviewFor_(selectedChannel_, pipelineId));
+        rows.push_back(row);
     }
     if (rows.empty()) return;
 
@@ -1003,7 +1073,9 @@ void CompressionViewModel::runAllAvailablePipelines() {
         std::vector<hft_compressor::CompressionResult> cppResults;
         QVariantList pythonResults;
         for (const auto& value : rows) {
-            const QString pipelineId = value.toMap().value(QStringLiteral("id")).toString();
+            const QVariantMap row = value.toMap();
+            const QString pipelineId = row.value(QStringLiteral("id")).toString();
+            const QString outputFilePreview = row.value(QStringLiteral("outputFilePreview")).toString();
             if (pipelineId.isEmpty()) continue;
             if (isPythonPipelineId(pipelineId)) {
                 const QJsonDocument document = runPythonCodecCli(QStringList{QStringLiteral("compress"), input, QStringLiteral("--codec"), pipelineId, QStringLiteral("--output-root"), output}, 600000);
@@ -1013,15 +1085,22 @@ void CompressionViewModel::runAllAvailablePipelines() {
                     result.insert(QStringLiteral("ok"), false);
                     result.insert(QStringLiteral("codec_id"), pipelineId);
                     result.insert(QStringLiteral("input_path"), input);
+                    result.insert(QStringLiteral("error"), QStringLiteral("Python codec process failed"));
                 }
                 pythonResults.push_back(result);
                 continue;
             }
-            hft_compressor::CompressionRequest request{};
-            request.inputPath = input.toStdString();
-            request.outputRoot = output.toStdString();
-            request.pipelineId = pipelineId.toStdString();
-            cppResults.push_back(hft_compressor::compress(request));
+            try {
+                hft_compressor::CompressionRequest request{};
+                request.inputPath = input.toStdString();
+                request.outputPathOverride = outputFilePreview.toStdString();
+                request.pipelineId = pipelineId.toStdString();
+                cppResults.push_back(hft_compressor::compress(request));
+            } catch (const std::exception& exception) {
+                cppResults.push_back(failedCppCompressionResult(row, input, outputFilePreview, QString::fromUtf8(exception.what())));
+            } catch (...) {
+                cppResults.push_back(failedCppCompressionResult(row, input, outputFilePreview, QStringLiteral("unknown C++ codec failure")));
+            }
         }
         if (!self) return;
         QMetaObject::invokeMethod(self, [self, cppResults, pythonResults]() {
@@ -1249,21 +1328,25 @@ QString CompressionViewModel::channelFileName_(const QString& channel) const {
 }
 
 QString CompressionViewModel::outputFilePreviewFor_(const QString& channel) const {
+    return outputFilePreviewFor_(channel, selectedPipelineId_);
+}
+
+QString CompressionViewModel::outputFilePreviewFor_(const QString& channel, const QString& pipelineId) const {
     const QString root = outputRoot();
     QString baseName = channelFileName_(channel);
     if (root.isEmpty() || baseName.isEmpty()) return {};
-    if (isPythonPipelineId(selectedPipelineId_)) {
-        baseName.replace(QStringLiteral(".jsonl"), QStringLiteral(".pylab%1").arg(pipelineFileExtensionFor(selectedPipelineId_)));
+    if (isPythonPipelineId(pipelineId)) {
+        baseName.replace(QStringLiteral(".jsonl"), QStringLiteral(".pylab%1").arg(pipelineFileExtensionFor(pipelineId)));
         const QString pythonSessionId = QFileInfo(inputFile()).dir().dirName().isEmpty()
             ? QStringLiteral("manual")
             : QFileInfo(inputFile()).dir().dirName();
         return QDir(root).absoluteFilePath(QStringLiteral("%1/sessions/%2/%3")
-            .arg(pythonOutputSlugFor(selectedPipelineId_), pythonSessionId, baseName));
+            .arg(pythonOutputSlugFor(pipelineId), pythonSessionId, baseName));
     }
-    const QString extension = pipelineFileExtensionFor(selectedPipelineId_);
-    const QString safePipelineId = selectedPipelineId_.trimmed().isEmpty()
+    const QString extension = pipelineFileExtensionFor(pipelineId);
+    const QString safePipelineId = pipelineId.trimmed().isEmpty()
         ? QStringLiteral("unknown")
-        : QString(selectedPipelineId_).replace('.', '_');
+        : QString(pipelineId).replace('.', '_');
     baseName.replace(QStringLiteral(".jsonl"), QStringLiteral(".%1%2").arg(safePipelineId, extension));
     return QDir(root).absoluteFilePath(baseName);
 }
@@ -1618,6 +1701,7 @@ QVariantMap CompressionViewModel::metricsRow_(const QString& metricsPath) const 
     const QString stream = jsonString(object, "stream");
     const QString pipelineId = normalizedPipelineId(object);
     if (stream.isEmpty() || pipelineId.isEmpty()) return {};
+    if (findPipeline(pipelineId) == nullptr && findPythonPipelineRow(pipelineId).isEmpty()) return {};
     const auto inputBytes = jsonUInt64(object, "input_bytes");
     const auto outputBytes = jsonUInt64(object, "output_bytes");
     const auto encodeNs = jsonUInt64(object, "encode_ns");
@@ -1670,6 +1754,7 @@ QVariantMap CompressionViewModel::verifyMetricsRow_(const QString& metricsPath) 
     const QString stream = jsonString(object, "stream");
     const QString pipelineId = jsonString(object, "pipeline_id");
     if (stream.isEmpty() || pipelineId.isEmpty()) return {};
+    if (findPipeline(pipelineId) == nullptr && findPythonPipelineRow(pipelineId).isEmpty()) return {};
     const auto decodedBytes = jsonUInt64(object, "decoded_bytes");
     const auto canonicalBytes = jsonUInt64(object, "canonical_bytes");
     const double decode = object.value(QStringLiteral("decode_mb_per_sec")).toDouble();

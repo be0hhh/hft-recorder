@@ -98,6 +98,12 @@ Pane {
         filePreviewDialog.open()
     }
 
+    function openEncodedJsonPreview() {
+        root.previewData = root.compressionVm.previewEncodedJson("")
+        root.previewTitle = "Encoded JSON preview"
+        filePreviewDialog.open()
+    }
+
     function openArtifactPreview() {
         root.previewData = root.compressionVm.previewArtifact("")
         root.previewTitle = "Binary artifact preview"
@@ -633,6 +639,7 @@ Pane {
                                 }
                             }
                             DarkButton { text: "JSONL"; enabledValue: root.compressionVm.inputFile.length > 0; onClicked: root.openJsonlPreview() }
+                            DarkButton { text: "Encoded JSON"; enabledValue: root.compressionVm.selectedArtifactAvailable; onClicked: root.openEncodedJsonPreview() }
                             DarkButton { text: "\u0411\u0438\u043d\u0430\u0440\u044c"; enabledValue: root.compressionVm.selectedArtifactAvailable; onClicked: root.openArtifactPreview() }
                         }
                     }

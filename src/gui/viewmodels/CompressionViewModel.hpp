@@ -133,6 +133,7 @@ class CompressionViewModel : public QObject {
     Q_INVOKABLE bool hasEncodedArtifact(const QString& pipelineId) const;
     Q_INVOKABLE QString firstEncodedPipelineId() const;
     Q_INVOKABLE QVariantMap previewJsonl(const QString& path = QString{}) const;
+    Q_INVOKABLE QVariantMap previewEncodedJson(const QString& path = QString{}) const;
     Q_INVOKABLE QVariantMap previewArtifact(const QString& path = QString{}) const;
     Q_INVOKABLE void runCompression();
     Q_INVOKABLE void runAllAvailablePipelines();
@@ -186,6 +187,7 @@ class CompressionViewModel : public QObject {
     QString encodedArtifactPath_(const QString& channel, const QString& pipelineId) const;
     bool encodedArtifactExists_(const QString& channel, const QString& pipelineId) const;
     QString outputFilePreviewFor_(const QString& channel) const;
+    QString outputFilePreviewFor_(const QString& channel, const QString& pipelineId) const;
     QString verifyFilePreviewFor_(const QString& channel) const;
 
     QString selectedSessionId_{};

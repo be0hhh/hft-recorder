@@ -577,7 +577,9 @@ Status CaptureCoordinator::startBookTicker(const CaptureConfig& config) noexcept
             recvBuf,
             [](const cxet::composite::BookTickerRuntimeV1& bookTicker,
                const cxet::composite::StreamMeta& meta,
+               const cxet::api::BookTickerRuntimeLatency* latency,
                void* userData) noexcept -> bool {
+                (void)latency;
                 auto* context = static_cast<CallbackContext*>(userData);
                 auto* self = context->self;
                 self->bookTickerCount_.fetch_add(1, std::memory_order_acq_rel);
