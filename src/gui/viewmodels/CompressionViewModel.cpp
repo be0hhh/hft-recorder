@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -195,6 +196,22 @@ QString pythonOutputSlugFor(const QString& pipelineId) {
     const QVariantMap python = findPythonPipelineRow(pipelineId);
     const QString slug = python.value(QStringLiteral("outputSlug")).toString();
     return slug.isEmpty() ? QString(pipelineId).replace('.', '-') : slug;
+}QString pipelineOutputSlugFor(const QString& pipelineId) {
+    const auto* pipeline = findPipeline(pipelineId);
+    if (pipeline != nullptr && !pipeline->outputSlug.empty()) return viewString(pipeline->outputSlug);
+    const QVariantMap python = findPythonPipelineRow(pipelineId);
+    const QString slug = python.value(QStringLiteral("outputSlug")).toString();
+    return slug.isEmpty() ? QString(pipelineId).replace('.', '-') : slug;
+}
+
+QString sessionIdForInputPath(const QString& inputPath) {
+    const QFileInfo inputInfo(inputPath);
+    const QDir parent = inputInfo.dir();
+    if (parent.dirName() == QStringLiteral("jsonl")) {
+        const QFileInfo sessionInfo(parent.absolutePath() + QStringLiteral("/.."));
+        if (!sessionInfo.fileName().isEmpty()) return sessionInfo.fileName();
+    }
+    return parent.dirName().isEmpty() ? QStringLiteral("manual") : parent.dirName();
 }
 
 double mbpsValue(std::uint64_t bytes, std::uint64_t ns) {
@@ -500,7 +517,7 @@ QString CompressionViewModel::outputRoot() const {
     if (!manualOutputRoot_.trimmed().isEmpty() && selectedSessionId_.trimmed().isEmpty()) return manualOutputRoot_;
     const QString sessionPath = selectedSessionPath();
     if (sessionPath.isEmpty()) return {};
-    return QDir(sessionPath).absoluteFilePath(QStringLiteral("compressed/zstd"));
+    return QDir(sessionPath).absoluteFilePath(QStringLiteral("compressed"));
 }
 
 QString CompressionViewModel::outputFilePreview() const {
@@ -1344,11 +1361,9 @@ QString CompressionViewModel::outputFilePreviewFor_(const QString& channel, cons
             .arg(pythonOutputSlugFor(pipelineId), pythonSessionId, baseName));
     }
     const QString extension = pipelineFileExtensionFor(pipelineId);
-    const QString safePipelineId = pipelineId.trimmed().isEmpty()
-        ? QStringLiteral("unknown")
-        : QString(pipelineId).replace('.', '_');
-    baseName.replace(QStringLiteral(".jsonl"), QStringLiteral(".%1%2").arg(safePipelineId, extension));
-    return QDir(root).absoluteFilePath(baseName);
+    baseName.replace(QStringLiteral(".jsonl"), extension);
+    return QDir(root).absoluteFilePath(QStringLiteral("%1/sessions/%2/%3")
+        .arg(pipelineOutputSlugFor(pipelineId), sessionIdForInputPath(inputFile()), baseName));
 }
 
 QString CompressionViewModel::encodedArtifactPath_(const QString& channel, const QString& pipelineId) const {
@@ -1379,10 +1394,18 @@ void CompressionViewModel::reloadStoredRunRows_() {
     runRows_.clear();
     const QString root = outputRoot();
     if (!root.isEmpty()) {
+        QStringList paths;
         QDirIterator it(root, QStringList{QStringLiteral("*.metrics.json")}, QDir::Files, QDirIterator::Subdirectories);
-        while (it.hasNext()) {
-            const QVariantMap row = metricsRow_(it.next());
-            if (!row.isEmpty()) runRows_.push_back(row);
+        while (it.hasNext()) paths.push_back(it.next());
+        std::sort(paths.begin(), paths.end(), [](const QString& lhs, const QString& rhs) {
+            const QFileInfo left(lhs);
+            const QFileInfo right(rhs);
+            if (left.lastModified() == right.lastModified()) return lhs < rhs;
+            return left.lastModified() < right.lastModified();
+        });
+        for (const QString& path : paths) {
+            const QVariantMap row = metricsRow_(path);
+            if (!row.isEmpty()) appendResultRow_(row);
         }
     }
     emit runRowsChanged();
@@ -1393,10 +1416,18 @@ void CompressionViewModel::reloadStoredVerifyRows_() {
     verifyRows_.clear();
     const QString root = outputRoot();
     if (!root.isEmpty()) {
+        QStringList paths;
         QDirIterator it(root, QStringList{QStringLiteral("*.verify.json")}, QDir::Files, QDirIterator::Subdirectories);
-        while (it.hasNext()) {
-            const QVariantMap row = verifyMetricsRow_(it.next());
-            if (!row.isEmpty()) verifyRows_.push_back(row);
+        while (it.hasNext()) paths.push_back(it.next());
+        std::sort(paths.begin(), paths.end(), [](const QString& lhs, const QString& rhs) {
+            const QFileInfo left(lhs);
+            const QFileInfo right(rhs);
+            if (left.lastModified() == right.lastModified()) return lhs < rhs;
+            return left.lastModified() < right.lastModified();
+        });
+        for (const QString& path : paths) {
+            const QVariantMap row = verifyMetricsRow_(path);
+            if (!row.isEmpty()) appendVerifyRow_(row);
         }
     }
     emit verifyRowsChanged();
@@ -1805,5 +1836,7 @@ void CompressionViewModel::emitSelectionChanged_() {
 }
 
 }  // namespace hftrec::gui
+
+
 
 

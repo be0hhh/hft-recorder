@@ -71,6 +71,33 @@ Pane {
         var rows = root.compressionVm.verifyRows
         return rows.length > 0 ? rows[rows.length - 1] : null
     }
+    function rowForSelectedPipeline(rows) {
+        var id = root.compressionVm.selectedPipelineId
+        for (var i = 0; i < rows.length; ++i) {
+            if (rows[i].pipelineId === id) return rows[i]
+        }
+        return null
+    }
+
+    function selectedRunRow() {
+        return root.rowForSelectedPipeline(root.compressionVm.runRows)
+    }
+
+    function selectedVerifyRow() {
+        return root.rowForSelectedPipeline(root.compressionVm.verifyRows)
+    }
+
+    function shortPipelineLabel(label) {
+        var text = String(label || "")
+        if (text.length === 0) return root.compressionVm.selectedPipelineLabel
+        text = text.replace(/^HFT-MAC /, "")
+        text = text.replace(/^Python /, "Py ")
+        text = text.replace(/ JSONL blocks v1$/, "")
+        text = text.replace(/ grouped delta qtydict /, " qtydict ")
+        text = text.replace(/ byte static /, " static ")
+        text = text.replace(/ byte /, " ")
+        return text
+    }
 
     function shortStatus(text) {
         if (text === "ok") return "\u0433\u043e\u0442\u043e\u0432\u043e"
@@ -253,8 +280,9 @@ Pane {
         background: Rectangle { radius: 7; color: root.panelDeepColor; border.color: combo.hovered ? root.accentColor : root.borderColor; border.width: 1 }
         popup: Popup {
             y: combo.height + 4
-            width: combo.width
-            implicitHeight: Math.min(contentItem.implicitHeight, 260)
+            x: Math.max(16 - combo.mapToItem(root, 0, 0).x, Math.min(0, root.width - combo.mapToItem(root, 0, 0).x - width - 16))
+            width: Math.min(root.width - 32, Math.max(combo.width, 760))
+            implicitHeight: Math.min(contentItem.implicitHeight, 360)
             padding: 1
             background: Rectangle { color: root.panelColor; border.color: root.borderColor; radius: 7 }
             contentItem: ListView {
@@ -266,10 +294,10 @@ Pane {
         }
         delegate: ItemDelegate {
             required property var modelData
-            width: combo.width
-            height: 30
+            width: combo.popup.width
+            height: 32
             enabled: combo.rowAvailable(modelData) && (!combo.requireEncodedArtifact || root.compressionVm.hasEncodedArtifact(modelData.id))
-            contentItem: Text { leftPadding: 10; text: modelData.label + combo.rowSuffix(modelData); color: parent.enabled ? root.textColor : root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+            contentItem: Text { leftPadding: 10; rightPadding: 10; text: modelData.label + combo.rowSuffix(modelData); color: parent.enabled ? root.textColor : root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
             background: Rectangle { color: highlighted ? Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.16) : root.panelColor }
         }
     }
@@ -290,6 +318,7 @@ Pane {
         property string emptyText: ""
         property string mode: "speed"
         property color barColor: root.accentColor
+        property string selectedPipelineId: root.compressionVm.selectedPipelineId
         Layout.fillWidth: true
         Layout.preferredHeight: 206
         width: parent ? parent.width : 0
@@ -386,13 +415,19 @@ Pane {
                     var h = (metric / maxValue) * (chartH - 8)
                     var x = startX + k * (barW + gap)
                     var y = bottom - h
+                    var isSelected = !rows[k].isReference && String(rows[k].pipelineId || "") === chartBox.selectedPipelineId
                     ctx.fillStyle = rows[k].isReference ? root.borderColor : barColor
                     ctx.fillRect(x, y, barW, h)
-                    ctx.fillStyle = root.textColor
+                    if (isSelected) {
+                        ctx.strokeStyle = root.warnColor
+                        ctx.lineWidth = 2
+                        ctx.strokeRect(Math.floor(x) - 2.5, Math.floor(y) - 2.5, Math.ceil(barW) + 5, Math.ceil(h) + 5)
+                    }
+                    ctx.fillStyle = isSelected ? root.warnColor : root.textColor
                     ctx.font = compact ? "8px sans-serif" : "10px sans-serif"
                     ctx.fillText(shortLabel(rows[k], k, compact), x, bottom + 15)
                     if (!compact) {
-                        ctx.fillStyle = rows[k].isReference ? root.mutedTextColor : (mode === "size" ? root.greenColor : barColor)
+                        ctx.fillStyle = isSelected ? root.warnColor : (rows[k].isReference ? root.mutedTextColor : (mode === "size" ? root.greenColor : barColor))
                         ctx.font = "9px sans-serif"
                         ctx.fillText(valueText(rows[k]), x - 4, bottom + 34)
                     }
@@ -413,6 +448,7 @@ Pane {
             ToolTip.text: chartBox.chartSummary()
         }
         onRowsModelChanged: chart.requestPaint()
+        onSelectedPipelineIdChanged: chart.requestPaint()
         onVisibleChanged: chart.requestPaint()
         onWidthChanged: chart.requestPaint()
     }
@@ -604,7 +640,7 @@ Pane {
 
                         DarkCombo {
                             id: pipelineBox
-                            Layout.preferredWidth: 230
+                            Layout.preferredWidth: 420
                             caption: "Метод"
                             requireEncodedArtifact: root.activePage === 1
                             respectAvailability: true
@@ -671,13 +707,13 @@ Pane {
                     columns: 4
                     columnSpacing: 10
                     rowSpacing: 10
-                    MetricCard { title: "Сжатие"; value: root.latestRunRow() ? root.latestRunRow().ratioText : "0.000x"; subtext: "во сколько раз меньше"; accent: root.greenColor }
-                    MetricCard { title: "Скорость кодирования"; value: root.latestRunRow() ? root.latestRunRow().encodeText : "0.00 MB/s"; subtext: "MB/s"; accent: root.accentColor }
-                    MetricCard { title: "Размер"; value: root.latestRunRow() ? root.latestRunRow().sizeText : "0 bytes -> 0 bytes"; subtext: "JSONL -> .hfc"; accent: root.warnColor }
-                    MetricCard { title: "Статус"; value: root.latestRunRow() ? root.shortStatus(root.latestRunRow().status) : root.shortStatus(root.compressionVm.statusText); subtext: root.selectedChannelTitle() + " / " + (root.latestRunRow() ? root.latestRunRow().pipelineLabel : root.compressionVm.selectedPipelineLabel); accent: root.violetColor }
+                    MetricCard { title: "Сжатие"; value: root.selectedRunRow() ? root.selectedRunRow().ratioText : "0.000x"; subtext: root.compressionVm.selectedPipelineLabel; accent: root.greenColor }
+                    MetricCard { title: "Скорость кодирования"; value: root.selectedRunRow() ? root.selectedRunRow().encodeText : "0.00 MB/s"; subtext: root.selectedRunRow() ? "MB/s" : "нет результата для метода"; accent: root.accentColor }
+                    MetricCard { title: "Размер"; value: root.selectedRunRow() ? root.selectedRunRow().sizeText : "0 bytes -> 0 bytes"; subtext: "JSONL -> .hfc"; accent: root.warnColor }
+                    MetricCard { title: "Статус"; value: root.selectedRunRow() ? root.shortStatus(root.selectedRunRow().status) : root.shortStatus(root.compressionVm.statusText); subtext: root.selectedChannelTitle() + " / " + root.compressionVm.selectedPipelineLabel; accent: root.violetColor }
                 }
 
-                RowLayout {
+                ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 8
                     SectionCard {
@@ -707,10 +743,10 @@ Pane {
                     columns: 4
                     columnSpacing: 10
                     rowSpacing: 10
-                    MetricCard { title: "Артефакт"; value: root.latestVerifyRow() ? (root.latestVerifyRow().compressedSizeText || "0 bytes") : "0 bytes"; subtext: root.latestVerifyRow() ? (root.latestVerifyRow().pipelineLabel || root.latestVerifyRow().pipelineId) : root.selectedChannelTitle(); accent: root.warnColor }
-                    MetricCard { title: "Декод"; value: root.latestVerifyRow() ? root.latestVerifyRow().decodedSizeText : "0 bytes"; subtext: root.latestVerifyRow() ? "эталон " + root.latestVerifyRow().canonicalSizeText : "эталон 0 bytes"; accent: root.accentColor }
-                    MetricCard { title: "Скорость"; value: root.latestVerifyRow() ? root.latestVerifyRow().decodeText : "0.00 MB/s"; subtext: root.latestVerifyRow() ? root.latestVerifyRow().streamLabel : root.selectedChannelTitle(); accent: root.violetColor }
-                    MetricCard { title: "Точность"; value: root.latestVerifyRow() ? root.latestVerifyRow().mismatchPercentText : "0.00%"; subtext: root.latestVerifyRow() ? (root.latestVerifyRow().verified ? "exact" : "mismatch") : "not checked"; accent: root.latestVerifyRow() && root.latestVerifyRow().verified ? root.greenColor : root.badColor }
+                    MetricCard { title: "Артефакт"; value: root.selectedVerifyRow() ? (root.selectedVerifyRow().compressedSizeText || "0 bytes") : "0 bytes"; subtext: root.selectedVerifyRow() ? (root.selectedVerifyRow().pipelineLabel || root.selectedVerifyRow().pipelineId) : root.compressionVm.selectedPipelineLabel; accent: root.warnColor }
+                    MetricCard { title: "Декод"; value: root.selectedVerifyRow() ? root.selectedVerifyRow().decodedSizeText : "0 bytes"; subtext: root.selectedVerifyRow() ? "эталон " + root.selectedVerifyRow().canonicalSizeText : "эталон 0 bytes"; accent: root.accentColor }
+                    MetricCard { title: "Скорость"; value: root.selectedVerifyRow() ? root.selectedVerifyRow().decodeText : "0.00 MB/s"; subtext: root.selectedVerifyRow() ? root.selectedVerifyRow().pipelineLabel : root.compressionVm.selectedPipelineLabel; accent: root.violetColor }
+                    MetricCard { title: "Точность"; value: root.selectedVerifyRow() ? root.selectedVerifyRow().mismatchPercentText : "0.00%"; subtext: root.selectedVerifyRow() ? (root.selectedVerifyRow().verified ? "exact" : "mismatch") : "not checked"; accent: root.selectedVerifyRow() && root.selectedVerifyRow().verified ? root.greenColor : root.badColor }
                 }
 SectionCard {
                     title: "Скорость декодирования: " + root.selectedChannelTitle()
@@ -731,7 +767,7 @@ SectionCard {
                             visible: root.compressionVm.verifyRows.length > 0
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
-                            cellWidth: Math.max(260, Math.floor(width / 4))
+                            cellWidth: Math.max(320, Math.floor(width / 3))
                             cellHeight: 33
                             model: root.compressionVm.decodeBars
                             ScrollBar.vertical: ScrollBar { policy: verifyGrid.contentHeight > verifyGrid.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded }
@@ -741,15 +777,14 @@ SectionCard {
                                 height: 29
                                 radius: 5
                                 color: root.panelDeepColor
-                                border.width: 1
-                                border.color: modelData.verified ? root.greenColor : root.badColor
+                                border.width: String(modelData.pipelineId || "") === root.compressionVm.selectedPipelineId ? 2 : 1
+                                border.color: String(modelData.pipelineId || "") === root.compressionVm.selectedPipelineId ? root.warnColor : (modelData.verified ? root.greenColor : root.badColor)
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: 7
                                     anchors.rightMargin: 7
                                     spacing: 6
-                                    Label { text: modelData.streamLabel; color: root.textColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 54; elide: Text.ElideRight; clip: true }
-                                    Label { text: root.shortPipelineLabel(modelData.pipelineLabel || modelData.pipelineId); color: root.mutedTextColor; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight; clip: true }
+                                    Label { text: root.shortPipelineLabel(modelData.pipelineLabel || modelData.pipelineId); color: root.textColor; font.bold: true; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight; clip: true }
                                     Label { text: modelData.decodeText; color: root.violetColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 82; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight; clip: true }
                                     Label { text: modelData.verified ? "ok" : modelData.mismatchPercentText; color: modelData.verified ? root.greenColor : root.badColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 46; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight; clip: true }
                                 }

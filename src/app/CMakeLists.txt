@@ -46,6 +46,9 @@ target_link_libraries(hft-recorder-bench
         hftrec_variant_trade_var01
         hftrec_variant_l1_var01
         hftrec_variant_orderbook_var01
+        hft_compressor_core
 )
 
 target_compile_features(hft-recorder-bench PRIVATE cxx_std_23)
+
+
