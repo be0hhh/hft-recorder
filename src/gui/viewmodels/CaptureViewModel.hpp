@@ -22,6 +22,8 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel);
 class CaptureViewModel : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString outputDirectory READ outputDirectory WRITE setOutputDirectory NOTIFY outputDirectoryChanged)
+    Q_PROPERTY(QStringList selectedVenueKeys READ selectedVenueKeys NOTIFY venueChanged)
+    Q_PROPERTY(QVariantList venueChoices READ venueChoices CONSTANT)
     Q_PROPERTY(QString symbolsText READ symbolsText WRITE setSymbolsText NOTIFY symbolsTextChanged)
     Q_PROPERTY(QString normalizedSymbolsText READ normalizedSymbolsText NOTIFY symbolsTextChanged)
     Q_PROPERTY(QStringList tradesAvailableAliases READ tradesAvailableAliases NOTIFY requestBuilderChanged)
@@ -52,6 +54,8 @@ class CaptureViewModel : public QObject {
     explicit CaptureViewModel(QObject* parent = nullptr);
 
     QString outputDirectory() const;
+    QStringList selectedVenueKeys() const;
+    QVariantList venueChoices() const;
     QString symbolsText() const;
     QString normalizedSymbolsText() const;
     QStringList tradesAvailableAliases() const;
@@ -79,6 +83,10 @@ class CaptureViewModel : public QObject {
     qulonglong depthCount() const;
 
     Q_INVOKABLE void setOutputDirectory(const QString& outputDirectory);
+    Q_INVOKABLE void toggleVenue(const QString& venueKey);
+    Q_INVOKABLE bool isVenueSelected(const QString& venueKey) const;
+    Q_INVOKABLE QString venueSymbolsText(const QString& venueKey) const;
+    Q_INVOKABLE void setVenueSymbolsText(const QString& venueKey, const QString& symbolsText);
     Q_INVOKABLE void setSymbolsText(const QString& symbolsText);
     Q_INVOKABLE void toggleAlias(const QString& channel, const QString& alias);
     Q_INVOKABLE bool isAliasSelected(const QString& channel, const QString& alias) const;
@@ -99,6 +107,7 @@ class CaptureViewModel : public QObject {
 
   signals:
     void outputDirectoryChanged();
+    void venueChanged();
     void symbolsTextChanged();
     void requestBuilderChanged();
     void sessionStateChanged();
@@ -110,23 +119,33 @@ class CaptureViewModel : public QObject {
   private:
     friend detail::CaptureBatchSnapshot detail::collectBatchSnapshot(const CaptureViewModel& viewModel);
 
+    struct CoordinatorEntry {
+        capture::CaptureConfig config{};
+        std::unique_ptr<capture::CaptureCoordinator> coordinator{};
+    };
+
     std::vector<capture::CaptureConfig> makeConfigs() const;
     QStringList* selectedAliasesForChannel_(const QString& channel);
     const QStringList* selectedAliasesForChannel_(const QString& channel) const;
     const QStringList* availableAliasesForChannel_(const QString& channel) const;
     bool ensureCoordinatorBatch_();
+    bool reconcileCoordinatorBatch_();
+    void reconcileActiveChannels_();
     void registerLiveSources_();
     void abortCoordinatorBatch_(const QString& fallbackStatus);
     void clearCoordinatorBatch_();
+    bool anyChannelRunning_() const noexcept;
     void refreshState();
     void setStatusText(const QString& statusText);
     void setStatusFromStatus(hftrec::Status status, const QString& okText);
     QString joinCoordinatorErrors_() const;
     void publishActiveLiveSources_();
 
-    std::vector<std::unique_ptr<capture::CaptureCoordinator>> coordinators_{};
+    std::vector<CoordinatorEntry> coordinators_{};
     QTimer refreshTimer_{};
     QString outputDirectory_{"./recordings"};
+    QStringList selectedVenueKeys_{QStringLiteral("binance_futures")};
+    QStringList venueSymbolsTexts_{};
     QString symbolsText_{"ETH"};
     QStringList tradesAvailableAliases_{};
     QStringList liquidationsAvailableAliases_{};
@@ -144,6 +163,10 @@ class CaptureViewModel : public QObject {
     bool lastLiquidationsRunning_{false};
     bool lastBookTickerRunning_{false};
     bool lastOrderbookRunning_{false};
+    bool desiredTradesRunning_{false};
+    bool desiredLiquidationsRunning_{false};
+    bool desiredBookTickerRunning_{false};
+    bool desiredOrderbookRunning_{false};
     qulonglong lastTradesCount_{0};
     qulonglong lastLiquidationsCount_{0};
     qulonglong lastBookTickerCount_{0};

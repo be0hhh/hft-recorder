@@ -32,12 +32,17 @@ QStringList requiredAliasesForChannel(const QString& channel);
 bool isRequiredAliasForChannel(const QString& channel, const QString& alias);
 int aliasWeightBytes(const QString& alias);
 QString channelWeightSummary(const QString& channel, const QStringList& selectedAliases);
+QVariantList venueChoices();
 QString buildRequestPreview(const QString& channel,
                             const QStringList& availableAliases,
                             const QStringList& selectedAliases,
+                            const QStringList& venueKeys,
+                            const QStringList& venueSymbolsTexts,
                             const QString& symbolsText);
 std::vector<std::string> normalizedSymbols(const QString& symbolsText);
 std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
+                                                const QStringList& venueKeys,
+                                                const QStringList& venueSymbolsTexts,
                                                 const QString& symbolsText,
                                                 const QStringList& tradesAvailableAliases,
                                                 const QStringList& liquidationsAvailableAliases,

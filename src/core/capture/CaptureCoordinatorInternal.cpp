@@ -36,6 +36,41 @@ Symbol makeSymbol(const std::string& symbolText) noexcept {
     return symbol;
 }
 
+bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
+    if (lhs.size() != rhs.size()) return false;
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        char a = lhs[i];
+        char b = rhs[i];
+        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
+        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + ('a' - 'A'));
+        if (a != b) return false;
+    }
+    return true;
+}
+
+ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
+    if (textEqualsAscii(exchange, "binance")) return canon::kExchangeIdBinance;
+    if (textEqualsAscii(exchange, "kucoin")) return canon::kExchangeIdKucoin;
+    if (textEqualsAscii(exchange, "gate")) return canon::kExchangeIdGate;
+    if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
+    return canon::kExchangeIdUnknown;
+}
+
+canon::MarketType marketTypeFromConfig(std::string_view market) noexcept {
+    if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
+    return canon::kMarketTypeFutures;
+}
+
+cxet::UnifiedRequestBuilder makeSubscribeBuilder(const CaptureConfig& config,
+                                                 cxet::composite::out::SubscribeObject object) noexcept {
+    auto symbol = makeSymbol(config.symbols.empty() ? std::string{} : config.symbols.front());
+    return cxet::subscribe()
+        .object(object)
+        .exchange(exchangeIdFromConfig(config.exchange))
+        .market(marketTypeFromConfig(config.market))
+        .symbol(symbol);
+}
+
 }  // namespace
 #endif
 
@@ -63,41 +98,27 @@ long long nowSec() noexcept {
 }
 
 #if HFTREC_WITH_CXET
-cxet::UnifiedRequestBuilder makeTradesBuilder(const std::string& symbolText) noexcept {
-    auto symbol = makeSymbol(symbolText);
-    return cxet::subscribe()
-        .object(cxet::composite::out::SubscribeObject::Trades)
-        .exchange(canon::kExchangeIdBinance)
-        .market(canon::kMarketTypeFutures)
-        .symbol(symbol);
+cxet::UnifiedRequestBuilder makeTradesBuilder(const CaptureConfig& config) noexcept {
+    return makeSubscribeBuilder(config, cxet::composite::out::SubscribeObject::Trades);
 }
 
-cxet::UnifiedRequestBuilder makeBookTickerBuilder(const std::string& symbolText) noexcept {
-    auto symbol = makeSymbol(symbolText);
-    return cxet::subscribe()
-        .object(cxet::composite::out::SubscribeObject::BookTicker)
-        .exchange(canon::kExchangeIdBinance)
-        .market(canon::kMarketTypeFutures)
-        .symbol(symbol);
+cxet::UnifiedRequestBuilder makeBookTickerBuilder(const CaptureConfig& config) noexcept {
+    return makeSubscribeBuilder(config, cxet::composite::out::SubscribeObject::BookTicker);
 }
 
-cxet::UnifiedRequestBuilder makeLiquidationBuilder(const std::string& symbolText) noexcept {
+cxet::UnifiedRequestBuilder makeLiquidationBuilder(const CaptureConfig& config) noexcept {
     auto builder = cxet::subscribe()
         .object(cxet::composite::out::SubscribeObject::Liquidation)
-        .exchange(canon::kExchangeIdBinance)
-        .market(canon::kMarketTypeFutures);
+        .exchange(exchangeIdFromConfig(config.exchange))
+        .market(marketTypeFromConfig(config.market));
+    const std::string& symbolText = config.symbols.empty() ? std::string{} : config.symbols.front();
     if (symbolTextIsAll(symbolText)) return builder.symbol(canon::SlotScope::All);
     auto symbol = makeSymbol(symbolText);
     return builder.symbol(symbol);
 }
 
-cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const std::string& symbolText) noexcept {
-    auto symbol = makeSymbol(symbolText);
-    return cxet::subscribe()
-        .object(cxet::composite::out::SubscribeObject::Orderbook)
-        .exchange(canon::kExchangeIdBinance)
-        .market(canon::kMarketTypeFutures)
-        .symbol(symbol);
+cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const CaptureConfig& config) noexcept {
+    return makeSubscribeBuilder(config, cxet::composite::out::SubscribeObject::Orderbook);
 }
 
 bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
@@ -139,12 +160,12 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
         lastError = "current capture path supports exactly one symbol per coordinator";
         return Status::InvalidArgument;
     }
-    if (config.exchange != kSupportedExchange) {
-        lastError = "current capture path supports exchange=binance only";
+    if (exchangeIdFromConfig(config.exchange).raw == canon::kExchangeIdUnknown.raw) {
+        lastError = "capture exchange must be one of: binance, kucoin, gate, bitget";
         return Status::InvalidArgument;
     }
-    if (config.market != kSupportedMarket) {
-        lastError = "current capture path supports market=futures_usd only";
+    if (!textEqualsAscii(config.market, "futures_usd") && !textEqualsAscii(config.market, "swap")) {
+        lastError = "capture market must be futures_usd or swap";
         return Status::InvalidArgument;
     }
     if (config.outputDir.empty()) {

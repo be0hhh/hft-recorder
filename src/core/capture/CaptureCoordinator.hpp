@@ -89,6 +89,13 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
                              std::string_view snapshotKind,
                              std::string_view source,
                              bool trustedReplayAnchor) noexcept;
+    enum class ManagedStreamKind : std::uint8_t { Trades, BookTicker, Orderbook };
+
+    Status startManagedMarketData_(const CaptureConfig& config, ManagedStreamKind stream) noexcept;
+    void requestStopManagedMarketData_(ManagedStreamKind stream) noexcept;
+    void joinManagedMarketDataIfIdle_() noexcept;
+    bool anyManagedMarketDataDesired_() const noexcept;
+    void marketDataManagerLoop_(CaptureConfig config) noexcept;
     void syncManifestIntegrityFromReplay_() noexcept;
     Status writeInstrumentMetadataFile() noexcept;
     Status writeSupportArtifacts() noexcept;
@@ -121,10 +128,16 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::atomic<std::uint64_t> bookTickerCaptureSeq_{0};
     std::atomic<std::uint64_t> ingestSeq_{0};
     mutable std::mutex stateMutex_{};
+    std::thread marketDataThread_{};
     std::thread tradesThread_{};
     std::thread liquidationsThread_{};
     std::thread bookTickerThread_{};
     std::thread orderbookThread_{};
+    std::atomic<bool> marketDataRunning_{false};
+    std::atomic<bool> marketDataStop_{false};
+    std::atomic<bool> desiredTrades_{false};
+    std::atomic<bool> desiredBookTicker_{false};
+    std::atomic<bool> desiredOrderbook_{false};
     std::string lastError_{};
 };
 

@@ -12,7 +12,8 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel) {
     QStringList sessionPaths;
     QStringList errors;
 
-    for (const auto& coordinator : viewModel.coordinators_) {
+    for (const auto& entry : viewModel.coordinators_) {
+        const auto& coordinator = entry.coordinator;
         if (!coordinator) continue;
 
         const auto sessionDir = coordinator->sessionDirCopy();
@@ -52,8 +53,8 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel) {
 namespace hftrec::gui {
 
 void CaptureViewModel::refreshState() {
-    for (auto& coordinator : coordinators_) {
-        if (coordinator) coordinator->reapStoppedThreads();
+    for (auto& entry : coordinators_) {
+        if (entry.coordinator) entry.coordinator->reapStoppedThreads();
     }
 
     const auto snapshot = detail::collectBatchSnapshot(*this);
@@ -96,6 +97,7 @@ void CaptureViewModel::refreshState() {
 
     if (sessionChanged) emit sessionStateChanged();
     if (channelChanged) {
+        reconcileActiveChannels_();
         registerLiveSources_();
         emit channelStateChanged();
     }

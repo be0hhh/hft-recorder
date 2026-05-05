@@ -11,18 +11,15 @@
 
 namespace hftrec::capture::internal {
 
-inline constexpr std::string_view kSupportedExchange = "binance";
-inline constexpr std::string_view kSupportedMarket = "futures_usd";
-
 void ensureCxetInitialized() noexcept;
 std::int64_t nowNs() noexcept;
 long long nowSec() noexcept;
 
 #if HFTREC_WITH_CXET
-cxet::UnifiedRequestBuilder makeTradesBuilder(const std::string& symbolText) noexcept;
-cxet::UnifiedRequestBuilder makeBookTickerBuilder(const std::string& symbolText) noexcept;
-cxet::UnifiedRequestBuilder makeLiquidationBuilder(const std::string& symbolText) noexcept;
-cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const std::string& symbolText) noexcept;
+cxet::UnifiedRequestBuilder makeTradesBuilder(const CaptureConfig& config) noexcept;
+cxet::UnifiedRequestBuilder makeBookTickerBuilder(const CaptureConfig& config) noexcept;
+cxet::UnifiedRequestBuilder makeLiquidationBuilder(const CaptureConfig& config) noexcept;
+cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const CaptureConfig& config) noexcept;
 
 bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
                            cxet::UnifiedRequestBuilder& builder,

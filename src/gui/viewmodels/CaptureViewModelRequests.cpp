@@ -1,6 +1,7 @@
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
 #include <QRegularExpression>
+#include <QVariantMap>
 #include <algorithm>
 #include <filesystem>
 
@@ -9,10 +10,59 @@ namespace hftrec::gui::detail {
 namespace {
 
 QString normalizeToken(QString token) {
-    token = token.trimmed().toUpper();
-    if (token.isEmpty()) return token;
-    if (!token.endsWith(QStringLiteral("USDT"))) token += QStringLiteral("USDT");
-    return token;
+    return token.trimmed();
+}
+
+struct VenueSpec {
+    const char* key;
+    const char* label;
+    const char* exchange;
+    const char* market;
+};
+
+constexpr VenueSpec kVenues[] = {
+    {"binance_futures", "Binance Futures", "binance", "futures_usd"},
+    {"kucoin_futures", "KuCoin Futures", "kucoin", "futures_usd"},
+    {"gate_usdt", "Gate USDT", "gate", "futures_usd"},
+    {"bitget_futures", "Bitget Futures", "bitget", "futures_usd"},
+};
+
+std::vector<VenueSpec> selectedVenues(const QStringList& venueKeys) {
+    std::vector<VenueSpec> venues;
+    for (const auto& rawKey : venueKeys) {
+        const auto key = rawKey.trimmed().toLower();
+        for (const auto& venue : kVenues) {
+            if (key == QString::fromLatin1(venue.key)) {
+                venues.push_back(venue);
+                break;
+            }
+        }
+    }
+    if (venues.empty()) venues.push_back(kVenues[0]);
+    return venues;
+}
+
+qsizetype venueIndex(const QString& venueKey) noexcept {
+    const auto key = venueKey.trimmed().toLower();
+    for (qsizetype i = 0; i < static_cast<qsizetype>(std::size(kVenues)); ++i) {
+        if (key == QString::fromLatin1(kVenues[i].key)) return i;
+    }
+    return -1;
+}
+
+QString symbolsTextForVenue(const VenueSpec& venue,
+                            const QStringList& venueSymbolsTexts,
+                            const QString& fallbackSymbolsText) {
+    const qsizetype idx = venueIndex(QString::fromLatin1(venue.key));
+    if (idx >= 0 && idx < venueSymbolsTexts.size()) {
+        const auto text = venueSymbolsTexts[idx].trimmed();
+        if (!text.isEmpty()) return text;
+    }
+    return fallbackSymbolsText;
+}
+
+QString marketDsl(const VenueSpec& venue) {
+    return QString::fromLatin1(venue.market) == QStringLiteral("swap") ? QStringLiteral("swap") : QStringLiteral("futures");
 }
 
 QString toDslSymbol(const std::string& symbol) {
@@ -150,6 +200,17 @@ QStringList loadAliasesForChannel(const char* channelName) {
     return {};
 }
 
+QVariantList venueChoices() {
+    QVariantList choices;
+    for (const auto& venue : kVenues) {
+        QVariantMap item;
+        item.insert(QStringLiteral("key"), QString::fromLatin1(venue.key));
+        item.insert(QStringLiteral("label"), QString::fromLatin1(venue.label));
+        choices.push_back(item);
+    }
+    return choices;
+}
+
 QStringList requiredAliasesForChannel(const QString& channel) {
     if (channel == QStringLiteral("trades")) return requiredTradesAliases();
     if (channel == QStringLiteral("liquidations")) return requiredLiquidationsAliases();
@@ -224,7 +285,7 @@ QString channelWeightSummary(const QString& channel, const QStringList& selected
 
 std::vector<std::string> normalizedSymbols(const QString& symbolsText) {
     std::vector<std::string> symbols;
-    const auto rawTokens = symbolsText.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    const auto rawTokens = symbolsText.split(QRegularExpression(QStringLiteral("[,\\s]+")), Qt::SkipEmptyParts);
     symbols.reserve(rawTokens.size());
     for (const auto& rawToken : rawTokens) {
         const auto normalized = normalizeToken(rawToken);
@@ -238,28 +299,39 @@ std::vector<std::string> normalizedSymbols(const QString& symbolsText) {
 QString buildRequestPreview(const QString& channel,
                             const QStringList& availableAliases,
                             const QStringList& selectedAliases,
+                            const QStringList& venueKeys,
+                            const QStringList& venueSymbolsTexts,
                             const QString& symbolsText) {
     const auto normalizedSelectedAliases = normalizedSelectedAliasesForChannel(channel, selectedAliases);
     const auto aliasesSuffix = buildAliasesSuffix(availableAliases, normalizedSelectedAliases);
     const auto objectName = channelObjectName(channel);
 
-    const auto symbols = normalizedSymbols(symbolsText);
-    if (symbols.empty()) {
-        return QStringLiteral("subscribe().object(%1).exchange(binance).market(futures).symbol(<symbol>)%2")
-            .arg(objectName, aliasesSuffix);
-    }
+    const auto venues = selectedVenues(venueKeys);
 
     QStringList commands;
-    commands.reserve(static_cast<qsizetype>(symbols.size()));
-    for (const auto& symbol : symbols) {
-        commands.push_back(
-            QStringLiteral("subscribe().object(%1).exchange(binance).market(futures).symbol(%2)%3")
-                .arg(objectName, toDslSymbol(symbol), aliasesSuffix));
+    for (const auto& venue : venues) {
+        const auto symbols = normalizedSymbols(symbolsTextForVenue(venue, venueSymbolsTexts, symbolsText));
+        if (symbols.empty()) {
+            commands.push_back(QStringLiteral("subscribe().object(%1).exchange(%2).market(%3).symbol(<symbol>)%4")
+                                   .arg(objectName, QString::fromLatin1(venue.exchange), marketDsl(venue), aliasesSuffix));
+            continue;
+        }
+        for (const auto& symbol : symbols) {
+            commands.push_back(
+                QStringLiteral("subscribe().object(%1).exchange(%2).market(%3).symbol(%4)%5")
+                    .arg(objectName,
+                         QString::fromLatin1(venue.exchange),
+                         marketDsl(venue),
+                         toDslSymbol(symbol),
+                         aliasesSuffix));
+        }
     }
     return commands.join(QStringLiteral("\n"));
 }
 
 std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
+                                                const QStringList& venueKeys,
+                                                const QStringList& venueSymbolsTexts,
                                                 const QString& symbolsText,
                                                 const QStringList& tradesAvailableAliases,
                                                 const QStringList& liquidationsAvailableAliases,
@@ -270,8 +342,7 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QStringList& selectedBookTickerAliases,
                                                 const QStringList& selectedOrderbookAliases) {
     std::vector<capture::CaptureConfig> configs;
-    const auto symbols = normalizedSymbols(symbolsText);
-    configs.reserve(symbols.size());
+    const auto venues = selectedVenues(venueKeys);
 
     const auto normalizedTradesAliases = normalizedSelectedAliasesForChannel(QStringLiteral("trades"), selectedTradesAliases);
     const auto normalizedLiquidationsAliases = normalizedSelectedAliasesForChannel(QStringLiteral("liquidations"), selectedLiquidationsAliases);
@@ -282,42 +353,47 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
     const auto bookTickerSuffix = buildAliasesSuffix(bookTickerAvailableAliases, normalizedBookTickerAliases);
     const auto orderbookSuffix = buildAliasesSuffix(orderbookAvailableAliases, normalizedOrderbookAliases);
 
-    for (const auto& symbol : symbols) {
-        capture::CaptureConfig config{};
-        config.exchange = "binance";
-        config.market = "futures_usd";
-        config.symbols = {symbol};
-        config.outputDir = std::filesystem::path{outputDirectory.toStdString()};
-        config.durationSec = 0;
-        config.snapshotIntervalSec = 60;
+    for (const auto& venue : venues) {
+        const auto symbols = normalizedSymbols(symbolsTextForVenue(venue, venueSymbolsTexts, symbolsText));
+        for (const auto& symbol : symbols) {
+            capture::CaptureConfig config{};
+            config.exchange = venue.exchange;
+            config.market = venue.market;
+            config.symbols = {symbol};
+            config.outputDir = std::filesystem::path{outputDirectory.toStdString()};
+            config.durationSec = 0;
+            config.snapshotIntervalSec = 60;
 
-        const auto symbolDsl = toDslSymbol(symbol);
-        config.tradesAliases.reserve(static_cast<std::size_t>(normalizedTradesAliases.size()));
-        for (const auto& alias : normalizedTradesAliases) config.tradesAliases.push_back(alias.toStdString());
-        config.liquidationAliases.reserve(static_cast<std::size_t>(normalizedLiquidationsAliases.size()));
-        for (const auto& alias : normalizedLiquidationsAliases) config.liquidationAliases.push_back(alias.toStdString());
-        config.bookTickerAliases.reserve(static_cast<std::size_t>(normalizedBookTickerAliases.size()));
-        for (const auto& alias : normalizedBookTickerAliases) config.bookTickerAliases.push_back(alias.toStdString());
-        config.orderbookAliases.reserve(static_cast<std::size_t>(normalizedOrderbookAliases.size()));
-        for (const auto& alias : normalizedOrderbookAliases) config.orderbookAliases.push_back(alias.toStdString());
+            const auto symbolDsl = toDslSymbol(symbol);
+            config.tradesAliases.reserve(static_cast<std::size_t>(normalizedTradesAliases.size()));
+            for (const auto& alias : normalizedTradesAliases) config.tradesAliases.push_back(alias.toStdString());
+            config.liquidationAliases.reserve(static_cast<std::size_t>(normalizedLiquidationsAliases.size()));
+            for (const auto& alias : normalizedLiquidationsAliases) config.liquidationAliases.push_back(alias.toStdString());
+            config.bookTickerAliases.reserve(static_cast<std::size_t>(normalizedBookTickerAliases.size()));
+            for (const auto& alias : normalizedBookTickerAliases) config.bookTickerAliases.push_back(alias.toStdString());
+            config.orderbookAliases.reserve(static_cast<std::size_t>(normalizedOrderbookAliases.size()));
+            for (const auto& alias : normalizedOrderbookAliases) config.orderbookAliases.push_back(alias.toStdString());
 
-        config.tradesRequestCommand =
-            QStringLiteral("subscribe().object(trades).exchange(binance).market(futures).symbol(%1)%2")
-                .arg(symbolDsl, tradesSuffix)
-                .toStdString();
-        config.liquidationRequestCommand =
-            QStringLiteral("subscribe().object(liquidation).exchange(binance).market(futures).symbol(%1)%2")
-                .arg(symbolDsl, liquidationsSuffix)
-                .toStdString();
-        config.bookTickerRequestCommand =
-            QStringLiteral("subscribe().object(bookticker).exchange(binance).market(futures).symbol(%1)%2")
-                .arg(symbolDsl, bookTickerSuffix)
-                .toStdString();
-        config.orderbookRequestCommand =
-            QStringLiteral("subscribe().object(orderbook).exchange(binance).market(futures).symbol(%1)%2")
-                .arg(symbolDsl, orderbookSuffix)
-                .toStdString();
-        configs.push_back(std::move(config));
+            const auto exchangeDsl = QString::fromLatin1(venue.exchange);
+            const auto market = marketDsl(venue);
+            config.tradesRequestCommand =
+                QStringLiteral("subscribe().object(trades).exchange(%1).market(%2).symbol(%3)%4")
+                    .arg(exchangeDsl, market, symbolDsl, tradesSuffix)
+                    .toStdString();
+            config.liquidationRequestCommand =
+                QStringLiteral("subscribe().object(liquidation).exchange(%1).market(%2).symbol(%3)%4")
+                    .arg(exchangeDsl, market, symbolDsl, liquidationsSuffix)
+                    .toStdString();
+            config.bookTickerRequestCommand =
+                QStringLiteral("subscribe().object(bookticker).exchange(%1).market(%2).symbol(%3)%4")
+                    .arg(exchangeDsl, market, symbolDsl, bookTickerSuffix)
+                    .toStdString();
+            config.orderbookRequestCommand =
+                QStringLiteral("subscribe().object(orderbook).exchange(%1).market(%2).symbol(%3)%4")
+                    .arg(exchangeDsl, market, symbolDsl, orderbookSuffix)
+                    .toStdString();
+            configs.push_back(std::move(config));
+        }
     }
 
     return configs;

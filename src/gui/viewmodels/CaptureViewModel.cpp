@@ -14,6 +14,12 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
     liquidationsAvailableAliases_ = detail::loadAliasesForChannel("liquidations");
     bookTickerAvailableAliases_ = detail::loadAliasesForChannel("bookticker");
     orderbookAvailableAliases_ = detail::loadAliasesForChannel("orderbook");
+    venueSymbolsTexts_ = {
+        QStringLiteral("LABUSDT"),
+        QStringLiteral("LABUSDTM"),
+        QStringLiteral("LAB_USDT"),
+        QStringLiteral("LABUSDT"),
+    };
 
     refreshTimer_.setInterval(250);
     connect(&refreshTimer_, &QTimer::timeout, this, &CaptureViewModel::refreshState);
@@ -22,6 +28,8 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
 }
 
 QString CaptureViewModel::outputDirectory() const { return outputDirectory_; }
+QStringList CaptureViewModel::selectedVenueKeys() const { return selectedVenueKeys_; }
+QVariantList CaptureViewModel::venueChoices() const { return detail::venueChoices(); }
 QString CaptureViewModel::symbolsText() const { return symbolsText_; }
 QString CaptureViewModel::sessionId() const { return lastSessionId_; }
 QString CaptureViewModel::sessionPath() const { return lastSessionPath_; }
@@ -69,6 +77,8 @@ QString CaptureViewModel::tradesRequestPreview() const {
     return detail::buildRequestPreview(QStringLiteral("trades"),
                                        tradesAvailableAliases_,
                                        selectedTradesAliases_,
+                                       selectedVenueKeys_,
+                                       venueSymbolsTexts_,
                                        symbolsText_);
 }
 
@@ -76,6 +86,8 @@ QString CaptureViewModel::liquidationsRequestPreview() const {
     return detail::buildRequestPreview(QStringLiteral("liquidations"),
                                        liquidationsAvailableAliases_,
                                        selectedLiquidationsAliases_,
+                                       selectedVenueKeys_,
+                                       venueSymbolsTexts_,
                                        symbolsText_);
 }
 
@@ -83,6 +95,8 @@ QString CaptureViewModel::bookTickerRequestPreview() const {
     return detail::buildRequestPreview(QStringLiteral("bookticker"),
                                        bookTickerAvailableAliases_,
                                        selectedBookTickerAliases_,
+                                       selectedVenueKeys_,
+                                       venueSymbolsTexts_,
                                        symbolsText_);
 }
 
@@ -90,6 +104,8 @@ QString CaptureViewModel::orderbookRequestPreview() const {
     return detail::buildRequestPreview(QStringLiteral("orderbook"),
                                        orderbookAvailableAliases_,
                                        selectedOrderbookAliases_,
+                                       selectedVenueKeys_,
+                                       venueSymbolsTexts_,
                                        symbolsText_);
 }
 
@@ -100,12 +116,59 @@ void CaptureViewModel::setOutputDirectory(const QString& outputDirectory) {
     emit outputDirectoryChanged();
 }
 
+void CaptureViewModel::toggleVenue(const QString& venueKey) {
+    const auto normalized = venueKey.trimmed().toLower();
+    if (normalized.isEmpty()) return;
+    const auto existingIndex = selectedVenueKeys_.indexOf(normalized);
+    if (existingIndex >= 0) {
+        if (selectedVenueKeys_.size() == 1) return;
+        selectedVenueKeys_.removeAt(existingIndex);
+    } else {
+        selectedVenueKeys_.push_back(normalized);
+    }
+    emit venueChanged();
+    emit requestBuilderChanged();
+    reconcileActiveChannels_();
+}
+
+bool CaptureViewModel::isVenueSelected(const QString& venueKey) const {
+    return selectedVenueKeys_.contains(venueKey.trimmed().toLower());
+}
+
+QString CaptureViewModel::venueSymbolsText(const QString& venueKey) const {
+    const auto choices = venueChoices();
+    const auto key = venueKey.trimmed().toLower();
+    for (qsizetype i = 0; i < choices.size() && i < venueSymbolsTexts_.size(); ++i) {
+        const auto row = choices[i].toMap();
+        if (row.value(QStringLiteral("key")).toString() == key) return venueSymbolsTexts_[i];
+    }
+    return {};
+}
+
+void CaptureViewModel::setVenueSymbolsText(const QString& venueKey, const QString& symbolsText) {
+    const auto choices = venueChoices();
+    const auto key = venueKey.trimmed().toLower();
+    for (qsizetype i = 0; i < choices.size(); ++i) {
+        const auto row = choices[i].toMap();
+        if (row.value(QStringLiteral("key")).toString() != key) continue;
+        while (venueSymbolsTexts_.size() <= i) venueSymbolsTexts_.push_back({});
+        const auto normalized = symbolsText.simplified();
+        if (venueSymbolsTexts_[i] == normalized) return;
+        venueSymbolsTexts_[i] = normalized;
+        emit symbolsTextChanged();
+        emit requestBuilderChanged();
+        reconcileActiveChannels_();
+        return;
+    }
+}
+
 void CaptureViewModel::setSymbolsText(const QString& symbolsText) {
     const auto normalized = symbolsText.simplified();
     if (normalized == symbolsText_) return;
     symbolsText_ = normalized;
     emit symbolsTextChanged();
     emit requestBuilderChanged();
+    reconcileActiveChannels_();
 }
 
 void CaptureViewModel::toggleAlias(const QString& channel, const QString& alias) {
@@ -146,6 +209,8 @@ QString CaptureViewModel::channelWeightSummary(const QString& channel) const {
 
 std::vector<capture::CaptureConfig> CaptureViewModel::makeConfigs() const {
     return detail::makeConfigs(outputDirectory_,
+                               selectedVenueKeys_,
+                               venueSymbolsTexts_,
                                symbolsText_,
                                tradesAvailableAliases_,
                                liquidationsAvailableAliases_,

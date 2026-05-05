@@ -32,7 +32,7 @@ Pane {
             spacing: 16
 
             Label { text: "Live Capture"; font.pixelSize: 26; font.bold: true; color: root.textColor }
-            Label { text: root.captureVm.captureAvailable ? "Binance FAPI / canonical normalized JSON corpus" : root.captureVm.captureUnavailableReason; color: root.captureVm.captureAvailable ? root.mutedTextColor : root.accentSellColor; wrapMode: Text.WordWrap }
+            Label { text: root.captureVm.captureAvailable ? "Multi-venue futures / canonical normalized JSON corpus" : root.captureVm.captureUnavailableReason; color: root.captureVm.captureAvailable ? root.mutedTextColor : root.accentSellColor; wrapMode: Text.WordWrap }
 
             CaptureSessionSummaryCard {
                 captureVm: root.captureVm
@@ -60,6 +60,52 @@ Pane {
                     spacing: 12
 
                     Label { text: "Capture Controls"; font.bold: true; color: root.textColor }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Label {
+                            text: "Venues"
+                            color: root.mutedTextColor
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Repeater {
+                                model: root.captureVm.venueChoices
+                                delegate: RowLayout {
+                                    id: venueRow
+                                    required property var modelData
+
+                                    CheckBox {
+                                        Layout.preferredWidth: 160
+                                        text: venueRow.modelData.label
+                                        checked: root.captureVm.isVenueSelected(venueRow.modelData.key)
+                                        onClicked: root.captureVm.toggleVenue(venueRow.modelData.key)
+                                    }
+
+                                    TextField {
+                                        Layout.fillWidth: true
+                                        text: root.captureVm.venueSymbolsText(venueRow.modelData.key)
+                                        placeholderText: "symbols exactly as this venue expects"
+                                        color: root.textColor
+                                        placeholderTextColor: root.mutedTextColor
+                                        selectedTextColor: root.textColor
+                                        selectionColor: root.accentBuyColor
+                                        onTextChanged: root.captureVm.setVenueSymbolsText(venueRow.modelData.key, text)
+                                        background: Rectangle {
+                                            radius: 8
+                                            color: root.panelAltColor
+                                            border.color: root.borderColor
+                                            border.width: 1
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     CaptureAccentActionButton {
                         Layout.fillWidth: true
@@ -95,7 +141,8 @@ Pane {
                         actionAccentColor: root.captureVm.tradesRunning ? root.accentSellColor : root.accentRequiredColor
                         actionTextColor: root.captureVm.tradesRunning ? "#fff4f5" : "#071419"
 
-                        actionVisible: false
+                        actionVisible: true
+                        onActionTriggered: root.captureVm.tradesRunning ? root.captureVm.stopTrades() : root.captureVm.startTrades()
 
                     }
 
@@ -144,7 +191,8 @@ Pane {
                         actionAccentColor: root.captureVm.bookTickerRunning ? root.accentSellColor : root.accentRequiredColor
                         actionTextColor: root.captureVm.bookTickerRunning ? "#fff4f5" : "#071419"
 
-                        actionVisible: false
+                        actionVisible: true
+                        onActionTriggered: root.captureVm.bookTickerRunning ? root.captureVm.stopBookTicker() : root.captureVm.startBookTicker()
 
                     }
 
@@ -169,7 +217,8 @@ Pane {
                         actionAccentColor: root.captureVm.orderbookRunning ? root.accentSellColor : root.accentRequiredColor
                         actionTextColor: root.captureVm.orderbookRunning ? "#fff4f5" : "#071419"
 
-                        actionVisible: false
+                        actionVisible: true
+                        onActionTriggered: root.captureVm.orderbookRunning ? root.captureVm.stopOrderbook() : root.captureVm.startOrderbook()
 
                     }
 

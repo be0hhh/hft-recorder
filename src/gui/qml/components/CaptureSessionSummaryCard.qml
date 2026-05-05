@@ -43,32 +43,6 @@ Rectangle {
             }
         }
 
-        Label { text: "Symbols"; font.bold: true; color: card.textColor }
-
-        TextField {
-            Layout.fillWidth: true
-            text: card.captureVm.symbolsText
-            placeholderText: "RAVE BTC ETH"
-            color: card.textColor
-            placeholderTextColor: card.mutedTextColor
-            selectedTextColor: card.textColor
-            selectionColor: card.accentBuyColor
-            enabled: !card.captureVm.sessionOpen
-            onTextChanged: card.captureVm.setSymbolsText(text)
-            background: Rectangle {
-                radius: 8
-                color: card.panelAltColor
-                border.color: card.borderColor
-                border.width: 1
-            }
-        }
-
-        Label {
-            text: "Normalized: " + (card.captureVm.normalizedSymbolsText === "" ? "<none>" : card.captureVm.normalizedSymbolsText)
-            color: card.mutedTextColor
-            wrapMode: Text.WordWrap
-        }
-
         Label { text: "Session ID: " + (card.captureVm.sessionId === "" ? "<not started>" : card.captureVm.sessionId); color: card.textColor }
         Label { text: "Session Path: " + (card.captureVm.sessionPath === "" ? "<not created>" : card.captureVm.sessionPath); color: card.textColor }
         Label { text: "Status: " + card.captureVm.statusText; wrapMode: Text.WordWrap; color: card.mutedTextColor }
