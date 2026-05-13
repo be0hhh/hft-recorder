@@ -34,6 +34,8 @@ class ViewerSourceListModel : public QAbstractListModel {
     Q_INVOKABLE void reload();
     Q_INVOKABLE QString sessionPath(const QString& sourceId) const;
     Q_INVOKABLE QString sourceKind(const QString& sourceId) const;
+    Q_INVOKABLE QString exchange(const QString& sourceId) const;
+    Q_INVOKABLE QString market(const QString& sourceId) const;
     Q_INVOKABLE QString label(const QString& sourceId) const;
     Q_INVOKABLE QString sourceIdAt(int index) const;
     Q_INVOKABLE QString labelAt(int index) const;

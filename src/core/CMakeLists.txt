@@ -3,6 +3,7 @@
 
 set(HFTREC_CORE_SOURCES
     arbitrage/BookTickerSpread.cpp
+    arbitrage/BookTickerSpreadMean.cpp
     capture/SessionId.cpp
     capture/SessionManifest.cpp
     capture/ChannelJsonWriter.cpp
@@ -81,3 +82,4 @@ endif()
 target_compile_definitions(hftrec_core PUBLIC HFTREC_HOTPATH_METRICS_DEFAULT=${HFTREC_HOTPATH_METRICS_DEFAULT_VALUE})
 
 target_compile_features(hftrec_core PUBLIC cxx_std_23)
+

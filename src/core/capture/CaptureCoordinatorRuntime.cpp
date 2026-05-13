@@ -2,12 +2,9 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdio>
-#include <fstream>
 #include <string>
 #include <string_view>
 #include <thread>
-
 
 #include "api/run/RunByConfig.hpp"
 #include "api/connector/ExchangeProductConnector.hpp"
@@ -34,7 +31,9 @@ namespace hftrec::capture {
 namespace {
 
 constexpr unsigned kRecorderTradesKeepaliveMs = 0u;
-constexpr unsigned kRecorderQuietStreamKeepaliveMs = 30000u;
+constexpr unsigned kRecorderQuietStreamKeepaliveMs = 5000u;
+constexpr unsigned kRecorderReconnectRetryMs = 100u;
+constexpr std::uint64_t kRecorderBookTickerStaleReconnectNs = 3000000000ull;
 
 EventSequenceIds nextEventSequenceIds(std::atomic<std::uint64_t>& channelCounter,
                                       std::atomic<std::uint64_t>& ingestCounter) noexcept {
@@ -120,6 +119,19 @@ replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBo
     document.tsNs = static_cast<std::int64_t>(snapshot.tsNs);
     document.levels = makeOrderbookLevels(snapshot);
     return document;
+}
+
+bool sleepCaptureStopAware(const std::atomic<bool>* stopRequested, unsigned delayMs) noexcept {
+    constexpr unsigned kSleepStepMs = 50u;
+    unsigned sleptMs = 0u;
+    while (sleptMs < delayMs) {
+        if (stopRequested != nullptr && stopRequested->load(std::memory_order_acquire)) return false;
+        const unsigned leftMs = delayMs - sleptMs;
+        const unsigned chunkMs = leftMs > kSleepStepMs ? kSleepStepMs : leftMs;
+        std::this_thread::sleep_for(std::chrono::milliseconds(chunkMs));
+        sleptMs += chunkMs;
+    }
+    return !(stopRequested != nullptr && stopRequested->load(std::memory_order_acquire));
 }
 
 bool readTradeSnapshot(const cxet::api::market::PublicMarketDataSnapshot& snapshot,
@@ -226,6 +238,7 @@ const char* marketDataStatusName(cxet::api::market::PublicMarketDataStatus statu
     }
     return "Unknown";
 }
+
 cxet::api::market::PublicMarketDataWirePreference wirePreferenceForConfig(const CaptureConfig& config) noexcept {
     const bool sbeFutures = config.market == "futures_usd"
         && (config.exchange == "gate" || config.exchange == "bitget");
@@ -433,23 +446,58 @@ void CaptureCoordinator::joinManagedMarketDataIfIdle_() noexcept {
 }
 
 
-bool connectMarketDataRouteNoTradingSync(cxet::api::market::PublicMarketDataRoute& route) noexcept {
-    if (!route.prepared || !route.route.config) return false;
+enum class DirectRouteConnectStatus {
+    Ok,
+    BadConfig,
+    WsConnectFailed,
+    PayloadSendFailed,
+    PostConnectPayloadSendFailed,
+};
+
+const char* directRouteConnectStatusName(DirectRouteConnectStatus status) noexcept {
+    switch (status) {
+        case DirectRouteConnectStatus::Ok: return "Ok";
+        case DirectRouteConnectStatus::BadConfig: return "BadConfig";
+        case DirectRouteConnectStatus::WsConnectFailed: return "WsConnectFailed";
+        case DirectRouteConnectStatus::PayloadSendFailed: return "PayloadSendFailed";
+        case DirectRouteConnectStatus::PostConnectPayloadSendFailed: return "PostConnectPayloadSendFailed";
+    }
+    return "Unknown";
+}
+
+DirectRouteConnectStatus connectMarketDataRouteNoTradingSync(cxet::api::market::PublicMarketDataRoute& route) noexcept {
+    if (!route.prepared || !route.route.config) return DirectRouteConnectStatus::BadConfig;
     const auto status = cxet::api::connectWsEndpointByRoutePlanDetailed(
         route.client,
         route.route,
         nullptr,
         0u,
         false);
-    if (status != cxet::api::RouteConnectStatus::Ok) return false;
-    if (route.route.payload && route.route.payloadLen > 0u && !route.client.send(route.route.payload, route.route.payloadLen)) {
-        return false;
-    }
-    if (route.route.postConnectPayload && route.route.postConnectPayloadLen > 0u) {
-        if (!route.client.send(route.route.postConnectPayload, route.route.postConnectPayloadLen)) return false;
+    if (status != cxet::api::RouteConnectStatus::Ok) {
+        route.connected = false;
+        return DirectRouteConnectStatus::WsConnectFailed;
     }
     route.connected = true;
-    return true;
+    if (route.route.payload && route.route.payloadLen > 0u && !route.client.send(route.route.payload, route.route.payloadLen)) {
+        route.client.disconnect();
+        route.connected = false;
+        return DirectRouteConnectStatus::PayloadSendFailed;
+    }
+    if (route.route.postConnectPayload && route.route.postConnectPayloadLen > 0u) {
+        const cxet::api::MarketDataConnectorPolicy marketPolicy = cxet::api::marketDataPolicyForConfig(*route.route.config);
+        if (marketPolicy.readOneBeforePostConnectPayload) {
+            thread_local MessageBuffer welcomeBuf;
+            (void)route.client.runOne(welcomeBuf, 5000u);
+        }
+        if (!route.client.send(route.route.postConnectPayload, route.route.postConnectPayloadLen)) {
+            route.client.disconnect();
+            route.connected = false;
+            return DirectRouteConnectStatus::PostConnectPayloadSendFailed;
+        }
+    }
+    cxet::metrics::resetWsDataLatencyBook(route.dataLatencyBook);
+    route.lastKeepaliveCheckTsc = cxet::probes::captureTsc();
+    return DirectRouteConnectStatus::Ok;
 }
 void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
     cxet::UnifiedRequestBuilder builder{};
@@ -488,11 +536,11 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
     routeConfig.recvBuf = &recvBuf;
     routeConfig.snapshot = &snapshot;
     routeConfig.stream = cxet::api::market::PublicMarketDataStream::BookTicker;
-    routeConfig.wirePreference = cxet::api::market::PublicMarketDataWirePreference::Auto;
+    routeConfig.wirePreference = wirePreferenceForConfig(config);
     routeConfig.requestedFields = Span<const canon::FieldId>(kFields, sizeof(kFields) / sizeof(kFields[0]));
     routeConfig.stopRequested = &bookTickerStop_;
     routeConfig.maxEvents = 0u;
-    routeConfig.maxReconnectAttempts = 10u;
+    routeConfig.maxReconnectAttempts = 0u;
     routeConfig.pingIntervalMs = kRecorderQuietStreamKeepaliveMs;
     routeConfig.pollTimeoutMs = 1u;
     routeConfig.captureLatency = cxet::metrics::latencyEnabled();
@@ -507,24 +555,46 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
 
 
 
-    if (!connectMarketDataRouteNoTradingSync(route)) {
-        cxet::api::market::closePublicMarketDataRoute(route);
-        std::lock_guard<std::mutex> lock(stateMutex_);
-        lastError_ = std::string{"bookticker direct route connect failed"}
-            + " host=" + (route.route.endpointHost ? route.route.endpointHost : "<null>")
-            + " path=" + std::string(route.route.connectPath ? route.route.connectPath : "<null>",
-                                      route.route.connectPath ? route.route.connectPathLen : 6u)
-            + " payload=" + std::string(route.route.payload ? route.route.payload : "<null>",
-                                         route.route.payload ? std::min<std::size_t>(route.route.payloadLen, 160u) : 6u)
-            + " post_payload=" + std::string(route.route.postConnectPayload ? route.route.postConnectPayload : "<null>",
-                                              route.route.postConnectPayload ? std::min<std::size_t>(route.route.postConnectPayloadLen, 160u) : 6u)
-            + " ws_error=" + std::to_string(route.client.lastConnectError());
+    auto connectDirectRoute = [&]() noexcept -> bool {
+        while (!marketDataStop_.load(std::memory_order_acquire)
+               && desiredBookTicker_.load(std::memory_order_acquire)
+               && !bookTickerStop_.load(std::memory_order_acquire)) {
+            if (!cxet::api::market::preparePublicMarketDataRoute(route, routeConfig)) {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                lastError_ = "bookticker direct route reprepare failed";
+            } else {
+                const DirectRouteConnectStatus connectStatus = connectMarketDataRouteNoTradingSync(route);
+                if (connectStatus == DirectRouteConnectStatus::Ok) return true;
+                cxet::api::market::closePublicMarketDataRoute(route);
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                lastError_ = std::string{"bookticker direct route connect failed"}
+                    + " connect_status=" + directRouteConnectStatusName(connectStatus)
+                    + " host=" + (route.route.endpointHost ? route.route.endpointHost : "<null>")
+                    + " path=" + std::string(route.route.connectPath ? route.route.connectPath : "<null>",
+                                              route.route.connectPath ? route.route.connectPathLen : 6u)
+                    + " payload=" + std::string(route.route.payload ? route.route.payload : "<null>",
+                                                 route.route.payload ? std::min<std::size_t>(route.route.payloadLen, 160u) : 6u)
+                    + " post_payload=" + std::string(route.route.postConnectPayload ? route.route.postConnectPayload : "<null>",
+                                                      route.route.postConnectPayload ? std::min<std::size_t>(route.route.postConnectPayloadLen, 160u) : 6u)
+                    + " ws_error=" + std::to_string(route.client.lastConnectError());
+            }
+            if (!sleepCaptureStopAware(&bookTickerStop_, kRecorderReconnectRetryMs)) break;
+        }
+        return false;
+    };
+
+    if (!connectDirectRoute()) {
+        if (bookTickerCount_.load(std::memory_order_relaxed) == 0u) {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            if (lastError_.empty()) lastError_ = "bookticker direct route connect stopped before first row";
+        }
         bookTickerRunning_.store(false, std::memory_order_release);
         marketDataRunning_.store(false, std::memory_order_release);
         return;
     }
 
     std::uint64_t skippedPolls = 0u;
+    std::uint64_t lastBookTickerRowLocalNs = static_cast<std::uint64_t>(internal::nowNs());
     while (!marketDataStop_.load(std::memory_order_acquire)
            && desiredBookTicker_.load(std::memory_order_acquire)
            && !bookTickerStop_.load(std::memory_order_acquire)) {
@@ -553,9 +623,15 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
                 marketDataStop_.store(true, std::memory_order_release);
                 break;
             }
+            const std::uint64_t localNowNs = static_cast<std::uint64_t>(internal::nowNs());
             metrics::recordCaptureEvent("bookticker", capturedBookTicker.tsNs,
                                         static_cast<std::uint64_t>(jsonLine.size() + 1u),
-                                        static_cast<std::uint64_t>(internal::nowNs()));
+                                        localNowNs);
+            lastBookTickerRowLocalNs = localNowNs;
+            {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                if (lastError_.rfind("bookticker direct route ", 0u) == 0u) lastError_.clear();
+            }
             continue;
         }
         if (status == cxet::api::market::PublicMarketDataStatus::NoFrame
@@ -563,6 +639,29 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
             || status == cxet::api::market::PublicMarketDataStatus::ParseFailed
             || status == cxet::api::market::PublicMarketDataStatus::Reconnected) {
             ++skippedPolls;
+            const std::uint64_t nowNs = static_cast<std::uint64_t>(internal::nowNs());
+            if (lastBookTickerRowLocalNs != 0u && nowNs - lastBookTickerRowLocalNs > kRecorderBookTickerStaleReconnectNs) {
+                cxet::api::market::closePublicMarketDataRoute(route);
+                {
+                    std::lock_guard<std::mutex> lock(stateMutex_);
+                    lastError_ = std::string{"bookticker direct route reconnecting after stale data: "}
+                        + marketDataStatusName(status);
+                }
+                if (!connectDirectRoute()) break;
+                lastBookTickerRowLocalNs = static_cast<std::uint64_t>(internal::nowNs());
+            }
+            continue;
+        }
+        if (status == cxet::api::market::PublicMarketDataStatus::Disconnected
+            || status == cxet::api::market::PublicMarketDataStatus::ConnectFailed) {
+            ++skippedPolls;
+            cxet::api::market::closePublicMarketDataRoute(route);
+            {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                lastError_ = std::string{"bookticker direct route reconnecting after: "} + marketDataStatusName(status);
+            }
+            if (!connectDirectRoute()) break;
+            lastBookTickerRowLocalNs = static_cast<std::uint64_t>(internal::nowNs());
             continue;
         }
         std::lock_guard<std::mutex> lock(stateMutex_);
@@ -584,6 +683,7 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
         }
     }
 }
+
 void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
     if (desiredBookTicker_.load(std::memory_order_acquire)
         && !desiredTrades_.load(std::memory_order_acquire)

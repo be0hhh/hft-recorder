@@ -1,4 +1,4 @@
-﻿#include "gui/viewer/BookTickerCompareItem.hpp"
+#include "gui/viewer/BookTickerCompareItem.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -33,6 +33,11 @@ struct Ranges {
     double spreadMax{1.0};
     double rawSpreadMax{0.0};
     double internalPenaltyAvg{0.0};
+    double feePenaltyAvg{0.0};
+    double meanAvg{0.0};
+    double deviationAbsMax{0.0};
+    double edgeAfterFeesMax{0.0};
+    double totalFeesBps{0.0};
 };
 
 struct LayoutRects {
@@ -58,11 +63,14 @@ void absorbPrice(const hftrec::replay::BookTickerRow& row, Ranges& ranges, bool&
 Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
                      const std::vector<hftrec::replay::BookTickerRow>& b,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreads,
+                     const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& means,
                      std::int64_t tsMin,
-                     std::int64_t tsMax) noexcept {
+                     std::int64_t tsMax,
+                     double totalFeesBps) noexcept {
     Ranges ranges{};
     ranges.tsMin = tsMin;
     ranges.tsMax = tsMax > tsMin ? tsMax : tsMin + 1;
+    ranges.totalFeesBps = totalFeesBps;
     bool hasPrice = false;
     for (const auto& row : a) {
         if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
@@ -74,6 +82,7 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     }
     bool hasSpread = false;
     double penaltySum = 0.0;
+    double feePenaltySum = 0.0;
     std::size_t penaltyCount = 0u;
     for (const auto& point : spreads) {
         if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
@@ -88,9 +97,29 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
             ranges.rawSpreadMax = std::max(ranges.rawSpreadMax, point.rawSpreadBps);
         }
         penaltySum += point.internalPenaltyBps;
+        feePenaltySum += point.feePenaltyBps;
         ++penaltyCount;
     }
     if (penaltyCount > 0u) ranges.internalPenaltyAvg = penaltySum / static_cast<double>(penaltyCount);
+    if (penaltyCount > 0u) ranges.feePenaltyAvg = feePenaltySum / static_cast<double>(penaltyCount);
+    double meanSum = 0.0;
+    std::size_t meanCount = 0u;
+    for (const auto& point : means) {
+        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+        if (!hasSpread) {
+            ranges.spreadMin = std::min(point.meanBps - totalFeesBps, point.meanBps);
+            ranges.spreadMax = std::max(point.meanBps + totalFeesBps, point.meanBps);
+            hasSpread = true;
+        } else {
+            ranges.spreadMin = std::min(ranges.spreadMin, point.meanBps - totalFeesBps);
+            ranges.spreadMax = std::max(ranges.spreadMax, point.meanBps + totalFeesBps);
+        }
+        meanSum += point.meanBps;
+        ranges.deviationAbsMax = std::max(ranges.deviationAbsMax, std::abs(point.deviationBps));
+        ranges.edgeAfterFeesMax = std::max(ranges.edgeAfterFeesMax, point.edgeAfterFeesBps);
+        ++meanCount;
+    }
+    if (meanCount > 0u) ranges.meanAvg = meanSum / static_cast<double>(meanCount);
     if (!hasPrice) {
         for (const auto& row : a) absorbPrice(row, ranges, hasPrice);
         for (const auto& row : b) absorbPrice(row, ranges, hasPrice);
@@ -231,6 +260,79 @@ void drawSpreadSegments(QPainter& painter,
     }
 }
 
+void drawMeanBands(QPainter& painter,
+                   const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& means,
+                   const Ranges& ranges,
+                   const QRectF& rect) {
+    if (means.size() < 2) return;
+    QPolygonF meanLine;
+    QPolygonF upperBand;
+    QPolygonF lowerBand;
+    meanLine.reserve(static_cast<int>(std::min<std::size_t>(means.size() + 2, 1000000)));
+    upperBand.reserve(meanLine.capacity());
+    lowerBand.reserve(meanLine.capacity());
+
+    const hftrec::arbitrage::BookTickerSpreadMeanPoint* carry = nullptr;
+    for (const auto& point : means) {
+        if (point.tsNs > ranges.tsMin) break;
+        carry = &point;
+    }
+    auto append = [&](std::int64_t ts, double mean) {
+        const double x = xFor(ts, ranges, rect);
+        meanLine.push_back(QPointF{x, spreadYFor(mean, ranges, rect)});
+        upperBand.push_back(QPointF{x, spreadYFor(mean + ranges.totalFeesBps, ranges, rect)});
+        lowerBand.push_back(QPointF{x, spreadYFor(mean - ranges.totalFeesBps, ranges, rect)});
+    };
+    if (carry != nullptr) append(ranges.tsMin, carry->meanBps);
+    for (const auto& point : means) {
+        if (point.tsNs < ranges.tsMin) continue;
+        if (point.tsNs > ranges.tsMax) break;
+        append(point.tsNs, point.meanBps);
+    }
+
+    QPen bandPen{QColor{145, 145, 150}};
+    bandPen.setWidth(1);
+    bandPen.setStyle(Qt::DashLine);
+    bandPen.setCapStyle(Qt::SquareCap);
+    painter.setPen(bandPen);
+    painter.drawPolyline(upperBand);
+    painter.drawPolyline(lowerBand);
+
+    QPen meanPen{QColor{255, 214, 84}};
+    meanPen.setWidth(1);
+    meanPen.setCapStyle(Qt::SquareCap);
+    meanPen.setJoinStyle(Qt::MiterJoin);
+    painter.setPen(meanPen);
+    painter.drawPolyline(meanLine);
+}
+
+const hftrec::arbitrage::BookTickerSpreadPoint* nearestSpreadPoint(
+    const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& points,
+    std::int64_t ts) noexcept {
+    if (points.empty()) return nullptr;
+    auto it = std::lower_bound(points.begin(), points.end(), ts, [](const auto& point, std::int64_t value) {
+        return point.tsNs < value;
+    });
+    if (it == points.begin()) return &*it;
+    if (it == points.end()) return &points.back();
+    const auto* right = &*it;
+    const auto* left = &*(it - 1);
+    return (ts - left->tsNs) <= (right->tsNs - ts) ? left : right;
+}
+
+const hftrec::arbitrage::BookTickerSpreadMeanPoint* nearestMeanPoint(
+    const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& points,
+    std::int64_t ts) noexcept {
+    if (points.empty()) return nullptr;
+    auto it = std::lower_bound(points.begin(), points.end(), ts, [](const auto& point, std::int64_t value) {
+        return point.tsNs < value;
+    });
+    if (it == points.begin()) return &*it;
+    if (it == points.end()) return &points.back();
+    const auto* right = &*it;
+    const auto* left = &*(it - 1);
+    return (ts - left->tsNs) <= (right->tsNs - ts) ? left : right;
+}
 QString formatPrice(std::int64_t priceE8) {
     const double value = static_cast<double>(priceE8) / kE8;
     const int decimals = value >= 1000.0 ? 2 : 6;
@@ -387,7 +489,8 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     const auto& primary = controller_->primaryRows();
     const auto& secondary = controller_->secondaryRows();
     const auto& spreads = controller_->spreadPoints();
-    const Ranges ranges = computeRanges(primary, secondary, spreads, controller_->tsMin(), controller_->tsMax());
+    const auto& means = controller_->meanPoints();
+    const Ranges ranges = computeRanges(primary, secondary, spreads, means, controller_->tsMin(), controller_->tsMax(), controller_->totalFeePenaltyBps());
     const LayoutRects layout = makeLayout(boundingRect());
 
     painter->setRenderHint(QPainter::Antialiasing, false);
@@ -418,6 +521,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     appendTickerPoints(secondary, false, ranges, layout.priceRect, points);
     drawPolyline(*painter, points, QColor{179, 102, 255});
 
+    drawMeanBands(*painter, means, ranges, layout.spreadRect);
     drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);
 
     painter->setFont(QFont{painter->font().family(), 9});
@@ -425,10 +529,24 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     painter->drawText(layout.priceRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
                       QStringLiteral("Top: A bid cyan / A ask red   B bid green / B ask purple"));
     painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("Spread net of A/B internal spreads, no fees: raw max %1   penalty avg %2   net min %3   net max %4")
-                          .arg(formatBps(ranges.rawSpreadMax), formatBps(ranges.internalPenaltyAvg), formatBps(ranges.spreadMin), formatBps(ranges.spreadMax)));
+                      QStringLiteral("Basis: spread min %1   spread max %2   mean avg %3   fees band +/- %4   max deviation %5   max edge %6")
+                          .arg(formatBps(ranges.spreadMin), formatBps(ranges.spreadMax), formatBps(ranges.meanAvg), formatBps(ranges.totalFeesBps), formatBps(ranges.deviationAbsMax), formatBps(ranges.edgeAfterFeesMax)));
 
     const QRectF chartBounds = boundingRect().adjusted(4, 4, -4, -4);
+    if (hoverActive_ && layout.spreadRect.contains(hoverPoint_)) {
+        const auto ts = tsForX(hoverPoint_.x(), ranges, layout.spreadRect);
+        const auto* spread = nearestSpreadPoint(spreads, ts);
+        const auto* mean = nearestMeanPoint(means, ts);
+        if (spread != nullptr && mean != nullptr) {
+            const QString label = QStringLiteral("spread %1  mean %2  dev %3  fees %4  edge %5")
+                                      .arg(formatBps(spread->spreadBps),
+                                           formatBps(mean->meanBps),
+                                           formatBps(mean->deviationBps),
+                                           formatBps(ranges.totalFeesBps),
+                                           formatBps(mean->edgeAfterFeesBps));
+            drawLabel(*painter, hoverPoint_, label, chartBounds);
+        }
+    }
     if (measureVisible_) {
         const QRectF* startRect = rectForPoint(measureStart_, layout);
         const QRectF* endRect = rectForPoint(measureEnd_, layout);
@@ -460,6 +578,13 @@ void BookTickerCompareItem::paint(QPainter* painter) {
 }
 
 }  // namespace hftrec::gui::viewer
+
+
+
+
+
+
+
 
 
 

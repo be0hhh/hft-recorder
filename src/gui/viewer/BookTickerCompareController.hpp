@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QObject>
 #include <QTimer>
@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/arbitrage/BookTickerSpread.hpp"
+#include "core/arbitrage/BookTickerSpreadMean.hpp"
 #include "core/replay/EventRows.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
 
@@ -24,6 +25,10 @@ class BookTickerCompareController : public QObject {
     Q_PROPERTY(int primaryCount READ primaryCount NOTIFY dataChanged)
     Q_PROPERTY(int secondaryCount READ secondaryCount NOTIFY dataChanged)
     Q_PROPERTY(int spreadCount READ spreadCount NOTIFY dataChanged)
+    Q_PROPERTY(double primaryFeeActionBps READ primaryFeeActionBps WRITE setPrimaryFeeActionBps NOTIFY feesChanged)
+    Q_PROPERTY(double secondaryFeeActionBps READ secondaryFeeActionBps WRITE setSecondaryFeeActionBps NOTIFY feesChanged)
+    Q_PROPERTY(double totalFeePenaltyBps READ totalFeePenaltyBps NOTIFY feesChanged)
+    Q_PROPERTY(double meanWindowSeconds READ meanWindowSeconds WRITE setMeanWindowSeconds NOTIFY meanChanged)
     Q_PROPERTY(qint64 tsMin READ tsMin NOTIFY viewportChanged)
     Q_PROPERTY(qint64 tsMax READ tsMax NOTIFY viewportChanged)
 
@@ -37,16 +42,26 @@ class BookTickerCompareController : public QObject {
     int primaryCount() const noexcept { return static_cast<int>(primaryRows_.size()); }
     int secondaryCount() const noexcept { return static_cast<int>(secondaryRows_.size()); }
     int spreadCount() const noexcept { return static_cast<int>(spreadPoints_.size()); }
+    double primaryFeeActionBps() const noexcept { return primaryFeeActionBps_; }
+    double secondaryFeeActionBps() const noexcept { return secondaryFeeActionBps_; }
+    double totalFeePenaltyBps() const noexcept { return 2.0 * primaryFeeActionBps_ + 2.0 * secondaryFeeActionBps_; }
+    double meanWindowSeconds() const noexcept { return meanWindowSeconds_; }
     qint64 tsMin() const noexcept { return tsMin_; }
     qint64 tsMax() const noexcept { return tsMax_; }
 
     const std::vector<hftrec::replay::BookTickerRow>& primaryRows() const noexcept { return primaryRows_; }
     const std::vector<hftrec::replay::BookTickerRow>& secondaryRows() const noexcept { return secondaryRows_; }
     const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreadPoints() const noexcept { return spreadPoints_; }
+    const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& meanPoints() const noexcept { return meanPoints_; }
 
     Q_INVOKABLE bool setPrimarySource(const QString& sourceId, const QString& sourceKind, const QString& sessionPath);
     Q_INVOKABLE bool setSecondarySource(const QString& sourceId, const QString& sourceKind, const QString& sessionPath);
     Q_INVOKABLE void clear();
+    Q_INVOKABLE void setPrimaryFeeActionBps(double bps);
+    Q_INVOKABLE void setSecondaryFeeActionBps(double bps);
+    Q_INVOKABLE void setMeanWindowSeconds(double seconds);
+    Q_INVOKABLE double savedFeeActionBps(const QString& exchange, const QString& market) const;
+    Q_INVOKABLE void saveFeeActionBps(const QString& exchange, const QString& market, double bps);
     Q_INVOKABLE void setLiveUpdateIntervalMs(int intervalMs);
     Q_INVOKABLE void autoFit();
     Q_INVOKABLE void panTime(double fraction);
@@ -58,6 +73,8 @@ class BookTickerCompareController : public QObject {
     void dataChanged();
     void viewportChanged();
     void statusChanged();
+    void feesChanged();
+    void meanChanged();
 
   private:
     struct SourceState {
@@ -85,6 +102,10 @@ class BookTickerCompareController : public QObject {
     std::vector<hftrec::replay::BookTickerRow> primaryRows_{};
     std::vector<hftrec::replay::BookTickerRow> secondaryRows_{};
     std::vector<hftrec::arbitrage::BookTickerSpreadPoint> spreadPoints_{};
+    std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint> meanPoints_{};
+    double primaryFeeActionBps_{0.0};
+    double secondaryFeeActionBps_{0.0};
+    double meanWindowSeconds_{5.0};
     qint64 fullTsMin_{0};
     qint64 fullTsMax_{1};
     qint64 tsMin_{0};
@@ -95,5 +116,6 @@ class BookTickerCompareController : public QObject {
 };
 
 }  // namespace hftrec::gui::viewer
+
 
 

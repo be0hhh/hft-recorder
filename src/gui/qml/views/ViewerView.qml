@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import HftRecorder 1.0
@@ -153,8 +153,36 @@ Pane {
         compareChart.setSecondarySource(root.selectedCompareSourceB,
                                         sourcesModel.sourceKind(root.selectedCompareSourceB),
                                         sourcesModel.sessionPath(root.selectedCompareSourceB))
+        root.loadCompareFees()
         if (root.selectedCompareSourceA !== "")
             root.selectedSourceId = root.selectedCompareSourceA
+    }
+
+    function loadCompareFees() {
+        var exchangeA = sourcesModel.exchange(root.selectedCompareSourceA)
+        var marketA = sourcesModel.market(root.selectedCompareSourceA)
+        var exchangeB = sourcesModel.exchange(root.selectedCompareSourceB)
+        var marketB = sourcesModel.market(root.selectedCompareSourceB)
+        compareChart.setPrimaryFeeActionBps(compareChart.savedFeeActionBps(exchangeA, marketA))
+        compareChart.setSecondaryFeeActionBps(compareChart.savedFeeActionBps(exchangeB, marketB))
+    }
+
+    function savePrimaryFee(value) {
+        var bps = Number(value)
+        if (!isFinite(bps) || bps < 0) bps = 0
+        compareChart.setPrimaryFeeActionBps(bps)
+        compareChart.saveFeeActionBps(sourcesModel.exchange(root.selectedCompareSourceA),
+                                      sourcesModel.market(root.selectedCompareSourceA),
+                                      bps)
+    }
+
+    function saveSecondaryFee(value) {
+        var bps = Number(value)
+        if (!isFinite(bps) || bps < 0) bps = 0
+        compareChart.setSecondaryFeeActionBps(bps)
+        compareChart.saveFeeActionBps(sourcesModel.exchange(root.selectedCompareSourceB),
+                                      sourcesModel.market(root.selectedCompareSourceB),
+                                      bps)
     }
 
     function syncCompareIndexesFromIds() {
@@ -273,6 +301,46 @@ Pane {
             }
         }
         Component.onCompleted: currentIndex = 0
+    }
+
+
+    component MeanSecondsField: TextField {
+        id: meanField
+        property real secondsValue: 5
+        Layout.preferredWidth: 58
+        text: Number(secondsValue).toFixed(2)
+        color: root.textColor
+        selectedTextColor: root.windowColor
+        selectionColor: root.accentBuyColor
+        horizontalAlignment: TextInput.AlignRight
+        verticalAlignment: TextInput.AlignVCenter
+        font.pixelSize: 12
+        validator: DoubleValidator { bottom: 0.1; top: 3600; decimals: 3; notation: DoubleValidator.StandardNotation }
+        background: Rectangle {
+            radius: 7
+            color: meanField.activeFocus ? root.panelAltColor : root.panelColor
+            border.color: meanField.activeFocus ? root.accentBuyColor : root.borderColor
+            border.width: 1
+        }
+    }
+    component FeeBpsField: TextField {
+        id: feeField
+        property real feeValue: 0
+        Layout.preferredWidth: 64
+        text: Number(feeValue).toFixed(2)
+        color: root.textColor
+        selectedTextColor: root.windowColor
+        selectionColor: root.accentBuyColor
+        horizontalAlignment: TextInput.AlignRight
+        verticalAlignment: TextInput.AlignVCenter
+        font.pixelSize: 12
+        validator: DoubleValidator { bottom: 0; top: 1000; decimals: 4; notation: DoubleValidator.StandardNotation }
+        background: Rectangle {
+            radius: 7
+            color: feeField.activeFocus ? root.panelAltColor : root.panelColor
+            border.color: feeField.activeFocus ? root.accentBuyColor : root.borderColor
+            border.width: 1
+        }
     }
 
     background: Rectangle { color: root.windowColor }
@@ -394,6 +462,15 @@ Pane {
                     }
                 }
 
+                Label { text: "fee"; color: root.mutedTextColor }
+                FeeBpsField {
+                    id: feeAField
+                    enabled: root.selectedCompareSourceA !== ""
+                    feeValue: compareChart.primaryFeeActionBps
+                    onEditingFinished: root.savePrimaryFee(text)
+                    onAccepted: root.savePrimaryFee(text)
+                }
+
                 Label { text: "Source B"; color: root.mutedTextColor }
                 DarkSourceCombo {
                     id: compareComboB
@@ -408,6 +485,23 @@ Pane {
                     }
                 }
 
+                Label { text: "fee"; color: root.mutedTextColor }
+                FeeBpsField {
+                    id: feeBField
+                    enabled: root.selectedCompareSourceB !== ""
+                    feeValue: compareChart.secondaryFeeActionBps
+                    onEditingFinished: root.saveSecondaryFee(text)
+                    onAccepted: root.saveSecondaryFee(text)
+                }
+
+
+                Label { text: "mean s"; color: root.mutedTextColor }
+                MeanSecondsField {
+                    id: meanWindowField
+                    secondsValue: compareChart.meanWindowSeconds
+                    onEditingFinished: compareChart.setMeanWindowSeconds(Number(text))
+                    onAccepted: compareChart.setMeanWindowSeconds(Number(text))
+                }
                 Label {
                     Layout.fillWidth: true
                     text: root.compareMode
@@ -489,7 +583,7 @@ Pane {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 8
-                text: root.comparePickerActive ? "Top: two bookTicker traces. Bottom: best buy-ask/sell-bid spread in bps, net of A/B internal spreads, no fees." : "Single-source preview until two different sessions are selected."
+                text: root.comparePickerActive ? "Top: two bookTicker traces. Bottom: best-side spread in bps with rolling mean and fee band." : "Single-source preview until two different sessions are selected."
                 color: root.mutedTextColor
                 font.pixelSize: 12
             }
@@ -845,6 +939,7 @@ Pane {
         }
     }
 }
+
 
 
 

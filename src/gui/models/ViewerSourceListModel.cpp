@@ -2,7 +2,10 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QStringList>
 #include <QVariantMap>
 
@@ -50,6 +53,23 @@ QString buildLiveLabel(const QString& exchange, const QString& market, const QSt
              symbol.trimmed().isEmpty() ? QStringLiteral("Unknown Symbol") : symbol.trimmed());
 }
 
+struct RecordedIdentity {
+    QString exchange{};
+    QString market{};
+};
+
+RecordedIdentity readRecordedIdentity(const QString& sessionPath) {
+    RecordedIdentity out{};
+    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
+    if (!file.open(QIODevice::ReadOnly)) return out;
+    const auto doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) return out;
+    const auto identity = doc.object().value(QStringLiteral("identity")).toObject();
+    out.exchange = identity.value(QStringLiteral("exchange")).toString();
+    out.market = identity.value(QStringLiteral("market")).toString();
+    return out;
+}
+
 }  // namespace
 
 ViewerSourceListModel::ViewerSourceListModel(QObject* parent)
@@ -71,6 +91,20 @@ QString ViewerSourceListModel::sessionPath(const QString& sourceId) const {
 QString ViewerSourceListModel::sourceKind(const QString& sourceId) const {
     for (const auto& entry : entries_) {
         if (entry.id == sourceId) return entry.sourceKind;
+    }
+    return {};
+}
+
+QString ViewerSourceListModel::exchange(const QString& sourceId) const {
+    for (const auto& entry : entries_) {
+        if (entry.id == sourceId) return entry.exchange;
+    }
+    return {};
+}
+
+QString ViewerSourceListModel::market(const QString& sourceId) const {
+    for (const auto& entry : entries_) {
+        if (entry.id == sourceId) return entry.market;
     }
     return {};
 }
@@ -218,6 +252,9 @@ void ViewerSourceListModel::rebuildEntries_() {
             entry.groupTitle = QStringLiteral("Recorded");
             entry.sourceKind = QStringLiteral("recorded");
             entry.sessionPath = recordingsDir.absoluteFilePath(recordedId);
+            const auto identity = readRecordedIdentity(entry.sessionPath);
+            entry.exchange = identity.exchange;
+            entry.market = identity.market;
             nextEntries.push_back(std::move(entry));
         }
     }

@@ -6,13 +6,20 @@ namespace hftrec::arbitrage {
 
 namespace {
 
+constexpr std::int64_t kBookTickerSpreadStaleGapNs = 1'000'000'000ll;
+
 bool validQuote(const hftrec::replay::BookTickerRow& row) noexcept {
     return row.bidPriceE8 > 0 && row.askPriceE8 > 0 && row.askPriceE8 >= row.bidPriceE8;
 }
 
+bool freshQuote(std::int64_t tsNs, const hftrec::replay::BookTickerRow* row) noexcept {
+    return row != nullptr && tsNs >= row->tsNs && tsNs - row->tsNs <= kBookTickerSpreadStaleGapNs;
+}
+
 BookTickerSpreadPoint makePoint(std::int64_t tsNs,
                                 const hftrec::replay::BookTickerRow& a,
-                                const hftrec::replay::BookTickerRow& b) noexcept {
+                                const hftrec::replay::BookTickerRow& b,
+                                double feePenaltyBps) noexcept {
     const double closePenaltyE8 = static_cast<double>(a.askPriceE8 - a.bidPriceE8)
         + static_cast<double>(b.askPriceE8 - b.bidPriceE8);
     const double buyAAskSellBBidRaw = (static_cast<double>(b.bidPriceE8 - a.askPriceE8)
@@ -29,6 +36,7 @@ BookTickerSpreadPoint makePoint(std::int64_t tsNs,
     if (buyAAskSellBBid >= buyBAskSellABid) {
         out.rawSpreadBps = buyAAskSellBBidRaw;
         out.internalPenaltyBps = buyAAskSellBBidPenalty;
+        out.feePenaltyBps = feePenaltyBps;
         out.spreadBps = buyAAskSellBBid;
         out.direction = SpreadDirection::BuyAAskSellBBid;
         out.buyAskPriceE8 = a.askPriceE8;
@@ -36,6 +44,7 @@ BookTickerSpreadPoint makePoint(std::int64_t tsNs,
     } else {
         out.rawSpreadBps = buyBAskSellABidRaw;
         out.internalPenaltyBps = buyBAskSellABidPenalty;
+        out.feePenaltyBps = feePenaltyBps;
         out.spreadBps = buyBAskSellABid;
         out.direction = SpreadDirection::BuyBAskSellABid;
         out.buyAskPriceE8 = b.askPriceE8;
@@ -48,7 +57,8 @@ BookTickerSpreadPoint makePoint(std::int64_t tsNs,
 
 std::vector<BookTickerSpreadPoint> buildBestSideBookTickerSpread(
     const std::vector<hftrec::replay::BookTickerRow>& a,
-    const std::vector<hftrec::replay::BookTickerRow>& b) {
+    const std::vector<hftrec::replay::BookTickerRow>& b,
+    double feePenaltyBps) {
     std::vector<BookTickerSpreadPoint> out;
     out.reserve(a.size() + b.size());
 
@@ -70,11 +80,12 @@ std::vector<BookTickerSpreadPoint> buildBestSideBookTickerSpread(
             ++bi;
         }
 
-        if (lastA == nullptr || lastB == nullptr) continue;
-        out.push_back(makePoint(tsNs, *lastA, *lastB));
+        if (!freshQuote(tsNs, lastA) || !freshQuote(tsNs, lastB)) continue;
+        out.push_back(makePoint(tsNs, *lastA, *lastB, feePenaltyBps));
     }
 
     return out;
 }
 
 }  // namespace hftrec::arbitrage
+

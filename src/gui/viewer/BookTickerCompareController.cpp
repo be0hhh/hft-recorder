@@ -1,8 +1,11 @@
-﻿#include "gui/viewer/BookTickerCompareController.hpp"
+#include "gui/viewer/BookTickerCompareController.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include "core/replay/SessionReplay.hpp"
+
+#include <QSettings>
 
 namespace hftrec::gui::viewer {
 
@@ -17,6 +20,29 @@ bool rowsLessTs(const hftrec::replay::BookTickerRow& lhs,
     if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
     if (lhs.ingestSeq != rhs.ingestSeq) return lhs.ingestSeq < rhs.ingestSeq;
     return lhs.captureSeq < rhs.captureSeq;
+}
+
+double cleanBps(double value) noexcept {
+    if (!std::isfinite(value) || value < 0.0) return 0.0;
+    if (value > 1000.0) return 1000.0;
+    return value;
+}
+
+double cleanMeanWindowSeconds(double value) noexcept {
+    if (!std::isfinite(value) || value < 0.1) return 0.1;
+    if (value > 3600.0) return 3600.0;
+    return value;
+}
+
+std::int64_t meanWindowNs(double seconds) noexcept {
+    return static_cast<std::int64_t>(cleanMeanWindowSeconds(seconds) * 1000000000.0);
+}
+
+QString feeSettingsKey(const QString& exchange, const QString& market) {
+    const QString ex = exchange.trimmed().toLower();
+    const QString mk = market.trimmed().toLower();
+    if (ex.isEmpty() || mk.isEmpty()) return {};
+    return QStringLiteral("fees/%1/%2/action_bps").arg(ex, mk);
 }
 
 }  // namespace
@@ -77,6 +103,7 @@ void BookTickerCompareController::clear() {
     primaryRows_.clear();
     secondaryRows_.clear();
     spreadPoints_.clear();
+    meanPoints_.clear();
     fullTsMin_ = 0;
     fullTsMax_ = 1;
     tsMin_ = 0;
@@ -87,6 +114,42 @@ void BookTickerCompareController::clear() {
     setStatus_(QStringLiteral("Select two bookTicker sessions"));
     emit sourcesChanged();
     emit dataChanged();
+}
+
+void BookTickerCompareController::setPrimaryFeeActionBps(double bps) {
+    bps = cleanBps(bps);
+    if (std::abs(primaryFeeActionBps_ - bps) < 0.000001) return;
+    primaryFeeActionBps_ = bps;
+    emit feesChanged();
+    rebuild_();
+}
+
+void BookTickerCompareController::setSecondaryFeeActionBps(double bps) {
+    bps = cleanBps(bps);
+    if (std::abs(secondaryFeeActionBps_ - bps) < 0.000001) return;
+    secondaryFeeActionBps_ = bps;
+    emit feesChanged();
+    rebuild_();
+}
+
+void BookTickerCompareController::setMeanWindowSeconds(double seconds) {
+    seconds = cleanMeanWindowSeconds(seconds);
+    if (std::abs(meanWindowSeconds_ - seconds) < 0.000001) return;
+    meanWindowSeconds_ = seconds;
+    emit meanChanged();
+    rebuild_();
+}
+
+double BookTickerCompareController::savedFeeActionBps(const QString& exchange, const QString& market) const {
+    const QString key = feeSettingsKey(exchange, market);
+    if (key.isEmpty()) return 0.0;
+    return cleanBps(QSettings{}.value(key, 0.0).toDouble());
+}
+
+void BookTickerCompareController::saveFeeActionBps(const QString& exchange, const QString& market, double bps) {
+    const QString key = feeSettingsKey(exchange, market);
+    if (key.isEmpty()) return;
+    QSettings{}.setValue(key, cleanBps(bps));
 }
 
 void BookTickerCompareController::autoFit() {
@@ -243,7 +306,8 @@ void BookTickerCompareController::pollLive_() {
 void BookTickerCompareController::rebuild_() {
     primaryRows_ = primary_.rows;
     secondaryRows_ = secondary_.rows;
-    spreadPoints_ = hftrec::arbitrage::buildBestSideBookTickerSpread(primaryRows_, secondaryRows_);
+    spreadPoints_ = hftrec::arbitrage::buildBestSideBookTickerSpread(primaryRows_, secondaryRows_, totalFeePenaltyBps());
+    meanPoints_ = hftrec::arbitrage::buildRollingBookTickerSpreadMean(spreadPoints_, meanWindowNs(meanWindowSeconds_), totalFeePenaltyBps());
     updateFullRange_();
     initializeViewportIfNeeded_();
 
@@ -311,6 +375,8 @@ void BookTickerCompareController::setStatus_(const QString& statusText) {
 }
 
 }  // namespace hftrec::gui::viewer
+
+
 
 
 
