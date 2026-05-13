@@ -96,6 +96,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     void joinManagedMarketDataIfIdle_() noexcept;
     bool anyManagedMarketDataDesired_() const noexcept;
     void marketDataManagerLoop_(CaptureConfig config) noexcept;
+    void directBookTickerLoop_(CaptureConfig config) noexcept;
     void syncManifestIntegrityFromReplay_() noexcept;
     Status writeInstrumentMetadataFile() noexcept;
     Status writeSupportArtifacts() noexcept;

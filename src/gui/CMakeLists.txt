@@ -22,6 +22,8 @@ qt_add_executable(hft-recorder-gui
     viewer/ChartControllerSelection.cpp
     api/ChartApiServer.cpp
     viewer/LiveDataProvider.cpp
+    viewer/BookTickerCompareController.cpp
+    viewer/BookTickerCompareItem.cpp
     viewer/ChartItem.cpp
     viewer/ChartItemHover.cpp
     viewer/ChartItemPaint.cpp

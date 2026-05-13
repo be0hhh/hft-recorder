@@ -1,8 +1,11 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <iterator>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "core/capture/CaptureCoordinator.hpp"
 
@@ -12,12 +15,16 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook> [seconds] [output_dir]");
-    std::puts("  Current scope: Binance FAPI, one symbol per run, canonical JSON corpus output.");
+    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook> [seconds] [output_dir] [exchange] [symbol]");
+    std::puts("  hft-recorder capture bookticker all [seconds] [output_dir]");
+    std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
     std::puts("Examples:");
-    std::puts("  hft-recorder capture bookticker 10 ./recordings");
-    std::puts("  hft-recorder capture trades 30 ./recordings");
+    std::puts("  hft-recorder capture bookticker all 60 ./recordings");
+    std::puts("  hft-recorder capture bookticker 10 ./recordings binance BTCUSDT");
+    std::puts("  hft-recorder capture bookticker 10 ./recordings kucoin BTCUSDTM");
+    std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT");
+    std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT");
 }
 
 capture::CaptureConfig makeDefaultConfig() {
@@ -31,6 +38,38 @@ capture::CaptureConfig makeDefaultConfig() {
     return config;
 }
 
+struct VenueDefault {
+    const char* exchange;
+    const char* symbol;
+};
+
+constexpr VenueDefault kBookTickerVenueDefaults[] = {
+    {"binance", "BTCUSDT"},
+    {"kucoin", "BTCUSDTM"},
+    {"gate", "BTC_USDT"},
+    {"bitget", "BTCUSDT"},
+};
+
+Status startChannel(capture::CaptureCoordinator& coordinator,
+                    const std::string& channel,
+                    const capture::CaptureConfig& config) {
+    if (channel == "trades") return coordinator.startTrades(config);
+    if (channel == "liquidations" || channel == "liquidation" || channel == "forceOrder") return coordinator.startLiquidations(config);
+    if (channel == "bookticker") return coordinator.startBookTicker(config);
+    if (channel == "orderbook") return coordinator.startOrderbook(config);
+    return Status::InvalidArgument;
+}
+
+bool applyOptionalSingleVenueArgs(capture::CaptureConfig& config, int argc, char** argv) {
+    if (argc >= 5) {
+        config.exchange = argv[4];
+    }
+    if (argc >= 6) {
+        config.symbols = {argv[5]};
+    }
+    return true;
+}
+
 }  // namespace
 
 int runCapture(int argc, char** argv) {
@@ -41,6 +80,70 @@ int runCapture(int argc, char** argv) {
 
     auto config = makeDefaultConfig();
     const std::string channel = argv[1];
+    const bool allBookTickers = channel == "bookticker" && argc >= 3 && std::string{argv[2]} == "all";
+    const int secondsArgIndex = allBookTickers ? 3 : 2;
+    const int outputArgIndex = allBookTickers ? 4 : 3;
+
+    if (argc >= secondsArgIndex + 1) {
+        config.durationSec = std::strtoll(argv[secondsArgIndex], nullptr, 10);
+        if (config.durationSec <= 0) {
+            std::fputs("capture: seconds must be > 0\n", stderr);
+            return 2;
+        }
+    }
+    if (argc >= outputArgIndex + 1) {
+        config.outputDir = argv[outputArgIndex];
+    }
+
+    if (allBookTickers) {
+        std::vector<std::unique_ptr<capture::CaptureCoordinator>> coordinators;
+        coordinators.reserve(std::size(kBookTickerVenueDefaults));
+
+        for (const auto& venue : kBookTickerVenueDefaults) {
+            auto venueConfig = config;
+            venueConfig.exchange = venue.exchange;
+            venueConfig.market = "futures_usd";
+            venueConfig.symbols = {venue.symbol};
+
+            auto coordinator = std::make_unique<capture::CaptureCoordinator>();
+            const auto startStatus = coordinator->startBookTicker(venueConfig);
+            if (!isOk(startStatus)) {
+                const auto error = coordinator->lastError();
+                std::fprintf(stderr,
+                             "capture start failed: exchange=%s symbol=%s %s\n",
+                             venue.exchange,
+                             venue.symbol,
+                             !error.empty() ? error.c_str() : statusToString(startStatus).data());
+                for (auto& running : coordinators) (void)running->finalizeSession();
+                return 1;
+            }
+            std::printf("capture started: channel=bookticker exchange=%s market=futures_usd symbol=%s duration=%llds dir=%s\n",
+                        venue.exchange,
+                        venue.symbol,
+                        static_cast<long long>(venueConfig.durationSec),
+                        venueConfig.outputDir.string().c_str());
+            coordinators.push_back(std::move(coordinator));
+        }
+
+        std::this_thread::sleep_for(std::chrono::seconds(config.durationSec));
+        bool ok = true;
+        for (auto& coordinator : coordinators) {
+            const auto finalizeStatus = coordinator->finalizeSession();
+            if (!isOk(finalizeStatus)) {
+                ok = false;
+                const auto error = coordinator->lastError();
+                std::fprintf(stderr,
+                             "capture finalize failed: %s\n",
+                             !error.empty() ? error.c_str() : statusToString(finalizeStatus).data());
+            }
+        }
+        if (!ok) return 1;
+        std::puts("capture finished");
+        return 0;
+    }
+
+    if (!applyOptionalSingleVenueArgs(config, argc, argv)) return 2;
+
     if (argc >= 3) {
         config.durationSec = std::strtoll(argv[2], nullptr, 10);
         if (config.durationSec <= 0) {
@@ -53,16 +156,8 @@ int runCapture(int argc, char** argv) {
     }
 
     capture::CaptureCoordinator coordinator{};
-    Status startStatus = Status::InvalidArgument;
-    if (channel == "trades") {
-        startStatus = coordinator.startTrades(config);
-    } else if (channel == "liquidations" || channel == "liquidation" || channel == "forceOrder") {
-        startStatus = coordinator.startLiquidations(config);
-    } else if (channel == "bookticker") {
-        startStatus = coordinator.startBookTicker(config);
-    } else if (channel == "orderbook") {
-        startStatus = coordinator.startOrderbook(config);
-    } else {
+    Status startStatus = startChannel(coordinator, channel, config);
+    if (startStatus == Status::InvalidArgument && coordinator.lastError().empty()) {
         std::fprintf(stderr, "capture: unknown channel '%s'\n", channel.c_str());
         printUsage();
         return 2;
@@ -78,8 +173,11 @@ int runCapture(int argc, char** argv) {
         return 1;
     }
 
-    std::printf("capture started: channel=%s exchange=binance market=futures_usd symbol=ETHUSDT duration=%llds dir=%s\n",
+    std::printf("capture started: channel=%s exchange=%s market=%s symbol=%s duration=%llds dir=%s\n",
                 channel.c_str(),
+                config.exchange.c_str(),
+                config.market.c_str(),
+                config.symbols.empty() ? "" : config.symbols.front().c_str(),
                 static_cast<long long>(config.durationSec),
                 config.outputDir.string().c_str());
 

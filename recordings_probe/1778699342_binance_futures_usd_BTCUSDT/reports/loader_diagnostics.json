@@ -1,0 +1,8 @@
+{
+  "schema_version": "hftrec.support_artifact.loader_diagnostics.v1",
+  "producer": "hft-recorder",
+  "generated_at_ns": 1778699348632990636,
+  "session_id": "1778699342_binance_futures_usd_BTCUSDT",
+  "origin": "capture_finalize_placeholder",
+  "summary": "path reserved for loader-produced diagnostics; current file is a placeholder support artifact"
+}

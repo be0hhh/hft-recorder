@@ -2,6 +2,7 @@
 # Compiled as a STATIC lib so the app and variants can link against it.
 
 set(HFTREC_CORE_SOURCES
+    arbitrage/BookTickerSpread.cpp
     capture/SessionId.cpp
     capture/SessionManifest.cpp
     capture/ChannelJsonWriter.cpp

@@ -1,4 +1,4 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import HftRecorder 1.0
@@ -24,7 +24,15 @@ Pane {
     property int priceTickCount: 6
     property int timeTickCount: 5
     property string selectedSourceId: ""
+    property string selectedCompareSourceA: ""
+    property string selectedCompareSourceB: ""
+    property int selectedCompareIndexA: -1
+    property int selectedCompareIndexB: -1
+    property var compareSourceRows: [{ id: "", label: "Select session" }]
     property bool userHasExplicitSelection: false
+    property bool userHasExplicitCompareSelection: false
+    property bool compareMode: selectedCompareSourceA !== "" && selectedCompareSourceB !== "" && selectedCompareSourceA !== selectedCompareSourceB
+    property bool comparePickerActive: userHasExplicitCompareSelection || compareMode
     property bool showTradesLayer: true
     property bool showLiquidationsLayer: false
     property bool showOrderbookLayer: false
@@ -36,7 +44,10 @@ Pane {
 
     function chartSurface() { return chartLoader.item }
     function syncRendererDiagnostics() { root.appVm.activeChartRenderer = root.useDedicatedGpuPath ? "gpu-orderbook" : "cpu-chart" }
-    function syncLiveUpdateMode() { chart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs) }
+    function syncLiveUpdateMode() {
+        chart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs)
+        compareChart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs)
+    }
     function syncRenderWindow() { chart.setRenderWindowSeconds(root.appVm.renderWindowSeconds) }
 
     function applySourceSelection(sourceId) {
@@ -56,11 +67,48 @@ Pane {
 
     function liveSourceIndex() {
         for (var i = 0; i < sourcesModel.rowCount(); ++i) {
-            var row = sourcesModel.index(i, 0)
             if (sourcesModel.groupAt(i) === "live")
                 return i
         }
         return -1
+    }
+
+    function liveCompareSourceIds() {
+        var ready = []
+        var pending = []
+        for (var i = 0; i < sourcesModel.rowCount(); ++i) {
+            if (sourcesModel.groupAt(i) !== "live")
+                continue
+            var id = sourcesModel.sourceIdAt(i)
+            if (id === "")
+                continue
+            if (sourcesModel.bookTickerCount(id) > 0)
+                ready.push(id)
+            else
+                pending.push(id)
+        }
+        return ready.length >= 2 ? ready : []
+    }
+
+    function autoSelectLiveCompareSources(force) {
+        if (!force && (root.selectedCompareSourceA !== "" || root.selectedCompareSourceB !== ""))
+            return
+        var ids = root.liveCompareSourceIds()
+        if (ids.length < 2) {
+            if (force && !root.userHasExplicitCompareSelection) {
+                root.selectedCompareSourceA = ""
+                root.selectedCompareSourceB = ""
+                root.syncCompareIndexesFromIds()
+                root.applyCompareSelection()
+            }
+            return
+        }
+        if (root.selectedCompareSourceA === ids[0] && root.selectedCompareSourceB === ids[1])
+            return
+        root.selectedCompareSourceA = ids[0]
+        root.selectedCompareSourceB = ids[1]
+        root.syncCompareIndexesFromIds()
+        root.applyCompareSelection()
     }
 
     function ensureVisibleLayerSelection() {
@@ -98,6 +146,45 @@ Pane {
         }
     }
 
+    function applyCompareSelection() {
+        compareChart.setPrimarySource(root.selectedCompareSourceA,
+                                      sourcesModel.sourceKind(root.selectedCompareSourceA),
+                                      sourcesModel.sessionPath(root.selectedCompareSourceA))
+        compareChart.setSecondarySource(root.selectedCompareSourceB,
+                                        sourcesModel.sourceKind(root.selectedCompareSourceB),
+                                        sourcesModel.sessionPath(root.selectedCompareSourceB))
+        if (root.selectedCompareSourceA !== "")
+            root.selectedSourceId = root.selectedCompareSourceA
+    }
+
+    function syncCompareIndexesFromIds() {
+        root.selectedCompareIndexA = root.indexInCompareRows(root.selectedCompareSourceA)
+        root.selectedCompareIndexB = root.indexInCompareRows(root.selectedCompareSourceB)
+    }
+
+    function rebuildCompareSourceRows() {
+        var rows = [{ id: "", label: "Select session" }]
+        for (var i = 0; i < sourcesModel.rowCount(); ++i) {
+            var id = sourcesModel.sourceIdAt(i)
+            if (id !== "") {
+                var label = sourcesModel.labelAt(i)
+                if (sourcesModel.groupAt(i) === "live")
+                    label += " | L1 " + sourcesModel.bookTickerCount(id)
+                rows.push({ id: id, label: label })
+            }
+        }
+        root.compareSourceRows = rows
+        root.syncCompareIndexesFromIds()
+    }
+
+    function indexInCompareRows(sourceId) {
+        if (sourceId === "") return 0
+        for (var i = 1; i < root.compareSourceRows.length; ++i) {
+            if (root.compareSourceRows[i].id === sourceId) return i
+        }
+        return 0
+    }
+
     function ensureSourceSelection() {
         if (sessionToolbar.count() <= 0) {
             if (!root.userHasExplicitSelection) {
@@ -107,30 +194,85 @@ Pane {
             return
         }
 
-        if (sourcesModel.hasSource(root.selectedSourceId)) {
+        if (root.selectedSourceId !== "" && sourcesModel.hasSource(root.selectedSourceId)) {
             sessionToolbar.setCurrentIndex(sourcesModel.indexOfSource(root.selectedSourceId))
             if (!root.userHasExplicitSelection && chart.currentSourceId !== root.selectedSourceId)
                 root.applySourceSelection(root.selectedSourceId)
             return
         }
 
-        if (root.userHasExplicitSelection) {
-            sessionToolbar.setCurrentIndex(-1)
+        sessionToolbar.setCurrentIndex(-1)
+    }
+
+    function ensureCompareSelection() {
+        if (root.selectedCompareSourceA !== "" && !sourcesModel.hasSource(root.selectedCompareSourceA))
+            root.selectedCompareSourceA = ""
+        if (root.selectedCompareSourceB !== "" && !sourcesModel.hasSource(root.selectedCompareSourceB))
+            root.selectedCompareSourceB = ""
+        if (root.selectedCompareSourceB === root.selectedCompareSourceA)
+            root.selectedCompareSourceB = ""
+        if (!root.userHasExplicitCompareSelection) {
+            root.autoSelectLiveCompareSources(true)
             return
         }
+        root.syncCompareIndexesFromIds()
+        root.applyCompareSelection()
+    }
 
-        var desiredIndex = root.liveSourceIndex()
-        if (desiredIndex < 0)
-            desiredIndex = 0
-        if (desiredIndex < 0)
-            return
-
-        sessionToolbar.setCurrentIndex(desiredIndex)
-        var nextSourceId = sessionToolbar.currentSourceId()
-        if (nextSourceId === "")
-            return
-        root.selectedSourceId = nextSourceId
-        root.applySourceSelection(nextSourceId)
+    component DarkSourceCombo: ComboBox {
+        id: combo
+        Layout.preferredWidth: 420
+        model: root.compareSourceRows
+        textRole: "label"
+        valueRole: "id"
+        contentItem: Text {
+            text: combo.currentIndex <= 0 ? "Select session" : combo.displayText
+            color: combo.currentIndex <= 0 ? root.mutedTextColor : root.textColor
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            leftPadding: 10
+            rightPadding: 28
+        }
+        background: Rectangle {
+            radius: 7
+            color: combo.down ? root.panelAltColor : root.panelColor
+            border.color: combo.activeFocus ? root.accentBuyColor : root.borderColor
+            border.width: 1
+        }
+        delegate: Component {
+            ItemDelegate {
+                width: combo.width
+                text: modelData.label
+                highlighted: combo.highlightedIndex === index
+                contentItem: Text {
+                    text: modelData.label
+                    color: index === 0 ? root.mutedTextColor : root.textColor
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    color: highlighted ? root.panelAltColor : root.panelColor
+                }
+            }
+        }
+        popup: Popup {
+            y: combo.height + 2
+            width: combo.width
+            implicitHeight: Math.min(contentItem.implicitHeight, 360)
+            padding: 1
+            contentItem: ListView {
+                clip: true
+                implicitHeight: contentHeight
+                model: combo.popup.visible ? combo.delegateModel : null
+                currentIndex: combo.highlightedIndex
+            }
+            background: Rectangle {
+                color: root.panelColor
+                border.color: root.borderColor
+                radius: 7
+            }
+        }
+        Component.onCompleted: currentIndex = 0
     }
 
     background: Rectangle { color: root.windowColor }
@@ -142,6 +284,7 @@ Pane {
     }
 
     ChartController { id: chart; objectName: "chartController" }
+    BookTickerCompareController { id: compareChart }
     ViewerInteractionState { id: interaction }
     Timer { id: interactiveModeTimer; interval: 120; repeat: false; onTriggered: interaction.interactiveMode = false }
     Timer {
@@ -157,13 +300,17 @@ Pane {
 
     Component.onCompleted: {
         chart.active = root.tabActive
-        Qt.callLater(root.ensureSourceSelection)
+        root.rebuildCompareSourceRows()
+        Qt.callLater(root.autoSelectLiveCompareSources)
         Qt.callLater(root.syncRendererDiagnostics)
         Qt.callLater(root.syncLiveUpdateMode)
         Qt.callLater(root.syncRenderWindow)
     }
     onTabActiveChanged: chart.active = root.tabActive
     onUseDedicatedGpuPathChanged: root.syncRendererDiagnostics()
+
+    onSelectedCompareIndexAChanged: if (compareComboA) compareComboA.currentIndex = root.selectedCompareIndexA
+    onSelectedCompareIndexBChanged: if (compareComboB) compareComboB.currentIndex = root.selectedCompareIndexB
 
     Connections {
         target: root.appVm
@@ -173,7 +320,16 @@ Pane {
 
     Connections {
         target: sourcesModel
-        function onModelReset() { Qt.callLater(root.ensureSourceSelection) }
+        function onModelReset() {
+            root.rebuildCompareSourceRows()
+            Qt.callLater(root.ensureCompareSelection)
+            Qt.callLater(root.autoSelectLiveCompareSources)
+        }
+        function onRowsInserted() {
+            root.rebuildCompareSourceRows()
+            Qt.callLater(root.ensureCompareSelection)
+            Qt.callLater(root.autoSelectLiveCompareSources)
+        }
     }
 
     Connections {
@@ -193,6 +349,7 @@ Pane {
 
         ViewerSessionToolbar {
             id: sessionToolbar
+            visible: false
             sourcesModel: sourcesModel
             selectedSourceId: root.selectedSourceId
             chromeColor: root.chromeColor
@@ -213,7 +370,79 @@ Pane {
             onSourceCountChanged: Qt.callLater(root.ensureSourceSelection)
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            color: root.chromeColor
+            implicitHeight: compareControls.implicitHeight + 12
+            RowLayout {
+                id: compareControls
+                anchors.fill: parent
+                anchors.margins: 6
+                spacing: 8
+
+                Label { text: "Source A"; color: root.mutedTextColor }
+                DarkSourceCombo {
+                    id: compareComboA
+                    currentIndex: root.selectedCompareIndexA
+                    onActivated: function(index) {
+                        root.userHasExplicitCompareSelection = true
+                        root.selectedCompareSourceA = index <= 0 ? "" : root.compareSourceRows[index].id
+                        if (root.selectedCompareSourceB === root.selectedCompareSourceA)
+                            root.selectedCompareSourceB = ""
+                        root.syncCompareIndexesFromIds()
+                        root.applyCompareSelection()
+                    }
+                }
+
+                Label { text: "Source B"; color: root.mutedTextColor }
+                DarkSourceCombo {
+                    id: compareComboB
+                    currentIndex: root.selectedCompareIndexB
+                    onActivated: function(index) {
+                        root.userHasExplicitCompareSelection = true
+                        root.selectedCompareSourceB = index <= 0 ? "" : root.compareSourceRows[index].id
+                        if (root.selectedCompareSourceB === root.selectedCompareSourceA)
+                            root.selectedCompareSourceB = ""
+                        root.syncCompareIndexesFromIds()
+                        root.applyCompareSelection()
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: root.compareMode
+                          ? compareChart.statusText + " | A: " + compareChart.primaryCount + " B: " + compareChart.secondaryCount + " spread: " + compareChart.spreadCount
+                          : (root.comparePickerActive ? "Select source A and source B for compare" : "Pick two different sessions to show bookTicker overlay and arbitrage bps")
+                    color: root.mutedTextColor
+                    elide: Text.ElideRight
+                }
+
+                Button {
+                    id: reloadButton
+                    text: "Reload"
+                    contentItem: Text {
+                        text: reloadButton.text
+                        color: root.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 7
+                        color: reloadButton.down ? root.panelAltColor : root.panelColor
+                        border.color: root.borderColor
+                        border.width: 1
+                    }
+                    onClicked: {
+                        sourcesModel.reload()
+                        Qt.callLater(root.rebuildCompareSourceRows)
+                        Qt.callLater(root.ensureCompareSelection)
+                    }
+                }
+            }
+        }
+
         ViewerLayerToolbar {
+            visible: !root.comparePickerActive
             appVm: root.appVm
             chart: chart
             interaction: interaction
@@ -252,12 +481,100 @@ Pane {
             }
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            color: root.chromeColor
+            implicitHeight: 28
+            Label {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 8
+                text: root.comparePickerActive ? "Top: two bookTicker traces. Bottom: best buy-ask/sell-bid spread in bps, net of A/B internal spreads, no fees." : "Single-source preview until two different sessions are selected."
+                color: root.mutedTextColor
+                font.pixelSize: 12
+            }
+        }
+
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Rectangle { anchors.fill: parent; color: root.chartColor }
+            BookTickerCompareItem {
+                id: compareSurface
+                anchors.fill: parent
+                visible: root.comparePickerActive
+                controller: compareChart
+            }
+            MouseArea {
+                anchors.fill: parent
+                visible: root.comparePickerActive
+                hoverEnabled: true
+                acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                cursorShape: Qt.ArrowCursor
+                property real lastX: 0
+                property real pressX: 0
+                property bool dragActive: false
+                property bool measureActive: false
+                property bool measureStarted: false
+                property real pressY: 0
+                onPressed: function(mouse) {
+                    lastX = mouse.x
+                    pressX = mouse.x
+                    pressY = mouse.y
+                    dragActive = false
+                    measureStarted = false
+                    measureActive = (mouse.button === Qt.MiddleButton) || ((mouse.button === Qt.LeftButton) && (mouse.modifiers & Qt.ShiftModifier))
+                    if (mouse.button === Qt.RightButton) {
+                        compareSurface.clearMeasure()
+                        mouse.accepted = true
+                        return
+                    }
+                }
+                onPositionChanged: function(mouse) {
+                    compareSurface.setHoverPoint(mouse.x, mouse.y)
+                    if (measureActive) {
+                        if (!measureStarted) {
+                            if (Math.abs(mouse.x - pressX) < 3 && Math.abs(mouse.y - pressY) < 3)
+                                return
+                            compareSurface.beginMeasure(pressX, pressY)
+                            measureStarted = true
+                        }
+                        compareSurface.updateMeasure(mouse.x, mouse.y)
+                        return
+                    }
+                    if (!(mouse.buttons & Qt.LeftButton) && !(mouse.buttons & Qt.RightButton)) return
+                    if (!dragActive && Math.abs(mouse.x - pressX) < 3) return
+                    dragActive = true
+                    var dx = mouse.x - lastX
+                    lastX = mouse.x
+                    compareChart.panTime(-dx / Math.max(1, width))
+                }
+                onReleased: function(mouse) {
+                    if (measureActive && measureStarted)
+                        compareSurface.endMeasure()
+                    measureStarted = false
+                    measureActive = false
+                    dragActive = false
+                }
+                onCanceled: {
+                    if (measureActive && measureStarted)
+                        compareSurface.endMeasure()
+                    measureStarted = false
+                    measureActive = false
+                    dragActive = false
+                }
+                onExited: compareSurface.clearHover()
+                onWheel: function(wheel) {
+                    var factor = wheel.angleDelta.y > 0 ? 1.22 : 0.82
+                    compareChart.zoomTimeAt(factor, Math.max(0, Math.min(1, wheel.x / Math.max(1, width))))
+                    compareSurface.setHoverPoint(wheel.x, wheel.y)
+                    wheel.accepted = true
+                }
+                onDoubleClicked: compareChart.autoFit()
+            }
             Item {
                 id: plotFrame
+                visible: !root.comparePickerActive
                 anchors.left: parent.left
                 anchors.top: parent.top
                 anchors.right: priceScale.left
@@ -435,6 +752,7 @@ Pane {
             }
             ViewerPriceScale {
                 id: priceScale
+                visible: !root.comparePickerActive
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.bottom: timeScale.top
@@ -470,6 +788,7 @@ Pane {
             }
             ViewerTimeScale {
                 id: timeScale
+                visible: !root.comparePickerActive
                 anchors.left: parent.left
                 anchors.right: priceScale.left
                 anchors.bottom: parent.bottom
@@ -512,7 +831,7 @@ Pane {
                 color: "#2b2b31"
                 border.color: root.borderColor
                 border.width: 1
-                visible: root.showOrderbookLayer || root.showBookTickerLayer || root.showLiquidationsLayer || !root.showTradesLayer
+                visible: !root.comparePickerActive && (root.showOrderbookLayer || root.showBookTickerLayer || root.showLiquidationsLayer || !root.showTradesLayer)
                 implicitWidth: layerStatusText.implicitWidth + 20
                 implicitHeight: layerStatusText.implicitHeight + 12
                 Label {
@@ -526,5 +845,16 @@ Pane {
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
 
 

@@ -78,7 +78,14 @@ void ensureCxetInitialized() noexcept {
 #if HFTREC_WITH_CXET
     static std::once_flag initOnce;
     std::call_once(initOnce, []() noexcept {
-        (void)cxet::loadDotEnv(".env");
+        static constexpr const char* kEnvPaths[] = {
+            ".env",
+            "../.env",
+            "../../.env",
+            "../../../.env",
+            "../../../../.env",
+        };
+        for (const char* path : kEnvPaths) (void)cxet::loadDotEnv(path);
         (void)cxet::initProxyFromEnv();
         cxet::initBuildDispatch();
     });

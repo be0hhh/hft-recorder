@@ -15,6 +15,8 @@
 #endif
 #include "gui/models/SessionListModel.hpp"
 #include "gui/models/ViewerSourceListModel.hpp"
+#include "gui/viewer/BookTickerCompareController.hpp"
+#include "gui/viewer/BookTickerCompareItem.hpp"
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/ChartItem.hpp"
 #include "gui/viewer/gpu/GpuChartItem.hpp"
@@ -80,6 +82,8 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<hftrec::gui::CompressionViewModel>("HftRecorder", 1, 0, "CompressionViewModel");
     qmlRegisterType<hftrec::gui::TradingControlViewModel>("HftRecorder", 1, 0, "TradingControlViewModel");
     qmlRegisterType<hftrec::gui::WorkspaceViewModel>("HftRecorder", 1, 0, "WorkspaceViewModel");
+    qmlRegisterType<hftrec::gui::viewer::BookTickerCompareController>("HftRecorder", 1, 0, "BookTickerCompareController");
+    qmlRegisterType<hftrec::gui::viewer::BookTickerCompareItem>("HftRecorder", 1, 0, "BookTickerCompareItem");
     qmlRegisterType<hftrec::gui::viewer::ChartController>("HftRecorder", 1, 0, "ChartController");
     qmlRegisterType<hftrec::gui::viewer::ChartItem>("HftRecorder", 1, 0, "ChartItem");
     qmlRegisterType<hftrec::gui::viewer::gpu::GpuChartItem>("HftRecorder", 1, 0, "GpuChartItem");

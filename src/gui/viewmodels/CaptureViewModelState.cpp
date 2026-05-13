@@ -1,4 +1,4 @@
-#include "gui/viewmodels/CaptureViewModel.hpp"
+﻿#include "gui/viewmodels/CaptureViewModel.hpp"
 
 #include <QStringList>
 
@@ -97,11 +97,15 @@ void CaptureViewModel::refreshState() {
 
     if (sessionChanged) emit sessionStateChanged();
     if (channelChanged) {
-        reconcileActiveChannels_();
+        if (snapshot.errorText.isEmpty()) reconcileActiveChannels_();
         registerLiveSources_();
         emit channelStateChanged();
     }
-    if (countersChangedLocal) emit countersChanged();
+    if (countersChangedLocal) {
+        registerLiveSources_();
+        emit countersChanged();
+    }
 }
 
 }  // namespace hftrec::gui
+

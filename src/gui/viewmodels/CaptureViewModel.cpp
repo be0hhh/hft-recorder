@@ -15,10 +15,10 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
     bookTickerAvailableAliases_ = detail::loadAliasesForChannel("bookticker");
     orderbookAvailableAliases_ = detail::loadAliasesForChannel("orderbook");
     venueSymbolsTexts_ = {
-        QStringLiteral("LABUSDT"),
-        QStringLiteral("LABUSDTM"),
-        QStringLiteral("LAB_USDT"),
-        QStringLiteral("LABUSDT"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("XBTUSDTM"),
+        QStringLiteral("BTC_USDT"),
+        QStringLiteral("BTCUSDT"),
     };
 
     refreshTimer_.setInterval(250);

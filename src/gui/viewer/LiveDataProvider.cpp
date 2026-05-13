@@ -138,10 +138,7 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
             snapshotLoaded_ = isOk(hftrec::replay::parseSnapshotDocument(std::string_view{blob}, snapshot_));
         }
     }
-    syncTailOffset_(trades_);
-    syncTailOffset_(liquidations_);
-    syncTailOffset_(bookTicker_);
-    syncTailOffset_(depth_);
+
 }
 
 void JsonTailLiveDataProvider::stop() noexcept {

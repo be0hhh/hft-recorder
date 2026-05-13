@@ -1,0 +1,12 @@
+{
+  "schema_version": "hftrec.support_artifact.session_audit.v1",
+  "producer": "hft-recorder",
+  "generated_at_ns": 1778699348632990636,
+  "session_id": "1778699342_binance_futures_usd_BTCUSDT",
+  "manifest_schema_version": 1,
+  "corpus_schema_version": 2,
+  "session_status": "complete",
+  "session_health": "degraded",
+  "exact_replay_eligible": false,
+  "summary": "support artifact only; canonical truth remains the JSON session corpus"
+}

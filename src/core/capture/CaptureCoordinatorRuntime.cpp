@@ -10,6 +10,8 @@
 
 
 #include "api/run/RunByConfig.hpp"
+#include "api/connector/ExchangeProductConnector.hpp"
+#include "api/route/RoutePlan.hpp"
 #include "api/market/MarketDataReactor.hpp"
 #include "api/market/PublicMarketDataSubscriptionManager.hpp"
 #include "canon/PositionAndExchange.hpp"
@@ -206,6 +208,23 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
 canon::MarketType marketTypeFromConfig(std::string_view market) noexcept {
     if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
     return canon::kMarketTypeFutures;
+}
+
+const char* marketDataStatusName(cxet::api::market::PublicMarketDataStatus status) noexcept {
+    switch (status) {
+        case cxet::api::market::PublicMarketDataStatus::Ok: return "Ok";
+        case cxet::api::market::PublicMarketDataStatus::NoFrame: return "NoFrame";
+        case cxet::api::market::PublicMarketDataStatus::Parsed: return "Parsed";
+        case cxet::api::market::PublicMarketDataStatus::ParseSkipped: return "ParseSkipped";
+        case cxet::api::market::PublicMarketDataStatus::ParseFailed: return "ParseFailed";
+        case cxet::api::market::PublicMarketDataStatus::ConnectFailed: return "ConnectFailed";
+        case cxet::api::market::PublicMarketDataStatus::Disconnected: return "Disconnected";
+        case cxet::api::market::PublicMarketDataStatus::Reconnected: return "Reconnected";
+        case cxet::api::market::PublicMarketDataStatus::BadConfig: return "BadConfig";
+        case cxet::api::market::PublicMarketDataStatus::UnsupportedRoute: return "UnsupportedRoute";
+        case cxet::api::market::PublicMarketDataStatus::Stopped: return "Stopped";
+    }
+    return "Unknown";
 }
 cxet::api::market::PublicMarketDataWirePreference wirePreferenceForConfig(const CaptureConfig& config) noexcept {
     const bool sbeFutures = config.market == "futures_usd"
@@ -413,7 +432,166 @@ void CaptureCoordinator::joinManagedMarketDataIfIdle_() noexcept {
     marketDataRunning_.store(false, std::memory_order_release);
 }
 
+
+bool connectMarketDataRouteNoTradingSync(cxet::api::market::PublicMarketDataRoute& route) noexcept {
+    if (!route.prepared || !route.route.config) return false;
+    const auto status = cxet::api::connectWsEndpointByRoutePlanDetailed(
+        route.client,
+        route.route,
+        nullptr,
+        0u,
+        false);
+    if (status != cxet::api::RouteConnectStatus::Ok) return false;
+    if (route.route.payload && route.route.payloadLen > 0u && !route.client.send(route.route.payload, route.route.payloadLen)) {
+        return false;
+    }
+    if (route.route.postConnectPayload && route.route.postConnectPayloadLen > 0u) {
+        if (!route.client.send(route.route.postConnectPayload, route.route.postConnectPayloadLen)) return false;
+    }
+    route.connected = true;
+    return true;
+}
+void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
+    cxet::UnifiedRequestBuilder builder{};
+    Symbol symbol{};
+    symbol.copyFrom(config.symbols.empty() ? "" : config.symbols.front().c_str());
+    if (!cxet::api::market::preparePublicMarketDataBuilder(builder,
+                                                           cxet::api::market::PublicMarketDataStream::BookTicker,
+                                                           exchangeIdFromConfig(config.exchange),
+                                                           marketTypeFromConfig(config.market),
+                                                           symbol,
+                                                           1u)) {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastError_ = "bookticker direct route builder failed";
+        bookTickerRunning_.store(false, std::memory_order_release);
+        marketDataRunning_.store(false, std::memory_order_release);
+        return;
+    }
+
+    constexpr canon::FieldId kFields[] = {
+        canon::kFieldIdBidPrice,
+        canon::kFieldIdBidQty,
+        canon::kFieldIdAskPrice,
+        canon::kFieldIdAskQty,
+        canon::kFieldIdTimestamp,
+    };
+
+    MessageBuffer payloadBuf{};
+    MessageBuffer combinedPayloadBuf{};
+    MessageBuffer recvBuf{};
+    cxet::api::market::PublicMarketDataSnapshot snapshot{};
+    cxet::api::market::PublicMarketDataRoute route{};
+    cxet::api::market::PublicMarketDataRouteConfig routeConfig{};
+    routeConfig.builder = &builder;
+    routeConfig.payloadBuf = &payloadBuf;
+    routeConfig.combinedPayloadBuf = &combinedPayloadBuf;
+    routeConfig.recvBuf = &recvBuf;
+    routeConfig.snapshot = &snapshot;
+    routeConfig.stream = cxet::api::market::PublicMarketDataStream::BookTicker;
+    routeConfig.wirePreference = cxet::api::market::PublicMarketDataWirePreference::Auto;
+    routeConfig.requestedFields = Span<const canon::FieldId>(kFields, sizeof(kFields) / sizeof(kFields[0]));
+    routeConfig.stopRequested = &bookTickerStop_;
+    routeConfig.maxEvents = 0u;
+    routeConfig.maxReconnectAttempts = 10u;
+    routeConfig.pingIntervalMs = kRecorderQuietStreamKeepaliveMs;
+    routeConfig.pollTimeoutMs = 1u;
+    routeConfig.captureLatency = cxet::metrics::latencyEnabled();
+
+    if (!cxet::api::market::preparePublicMarketDataRoute(route, routeConfig)) {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastError_ = "bookticker direct route prepare failed";
+        bookTickerRunning_.store(false, std::memory_order_release);
+        marketDataRunning_.store(false, std::memory_order_release);
+        return;
+    }
+
+
+
+    if (!connectMarketDataRouteNoTradingSync(route)) {
+        cxet::api::market::closePublicMarketDataRoute(route);
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastError_ = std::string{"bookticker direct route connect failed"}
+            + " host=" + (route.route.endpointHost ? route.route.endpointHost : "<null>")
+            + " path=" + std::string(route.route.connectPath ? route.route.connectPath : "<null>",
+                                      route.route.connectPath ? route.route.connectPathLen : 6u)
+            + " payload=" + std::string(route.route.payload ? route.route.payload : "<null>",
+                                         route.route.payload ? std::min<std::size_t>(route.route.payloadLen, 160u) : 6u)
+            + " post_payload=" + std::string(route.route.postConnectPayload ? route.route.postConnectPayload : "<null>",
+                                              route.route.postConnectPayload ? std::min<std::size_t>(route.route.postConnectPayloadLen, 160u) : 6u)
+            + " ws_error=" + std::to_string(route.client.lastConnectError());
+        bookTickerRunning_.store(false, std::memory_order_release);
+        marketDataRunning_.store(false, std::memory_order_release);
+        return;
+    }
+
+    std::uint64_t skippedPolls = 0u;
+    while (!marketDataStop_.load(std::memory_order_acquire)
+           && desiredBookTicker_.load(std::memory_order_acquire)
+           && !bookTickerStop_.load(std::memory_order_acquire)) {
+        const auto status = cxet::api::market::pollPublicMarketDataRouteOnce(route);
+        if (status == cxet::api::market::PublicMarketDataStatus::Parsed) {
+            cxet::composite::BookTickerRuntimeV1 bookTicker{};
+            cxet::composite::StreamMeta meta{};
+            if (!readBookTickerSnapshot(snapshot, bookTicker, meta)) continue;
+            bookTickerCount_.fetch_add(1, std::memory_order_acq_rel);
+            const auto sequenceIds = nextEventSequenceIds(bookTickerCaptureSeq_, ingestSeq_);
+            const auto capturedBookTicker = cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, meta);
+            const auto row = makeBookTickerRow(capturedBookTicker, config.exchange, config.market, sequenceIds);
+            local_exchange::globalLocalOrderEngine().onBookTicker(capturedBookTicker);
+            auto aliases = config.bookTickerAliases;
+            for (const auto* requiredAlias : {"bidQty", "askQty"}) {
+                if (std::find(aliases.begin(), aliases.end(), requiredAlias) == aliases.end()) aliases.push_back(requiredAlias);
+            }
+            const auto jsonLine = renderBookTickerJsonLine(row, aliases);
+            local_exchange::globalLocalMarketDataBus().publish("bookticker", row.symbol, jsonLine);
+            const auto liveStatus = liveStore_.appendBookTicker(row);
+            const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendBookTickerLine(row, jsonLine) : liveStatus;
+            if (!isOk(fileStatus)) {
+                metrics::recordCaptureWriteError("bookticker");
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                lastError_ = "bookticker: failed to write bookticker.jsonl";
+                marketDataStop_.store(true, std::memory_order_release);
+                break;
+            }
+            metrics::recordCaptureEvent("bookticker", capturedBookTicker.tsNs,
+                                        static_cast<std::uint64_t>(jsonLine.size() + 1u),
+                                        static_cast<std::uint64_t>(internal::nowNs()));
+            continue;
+        }
+        if (status == cxet::api::market::PublicMarketDataStatus::NoFrame
+            || status == cxet::api::market::PublicMarketDataStatus::ParseSkipped
+            || status == cxet::api::market::PublicMarketDataStatus::ParseFailed
+            || status == cxet::api::market::PublicMarketDataStatus::Reconnected) {
+            ++skippedPolls;
+            continue;
+        }
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastError_ = std::string{"bookticker direct route stopped: "} + marketDataStatusName(status);
+        break;
+    }
+
+    cxet::api::market::closePublicMarketDataRoute(route);
+    bookTickerRunning_.store(false, std::memory_order_release);
+    marketDataRunning_.store(false, std::memory_order_release);
+    if (bookTickerCount_.load(std::memory_order_relaxed) == 0u) {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        if (lastError_.empty()) {
+            lastError_ = "bookticker direct route ended without rows; skipped_polls=" + std::to_string(skippedPolls)
+                + " frames=" + std::to_string(snapshot.frames)
+                + " parsed=" + std::to_string(snapshot.parsedFrames)
+                + " failures=" + std::to_string(snapshot.parseFailures)
+                + " last_status=" + marketDataStatusName(snapshot.lastStatus);
+        }
+    }
+}
 void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
+    if (desiredBookTicker_.load(std::memory_order_acquire)
+        && !desiredTrades_.load(std::memory_order_acquire)
+        && !desiredOrderbook_.load(std::memory_order_acquire)) {
+        directBookTickerLoop_(std::move(config));
+        return;
+    }
+
     cxet::api::market::PublicMarketDataSubscriptionManager manager{};
     std::uint8_t appliedMask = 0u;
 

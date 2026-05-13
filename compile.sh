@@ -2,7 +2,9 @@
 # hft-recorder compile.sh - WSL build orchestrator.
 #
 # Modes:
-#   ./compile.sh              build only hft-compressor shared library
+#   ./compile.sh              build hft-recorder app using existing hft-compressor shared library
+#   ./compile.sh --build-compressor build hft-compressor shared library, then build hft-recorder app
+#   ./compile.sh --compressor-only build only hft-compressor shared library
 #   ./compile.sh --force-cxet build/install CXETCPP, then build hft-recorder app
 #   ./compile.sh --force      build hft-compressor, build/install CXETCPP, then build hft-recorder app
 #   ./compile.sh --force clang  same as --force, but rebuild with Clang
@@ -19,7 +21,7 @@ APP="$(cd "$(dirname "$0")" && pwd)"
 COMPRESSOR="$(cd "$APP/../hft-compressor" && pwd)"
 INSTALL_DIR="$HOME/.local/cxet"
 JOBS="$(nproc 2>/dev/null || echo 4)"
-MODE="compressor-only"
+MODE="app"
 CLEAN=0
 COMPILER="default"
 C_COMPILER=""
@@ -53,6 +55,8 @@ usage() {
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --build-compressor) MODE="app-with-compressor"; shift ;;
+        --compressor-only) MODE="compressor-only"; shift ;;
         --force-cxet) MODE="app-with-cxet"; shift ;;
         --force)      MODE="all"; shift ;;
         --clean)      CLEAN=1; shift ;;
@@ -374,6 +378,17 @@ if [ "$COMPILER" != "default" ]; then
 fi
 
 case "$MODE" in
+    app)
+        COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
+        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB"
+        ;;
+    app-with-compressor)
+        _build_compressor
+        COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
+        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB"
+        ;;
     compressor-only)
         _build_compressor
         COMPRESSOR_LIB="$(_resolve_compressor_lib)"

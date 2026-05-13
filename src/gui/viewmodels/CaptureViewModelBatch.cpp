@@ -1,7 +1,8 @@
-#include "gui/viewmodels/CaptureViewModel.hpp"
+﻿#include "gui/viewmodels/CaptureViewModel.hpp"
 
 #include <QVariantMap>
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -267,6 +268,7 @@ void CaptureViewModel::registerLiveSources_() {
         const QString market = QString::fromStdString(manifest.market);
         const QString symbol = QString::fromStdString(manifest.symbols.empty() ? std::string{} : manifest.symbols.front()).trimmed().toUpper();
         const QString sourceId = buildViewerSourceId(exchange, market, symbol);
+        const auto liveStats = coordinator->hotCache()->stats();
 
         sources.push_back(viewer::LiveDataRegistry::RegisteredSource{
             sourceId.toStdString(),
@@ -286,6 +288,8 @@ void CaptureViewModel::registerLiveSources_() {
         descriptor.insert(QStringLiteral("sessionId"), QString::fromStdString(manifest.sessionId));
         descriptor.insert(QStringLiteral("sessionPath"), QString::fromStdString(coordinator->sessionDirCopy().string()));
         descriptor.insert(QStringLiteral("liveAvailable"), true);
+        descriptor.insert(QStringLiteral("bookTickerCount"), static_cast<int>(std::min<std::uint64_t>(liveStats.bookTickersTotal, static_cast<std::uint64_t>(std::numeric_limits<int>::max()))));
+        descriptor.insert(QStringLiteral("bookTickerRunning"), coordinator->bookTickerRunning());
         descriptors.push_back(descriptor);
     }
 
@@ -343,3 +347,5 @@ QString CaptureViewModel::joinCoordinatorErrors_() const {
 }
 
 }  // namespace hftrec::gui
+
+

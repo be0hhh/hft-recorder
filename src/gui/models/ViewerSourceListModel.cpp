@@ -75,6 +75,23 @@ QString ViewerSourceListModel::sourceKind(const QString& sourceId) const {
     return {};
 }
 
+QString ViewerSourceListModel::label(const QString& sourceId) const {
+    for (const auto& entry : entries_) {
+        if (entry.id == sourceId) return entry.label;
+    }
+    return {};
+}
+
+QString ViewerSourceListModel::sourceIdAt(int index) const {
+    if (index < 0 || index >= entries_.size()) return {};
+    return entries_.at(index).id;
+}
+
+QString ViewerSourceListModel::labelAt(int index) const {
+    if (index < 0 || index >= entries_.size()) return {};
+    return entries_.at(index).label;
+}
+
 QString ViewerSourceListModel::groupAt(int index) const {
     if (index < 0 || index >= entries_.size()) return {};
     return entries_.at(index).group;
@@ -89,6 +106,13 @@ int ViewerSourceListModel::indexOfSource(const QString& sourceId) const {
         if (entries_.at(i).id == sourceId) return static_cast<int>(i);
     }
     return -1;
+}
+
+int ViewerSourceListModel::bookTickerCount(const QString& sourceId) const {
+    for (const auto& entry : entries_) {
+        if (entry.id == sourceId) return entry.bookTickerCount;
+    }
+    return 0;
 }
 
 QString ViewerSourceListModel::recordingsRoot() const {
@@ -127,6 +151,7 @@ QVariant ViewerSourceListModel::data(const QModelIndex& index, int role) const {
         case ExchangeRole: return entry.exchange;
         case MarketRole: return entry.market;
         case LiveAvailableRole: return entry.liveAvailable;
+        case BookTickerCountRole: return entry.bookTickerCount;
         default: return {};
     }
 }
@@ -143,6 +168,7 @@ QHash<int, QByteArray> ViewerSourceListModel::roleNames() const {
         {ExchangeRole, "exchange"},
         {MarketRole, "market"},
         {LiveAvailableRole, "liveAvailable"},
+        {BookTickerCountRole, "bookTickerCount"},
     };
 }
 
@@ -174,6 +200,7 @@ void ViewerSourceListModel::rebuildEntries_() {
         entry.groupTitle = QStringLiteral("Live");
         entry.sessionPath = source.value(QStringLiteral("sessionPath")).toString();
         entry.liveAvailable = source.value(QStringLiteral("liveAvailable"), true).toBool();
+        entry.bookTickerCount = source.value(QStringLiteral("bookTickerCount"), 0).toInt();
         entry.label = source.value(QStringLiteral("label")).toString();
         if (entry.label.isEmpty()) entry.label = buildLiveLabel(entry.exchange, entry.market, entry.symbol);
         if (!entry.id.isEmpty()) nextEntries.push_back(std::move(entry));

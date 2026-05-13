@@ -26,6 +26,7 @@ class ViewerSourceListModel : public QAbstractListModel {
         ExchangeRole,
         MarketRole,
         LiveAvailableRole,
+        BookTickerCountRole,
     };
 
     explicit ViewerSourceListModel(QObject* parent = nullptr);
@@ -33,9 +34,13 @@ class ViewerSourceListModel : public QAbstractListModel {
     Q_INVOKABLE void reload();
     Q_INVOKABLE QString sessionPath(const QString& sourceId) const;
     Q_INVOKABLE QString sourceKind(const QString& sourceId) const;
+    Q_INVOKABLE QString label(const QString& sourceId) const;
+    Q_INVOKABLE QString sourceIdAt(int index) const;
+    Q_INVOKABLE QString labelAt(int index) const;
     Q_INVOKABLE QString groupAt(int index) const;
     Q_INVOKABLE bool hasSource(const QString& sourceId) const;
     Q_INVOKABLE int indexOfSource(const QString& sourceId) const;
+    Q_INVOKABLE int bookTickerCount(const QString& sourceId) const;
 
     QString recordingsRoot() const;
     QObject* captureViewModel() const;
@@ -60,6 +65,7 @@ class ViewerSourceListModel : public QAbstractListModel {
         QString exchange{};
         QString market{};
         bool liveAvailable{false};
+        int bookTickerCount{0};
     };
 
     void reconnectCaptureVm_();
@@ -72,3 +78,4 @@ class ViewerSourceListModel : public QAbstractListModel {
 };
 
 }  // namespace hftrec::gui
+

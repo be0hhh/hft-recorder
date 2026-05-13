@@ -1,0 +1,60 @@
+{
+  "session_health": "clean",
+  "exact_replay_eligible": false,
+  "total_incidents": 0,
+  "highest_severity": "info",
+  "channels": {
+    "trades": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "channel disabled for session"
+    },
+    "liquidations": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "channel disabled for session"
+    },
+    "bookticker": {
+      "state": "clean",
+      "exact_replay_eligible": true,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "ok",
+      "reason_text": "channel loaded cleanly"
+    },
+    "depth": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "orderbook channel disabled for session"
+    },
+    "snapshot": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "orderbook channel disabled for session"
+    }
+  },
+  "incidents": [
+  ]
+}

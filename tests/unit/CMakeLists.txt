@@ -10,6 +10,7 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_book_state.cpp
     test_session_replay.cpp
     test_bookticker_exactness.cpp
+    test_bookticker_spread.cpp
     test_event_storage.cpp
 )
 

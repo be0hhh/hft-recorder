@@ -144,9 +144,14 @@ class CaptureViewModel : public QObject {
     std::vector<CoordinatorEntry> coordinators_{};
     QTimer refreshTimer_{};
     QString outputDirectory_{"./recordings"};
-    QStringList selectedVenueKeys_{QStringLiteral("binance_futures")};
+    QStringList selectedVenueKeys_{
+        QStringLiteral("binance_futures"),
+        QStringLiteral("kucoin_futures"),
+        QStringLiteral("gate_usdt"),
+        QStringLiteral("bitget_futures"),
+    };
     QStringList venueSymbolsTexts_{};
-    QString symbolsText_{"ETH"};
+    QString symbolsText_{"ETHUSDT"};
     QStringList tradesAvailableAliases_{};
     QStringList liquidationsAvailableAliases_{};
     QStringList bookTickerAvailableAliases_{};

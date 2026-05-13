@@ -1,0 +1,72 @@
+{
+  "session_health": "degraded",
+  "exact_replay_eligible": false,
+  "total_incidents": 1,
+  "highest_severity": "warning",
+  "channels": {
+    "trades": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "channel disabled for session"
+    },
+    "liquidations": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "channel disabled for session"
+    },
+    "bookticker": {
+      "state": "missing",
+      "exact_replay_eligible": false,
+      "incident_count": 1,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "warning",
+      "reason_code": "missing_file",
+      "reason_text": "enabled channel has no rows"
+    },
+    "depth": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "orderbook channel disabled for session"
+    },
+    "snapshot": {
+      "state": "not_captured",
+      "exact_replay_eligible": false,
+      "incident_count": 0,
+      "gap_count": 0,
+      "parse_error_count": 0,
+      "highest_severity": "info",
+      "reason_code": "not_captured",
+      "reason_text": "orderbook channel disabled for session"
+    }
+  },
+  "incidents": [
+    {
+      "channel": "bookticker",
+      "kind": "missing_file",
+      "severity": "warning",
+      "reason_code": "missing_file",
+      "message": "enabled channel has no rows",
+      "detected_at_ts_ns": 0,
+      "row_index": 0,
+      "expected_value": "",
+      "observed_value": "",
+      "exactness_lost": true
+    }
+  ]
+}
