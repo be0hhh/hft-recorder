@@ -504,13 +504,6 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     drawAxisTicks(*painter, layout.spreadRect, layout.spreadScaleRect, ranges, false);
     drawTimeTicks(*painter, layout.priceRect, layout.timeRect, ranges);
 
-    const double zeroY = spreadYFor(0.0, ranges, layout.spreadRect);
-    QPen zeroPen{QColor{185, 185, 192}};
-    zeroPen.setWidth(1);
-    zeroPen.setStyle(Qt::DashLine);
-    painter->setPen(zeroPen);
-    painter->drawLine(QPointF{layout.spreadRect.left(), zeroY}, QPointF{layout.spreadRect.right(), zeroY});
-
     QPolygonF points;
     appendTickerPoints(primary, true, ranges, layout.priceRect, points);
     drawPolyline(*painter, points, QColor{36, 194, 203});
