@@ -48,6 +48,7 @@ class BookTickerCompareController : public QObject {
     double meanWindowSeconds() const noexcept { return meanWindowSeconds_; }
     qint64 tsMin() const noexcept { return tsMin_; }
     qint64 tsMax() const noexcept { return tsMax_; }
+    qint64 currentTs() const noexcept { return fullTsMax_; }
 
     const std::vector<hftrec::replay::BookTickerRow>& primaryRows() const noexcept { return primaryRows_; }
     const std::vector<hftrec::replay::BookTickerRow>& secondaryRows() const noexcept { return secondaryRows_; }

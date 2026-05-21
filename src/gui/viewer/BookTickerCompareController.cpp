@@ -165,20 +165,9 @@ void BookTickerCompareController::autoFit() {
 void BookTickerCompareController::panTime(double fraction) {
     const qint64 span = tsMax_ - tsMin_;
     if (span <= 0) return;
-    const qint64 fullSpan = std::max<qint64>(1, fullTsMax_ - fullTsMin_);
-    const qint64 minBound = fullTsMin_ - fullSpan;
-    const qint64 maxBound = fullTsMax_ + fullSpan;
     const qint64 delta = static_cast<qint64>(static_cast<double>(span) * fraction);
-    qint64 nextMin = tsMin_ + delta;
-    qint64 nextMax = tsMax_ + delta;
-    if (nextMin < minBound) {
-        nextMax += minBound - nextMin;
-        nextMin = minBound;
-    }
-    if (nextMax > maxBound) {
-        nextMin -= nextMax - maxBound;
-        nextMax = maxBound;
-    }
+    const qint64 nextMin = tsMin_ + delta;
+    const qint64 nextMax = tsMax_ + delta;
     if (nextMax <= nextMin) return;
     tsMin_ = nextMin;
     tsMax_ = nextMax;
@@ -200,23 +189,8 @@ void BookTickerCompareController::zoomTimeAt(double factor, double anchorFractio
     const qint64 anchorTs = tsMin_ + static_cast<qint64>(static_cast<double>(span) * anchorFraction);
     qint64 nextSpan = static_cast<qint64>(static_cast<double>(span) / factor);
     if (nextSpan < 1000000) nextSpan = 1000000;
-    const qint64 fullSpan = std::max<qint64>(1, fullTsMax_ - fullTsMin_);
-    const qint64 maxSpan = fullSpan * 3;
-    if (nextSpan > maxSpan) nextSpan = maxSpan;
-    const qint64 minBound = fullTsMin_ - fullSpan;
-    const qint64 maxBound = fullTsMax_ + fullSpan;
     qint64 nextMin = anchorTs - static_cast<qint64>(static_cast<double>(nextSpan) * anchorFraction);
     qint64 nextMax = nextMin + nextSpan;
-    if (nextMin < minBound) {
-        nextMax += minBound - nextMin;
-        nextMin = minBound;
-    }
-    if (nextMax > maxBound) {
-        nextMin -= nextMax - maxBound;
-        nextMax = maxBound;
-    }
-    if (nextMin < minBound) nextMin = minBound;
-    if (nextMax > maxBound) nextMax = maxBound;
     if (nextMax <= nextMin) return;
     tsMin_ = nextMin;
     tsMax_ = nextMax;
@@ -348,11 +322,6 @@ void BookTickerCompareController::updateFullRange_() noexcept {
     } else if (fullTsMax_ <= fullTsMin_) {
         fullTsMax_ = fullTsMin_ + 1000000;
     }
-    const qint64 fullSpan = std::max<qint64>(1, fullTsMax_ - fullTsMin_);
-    const qint64 minBound = fullTsMin_ - fullSpan;
-    const qint64 maxBound = fullTsMax_ + fullSpan;
-    if (tsMin_ < minBound) tsMin_ = minBound;
-    if (tsMax_ > maxBound) tsMax_ = maxBound;
     if (tsMax_ <= tsMin_) {
         tsMin_ = fullTsMin_;
         tsMax_ = fullTsMax_;

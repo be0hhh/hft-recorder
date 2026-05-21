@@ -34,16 +34,16 @@ TEST(BookTickerSpread, UsesLastKnownQuotesAndReportsBestDirection) {
     EXPECT_EQ(points[0].direction, hftrec::arbitrage::SpreadDirection::BuyAAskSellBBid);
     EXPECT_NEAR(points[0].rawSpreadBps, 50.0, 0.0001);
     EXPECT_NEAR(points[0].internalPenaltyBps, 20.0, 0.0001);
-    EXPECT_NEAR(points[0].spreadBps, 30.0, 0.0001);
+    EXPECT_NEAR(points[0].spreadBps, 50.0, 0.0001);
 
     EXPECT_EQ(points[1].tsNs, 300);
     EXPECT_EQ(points[1].direction, hftrec::arbitrage::SpreadDirection::BuyBAskSellABid);
     EXPECT_NEAR(points[1].rawSpreadBps, 39.7614, 0.001);
     EXPECT_NEAR(points[1].internalPenaltyBps, 19.8807, 0.001);
-    EXPECT_NEAR(points[1].spreadBps, 19.8807, 0.001);
+    EXPECT_NEAR(points[1].spreadBps, 39.7614, 0.001);
 }
 
-TEST(BookTickerSpread, SubtractsInternalSpreadsFromCrossExchangeEdge) {
+TEST(BookTickerSpread, KeepsInternalSpreadsSeparateFromCrossExchangeSpread) {
     const std::vector<hftrec::replay::BookTickerRow> a{
         ticker(100, 9'990'000'000LL, 10'000'000'000LL),
     };
@@ -57,7 +57,7 @@ TEST(BookTickerSpread, SubtractsInternalSpreadsFromCrossExchangeEdge) {
     EXPECT_EQ(points.front().direction, hftrec::arbitrage::SpreadDirection::BuyAAskSellBBid);
     EXPECT_NEAR(points.front().rawSpreadBps, -10.0, 0.0001);
     EXPECT_NEAR(points.front().internalPenaltyBps, 20.0, 0.0001);
-    EXPECT_NEAR(points.front().spreadBps, -30.0, 0.0001);
+    EXPECT_NEAR(points.front().spreadBps, -10.0, 0.0001);
 }
 
 TEST(BookTickerSpread, KeepsFeesSeparateFromGrossSpread) {
@@ -91,7 +91,7 @@ TEST(BookTickerSpread, SkipsUntilBothSidesHaveValidQuotes) {
     EXPECT_EQ(points.front().tsNs, 200);
 }
 
-TEST(BookTickerSpread, DoesNotCarryStaleQuoteAcrossDisconnectGap) {
+TEST(BookTickerSpread, HoldsLastQuoteAcrossSparseUpdateGap) {
     const std::vector<hftrec::replay::BookTickerRow> a{
         ticker(100'000'000LL, 10'000'000'000LL, 10'010'000'000LL),
     };
@@ -101,16 +101,17 @@ TEST(BookTickerSpread, DoesNotCarryStaleQuoteAcrossDisconnectGap) {
     };
 
     const auto points = hftrec::arbitrage::buildBestSideBookTickerSpread(a, b);
-    ASSERT_EQ(points.size(), 1u);
+    ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points.front().tsNs, 100'000'000LL);
+    EXPECT_EQ(points.back().tsNs, 1'200'000'001LL);
 }
 
 
-TEST(BookTickerSpread, ComputesTrailingMeanAndFeeEdge) {
+TEST(BookTickerSpread, ComputesTrailingMeanAndCostEdge) {
     std::vector<hftrec::arbitrage::BookTickerSpreadPoint> points{};
-    points.push_back(hftrec::arbitrage::BookTickerSpreadPoint{.tsNs = 0, .spreadBps = -100.0});
-    points.push_back(hftrec::arbitrage::BookTickerSpreadPoint{.tsNs = 2'000'000'000LL, .spreadBps = -80.0});
-    points.push_back(hftrec::arbitrage::BookTickerSpreadPoint{.tsNs = 6'000'000'000LL, .spreadBps = -20.0});
+    points.push_back(hftrec::arbitrage::BookTickerSpreadPoint{.tsNs = 0, .internalPenaltyBps = 5.0, .spreadBps = -100.0});
+    points.push_back(hftrec::arbitrage::BookTickerSpreadPoint{.tsNs = 2'000'000'000LL, .internalPenaltyBps = 10.0, .spreadBps = -80.0});
+    points.push_back(hftrec::arbitrage::BookTickerSpreadPoint{.tsNs = 6'000'000'000LL, .internalPenaltyBps = 20.0, .spreadBps = -20.0});
 
     const auto mean = hftrec::arbitrage::buildRollingBookTickerSpreadMean(points, 5'000'000'000LL, 32.0);
     ASSERT_EQ(mean.size(), 3u);
@@ -118,7 +119,8 @@ TEST(BookTickerSpread, ComputesTrailingMeanAndFeeEdge) {
     EXPECT_NEAR(mean[1].meanBps, -90.0, 0.0001);
     EXPECT_NEAR(mean[2].meanBps, -50.0, 0.0001);
     EXPECT_NEAR(mean[2].deviationBps, 30.0, 0.0001);
-    EXPECT_NEAR(mean[2].edgeAfterFeesBps, -2.0, 0.0001);
+    EXPECT_NEAR(mean[2].costBandBps, 52.0, 0.0001);
+    EXPECT_NEAR(mean[2].edgeAfterCostBps, -22.0, 0.0001);
 }
 }  // namespace
 

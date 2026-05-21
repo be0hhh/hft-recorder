@@ -31,7 +31,8 @@ std::vector<BookTickerSpreadMeanPoint> buildRollingBookTickerSpreadMean(
         point.tsNs = points[i].tsNs;
         point.meanBps = mean;
         point.deviationBps = deviation;
-        point.edgeAfterFeesBps = std::abs(deviation) - feePenaltyBps;
+        point.costBandBps = feePenaltyBps + points[i].internalPenaltyBps;
+        point.edgeAfterCostBps = std::abs(deviation) - point.costBandBps;
         out.push_back(point);
     }
     return out;

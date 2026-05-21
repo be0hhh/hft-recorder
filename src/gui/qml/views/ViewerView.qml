@@ -32,7 +32,7 @@ Pane {
     property bool userHasExplicitSelection: false
     property bool userHasExplicitCompareSelection: false
     property bool compareMode: selectedCompareSourceA !== "" && selectedCompareSourceB !== "" && selectedCompareSourceA !== selectedCompareSourceB
-    property bool comparePickerActive: userHasExplicitCompareSelection || compareMode
+    property bool comparePickerActive: compareMode
     property bool showTradesLayer: true
     property bool showLiquidationsLayer: false
     property bool showOrderbookLayer: false
@@ -63,6 +63,27 @@ Pane {
             return
         }
         chart.resetSession()
+    }
+
+    function singleSelectedSourceId() {
+        if (root.compareMode)
+            return ""
+        if (root.selectedCompareSourceA !== "")
+            return root.selectedCompareSourceA
+        if (root.selectedCompareSourceB !== "")
+            return root.selectedCompareSourceB
+        return ""
+    }
+
+    function loadSingleSelectedSource() {
+        var sourceId = root.singleSelectedSourceId()
+        root.userHasExplicitLayerSelection = false
+        root.selectedSourceId = sourceId
+        if (sourceId === "") {
+            chart.resetSession()
+            return
+        }
+        root.applySourceSelection(sourceId)
     }
 
     function liveSourceIndex() {
@@ -115,13 +136,13 @@ Pane {
         if (root.userHasExplicitLayerSelection)
             return
 
-        if (chart.hasTrades || chart.hasLiquidations) {
-            if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
-                if (chart.hasTrades)
-                    root.showTradesLayer = true
-                else
-                    root.showLiquidationsLayer = true
-            }
+        if (!root.compareMode && root.selectedSourceId !== "") {
+            root.showTradesLayer = chart.hasTrades
+            root.showLiquidationsLayer = chart.hasLiquidations && !chart.hasTrades
+            root.showOrderbookLayer = chart.hasOrderbook
+            root.showBookTickerLayer = chart.hasBookTicker
+            if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer)
+                root.showTradesLayer = true
             return
         }
 
@@ -154,8 +175,10 @@ Pane {
                                         sourcesModel.sourceKind(root.selectedCompareSourceB),
                                         sourcesModel.sessionPath(root.selectedCompareSourceB))
         root.loadCompareFees()
-        if (root.selectedCompareSourceA !== "")
+        if (root.compareMode && root.selectedCompareSourceA !== "")
             root.selectedSourceId = root.selectedCompareSourceA
+        else
+            root.loadSingleSelectedSource()
     }
 
     function loadCompareFees() {
@@ -506,7 +529,7 @@ Pane {
                     Layout.fillWidth: true
                     text: root.compareMode
                           ? compareChart.statusText + " | A: " + compareChart.primaryCount + " B: " + compareChart.secondaryCount + " spread: " + compareChart.spreadCount
-                          : (root.comparePickerActive ? "Select source A and source B for compare" : "Pick two different sessions to show bookTicker overlay and arbitrage bps")
+                          : (root.singleSelectedSourceId() !== "" ? chart.statusText : "Pick one session for full viewer or two sessions for spread compare")
                     color: root.mutedTextColor
                     elide: Text.ElideRight
                 }
@@ -583,7 +606,7 @@ Pane {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 8
-                text: root.comparePickerActive ? "Top: two bookTicker traces. Bottom: best-side spread in bps with rolling mean and fee band." : "Single-source preview until two different sessions are selected."
+                text: root.compareMode ? "Top: two bookTicker traces. Bottom: best-side spread in bps with rolling mean and cost band." : "Single source: trades, bookTicker, and orderbook layers are drawn together when present."
                 color: root.mutedTextColor
                 font.pixelSize: 12
             }

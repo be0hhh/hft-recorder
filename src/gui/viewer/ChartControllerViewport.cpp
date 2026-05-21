@@ -364,8 +364,6 @@ bool visiblyDifferent(qreal lhs, qreal rhs) noexcept {
     return std::abs(lhs - rhs) >= 0.5;
 }
 
-constexpr std::int64_t kBookTickerStaleGapNs = 1'000'000'000ll;
-
 void appendBookTickerSideLines(std::vector<BookTickerLine>& out,
                                const std::vector<BookTickerPixelState>& pixels,
                                const ViewportMap& vp) {
@@ -442,9 +440,6 @@ void buildBookTickerTrace(RenderSnapshot& snap,
     if (renderMaxTs < renderMinTs) return;
 
     const int widthPx = std::max(1, static_cast<int>(std::ceil(snap.vp.w)));
-    const std::int64_t pixelSpanNs = std::max<std::int64_t>(
-        1,
-        (snap.vp.tMax - snap.vp.tMin + widthPx - 1) / widthPx);
     std::vector<BookTickerPixelState> bidPixels(static_cast<std::size_t>(widthPx));
     std::vector<BookTickerPixelState> askPixels(static_cast<std::size_t>(widthPx));
 
@@ -468,15 +463,8 @@ void buildBookTickerTrace(RenderSnapshot& snap,
         if (ticker.tsNs > renderMaxTs) break;
 
         const bool hasNext = (index + 1u < tickers.size());
-        if (!hasNext && ticker.tsNs < renderMinTs) break;
-
-        const std::int64_t tsStart = hasNext
-            ? std::max<std::int64_t>(renderMinTs, ticker.tsNs)
-            : ticker.tsNs;
-        std::int64_t nextTs = hasNext ? tickers[index + 1u].tsNs : (ticker.tsNs + pixelSpanNs);
-        if (hasNext && nextTs - ticker.tsNs > kBookTickerStaleGapNs) {
-            nextTs = ticker.tsNs + pixelSpanNs;
-        }
+        const std::int64_t tsStart = std::max<std::int64_t>(renderMinTs, ticker.tsNs);
+        const std::int64_t nextTs = hasNext ? tickers[index + 1u].tsNs : renderMaxTs;
         const std::int64_t tsEnd = std::min<std::int64_t>(renderMaxTs, nextTs);
         absorbBookTickerInterval(bidPixels, askPixels, snap.vp, ticker, tsStart, tsEnd);
         if (!hasNext || nextTs >= renderMaxTs) break;
@@ -945,7 +933,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     const auto& tickers = replay_.bookTickers();
     if (in.bookTickerVisible) {
         if (latestOnlyWindow) buildLatestBookTickerTrace(snap, tickers, latestTsNs);
-        else buildBookTickerTrace(snap, tickers, renderMinTs, renderMaxTs);
+        else buildBookTickerTrace(snap, tickers, renderMinTs, latestTsNs > 0 ? std::min<std::int64_t>(renderMaxTs, latestTsNs) : renderMaxTs);
     }
     if (!in.orderbookVisible) return snap;
 

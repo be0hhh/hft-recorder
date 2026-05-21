@@ -6,14 +6,8 @@ namespace hftrec::arbitrage {
 
 namespace {
 
-constexpr std::int64_t kBookTickerSpreadStaleGapNs = 1'000'000'000ll;
-
 bool validQuote(const hftrec::replay::BookTickerRow& row) noexcept {
     return row.bidPriceE8 > 0 && row.askPriceE8 > 0 && row.askPriceE8 >= row.bidPriceE8;
-}
-
-bool freshQuote(std::int64_t tsNs, const hftrec::replay::BookTickerRow* row) noexcept {
-    return row != nullptr && tsNs >= row->tsNs && tsNs - row->tsNs <= kBookTickerSpreadStaleGapNs;
 }
 
 BookTickerSpreadPoint makePoint(std::int64_t tsNs,
@@ -28,16 +22,14 @@ BookTickerSpreadPoint makePoint(std::int64_t tsNs,
         / static_cast<double>(b.askPriceE8)) * 10000.0;
     const double buyAAskSellBBidPenalty = (closePenaltyE8 / static_cast<double>(a.askPriceE8)) * 10000.0;
     const double buyBAskSellABidPenalty = (closePenaltyE8 / static_cast<double>(b.askPriceE8)) * 10000.0;
-    const double buyAAskSellBBid = buyAAskSellBBidRaw - buyAAskSellBBidPenalty;
-    const double buyBAskSellABid = buyBAskSellABidRaw - buyBAskSellABidPenalty;
 
     BookTickerSpreadPoint out{};
     out.tsNs = tsNs;
-    if (buyAAskSellBBid >= buyBAskSellABid) {
+    if (buyAAskSellBBidRaw >= buyBAskSellABidRaw) {
         out.rawSpreadBps = buyAAskSellBBidRaw;
         out.internalPenaltyBps = buyAAskSellBBidPenalty;
         out.feePenaltyBps = feePenaltyBps;
-        out.spreadBps = buyAAskSellBBid;
+        out.spreadBps = buyAAskSellBBidRaw;
         out.direction = SpreadDirection::BuyAAskSellBBid;
         out.buyAskPriceE8 = a.askPriceE8;
         out.sellBidPriceE8 = b.bidPriceE8;
@@ -45,7 +37,7 @@ BookTickerSpreadPoint makePoint(std::int64_t tsNs,
         out.rawSpreadBps = buyBAskSellABidRaw;
         out.internalPenaltyBps = buyBAskSellABidPenalty;
         out.feePenaltyBps = feePenaltyBps;
-        out.spreadBps = buyBAskSellABid;
+        out.spreadBps = buyBAskSellABidRaw;
         out.direction = SpreadDirection::BuyBAskSellABid;
         out.buyAskPriceE8 = b.askPriceE8;
         out.sellBidPriceE8 = a.bidPriceE8;
@@ -80,7 +72,7 @@ std::vector<BookTickerSpreadPoint> buildBestSideBookTickerSpread(
             ++bi;
         }
 
-        if (!freshQuote(tsNs, lastA) || !freshQuote(tsNs, lastB)) continue;
+        if (lastA == nullptr || lastB == nullptr) continue;
         out.push_back(makePoint(tsNs, *lastA, *lastB, feePenaltyBps));
     }
 

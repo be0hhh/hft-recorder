@@ -140,13 +140,15 @@ TEST(ViewerBookTickerTrace, BuildsContinuousTickerTraceWithoutBookSegments) {
         QPointF{150.0, snap.vp.toY(e8(10150))},
         true,
         hover);
-    EXPECT_EQ(hover.bookKind, 0);
+    EXPECT_EQ(hover.bookKind, 2);
+    EXPECT_EQ(hover.bookPriceE8, e8(10150));
+    EXPECT_EQ(hover.bookQtyE8, e8(3));
 
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
 
-TEST(ViewerBookTickerTrace, BreaksTraceAcrossStaleTickerGap) {
+TEST(ViewerBookTickerTrace, HoldsLastQuoteAcrossSparseUpdateGap) {
     const auto dir = makeTmpDir();
     writeFile(
         dir / "bookticker.jsonl",
@@ -168,7 +170,8 @@ TEST(ViewerBookTickerTrace, BreaksTraceAcrossStaleTickerGap) {
         QPointF{100.0, snap.vp.toY(e8(10000))},
         true,
         hover);
-    EXPECT_EQ(hover.bookKind, 0);
+    EXPECT_EQ(hover.bookKind, 1);
+    EXPECT_EQ(hover.bookPriceE8, e8(10000));
 
     std::error_code ec;
     fs::remove_all(dir, ec);

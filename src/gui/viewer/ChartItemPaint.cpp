@@ -586,11 +586,7 @@ void buildLiveBookTickerTrace(BookTickerTrace& trace,
     trace = BookTickerTrace{};
     if (rows.empty() || vp.w <= 0.0) return;
 
-    constexpr std::int64_t kBookTickerStaleGapNs = 1'000'000'000ll;
     const int widthPx = std::max(1, static_cast<int>(std::ceil(vp.w)));
-    const std::int64_t pixelSpanNs = std::max<std::int64_t>(
-        1,
-        (vp.tMax - vp.tMin + static_cast<std::int64_t>(widthPx) - 1) / static_cast<std::int64_t>(widthPx));
     std::vector<LiveBookTickerPixelState> bidPixels(static_cast<std::size_t>(widthPx));
     std::vector<LiveBookTickerPixelState> askPixels(static_cast<std::size_t>(widthPx));
 
@@ -599,11 +595,8 @@ void buildLiveBookTickerTrace(BookTickerTrace& trace,
         if (row.tsNs > vp.tMax) break;
 
         const bool hasNext = (i + 1u < rows.size());
-        if (!hasNext && row.tsNs < vp.tMin) break;
-
-        const std::int64_t tsStart = hasNext ? std::max<std::int64_t>(vp.tMin, row.tsNs) : row.tsNs;
-        std::int64_t nextTs = hasNext ? rows[i + 1u]->tsNs : (row.tsNs + pixelSpanNs);
-        if (hasNext && nextTs - row.tsNs > kBookTickerStaleGapNs) nextTs = row.tsNs + pixelSpanNs;
+        const std::int64_t tsStart = std::max<std::int64_t>(vp.tMin, row.tsNs);
+        const std::int64_t nextTs = hasNext ? rows[i + 1u]->tsNs : vp.tMax;
         const std::int64_t tsEnd = std::min<std::int64_t>(vp.tMax, nextTs);
         absorbLiveBookTickerInterval(bidPixels, askPixels, vp, row, tsStart, tsEnd);
         if (!hasNext || nextTs >= vp.tMax) break;
@@ -676,7 +669,13 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
         rows.reserve(cache.stableRows.bookTickers.size() + cache.overlayRows.bookTickers.size());
         for (const auto& row : cache.stableRows.bookTickers) rows.push_back(&row);
         for (const auto& row : cache.overlayRows.bookTickers) rows.push_back(&row);
-        if (!rows.empty()) buildLiveBookTickerTrace(live.bookTickerTrace, live.vp, rows);
+        if (!rows.empty()) {
+            std::int64_t currentTs = 0;
+            for (const auto* row : rows) currentTs = std::max(currentTs, row->tsNs);
+            ViewportMap tickerVp = live.vp;
+            tickerVp.tMax = std::min<std::int64_t>(tickerVp.tMax, currentTs);
+            if (tickerVp.tMax >= tickerVp.tMin) buildLiveBookTickerTrace(live.bookTickerTrace, tickerVp, rows);
+        }
     }
 
     buildLiveOrderbookSegments(live, cache);

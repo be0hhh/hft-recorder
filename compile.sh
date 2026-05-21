@@ -346,16 +346,20 @@ _build_recorder_app() {
     fi
     _reset_build_dir_for_explicit_compiler "$APP/build" "hft-recorder"
 
-    echo ">>> Configuring hft-recorder app"
-    cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          "${CMAKE_COMPILER_ARGS[@]}" \
-          -DCXET_PUBLIC_INCLUDE_DIR="$CXET_INCLUDE" \
-          -DCXET_SHARED_LIB="$CXET_LIB" \
-          -DCXET_REPLAY_SHARED_LIB="$CXET_REPLAY_LIB" \
-          -DHFTREC_HOTPATH_METRICS_DEFAULT="$HOTPATH_METRICS_DEFAULT" \
-          -DHFT_COMPRESSOR_PUBLIC_INCLUDE_DIR="$COMPRESSOR/include" \
-          -DHFT_COMPRESSOR_SHARED_LIB="$compressor_lib"
+    if [ ! -f build/CMakeCache.txt ] || [ "$CLEAN" = "1" ] || [ "$COMPILER" != "default" ]; then
+        echo ">>> Configuring hft-recorder app"
+        cmake -B build \
+              -DCMAKE_BUILD_TYPE=Release \
+              "${CMAKE_COMPILER_ARGS[@]}" \
+              -DCXET_PUBLIC_INCLUDE_DIR="$CXET_INCLUDE" \
+              -DCXET_SHARED_LIB="$CXET_LIB" \
+              -DCXET_REPLAY_SHARED_LIB="$CXET_REPLAY_LIB" \
+              -DHFTREC_HOTPATH_METRICS_DEFAULT="$HOTPATH_METRICS_DEFAULT" \
+              -DHFT_COMPRESSOR_PUBLIC_INCLUDE_DIR="$COMPRESSOR/include" \
+              -DHFT_COMPRESSOR_SHARED_LIB="$compressor_lib"
+    else
+        echo ">>> Using existing hft-recorder/build CMake cache"
+    fi
 
     echo ">>> Building hft-recorder app (jobs=$JOBS)"
     cmake --build build --target hft-recorder hft-recorder-gui -j"$JOBS"

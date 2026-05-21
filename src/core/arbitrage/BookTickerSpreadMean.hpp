@@ -11,7 +11,8 @@ struct BookTickerSpreadMeanPoint {
     std::int64_t tsNs{0};
     double meanBps{0.0};
     double deviationBps{0.0};
-    double edgeAfterFeesBps{0.0};
+    double costBandBps{0.0};
+    double edgeAfterCostBps{0.0};
 };
 
 std::vector<BookTickerSpreadMeanPoint> buildRollingBookTickerSpreadMean(

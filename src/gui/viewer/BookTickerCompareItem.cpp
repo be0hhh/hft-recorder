@@ -27,6 +27,7 @@ constexpr qreal kGap = 12.0;
 struct Ranges {
     std::int64_t tsMin{0};
     std::int64_t tsMax{0};
+    std::int64_t currentTs{0};
     std::int64_t priceMin{0};
     std::int64_t priceMax{0};
     double spreadMin{0.0};
@@ -36,7 +37,8 @@ struct Ranges {
     double feePenaltyAvg{0.0};
     double meanAvg{0.0};
     double deviationAbsMax{0.0};
-    double edgeAfterFeesMax{0.0};
+    double costBandMax{0.0};
+    double edgeAfterCostMax{0.0};
     double totalFeesBps{0.0};
 };
 
@@ -66,12 +68,24 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& means,
                      std::int64_t tsMin,
                      std::int64_t tsMax,
+                     std::int64_t currentTs,
                      double totalFeesBps) noexcept {
     Ranges ranges{};
     ranges.tsMin = tsMin;
     ranges.tsMax = tsMax > tsMin ? tsMax : tsMin + 1;
+    ranges.currentTs = currentTs;
     ranges.totalFeesBps = totalFeesBps;
     bool hasPrice = false;
+    auto absorbCarryPrice = [&](const std::vector<hftrec::replay::BookTickerRow>& rows) noexcept {
+        const hftrec::replay::BookTickerRow* carry = nullptr;
+        for (const auto& row : rows) {
+            if (row.tsNs > ranges.tsMin) break;
+            if (row.bidPriceE8 > 0 && row.askPriceE8 > 0) carry = &row;
+        }
+        if (carry != nullptr) absorbPrice(*carry, ranges, hasPrice);
+    };
+    absorbCarryPrice(a);
+    absorbCarryPrice(b);
     for (const auto& row : a) {
         if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
         absorbPrice(row, ranges, hasPrice);
@@ -84,6 +98,17 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     double penaltySum = 0.0;
     double feePenaltySum = 0.0;
     std::size_t penaltyCount = 0u;
+    const hftrec::arbitrage::BookTickerSpreadPoint* carrySpread = nullptr;
+    for (const auto& point : spreads) {
+        if (point.tsNs > ranges.tsMin) break;
+        carrySpread = &point;
+    }
+    if (carrySpread != nullptr) {
+        ranges.spreadMin = std::min(0.0, carrySpread->spreadBps);
+        ranges.spreadMax = std::max(1.0, carrySpread->spreadBps);
+        ranges.rawSpreadMax = carrySpread->rawSpreadBps;
+        hasSpread = true;
+    }
     for (const auto& point : spreads) {
         if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
         if (!hasSpread) {
@@ -107,16 +132,17 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     for (const auto& point : means) {
         if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
         if (!hasSpread) {
-            ranges.spreadMin = std::min(point.meanBps - totalFeesBps, point.meanBps);
-            ranges.spreadMax = std::max(point.meanBps + totalFeesBps, point.meanBps);
+            ranges.spreadMin = std::min(point.meanBps - point.costBandBps, point.meanBps);
+            ranges.spreadMax = std::max(point.meanBps + point.costBandBps, point.meanBps);
             hasSpread = true;
         } else {
-            ranges.spreadMin = std::min(ranges.spreadMin, point.meanBps - totalFeesBps);
-            ranges.spreadMax = std::max(ranges.spreadMax, point.meanBps + totalFeesBps);
+            ranges.spreadMin = std::min(ranges.spreadMin, point.meanBps - point.costBandBps);
+            ranges.spreadMax = std::max(ranges.spreadMax, point.meanBps + point.costBandBps);
         }
         meanSum += point.meanBps;
+        ranges.costBandMax = std::max(ranges.costBandMax, point.costBandBps);
         ranges.deviationAbsMax = std::max(ranges.deviationAbsMax, std::abs(point.deviationBps));
-        ranges.edgeAfterFeesMax = std::max(ranges.edgeAfterFeesMax, point.edgeAfterFeesBps);
+        ranges.edgeAfterCostMax = std::max(ranges.edgeAfterCostMax, point.edgeAfterCostBps);
         ++meanCount;
     }
     if (meanCount > 0u) ranges.meanAvg = meanSum / static_cast<double>(meanCount);
@@ -189,13 +215,13 @@ void drawPolyline(QPainter& painter, const QPolygonF& points, const QColor& colo
     painter.drawPolyline(points);
 }
 
-void appendTickerPoints(const std::vector<hftrec::replay::BookTickerRow>& rows,
-                        bool bid,
-                        const Ranges& ranges,
-                        const QRectF& rect,
-                        QPolygonF& out) {
+void appendTickerStepPoints(const std::vector<hftrec::replay::BookTickerRow>& rows,
+                            bool bid,
+                            const Ranges& ranges,
+                            const QRectF& rect,
+                            QPolygonF& out) {
     out.clear();
-    out.reserve(static_cast<int>(std::min<std::size_t>(rows.size() + 2, 1000000)));
+    out.reserve(static_cast<int>(std::min<std::size_t>(rows.size() * 2u + 2u, 1000000)));
 
     const hftrec::replay::BookTickerRow* carry = nullptr;
     for (const auto& row : rows) {
@@ -207,12 +233,23 @@ void appendTickerPoints(const std::vector<hftrec::replay::BookTickerRow>& rows,
         const auto price = bid ? carry->bidPriceE8 : carry->askPriceE8;
         out.push_back(QPointF{rect.left(), priceYFor(price, ranges, rect)});
     }
+    bool havePrev = carry != nullptr;
+    QPointF prev = havePrev ? out.back() : QPointF{};
     for (const auto& row : rows) {
         if (row.tsNs < ranges.tsMin) continue;
         if (row.tsNs > ranges.tsMax) break;
         const auto price = bid ? row.bidPriceE8 : row.askPriceE8;
         if (price <= 0) continue;
-        out.push_back(QPointF{xFor(row.tsNs, ranges, rect), priceYFor(price, ranges, rect)});
+        const QPointF current{xFor(row.tsNs, ranges, rect), priceYFor(price, ranges, rect)};
+        if (havePrev && current.x() > prev.x()) out.push_back(QPointF{current.x(), prev.y()});
+        out.push_back(current);
+        prev = current;
+        havePrev = true;
+    }
+    const std::int64_t holdTs = std::min(ranges.tsMax, ranges.currentTs);
+    if (havePrev && holdTs > ranges.tsMin) {
+        const qreal holdX = xFor(holdTs, ranges, rect);
+        if (holdX > prev.x()) out.push_back(QPointF{holdX, prev.y()});
     }
 }
 void drawSpreadSegments(QPainter& painter,
@@ -252,11 +289,18 @@ void drawSpreadSegments(QPainter& painter,
         const QPointF current{xFor(point.tsNs, ranges, rect), spreadYFor(point.spreadBps, ranges, rect)};
         if (havePrev) {
             const auto direction = point.direction == hftrec::arbitrage::SpreadDirection::None ? prevDirection : point.direction;
-            drawSegment(prev, current, direction);
+            const QPointF corner{current.x(), prev.y()};
+            drawSegment(prev, corner, direction);
+            drawSegment(corner, current, direction);
         }
         prev = current;
         prevDirection = point.direction;
         havePrev = true;
+    }
+    const std::int64_t holdTs = std::min(ranges.tsMax, ranges.currentTs);
+    if (havePrev && holdTs > ranges.tsMin) {
+        const QPointF holdPoint{xFor(holdTs, ranges, rect), prev.y()};
+        if (holdPoint.x() > prev.x()) drawSegment(prev, holdPoint, prevDirection);
     }
 }
 
@@ -277,17 +321,17 @@ void drawMeanBands(QPainter& painter,
         if (point.tsNs > ranges.tsMin) break;
         carry = &point;
     }
-    auto append = [&](std::int64_t ts, double mean) {
+    auto append = [&](std::int64_t ts, double mean, double costBandBps) {
         const double x = xFor(ts, ranges, rect);
         meanLine.push_back(QPointF{x, spreadYFor(mean, ranges, rect)});
-        upperBand.push_back(QPointF{x, spreadYFor(mean + ranges.totalFeesBps, ranges, rect)});
-        lowerBand.push_back(QPointF{x, spreadYFor(mean - ranges.totalFeesBps, ranges, rect)});
+        upperBand.push_back(QPointF{x, spreadYFor(mean + costBandBps, ranges, rect)});
+        lowerBand.push_back(QPointF{x, spreadYFor(mean - costBandBps, ranges, rect)});
     };
-    if (carry != nullptr) append(ranges.tsMin, carry->meanBps);
+    if (carry != nullptr) append(ranges.tsMin, carry->meanBps, carry->costBandBps);
     for (const auto& point : means) {
         if (point.tsNs < ranges.tsMin) continue;
         if (point.tsNs > ranges.tsMax) break;
-        append(point.tsNs, point.meanBps);
+        append(point.tsNs, point.meanBps, point.costBandBps);
     }
 
     QPen bandPen{QColor{145, 145, 150}};
@@ -490,7 +534,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     const auto& secondary = controller_->secondaryRows();
     const auto& spreads = controller_->spreadPoints();
     const auto& means = controller_->meanPoints();
-    const Ranges ranges = computeRanges(primary, secondary, spreads, means, controller_->tsMin(), controller_->tsMax(), controller_->totalFeePenaltyBps());
+    const Ranges ranges = computeRanges(primary, secondary, spreads, means, controller_->tsMin(), controller_->tsMax(), controller_->currentTs(), controller_->totalFeePenaltyBps());
     const LayoutRects layout = makeLayout(boundingRect());
 
     painter->setRenderHint(QPainter::Antialiasing, false);
@@ -505,13 +549,13 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     drawTimeTicks(*painter, layout.priceRect, layout.timeRect, ranges);
 
     QPolygonF points;
-    appendTickerPoints(primary, true, ranges, layout.priceRect, points);
+    appendTickerStepPoints(primary, true, ranges, layout.priceRect, points);
     drawPolyline(*painter, points, QColor{36, 194, 203});
-    appendTickerPoints(primary, false, ranges, layout.priceRect, points);
+    appendTickerStepPoints(primary, false, ranges, layout.priceRect, points);
     drawPolyline(*painter, points, QColor{218, 37, 54});
-    appendTickerPoints(secondary, true, ranges, layout.priceRect, points);
+    appendTickerStepPoints(secondary, true, ranges, layout.priceRect, points);
     drawPolyline(*painter, points, QColor{76, 212, 126});
-    appendTickerPoints(secondary, false, ranges, layout.priceRect, points);
+    appendTickerStepPoints(secondary, false, ranges, layout.priceRect, points);
     drawPolyline(*painter, points, QColor{179, 102, 255});
 
     drawMeanBands(*painter, means, ranges, layout.spreadRect);
@@ -522,8 +566,8 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     painter->drawText(layout.priceRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
                       QStringLiteral("Top: A bid cyan / A ask red   B bid green / B ask purple"));
     painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("Basis: spread min %1   spread max %2   mean avg %3   fees band +/- %4   max deviation %5   max edge %6")
-                          .arg(formatBps(ranges.spreadMin), formatBps(ranges.spreadMax), formatBps(ranges.meanAvg), formatBps(ranges.totalFeesBps), formatBps(ranges.deviationAbsMax), formatBps(ranges.edgeAfterFeesMax)));
+                      QStringLiteral("Basis: spread min %1   spread max %2   mean avg %3   max cost band +/- %4   max deviation %5   max edge %6")
+                          .arg(formatBps(ranges.spreadMin), formatBps(ranges.spreadMax), formatBps(ranges.meanAvg), formatBps(ranges.costBandMax), formatBps(ranges.deviationAbsMax), formatBps(ranges.edgeAfterCostMax)));
 
     const QRectF chartBounds = boundingRect().adjusted(4, 4, -4, -4);
     if (hoverActive_ && layout.spreadRect.contains(hoverPoint_)) {
@@ -531,12 +575,12 @@ void BookTickerCompareItem::paint(QPainter* painter) {
         const auto* spread = nearestSpreadPoint(spreads, ts);
         const auto* mean = nearestMeanPoint(means, ts);
         if (spread != nullptr && mean != nullptr) {
-            const QString label = QStringLiteral("spread %1  mean %2  dev %3  fees %4  edge %5")
+            const QString label = QStringLiteral("spread %1  mean %2  dev %3  cost %4  edge %5")
                                       .arg(formatBps(spread->spreadBps),
                                            formatBps(mean->meanBps),
                                            formatBps(mean->deviationBps),
-                                           formatBps(ranges.totalFeesBps),
-                                           formatBps(mean->edgeAfterFeesBps));
+                                           formatBps(mean->costBandBps),
+                                           formatBps(mean->edgeAfterCostBps));
             drawLabel(*painter, hoverPoint_, label, chartBounds);
         }
     }
