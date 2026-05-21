@@ -8,10 +8,12 @@
 #include <thread>
 
 #include "api/run/RunByConfig.hpp"
+#include "api/run/RunByConfigFetch.hpp"
+#include "api/dispatch/BuildFromConfig.hpp"
 #include "api/connector/ExchangeProductConnector.hpp"
+#include "api/orderbook/OrderBookSnapshotFetch.hpp"
 #include "api/route/RoutePlan.hpp"
 #include "api/market/MarketDataReactor.hpp"
-#include "api/market/RedundantPublicMarketDataRoute.hpp"
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
 #include "core/capture/CaptureCoordinatorInternal.hpp"
@@ -26,6 +28,7 @@
 #include "metrics/MetricsControl.hpp"
 #include "metrics/Probes.hpp"
 #include "probes/TimeDelta.hpp"
+#include "primitives/composite/OrderBookSnapshot.hpp"
 
 namespace hftrec::capture {
 
@@ -34,7 +37,6 @@ namespace {
 constexpr unsigned kRecorderTradesKeepaliveMs = 0u;
 constexpr unsigned kRecorderQuietStreamKeepaliveMs = 5000u;
 constexpr unsigned kRecorderReconnectRetryMs = 100u;
-constexpr std::uint64_t kRecorderBookTickerStaleReconnectNs = 3000000000ull;
 
 EventSequenceIds nextEventSequenceIds(std::atomic<std::uint64_t>& channelCounter,
                                       std::atomic<std::uint64_t>& ingestCounter) noexcept {
@@ -115,6 +117,26 @@ replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth) {
     return row;
 }
 
+bool containsLevel(const std::vector<replay::PricePair>& levels, const replay::PricePair& needle) noexcept {
+    return std::find_if(levels.begin(), levels.end(), [&](const replay::PricePair& level) noexcept {
+        return level.priceE8 == needle.priceE8 && level.side == needle.side;
+    }) != levels.end();
+}
+
+void normalizeFixedDepthSnapshotDelta(replay::DepthRow& row,
+                                      std::vector<replay::PricePair>& previousLevels) {
+    std::vector<replay::PricePair> currentLevels;
+    currentLevels.reserve(row.levels.size());
+    for (const auto& level : row.levels) {
+        if (level.qtyE8 > 0) currentLevels.push_back(level);
+    }
+    for (const auto& previous : previousLevels) {
+        if (!containsLevel(currentLevels, previous)) {
+            row.levels.push_back(replay::PricePair{previous.priceE8, 0, previous.side});
+        }
+    }
+    previousLevels = std::move(currentLevels);
+}
 replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBookRow& snapshot) {
     replay::SnapshotDocument document{};
     document.tsNs = static_cast<std::int64_t>(snapshot.tsNs);
@@ -246,6 +268,200 @@ cxet::api::market::PublicMarketDataWirePreference wirePreferenceForConfig(const 
     return sbeFutures
         ? cxet::api::market::PublicMarketDataWirePreference::Sbe
         : cxet::api::market::PublicMarketDataWirePreference::Auto;
+}
+constexpr std::int64_t kRecorderRestDecimalScale = 100000000LL;
+
+bool decimalTokenToScaled(std::string_view token, std::int64_t& out) noexcept {
+    while (!token.empty() && (token.front() == ' ' || token.front() == '\t' || token.front() == '\r' || token.front() == '\n')) token.remove_prefix(1u);
+    while (!token.empty() && (token.back() == ' ' || token.back() == '\t' || token.back() == '\r' || token.back() == '\n')) token.remove_suffix(1u);
+    if (token.size() >= 2u && token.front() == '"' && token.back() == '"') {
+        token.remove_prefix(1u);
+        token.remove_suffix(1u);
+    }
+    if (token.empty()) return false;
+    bool negative = false;
+    if (token.front() == '-') {
+        negative = true;
+        token.remove_prefix(1u);
+    }
+    std::int64_t whole = 0;
+    std::int64_t frac = 0;
+    std::int64_t fracScale = kRecorderRestDecimalScale;
+    bool sawDigit = false;
+    bool afterDot = false;
+    for (char ch : token) {
+        if (ch == '.') {
+            if (afterDot) return false;
+            afterDot = true;
+            continue;
+        }
+        if (ch < '0' || ch > '9') return false;
+        sawDigit = true;
+        const int digit = ch - '0';
+        if (!afterDot) {
+            whole = whole * 10 + digit;
+        } else if (fracScale > 1) {
+            fracScale /= 10;
+            frac += static_cast<std::int64_t>(digit) * fracScale;
+        }
+    }
+    if (!sawDigit) return false;
+    out = whole * kRecorderRestDecimalScale + frac;
+    if (negative) out = -out;
+    return true;
+}
+
+void skipJsonSpace(std::string_view text, std::size_t& pos) noexcept {
+    while (pos < text.size()) {
+        const char ch = text[pos];
+        if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') break;
+        ++pos;
+    }
+}
+
+bool readJsonScalarToken(std::string_view text, std::size_t& pos, std::string_view& token) noexcept {
+    skipJsonSpace(text, pos);
+    if (pos >= text.size()) return false;
+    const std::size_t start = pos;
+    if (text[pos] == '"') {
+        ++pos;
+        while (pos < text.size() && text[pos] != '"') ++pos;
+        if (pos >= text.size()) return false;
+        ++pos;
+        token = text.substr(start, pos - start);
+        return true;
+    }
+    while (pos < text.size()) {
+        const char ch = text[pos];
+        if (ch == ',' || ch == ']' || ch == '}' || ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') break;
+        ++pos;
+    }
+    token = text.substr(start, pos - start);
+    return !token.empty();
+}
+
+bool parseJsonUintFieldMs(std::string_view text, std::string_view key, std::uint64_t& out) noexcept {
+    const std::size_t keyPos = text.find(key);
+    if (keyPos == std::string_view::npos) return false;
+    std::size_t pos = text.find(':', keyPos + key.size());
+    if (pos == std::string_view::npos) return false;
+    ++pos;
+    std::string_view token;
+    if (!readJsonScalarToken(text, pos, token)) return false;
+    while (!token.empty() && token.front() == '"') token.remove_prefix(1u);
+    while (!token.empty() && token.back() == '"') token.remove_suffix(1u);
+    std::uint64_t value = 0u;
+    bool sawDigit = false;
+    for (char ch : token) {
+        if (ch < '0' || ch > '9') break;
+        sawDigit = true;
+        value = value * 10u + static_cast<std::uint64_t>(ch - '0');
+    }
+    if (!sawDigit) return false;
+    out = value;
+    return true;
+}
+
+bool parseRestLevels(std::string_view text,
+                     const char* key,
+                     Side side,
+                     cxet::composite::OrderBookSnapshot& out) noexcept {
+    const std::string_view keyText{key};
+    std::size_t pos = text.find(keyText);
+    if (pos == std::string_view::npos) return false;
+    pos = text.find('[', pos + keyText.size());
+    if (pos == std::string_view::npos) return false;
+    ++pos;
+    while (pos < text.size()) {
+        skipJsonSpace(text, pos);
+        if (pos >= text.size() || text[pos] == ']') return true;
+        if (text[pos] == ',') {
+            ++pos;
+            continue;
+        }
+        if (text[pos] != '[') {
+            ++pos;
+            continue;
+        }
+        ++pos;
+        std::string_view priceToken;
+        std::string_view qtyToken;
+        if (!readJsonScalarToken(text, pos, priceToken)) return false;
+        skipJsonSpace(text, pos);
+        if (pos < text.size() && text[pos] == ',') ++pos;
+        if (!readJsonScalarToken(text, pos, qtyToken)) return false;
+        std::int64_t priceRaw = 0;
+        std::int64_t qtyRaw = 0;
+        if (decimalTokenToScaled(priceToken, priceRaw) && decimalTokenToScaled(qtyToken, qtyRaw)) {
+            Price price{};
+            price.raw = priceRaw;
+            Amount qty{};
+            qty.raw = qtyRaw;
+            if (!cxet::composite::appendOrderBookLevel(out, price, qty, side)) return true;
+        }
+        while (pos < text.size() && text[pos] != ']') ++pos;
+        if (pos < text.size()) ++pos;
+    }
+    return true;
+}
+
+bool parseRestOrderbookJson(std::string_view text,
+                            cxet::composite::OrderBookSnapshot& snapshot) noexcept {
+    cxet::composite::resetOrderBookSnapshotHeader(snapshot);
+    std::uint64_t tsMs = 0u;
+    if (parseJsonUintFieldMs(text, "\"ts\"", tsMs)
+        || parseJsonUintFieldMs(text, "\"requestTime\"", tsMs)
+        || parseJsonUintFieldMs(text, "\"E\"", tsMs)
+        || parseJsonUintFieldMs(text, "\"T\"", tsMs)
+        || parseJsonUintFieldMs(text, "\"timestamp\"", tsMs)) {
+        snapshot.ts.raw = static_cast<std::int64_t>(tsMs * 1000000ULL);
+    } else {
+        snapshot.ts.raw = internal::nowNs();
+    }
+    if (!parseRestLevels(text, "\"bids\"", Side::Buy(), snapshot)) return false;
+    if (!parseRestLevels(text, "\"asks\"", Side::Sell(), snapshot)) return false;
+    if (snapshot.levelCount.raw != 0u) return true;
+    if (!parseRestLevels(text, "\"b\"", Side::Buy(), snapshot)) return false;
+    if (!parseRestLevels(text, "\"a\"", Side::Sell(), snapshot)) return false;
+    return snapshot.levelCount.raw != 0u;
+}
+
+
+bool shouldFetchInitialOrderbookSnapshot(const CaptureConfig& config) noexcept {
+    return !textEqualsAscii(config.exchange, "bitget");
+}
+
+bool fetchInitialOrderbookSnapshot(const CaptureConfig& config,
+                                   cxet::composite::OrderBookSnapshot& snapshot) noexcept {
+    Symbol symbol{};
+    symbol.copyFrom(config.symbols.empty() ? "" : config.symbols.front().c_str());
+
+    cxet::api::orderbook::OrderBookSnapshotRequest request{};
+    request.exchange = exchangeIdFromConfig(config.exchange);
+    request.market = marketTypeFromConfig(config.market);
+    request.symbol = symbol;
+
+    cxet::UnifiedRequestBuilder builder = cxet::api::orderbook::makeOrderBookSnapshotBuilder(request);
+    const auto* routeConfig = cxet::api::findObjectConfig(static_cast<std::uint8_t>(builder.operation()),
+                                                          builder.objectRaw(),
+                                                          builder.exchange().raw,
+                                                          builder.market().raw,
+                                                          builder.typeRaw(),
+                                                          builder.subtypeRaw());
+    if (!routeConfig || !routeConfig->parseOrderBookFn) return false;
+
+    MessageBuffer requestBuf{};
+    MessageBuffer recvBuf{};
+    if (!cxet::api::buildFromConfig(builder, *routeConfig, requestBuf)) return false;
+    if (!cxet::api::detail::fetchRestByConfig(*routeConfig, requestBuf, recvBuf)) return false;
+    cxet::composite::resetOrderBookSnapshotHeader(snapshot);
+    const bool parsed = routeConfig->parseOrderBookFn(recvBuf,
+                                                      builder,
+                                                      request.exchange,
+                                                      &snapshot,
+                                                      builder.requestedFields());
+    if (parsed && snapshot.levelCount.raw != 0u) return true;
+    return parseRestOrderbookJson(std::string_view{recvBuf.data(), recvBuf.size()}, snapshot);
 }
 
 }  // namespace
@@ -514,10 +730,51 @@ cxet::api::market::PublicMarketDataStatus connectRecorderMarketDataRoute(
     }
     return cxet::api::market::PublicMarketDataStatus::ConnectFailed;
 }
-void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
-    Symbol symbol{};
-    symbol.copyFrom(config.symbols.empty() ? "" : config.symbols.front().c_str());
 
+struct RecorderMarketDataChannel {
+    cxet::api::market::PublicMarketDataStream stream{cxet::api::market::PublicMarketDataStream::BookTicker};
+    canon::FieldId requestedFields[cxet::kMaxRequestedFields]{};
+    std::size_t requestedFieldCount{0u};
+    cxet::UnifiedRequestBuilder builder{};
+    MessageBuffer payloadBuf{};
+    MessageBuffer workBuf{};
+    MessageBuffer recvBuf{};
+    cxet::api::market::PublicMarketDataSnapshot snapshot{};
+    cxet::api::market::PublicMarketDataRoute route{};
+};
+
+bool prepareRecorderMarketDataChannel(RecorderMarketDataChannel& channel,
+                                      cxet::api::market::PublicMarketDataStream stream,
+                                      cxet::UnifiedRequestBuilder builder,
+                                      cxet::api::market::PublicMarketDataWirePreference wirePreference,
+                                      Span<const canon::FieldId> requestedFields,
+                                      std::atomic<bool>* stopRequested,
+                                      unsigned pingIntervalMs,
+                                      bool captureLatency) noexcept {
+    if (requestedFields.size() > cxet::kMaxRequestedFields) return false;
+    channel.stream = stream;
+    channel.builder = builder;
+    channel.requestedFieldCount = requestedFields.size();
+    for (std::size_t i = 0u; i < requestedFields.size(); ++i) channel.requestedFields[i] = requestedFields[i];
+
+    cxet::api::market::PublicMarketDataRouteConfig routeConfig{};
+    routeConfig.builder = &channel.builder;
+    routeConfig.payloadBuf = &channel.payloadBuf;
+    routeConfig.combinedPayloadBuf = &channel.workBuf;
+    routeConfig.recvBuf = &channel.recvBuf;
+    routeConfig.snapshot = &channel.snapshot;
+    routeConfig.stream = stream;
+    routeConfig.wirePreference = wirePreference;
+    routeConfig.requestedFields = Span<const canon::FieldId>(channel.requestedFields, channel.requestedFieldCount);
+    routeConfig.stopRequested = stopRequested;
+    routeConfig.maxEvents = 0u;
+    routeConfig.maxReconnectAttempts = 0u;
+    routeConfig.pingIntervalMs = pingIntervalMs;
+    routeConfig.pollTimeoutMs = 1u;
+    routeConfig.captureLatency = captureLatency;
+    return cxet::api::market::preparePublicMarketDataRoute(channel.route, routeConfig);
+}
+void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
     constexpr canon::FieldId kFields[] = {
         canon::kFieldIdBidPrice,
         canon::kFieldIdBidQty,
@@ -526,29 +783,27 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
         canon::kFieldIdTimestamp,
     };
 
-    cxet::api::market::RedundantPublicMarketDataRoute redundantRoute{};
-    cxet::api::market::RedundantPublicMarketDataRouteConfig routeConfig{};
-    routeConfig.exchange = exchangeIdFromConfig(config.exchange);
-    routeConfig.market = marketTypeFromConfig(config.market);
-    routeConfig.symbol = symbol;
-    routeConfig.apiSlot = 1u;
-    routeConfig.stream = cxet::api::market::PublicMarketDataStream::BookTicker;
-    routeConfig.wirePreference = wirePreferenceForConfig(config);
-    routeConfig.requestedFields = Span<const canon::FieldId>(kFields, sizeof(kFields) / sizeof(kFields[0]));
-    routeConfig.stopRequested = &bookTickerStop_;
-    routeConfig.maxEvents = 0u;
-    routeConfig.maxReconnectAttempts = 0u;
-    routeConfig.pingIntervalMs = kRecorderQuietStreamKeepaliveMs;
-    routeConfig.pollTimeoutMs = 1u;
-    routeConfig.captureLatency = cxet::metrics::latencyEnabled();
-    routeConfig.staleNs = kRecorderBookTickerStaleReconnectNs;
-    routeConfig.reconnectRetryNs = static_cast<std::uint64_t>(kRecorderReconnectRetryMs) * 1000000ull;
-    routeConfig.connectFn = connectRecorderMarketDataRoute;
-
-    char routeError[256]{};
-    if (!redundantRoute.prepare(routeConfig, routeError, sizeof(routeError))) {
+    auto builder = internal::makeBookTickerBuilder(config);
+    std::string fieldError;
+    if (!internal::applyRequestedAliases(config.bookTickerAliases, builder, fieldError)) {
         std::lock_guard<std::mutex> lock(stateMutex_);
-        lastError_ = routeError[0] != '\0' ? routeError : "bookticker direct redundant route prepare failed";
+        lastError_ = fieldError;
+        bookTickerRunning_.store(false, std::memory_order_release);
+        marketDataRunning_.store(false, std::memory_order_release);
+        return;
+    }
+
+    RecorderMarketDataChannel channel{};
+    if (!prepareRecorderMarketDataChannel(channel,
+                                          cxet::api::market::PublicMarketDataStream::BookTicker,
+                                          builder,
+                                          wirePreferenceForConfig(config),
+                                          Span<const canon::FieldId>(kFields, sizeof(kFields) / sizeof(kFields[0])),
+                                          &bookTickerStop_,
+                                          kRecorderQuietStreamKeepaliveMs,
+                                          cxet::metrics::latencyEnabled())) {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastError_ = "bookticker direct route prepare failed";
         bookTickerRunning_.store(false, std::memory_order_release);
         marketDataRunning_.store(false, std::memory_order_release);
         return;
@@ -558,11 +813,11 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
         while (!marketDataStop_.load(std::memory_order_acquire)
                && desiredBookTicker_.load(std::memory_order_acquire)
                && !bookTickerStop_.load(std::memory_order_acquire)) {
-            if (redundantRoute.connectAll()) return true;
-            const auto* route = redundantRoute.routeAt(redundantRoute.activeSlot());
+            if (connectRecorderMarketDataRoute(channel.route) == cxet::api::market::PublicMarketDataStatus::Ok) return true;
+            const auto* route = &channel.route;
             {
                 std::lock_guard<std::mutex> lock(stateMutex_);
-                lastError_ = std::string{"bookticker direct redundant route connect failed"}
+                lastError_ = std::string{"bookticker direct route connect failed"}
                     + " host=" + (route && route->route.endpointHost ? route->route.endpointHost : "<null>")
                     + " path=" + std::string(route && route->route.connectPath ? route->route.connectPath : "<null>",
                                               route && route->route.connectPath ? route->route.connectPathLen : 6u)
@@ -591,12 +846,11 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
     while (!marketDataStop_.load(std::memory_order_acquire)
            && desiredBookTicker_.load(std::memory_order_acquire)
            && !bookTickerStop_.load(std::memory_order_acquire)) {
-        cxet::api::market::RedundantPublicMarketDataPollEvent events[1]{};
-        const std::size_t eventCount = redundantRoute.pollOnce(events, 1u);
-        if (eventCount != 0u && events[0].status == cxet::api::market::PublicMarketDataStatus::Parsed && events[0].snapshot) {
+        const auto status = cxet::api::market::pollPublicMarketDataRouteOnce(channel.route);
+        if (status == cxet::api::market::PublicMarketDataStatus::Parsed) {
             cxet::composite::BookTickerRuntimeV1 bookTicker{};
             cxet::composite::StreamMeta meta{};
-            if (!readBookTickerSnapshot(*events[0].snapshot, bookTicker, meta)) continue;
+            if (!readBookTickerSnapshot(channel.snapshot, bookTicker, meta)) continue;
             bookTickerCount_.fetch_add(1, std::memory_order_acq_rel);
             const auto sequenceIds = nextEventSequenceIds(bookTickerCaptureSeq_, ingestSeq_);
             const auto capturedBookTicker = cxet_bridge::CxetCaptureBridge::captureBookTicker(bookTicker, meta);
@@ -623,28 +877,29 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
                                         localNowNs);
             {
                 std::lock_guard<std::mutex> lock(stateMutex_);
-                if (events[0].promoted) {
-                    lastError_ = "bookticker direct redundant route promoted standby";
-                } else if (lastError_.rfind("bookticker direct ", 0u) == 0u) {
+                if (lastError_.rfind("bookticker direct ", 0u) == 0u) {
                     lastError_.clear();
                 }
             }
             continue;
         }
         ++skippedPolls;
-        const auto* route0 = redundantRoute.routeAt(0u);
-        const auto* route1 = redundantRoute.routeAt(1u);
-        const bool anyConnected = (route0 && route0->connected) || (route1 && route1->connected);
-        if (!anyConnected) (void)sleepCaptureStopAware(&bookTickerStop_, 1u);
+        if (status == cxet::api::market::PublicMarketDataStatus::Disconnected
+            || status == cxet::api::market::PublicMarketDataStatus::ConnectFailed) {
+            cxet::api::market::closePublicMarketDataRoute(channel.route);
+            (void)connectDirectRoute();
+        } else if (!channel.route.connected) {
+            (void)sleepCaptureStopAware(&bookTickerStop_, 1u);
+        }
     }
 
-    redundantRoute.closeAll();
+    cxet::api::market::closePublicMarketDataRoute(channel.route);
     bookTickerRunning_.store(false, std::memory_order_release);
     marketDataRunning_.store(false, std::memory_order_release);
     if (bookTickerCount_.load(std::memory_order_relaxed) == 0u) {
         std::lock_guard<std::mutex> lock(stateMutex_);
         if (lastError_.empty()) {
-            const auto* snapshot = redundantRoute.activeSnapshot();
+            const auto* snapshot = &channel.snapshot;
             lastError_ = "bookticker direct route ended without rows; skipped_polls=" + std::to_string(skippedPolls)
                 + " frames=" + std::to_string(snapshot ? snapshot->frames : 0u)
                 + " parsed=" + std::to_string(snapshot ? snapshot->parsedFrames : 0u)
@@ -662,20 +917,17 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         return;
     }
 
-    struct RecorderRedundantChannel {
-        cxet::api::market::PublicMarketDataStream stream{cxet::api::market::PublicMarketDataStream::BookTicker};
-        canon::FieldId requestedFields[cxet::kMaxRequestedFields]{};
-        std::size_t requestedFieldCount{0u};
-        cxet::api::market::RedundantPublicMarketDataRoute route{};
-    };
-
     constexpr std::size_t kRecorderRedundantChannelCap = 3u;
-    auto channels = std::make_unique<RecorderRedundantChannel[]>(kRecorderRedundantChannelCap);
+    auto channels = std::make_unique<RecorderMarketDataChannel[]>(kRecorderRedundantChannelCap);
     std::size_t channelCount = 0u;
     std::uint8_t appliedMask = 0u;
+    bool initialOrderbookSeedAttempted = depthCount_.load(std::memory_order_acquire) != 0u;
+    std::vector<replay::PricePair> bitgetPreviousOrderbookLevels{};
 
     auto closeChannels = [&]() noexcept {
-        for (std::size_t i = 0u; i < channelCount; ++i) channels[i].route.closeAll();
+        for (std::size_t i = 0u; i < channelCount; ++i) {
+            cxet::api::market::closePublicMarketDataRoute(channels[i].route);
+        }
         channelCount = 0u;
     };
 
@@ -707,38 +959,25 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 lastError_ = "too many requested market-data fields";
                 return false;
             }
-            RecorderRedundantChannel& channel = channels[channelCount];
-            channel.stream = stream;
-            channel.requestedFieldCount = fields.size();
-            for (std::size_t i = 0u; i < fields.size(); ++i) channel.requestedFields[i] = fields[i];
-
-            cxet::api::market::RedundantPublicMarketDataRouteConfig routeConfig{};
-            routeConfig.exchange = exchangeIdFromConfig(config.exchange);
-            routeConfig.market = marketTypeFromConfig(config.market);
-            routeConfig.symbol = symbol;
-            routeConfig.apiSlot = 1u;
-            routeConfig.stream = stream;
-            routeConfig.captureLatency = cxet::metrics::latencyEnabled();
-            routeConfig.wirePreference = wirePreferenceForConfig(config);
-            routeConfig.maxReconnectAttempts = 0u;
-            routeConfig.pingIntervalMs = stream == cxet::api::market::PublicMarketDataStream::Trades
+            RecorderMarketDataChannel& channel = channels[channelCount];
+            const unsigned pingIntervalMs = stream == cxet::api::market::PublicMarketDataStream::Trades
                 ? kRecorderTradesKeepaliveMs
                 : kRecorderQuietStreamKeepaliveMs;
-            routeConfig.pollTimeoutMs = 1u;
-            routeConfig.requestedFields = Span<const canon::FieldId>(channel.requestedFields, channel.requestedFieldCount);
-            routeConfig.stopRequested = &marketDataStop_;
-            routeConfig.staleNs = kRecorderBookTickerStaleReconnectNs;
-            routeConfig.reconnectRetryNs = static_cast<std::uint64_t>(kRecorderReconnectRetryMs) * 1000000ull;
-            routeConfig.connectFn = connectRecorderMarketDataRoute;
-            char errorBuf[256]{};
-            if (!channel.route.prepare(routeConfig, errorBuf, sizeof(errorBuf))) {
+            if (!prepareRecorderMarketDataChannel(channel,
+                                                  stream,
+                                                  builder,
+                                                  wirePreferenceForConfig(config),
+                                                  fields,
+                                                  &marketDataStop_,
+                                                  pingIntervalMs,
+                                                  cxet::metrics::latencyEnabled())) {
                 std::lock_guard<std::mutex> lock(stateMutex_);
-                lastError_ = errorBuf[0] != '\0' ? errorBuf : "recorder redundant market-data route prepare failed";
+                lastError_ = "recorder market-data route prepare failed";
                 return false;
             }
-            if (!channel.route.connectAll()) {
+            if (connectRecorderMarketDataRoute(channel.route) != cxet::api::market::PublicMarketDataStatus::Ok) {
                 std::lock_guard<std::mutex> lock(stateMutex_);
-                lastError_ = "recorder redundant market-data route connect pending";
+                lastError_ = "recorder market-data route connect pending";
             }
             ++channelCount;
             return true;
@@ -760,6 +999,35 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
             }
         }
         if (wantOrderbook) {
+            if (!initialOrderbookSeedAttempted) {
+                initialOrderbookSeedAttempted = true;
+                cxet::composite::OrderBookSnapshot initialSnapshot{};
+                if (!shouldFetchInitialOrderbookSnapshot(config)) {
+                    // Bitget has no CXET REST orderbook route here; use WS orderbook only.
+                } else if (!fetchInitialOrderbookSnapshot(config, initialSnapshot)) {
+                    metrics::recordSnapshotFetchFailure("snapshot");
+                    std::lock_guard<std::mutex> lock(stateMutex_);
+                    lastError_ = "orderbook: initial REST snapshot fetch failed; continuing with WS depth";
+                } else {
+                    const auto capturedSnapshot = cxet_bridge::CxetCaptureBridge::captureOrderBook(initialSnapshot);
+                    const auto row = makeDepthRow(capturedSnapshot);
+                    auto aliases = config.orderbookAliases;
+                    if (aliases.empty()) aliases = {"bidPrice", "bidQty", "askPrice", "askQty", "side", "timestamp"};
+                    const auto jsonLine = renderDepthJsonLine(row, aliases);
+                    const auto liveStatus = liveStore_.appendDepth(row);
+                    const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendDepthLine(row, jsonLine) : liveStatus;
+                    if (!isOk(fileStatus)) {
+                        metrics::recordCaptureWriteError("depth");
+                        std::lock_guard<std::mutex> lock(stateMutex_);
+                        lastError_ = "orderbook: failed to write initial REST snapshot into depth.jsonl";
+                        return false;
+                    }
+                    depthCount_.fetch_add(1, std::memory_order_acq_rel);
+                    metrics::recordCaptureEvent("depth", capturedSnapshot.tsNs,
+                                                static_cast<std::uint64_t>(jsonLine.size() + 1u),
+                                                static_cast<std::uint64_t>(internal::nowNs()));
+                }
+            }
             auto aliases = config.orderbookAliases;
             if (aliases.empty()) aliases = {"bidPrice", "bidQty", "askPrice", "askQty", "side", "timestamp"};
             for (const auto* requiredAlias : {"bidPrice", "bidQty", "askPrice", "askQty", "side", "timestamp"}) {
@@ -792,16 +1060,16 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
 
         std::size_t eventCount = 0u;
         for (std::size_t channelIndex = 0u; channelIndex < channelCount; ++channelIndex) {
-            RecorderRedundantChannel& channel = channels[channelIndex];
-            cxet::api::market::RedundantPublicMarketDataPollEvent events[1]{};
-            const std::size_t polled = channel.route.pollOnce(events, 1u);
-            if (polled == 0u || !events[0].snapshot) continue;
-            ++eventCount;
-            const auto* snapshot = events[0].snapshot;
-            if (events[0].promoted) {
-                std::lock_guard<std::mutex> lock(stateMutex_);
-                lastError_ = "recorder redundant market-data route promoted standby";
+            RecorderMarketDataChannel& channel = channels[channelIndex];
+            const auto status = cxet::api::market::pollPublicMarketDataRouteOnce(channel.route);
+            if (status == cxet::api::market::PublicMarketDataStatus::Disconnected
+                || status == cxet::api::market::PublicMarketDataStatus::ConnectFailed) {
+                cxet::api::market::closePublicMarketDataRoute(channel.route);
+                (void)connectRecorderMarketDataRoute(channel.route);
             }
+            if (status != cxet::api::market::PublicMarketDataStatus::Parsed) continue;
+            ++eventCount;
+            const auto* snapshot = &channel.snapshot;
             const bool captureMetrics = cxet::metrics::shouldCaptureLatency();
             if (channel.stream == cxet::api::market::PublicMarketDataStream::Trades) {
                 cxet::composite::TradeRuntimeV1 trade{};
@@ -887,7 +1155,10 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 TscTick bridgeStartTsc{};
                 if (captureMetrics) bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(delta, meta);
-                const auto row = makeDepthRow(capturedDepth);
+                auto row = makeDepthRow(capturedDepth);
+                if (textEqualsAscii(config.exchange, "bitget")) {
+                    normalizeFixedDepthSnapshotDelta(row, bitgetPreviousOrderbookLevels);
+                }
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
                 auto aliases = config.orderbookAliases;
                 if (aliases.empty()) aliases = {"bidPrice", "bidQty", "askPrice", "askQty", "side", "timestamp"};
@@ -953,7 +1224,7 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
     const auto document = makeSnapshotDocument(capturedSnapshot);
     std::string snapshotPayload = renderSnapshotJson(document);
     if (!snapshotPayload.empty() && snapshotPayload.back() == '\n') snapshotPayload.pop_back();
-    local_exchange::globalLocalMarketDataBus().publish("orderbook.snapshot", std::string_view{snapshot.symbol.data}, snapshotPayload);
+    local_exchange::globalLocalMarketDataBus().publish("orderbook.snapshot", std::string_view{}, snapshotPayload);
     if (!isOk(eventSink_.appendSnapshot(document, snapshotIndex))) return Status::IoError;
     {
         std::lock_guard<std::mutex> lock(stateMutex_);

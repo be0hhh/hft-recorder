@@ -16,7 +16,7 @@ void drawBookTicker(QPainter* painter,
                     const RenderSnapshot& snap,
                     double dpr) {
     if (!snap.bookTickerVisible) return;
-    if (snap.bookTickerTrace.bidLines.empty() && snap.bookTickerTrace.askLines.empty()) return;
+    if (snap.bookTickerTrace.samples.empty()) return;
     RenderContext ctx{painter, snap, HoverInfo{}, dpr};
     renderers::renderBookTicker(ctx);
 }

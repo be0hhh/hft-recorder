@@ -1,6 +1,7 @@
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include <QColor>
@@ -16,13 +17,38 @@ namespace hftrec::gui::viewer::renderers {
 
 namespace {
 
-void drawTraceLines(QPainter* painter,
-                    const std::vector<BookTickerLine>& lines,
-                    const QPen& pen) {
-    if (lines.empty()) return;
+void drawSampleSide(QPainter* painter,
+                    const BookTickerTrace& trace,
+                    const ViewportMap& vp,
+                    const QPen& pen,
+                    bool bidSide) {
+    if (trace.samples.empty()) return;
     painter->setPen(pen);
-    for (const auto& line : lines) {
-        painter->drawLine(QPointF{line.x0, line.y0}, QPointF{line.x1, line.y1});
+
+    bool prevVisible = false;
+    QPointF prevPoint{};
+    for (const auto& sample : trace.samples) {
+        const std::int64_t priceE8 = bidSide ? sample.bidPriceE8 : sample.askPriceE8;
+        if (priceE8 <= 0 || priceE8 < vp.pMin || priceE8 > vp.pMax
+            || sample.tsNs < vp.tMin || sample.tsNs > vp.tMax) {
+            prevVisible = false;
+            continue;
+        }
+
+        const qreal x = vp.toX(sample.tsNs);
+        const qreal y = vp.toY(priceE8);
+        if (x < 0.0 || x > vp.w || y < 0.0 || y > vp.h) {
+            prevVisible = false;
+            continue;
+        }
+
+        const int xPx = static_cast<int>(std::round(x));
+        const int yPx = static_cast<int>(std::round(y));
+        const QPointF point{static_cast<qreal>(xPx), static_cast<qreal>(yPx)};
+        if (prevVisible) painter->drawLine(prevPoint, point);
+        else painter->drawLine(point, QPointF{static_cast<qreal>(xPx + 1), static_cast<qreal>(yPx)});
+        prevPoint = point;
+        prevVisible = true;
     }
 }
 
@@ -30,7 +56,7 @@ void drawTraceLines(QPainter* painter,
 
 void renderBookTicker(const RenderContext& ctx) {
     if (!ctx.s.bookTickerVisible) return;
-    if (ctx.s.bookTickerTrace.bidLines.empty() && ctx.s.bookTickerTrace.askLines.empty()) return;
+    if (ctx.s.bookTickerTrace.samples.empty()) return;
 
     QColor bidCol = bidColor(); bidCol.setAlpha(255);
     QColor askCol = askColor(); askCol.setAlpha(255);
@@ -48,8 +74,8 @@ void renderBookTicker(const RenderContext& ctx) {
     ctx.p->save();
     ctx.p->setRenderHint(QPainter::Antialiasing, false);
     ctx.p->setBrush(Qt::NoBrush);
-    drawTraceLines(ctx.p, ctx.s.bookTickerTrace.bidLines, bidPen);
-    drawTraceLines(ctx.p, ctx.s.bookTickerTrace.askLines, askPen);
+    drawSampleSide(ctx.p, ctx.s.bookTickerTrace, ctx.s.vp, bidPen, true);
+    drawSampleSide(ctx.p, ctx.s.bookTickerTrace, ctx.s.vp, askPen, false);
     ctx.p->restore();
 }
 

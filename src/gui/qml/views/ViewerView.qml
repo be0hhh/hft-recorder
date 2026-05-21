@@ -39,6 +39,10 @@ Pane {
     property bool showBookTickerLayer: false
     property bool effectiveBookTickerLayer: showBookTickerLayer
     property bool userHasExplicitLayerSelection: false
+    property bool userDisabledTradesLayer: false
+    property bool userDisabledLiquidationsLayer: false
+    property bool userDisabledOrderbookLayer: false
+    property bool userDisabledBookTickerLayer: false
     property bool useDedicatedGpuPath: false
     property bool useGpuRenderer: true
 
@@ -51,6 +55,8 @@ Pane {
     function syncRenderWindow() { chart.setRenderWindowSeconds(root.appVm.renderWindowSeconds) }
 
     function applySourceSelection(sourceId) {
+        if (sourceId !== "" && chart.currentSourceId === sourceId)
+            return
         interaction.clearSelectionVisual()
         chart.clearSelection()
         var sourceKind = sourcesModel.sourceKind(sourceId)
@@ -78,6 +84,11 @@ Pane {
     function loadSingleSelectedSource() {
         var sourceId = root.singleSelectedSourceId()
         root.userHasExplicitLayerSelection = false
+        root.userDisabledTradesLayer = false
+        root.userDisabledLiquidationsLayer = false
+        root.userDisabledOrderbookLayer = false
+        root.userDisabledBookTickerLayer = false
+        root.userHasExplicitSelection = sourceId !== ""
         root.selectedSourceId = sourceId
         if (sourceId === "") {
             chart.resetSession()
@@ -94,75 +105,38 @@ Pane {
         return -1
     }
 
-    function liveCompareSourceIds() {
-        var ready = []
-        var pending = []
-        for (var i = 0; i < sourcesModel.rowCount(); ++i) {
-            if (sourcesModel.groupAt(i) !== "live")
-                continue
-            var id = sourcesModel.sourceIdAt(i)
-            if (id === "")
-                continue
-            if (sourcesModel.bookTickerCount(id) > 0)
-                ready.push(id)
-            else
-                pending.push(id)
-        }
-        return ready.length >= 2 ? ready : []
-    }
-
-    function autoSelectLiveCompareSources(force) {
-        if (!force && (root.selectedCompareSourceA !== "" || root.selectedCompareSourceB !== ""))
-            return
-        var ids = root.liveCompareSourceIds()
-        if (ids.length < 2) {
-            if (force && !root.userHasExplicitCompareSelection) {
-                root.selectedCompareSourceA = ""
-                root.selectedCompareSourceB = ""
-                root.syncCompareIndexesFromIds()
-                root.applyCompareSelection()
-            }
-            return
-        }
-        if (root.selectedCompareSourceA === ids[0] && root.selectedCompareSourceB === ids[1])
-            return
-        root.selectedCompareSourceA = ids[0]
-        root.selectedCompareSourceB = ids[1]
-        root.syncCompareIndexesFromIds()
-        root.applyCompareSelection()
-    }
 
     function ensureVisibleLayerSelection() {
         if (root.userHasExplicitLayerSelection)
             return
 
         if (!root.compareMode && root.selectedSourceId !== "") {
-            root.showTradesLayer = chart.hasTrades
-            root.showLiquidationsLayer = chart.hasLiquidations && !chart.hasTrades
-            root.showOrderbookLayer = chart.hasOrderbook
-            root.showBookTickerLayer = chart.hasBookTicker
+            root.showTradesLayer = chart.hasTrades && !root.userDisabledTradesLayer
+            root.showLiquidationsLayer = chart.hasLiquidations && !chart.hasTrades && !root.userDisabledLiquidationsLayer
+            root.showOrderbookLayer = chart.hasOrderbook && !root.userDisabledOrderbookLayer
+            root.showBookTickerLayer = chart.hasBookTicker && !root.userDisabledBookTickerLayer
             if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer)
-                root.showTradesLayer = true
+                root.showTradesLayer = !root.userDisabledTradesLayer
             return
         }
 
         if (root.showTradesLayer || root.showLiquidationsLayer) {
             root.showTradesLayer = false
             root.showLiquidationsLayer = false
-            if (chart.hasOrderbook)
+            if (chart.hasOrderbook && !root.userDisabledOrderbookLayer)
                 root.showOrderbookLayer = true
-            else if (chart.hasBookTicker)
+            else if (chart.hasBookTicker && !root.userDisabledBookTickerLayer)
                 root.showBookTickerLayer = true
         }
 
         if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
-            if (chart.hasOrderbook)
+            if (chart.hasOrderbook && !root.userDisabledOrderbookLayer)
                 root.showOrderbookLayer = true
-            else if (chart.hasBookTicker)
+            else if (chart.hasBookTicker && !root.userDisabledBookTickerLayer)
                 root.showBookTickerLayer = true
-            else if (chart.hasLiquidations)
+            else if (chart.hasLiquidations && !root.userDisabledLiquidationsLayer)
                 root.showLiquidationsLayer = true
-            else
+            else if (!root.userDisabledTradesLayer)
                 root.showTradesLayer = true
         }
     }
@@ -263,7 +237,10 @@ Pane {
         if (root.selectedCompareSourceB === root.selectedCompareSourceA)
             root.selectedCompareSourceB = ""
         if (!root.userHasExplicitCompareSelection) {
-            root.autoSelectLiveCompareSources(true)
+            root.selectedCompareSourceA = ""
+            root.selectedCompareSourceB = ""
+            root.syncCompareIndexesFromIds()
+            compareChart.clear()
             return
         }
         root.syncCompareIndexesFromIds()
@@ -392,7 +369,6 @@ Pane {
     Component.onCompleted: {
         chart.active = root.tabActive
         root.rebuildCompareSourceRows()
-        Qt.callLater(root.autoSelectLiveCompareSources)
         Qt.callLater(root.syncRendererDiagnostics)
         Qt.callLater(root.syncLiveUpdateMode)
         Qt.callLater(root.syncRenderWindow)
@@ -414,13 +390,11 @@ Pane {
         function onModelReset() {
             root.rebuildCompareSourceRows()
             Qt.callLater(root.ensureCompareSelection)
-            Qt.callLater(root.autoSelectLiveCompareSources)
-        }
+            }
         function onRowsInserted() {
             root.rebuildCompareSourceRows()
             Qt.callLater(root.ensureCompareSelection)
-            Qt.callLater(root.autoSelectLiveCompareSources)
-        }
+            }
     }
 
     Connections {
@@ -577,7 +551,9 @@ Pane {
             accentBuyColor: root.accentBuyColor
             onToggleTrades: {
                 root.userHasExplicitLayerSelection = true
-                root.showTradesLayer = !root.showTradesLayer
+                var nextVisible = !root.showTradesLayer
+                root.showTradesLayer = nextVisible
+                root.userDisabledTradesLayer = !nextVisible
                 if (root.showTradesLayer && !chart.loaded && root.selectedSourceId !== "") {
                     root.userHasExplicitLayerSelection = false
                     root.applySourceSelection(root.selectedSourceId)
@@ -586,15 +562,21 @@ Pane {
             }
             onToggleLiquidations: {
                 root.userHasExplicitLayerSelection = true
-                root.showLiquidationsLayer = !root.showLiquidationsLayer
+                var nextVisible = !root.showLiquidationsLayer
+                root.showLiquidationsLayer = nextVisible
+                root.userDisabledLiquidationsLayer = !nextVisible
             }
             onToggleOrderbook: {
                 root.userHasExplicitLayerSelection = true
-                root.showOrderbookLayer = !root.showOrderbookLayer
+                var nextVisible = !root.showOrderbookLayer
+                root.showOrderbookLayer = nextVisible
+                root.userDisabledOrderbookLayer = !nextVisible
             }
             onToggleBookTicker: {
                 root.userHasExplicitLayerSelection = true
-                root.showBookTickerLayer = !root.showBookTickerLayer
+                var nextVisible = !root.showBookTickerLayer
+                root.showBookTickerLayer = nextVisible
+                root.userDisabledBookTickerLayer = !nextVisible
             }
         }
 
@@ -606,7 +588,7 @@ Pane {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 8
-                text: root.compareMode ? "Top: two bookTicker traces. Bottom: best-side spread in bps with rolling mean and cost band." : "Single source: trades, bookTicker, and orderbook layers are drawn together when present."
+                text: root.compareMode ? "Top: combined bookTicker traces. Bottom: best-side spread in bps with rolling mean and cost band." : "Single source: trades, bookTicker, and orderbook layers are drawn together when present."
                 color: root.mutedTextColor
                 font.pixelSize: 12
             }

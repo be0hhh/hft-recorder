@@ -78,6 +78,11 @@ std::int64_t usdToE8(qreal usd) noexcept {
     return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
 }
 
+std::int64_t usdToE8Min0(qreal usd) noexcept {
+    const qreal clamped = std::clamp<qreal>(usd, 0.0, 1000000.0);
+    return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
+}
+
 qreal normalizedBrightness(std::int64_t amountE8,
                            std::int64_t minVisibleAmountE8,
                            std::int64_t brightnessRefE8) noexcept {
@@ -310,32 +315,6 @@ std::int64_t windowAskMaxE8(std::int64_t bestAskE8, qreal windowPct) noexcept {
     return static_cast<std::int64_t>(std::ceil(static_cast<long double>(bestAskE8) * factor));
 }
 
-struct BookTickerPixelState {
-    bool has{false};
-    std::int64_t firstPriceE8{0};
-    std::int64_t lastPriceE8{0};
-    std::int64_t minPriceE8{0};
-    std::int64_t maxPriceE8{0};
-    std::int64_t lastQtyE8{0};
-    std::int64_t lastTsNs{0};
-
-    void absorb(std::int64_t priceE8, std::int64_t qtyE8, std::int64_t tsNs) noexcept {
-        if (priceE8 <= 0) return;
-        if (!has) {
-            has = true;
-            firstPriceE8 = priceE8;
-            minPriceE8 = priceE8;
-            maxPriceE8 = priceE8;
-        } else {
-            minPriceE8 = std::min(minPriceE8, priceE8);
-            maxPriceE8 = std::max(maxPriceE8, priceE8);
-        }
-        lastPriceE8 = priceE8;
-        lastQtyE8 = qtyE8;
-        lastTsNs = tsNs;
-    }
-};
-
 struct BookTickerAnchor {
     std::int64_t bidPriceE8{0};
     std::int64_t askPriceE8{0};
@@ -360,75 +339,6 @@ BookTickerAnchor bookTickerAnchorAtOrBefore(const std::vector<hftrec::replay::Bo
     return BookTickerAnchor{};
 }
 
-bool visiblyDifferent(qreal lhs, qreal rhs) noexcept {
-    return std::abs(lhs - rhs) >= 0.5;
-}
-
-void appendBookTickerSideLines(std::vector<BookTickerLine>& out,
-                               const std::vector<BookTickerPixelState>& pixels,
-                               const ViewportMap& vp) {
-    bool prevHas = false;
-    int prevPx = -1;
-    qreal prevLastY = 0.0;
-
-    for (int px = 0; px < static_cast<int>(pixels.size()); ++px) {
-        const auto& state = pixels[static_cast<std::size_t>(px)];
-        if (!state.has) {
-            prevHas = false;
-            prevPx = -1;
-            continue;
-        }
-
-        const qreal x0 = static_cast<qreal>(px);
-        const qreal x1 = std::min<qreal>(x0 + 1.0, vp.w);
-        const qreal firstY = vp.toY(state.firstPriceE8);
-        const qreal lastY = vp.toY(state.lastPriceE8);
-
-        if (prevHas && prevPx + 1 == px && visiblyDifferent(prevLastY, firstY)) {
-            out.push_back(BookTickerLine{x0, prevLastY, x0, firstY});
-        }
-
-        if (state.minPriceE8 != state.maxPriceE8) {
-            const qreal y0 = vp.toY(state.minPriceE8);
-            const qreal y1 = vp.toY(state.maxPriceE8);
-            if (visiblyDifferent(y0, y1)) {
-                out.push_back(BookTickerLine{x0, y0, x0, y1});
-            }
-        }
-
-        if (x1 > x0) {
-            out.push_back(BookTickerLine{x0, lastY, x1, lastY});
-        }
-
-        prevHas = true;
-        prevPx = px;
-        prevLastY = lastY;
-    }
-}
-
-void absorbBookTickerInterval(std::vector<BookTickerPixelState>& bidPixels,
-                              std::vector<BookTickerPixelState>& askPixels,
-                              const ViewportMap& vp,
-                              const hftrec::replay::BookTickerRow& ticker,
-                              std::int64_t tsStart,
-                              std::int64_t tsEnd) {
-    if (tsEnd <= tsStart || bidPixels.empty() || askPixels.empty()) return;
-
-    const qreal xLeft = std::clamp(vp.toX(tsStart), 0.0, vp.w);
-    const qreal xRight = std::clamp(vp.toX(tsEnd), 0.0, vp.w);
-    if (xRight <= xLeft) return;
-
-    const int maxPx = static_cast<int>(bidPixels.size()) - 1;
-    const int startPx = std::clamp(static_cast<int>(std::floor(xLeft)), 0, maxPx);
-    const int endPx = std::clamp(static_cast<int>(std::ceil(xRight)) - 1, 0, maxPx);
-    if (endPx < startPx) return;
-
-    for (int px = startPx; px <= endPx; ++px) {
-        bidPixels[static_cast<std::size_t>(px)].absorb(ticker.bidPriceE8, ticker.bidQtyE8, ticker.tsNs);
-        askPixels[static_cast<std::size_t>(px)].absorb(ticker.askPriceE8, ticker.askQtyE8, ticker.tsNs);
-    }
-}
-
 void buildBookTickerTrace(RenderSnapshot& snap,
                           const std::vector<hftrec::replay::BookTickerRow>& tickers,
                           std::int64_t renderMinTs,
@@ -439,58 +349,30 @@ void buildBookTickerTrace(RenderSnapshot& snap,
     renderMaxTs = std::min<std::int64_t>(renderMaxTs, snap.vp.tMax);
     if (renderMaxTs < renderMinTs) return;
 
-    const int widthPx = std::max(1, static_cast<int>(std::ceil(snap.vp.w)));
-    std::vector<BookTickerPixelState> bidPixels(static_cast<std::size_t>(widthPx));
-    std::vector<BookTickerPixelState> askPixels(static_cast<std::size_t>(widthPx));
-
-    const auto firstAfterStart = std::upper_bound(
+    const auto firstInRange = std::lower_bound(
         tickers.begin(),
         tickers.end(),
         renderMinTs,
-        [](std::int64_t ts, const hftrec::replay::BookTickerRow& row) noexcept {
-            return ts < row.tsNs;
+        [](const hftrec::replay::BookTickerRow& row, std::int64_t ts) noexcept {
+            return row.tsNs < ts;
         });
 
-    std::size_t index = 0;
-    if (firstAfterStart != tickers.begin()) {
-        index = static_cast<std::size_t>(std::distance(tickers.begin(), std::prev(firstAfterStart)));
-    } else {
-        index = static_cast<std::size_t>(std::distance(tickers.begin(), firstAfterStart));
-    }
+    std::size_t index = static_cast<std::size_t>(std::distance(tickers.begin(), firstInRange));
+    auto& trace = snap.bookTickerTrace;
+    trace.samples.reserve(static_cast<std::size_t>(std::distance(firstInRange, tickers.end())));
 
     while (index < tickers.size()) {
         const auto& ticker = tickers[index];
         if (ticker.tsNs > renderMaxTs) break;
-
-        const bool hasNext = (index + 1u < tickers.size());
-        const std::int64_t tsStart = std::max<std::int64_t>(renderMinTs, ticker.tsNs);
-        const std::int64_t nextTs = hasNext ? tickers[index + 1u].tsNs : renderMaxTs;
-        const std::int64_t tsEnd = std::min<std::int64_t>(renderMaxTs, nextTs);
-        absorbBookTickerInterval(bidPixels, askPixels, snap.vp, ticker, tsStart, tsEnd);
-        if (!hasNext || nextTs >= renderMaxTs) break;
-        ++index;
-    }
-
-    auto& trace = snap.bookTickerTrace;
-    trace.bidLines.reserve(static_cast<std::size_t>(widthPx) * 2u);
-    trace.askLines.reserve(static_cast<std::size_t>(widthPx) * 2u);
-    trace.samples.reserve(static_cast<std::size_t>(widthPx));
-
-    appendBookTickerSideLines(trace.bidLines, bidPixels, snap.vp);
-    appendBookTickerSideLines(trace.askLines, askPixels, snap.vp);
-
-    for (int px = 0; px < widthPx; ++px) {
-        const auto& bid = bidPixels[static_cast<std::size_t>(px)];
-        const auto& ask = askPixels[static_cast<std::size_t>(px)];
-        if (!bid.has && !ask.has) continue;
         trace.samples.push_back(BookTickerSample{
-            px,
-            std::max(bid.lastTsNs, ask.lastTsNs),
-            bid.has ? bid.lastPriceE8 : 0,
-            bid.has ? bid.lastQtyE8 : 0,
-            ask.has ? ask.lastPriceE8 : 0,
-            ask.has ? ask.lastQtyE8 : 0,
+            0,
+            ticker.tsNs,
+            ticker.bidPriceE8,
+            ticker.bidQtyE8,
+            ticker.askPriceE8,
+            ticker.askQtyE8,
         });
+        ++index;
     }
 }
 
@@ -510,28 +392,14 @@ void buildLatestBookTickerTrace(RenderSnapshot& snap,
     const auto& ticker = *std::prev(it);
     if (ticker.tsNs < snap.vp.tMin || ticker.tsNs > snap.vp.tMax) return;
 
-    const int widthPx = std::max(1, static_cast<int>(std::ceil(snap.vp.w)));
-    const int xPx = std::clamp(
-        static_cast<int>(std::round(snap.vp.toX(ticker.tsNs))),
+    snap.bookTickerTrace.samples.push_back(BookTickerSample{
         0,
-        widthPx - 1);
-    auto appendSampleLine = [&](std::int64_t priceE8, std::vector<BookTickerLine>& out) {
-        if (priceE8 <= 0 || priceE8 < snap.vp.pMin || priceE8 > snap.vp.pMax) return;
-        const qreal y = snap.vp.toY(priceE8);
-        out.push_back(BookTickerLine{static_cast<qreal>(xPx), y, static_cast<qreal>(xPx + 1), y});
-    };
-    appendSampleLine(ticker.bidPriceE8, snap.bookTickerTrace.bidLines);
-    appendSampleLine(ticker.askPriceE8, snap.bookTickerTrace.askLines);
-    if (!snap.bookTickerTrace.bidLines.empty() || !snap.bookTickerTrace.askLines.empty()) {
-        snap.bookTickerTrace.samples.push_back(BookTickerSample{
-            xPx,
-            ticker.tsNs,
-            ticker.bidPriceE8,
-            ticker.bidQtyE8,
-            ticker.askPriceE8,
-            ticker.askQtyE8,
-        });
-    }
+        ticker.tsNs,
+        ticker.bidPriceE8,
+        ticker.bidQtyE8,
+        ticker.askPriceE8,
+        ticker.askQtyE8,
+    });
 }
 
 }  // namespace
@@ -791,7 +659,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         : snap.vp.tMax;
     if ((latestOnlyWindow || limitedRenderWindow_()) && (latestTsNs <= 0 || renderMaxTs < renderMinTs)) return snap;
 
-    const auto minVisibleAmountE8 = usdToE8(in.bookRenderDetail);
+    const auto minVisibleAmountE8 = usdToE8Min0(in.bookRenderDetail);
     const auto& trades = replay_.trades();
     auto tradeBegin = trades.begin();
     auto tradeEnd = trades.end();
@@ -932,8 +800,14 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
 
     const auto& tickers = replay_.bookTickers();
     if (in.bookTickerVisible) {
-        if (latestOnlyWindow) buildLatestBookTickerTrace(snap, tickers, latestTsNs);
-        else buildBookTickerTrace(snap, tickers, renderMinTs, latestTsNs > 0 ? std::min<std::int64_t>(renderMaxTs, latestTsNs) : renderMaxTs);
+        if (latestOnlyWindow) {
+            buildLatestBookTickerTrace(snap, tickers, latestTsNs);
+        } else {
+            const std::int64_t tickerRenderMax = tickers.empty()
+                ? renderMaxTs
+                : std::min<std::int64_t>(renderMaxTs, tickers.back().tsNs);
+            buildBookTickerTrace(snap, tickers, renderMinTs, tickerRenderMax);
+        }
     }
     if (!in.orderbookVisible) return snap;
 

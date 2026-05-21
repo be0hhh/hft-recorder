@@ -244,16 +244,23 @@ void ChartController::pollLiveData_() {
 }
 
 bool ChartController::activateLiveSource(const QString& sourceId, const QString& sessionPath) {
-    if (sourceId.trimmed().isEmpty()) {
+    const QString normalizedSourceId = sourceId.trimmed();
+    if (normalizedSourceId.isEmpty()) {
         activateLiveOnlyMode();
         return false;
+    }
+    if (currentSourceKind_ == QStringLiteral("live")
+        && currentSourceId_ == normalizedSourceId
+        && sessionDir_ == sessionPath) {
+        refreshProviderFromRegistry_();
+        return true;
     }
 
     stopLiveData_();
     replay_.reset();
     loaded_ = false;
     sessionDir_ = sessionPath;
-    currentSourceId_ = sourceId.trimmed();
+    currentSourceId_ = normalizedSourceId;
     currentSourceKind_ = QStringLiteral("live");
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;

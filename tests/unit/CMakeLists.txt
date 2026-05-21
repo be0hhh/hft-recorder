@@ -37,6 +37,7 @@ if(Qt6_FOUND)
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerSelection.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/LiveDataProvider.cpp
+            ${CMAKE_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
             ${CMAKE_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp

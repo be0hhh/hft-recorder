@@ -34,13 +34,17 @@ void writeFile(const fs::path& path, const std::string& data) {
     out << data;
 }
 
-std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8, std::int64_t) {
+std::string tradeLineWithSide(std::int64_t tsNs, std::int64_t priceE8, std::int64_t qtyE8, std::int64_t side) {
     return "[" + std::to_string(priceE8)
-        + "," + std::to_string(e8(1))
-        + ",1"
+        + "," + std::to_string(qtyE8)
+        + "," + std::to_string(side)
         + "," + std::to_string(tsNs)
         + "]"
         + "\n";
+}
+
+std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8, std::int64_t) {
+    return tradeLineWithSide(tsNs, priceE8, e8(1), 1);
 }
 
 std::string bookTickerLine(std::int64_t tsNs,
@@ -150,6 +154,40 @@ TEST(ChartRenderWindow, LoadSessionOpensAtLatestWindowWhenConfigured) {
     const auto snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false});
     ASSERT_EQ(snap.tradeDots.size(), 1u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 61000000000ll);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(ChartTradeGrouping, GroupsOnlyContiguousSameTimestampPriceAndSide) {
+    ChartController chart;
+    const auto dir = makeTmpDir();
+    writeFile(dir / "trades.jsonl",
+              tradeLineWithSide(1000, e8(100), e8(1), 1)
+              + tradeLineWithSide(1000, e8(100), e8(2), 1)
+              + tradeLineWithSide(1000, e8(100), e8(4), 0)
+              + tradeLineWithSide(1000, e8(101), e8(3), 1));
+
+    ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
+    chart.setViewport(0, 2000, e8(90), e8(110));
+
+    const auto snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{});
+    ASSERT_EQ(snap.tradeDots.size(), 3u);
+    EXPECT_EQ(snap.tradeDots[0].tsNs, 1000);
+    EXPECT_EQ(snap.tradeDots[0].priceE8, e8(100));
+    EXPECT_TRUE(snap.tradeDots[0].sideBuy);
+    EXPECT_EQ(snap.tradeDots[0].groupEntries.size(), 2u);
+    EXPECT_EQ(snap.tradeDots[0].totalQtyE8, e8(3));
+
+    EXPECT_EQ(snap.tradeDots[1].priceE8, e8(100));
+    EXPECT_FALSE(snap.tradeDots[1].sideBuy);
+    EXPECT_EQ(snap.tradeDots[1].groupEntries.size(), 1u);
+
+    EXPECT_EQ(snap.tradeDots[2].priceE8, e8(101));
+    EXPECT_TRUE(snap.tradeDots[2].sideBuy);
+    EXPECT_EQ(snap.tradeDots[2].groupEntries.size(), 1u);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

@@ -23,7 +23,10 @@ inline void appendGroupedTradeDot(std::vector<TradeDot>& out, TradeDot dot) {
     dot.totalAmountE8 = entry.amountE8;
     dot.groupEntries = {entry};
 
-    if (out.empty() || out.back().tsNs != dot.tsNs) {
+    if (out.empty()
+        || out.back().tsNs != dot.tsNs
+        || out.back().priceE8 != dot.priceE8
+        || out.back().sideBuy != dot.sideBuy) {
         out.push_back(std::move(dot));
         return;
     }

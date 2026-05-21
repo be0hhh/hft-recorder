@@ -64,16 +64,21 @@ TEST(CxetCaptureBridge, RuntimeOrderBookRestoresRecorderLevelSemantics) {
 
     cxet::composite::OrderBookDeltaRuntimeV1 delta{};
     delta.ts.raw = 1'713'168'001'000'000'000ULL;
-    delta.updateId.raw = 120u;
-    delta.firstUpdateId.raw = 118u;
-    delta.bidCount.raw = 1u;
-    delta.askCount.raw = 2u;
-    delta.bids[0].px.raw = 3'000'000'000'000LL;
-    delta.bids[0].qty.raw = 0LL;
-    delta.asks[0].px.raw = 3'000'100'000'000LL;
-    delta.asks[0].qty.raw = 15'000'000LL;
-    delta.asks[1].px.raw = 3'000'200'000'000LL;
-    delta.asks[1].qty.raw = 25'000'000LL;
+    Price bidPrice{};
+    bidPrice.raw = 3'000'000'000'000LL;
+    Amount bidQty{};
+    bidQty.raw = 0LL;
+    Price askPrice0{};
+    askPrice0.raw = 3'000'100'000'000LL;
+    Amount askQty0{};
+    askQty0.raw = 15'000'000LL;
+    Price askPrice1{};
+    askPrice1.raw = 3'000'200'000'000LL;
+    Amount askQty1{};
+    askQty1.raw = 25'000'000LL;
+    ASSERT_TRUE(cxet::composite::appendOrderBookLevel(delta, bidPrice, bidQty, Side::Buy()));
+    ASSERT_TRUE(cxet::composite::appendOrderBookLevel(delta, askPrice0, askQty0, Side::Sell()));
+    ASSERT_TRUE(cxet::composite::appendOrderBookLevel(delta, askPrice1, askQty1, Side::Sell()));
 
     const auto row = hftrec::cxet_bridge::CxetCaptureBridge::captureOrderBook(delta, meta);
 

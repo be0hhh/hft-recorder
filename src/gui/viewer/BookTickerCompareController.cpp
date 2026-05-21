@@ -329,8 +329,7 @@ void BookTickerCompareController::updateFullRange_() noexcept {
 }
 
 void BookTickerCompareController::initializeViewportIfNeeded_() noexcept {
-    if (spreadPoints_.empty()) return;
-    if (viewportInitialized_ && userViewportControl_) return;
+    if (spreadPoints_.empty() || viewportInitialized_) return;
     tsMin_ = fullTsMin_;
     tsMax_ = fullTsMax_;
     viewportInitialized_ = true;

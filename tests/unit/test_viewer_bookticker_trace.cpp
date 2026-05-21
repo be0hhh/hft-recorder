@@ -9,6 +9,7 @@
 #include <QString>
 
 #include "core/storage/EventStorage.hpp"
+#include "gui/viewer/BookTickerCompareController.hpp"
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/hit_test/HoverDetection.hpp"
 
@@ -16,6 +17,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
+using hftrec::gui::viewer::BookTickerCompareController;
 using hftrec::gui::viewer::ChartController;
 using hftrec::gui::viewer::HoverInfo;
 using hftrec::gui::viewer::LiveDataRegistry;
@@ -177,6 +179,47 @@ TEST(ViewerBookTickerTrace, HoldsLastQuoteAcrossSparseUpdateGap) {
     fs::remove_all(dir, ec);
 }
 
+TEST(ViewerBookTickerCompare, RebuildPreservesManualTimeViewport) {
+    const auto dirA = makeTmpDir();
+    const auto dirB = makeTmpDir();
+    writeFile(
+        dirA / "bookticker.jsonl",
+        bookTickerLine(1000, 1, e8(10000), e8(10010))
+            + bookTickerLine(2000, 2, e8(10020), e8(10030))
+            + bookTickerLine(3000, 3, e8(10040), e8(10050)));
+    writeFile(
+        dirB / "bookticker.jsonl",
+        bookTickerLine(1000, 1, e8(10005), e8(10015))
+            + bookTickerLine(2000, 2, e8(10025), e8(10035))
+            + bookTickerLine(3000, 3, e8(10045), e8(10055)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
+    ASSERT_TRUE(compare.ready());
+
+    const auto fullMin = compare.tsMin();
+    const auto fullMax = compare.tsMax();
+    ASSERT_LT(fullMin, fullMax);
+
+    compare.panTime(0.25);
+    const auto pannedMin = compare.tsMin();
+    const auto pannedMax = compare.tsMax();
+    ASSERT_NE(pannedMin, fullMin);
+    ASSERT_NE(pannedMax, fullMax);
+
+    compare.setMeanWindowSeconds(12.0);
+    EXPECT_EQ(compare.tsMin(), pannedMin);
+    EXPECT_EQ(compare.tsMax(), pannedMax);
+
+    compare.autoFit();
+    EXPECT_EQ(compare.tsMin(), fullMin);
+    EXPECT_EQ(compare.tsMax(), fullMax);
+
+    std::error_code ec;
+    fs::remove_all(dirA, ec);
+    fs::remove_all(dirB, ec);
+}
 TEST(ViewerLiveSource, RegistrySelectionUsesInMemoryProviderForViewportCache) {
     hftrec::storage::LiveEventStore store{};
     ASSERT_EQ(store.appendTrade(tradeRow(100, 1, e8(100), e8(2))), hftrec::Status::Ok);
@@ -220,6 +263,29 @@ TEST(ViewerLiveSource, MaterializesPriorDepthForOrderbookState) {
     registry.clear();
 }
 
+TEST(ViewerLiveSource, RepeatedActivationKeepsManualViewport) {
+    hftrec::storage::LiveEventStore store{};
+    ASSERT_EQ(store.appendTrade(tradeRow(100, 1, e8(100), e8(2))), hftrec::Status::Ok);
+    StubIngress ingress(&store);
+
+    auto& registry = LiveDataRegistry::instance();
+    registry.setSources({
+        {"live:test:futures:SOLUSDT", "Test", "Futures", "SOLUSDT", "s4", {}, &ingress},
+    });
+
+    ChartController chart;
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:SOLUSDT"), QString{}));
+    chart.refreshLiveDataWindow(0, 200);
+    chart.setViewport(10, 110, e8(90), e8(120));
+
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:SOLUSDT"), QString{}));
+    EXPECT_EQ(chart.tsMin(), 10);
+    EXPECT_EQ(chart.tsMax(), 110);
+    EXPECT_EQ(chart.priceMinE8(), e8(90));
+    EXPECT_EQ(chart.priceMaxE8(), e8(120));
+
+    registry.clear();
+}
 TEST(ViewerSelection, IncludesLiveStableRowsInRectangleSummary) {
     hftrec::storage::LiveEventStore store{};
     ASSERT_EQ(store.appendTrade(tradeRow(100, 1, e8(100), e8(2))), hftrec::Status::Ok);

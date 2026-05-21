@@ -43,10 +43,10 @@ struct Ranges {
 };
 
 struct LayoutRects {
-    QRectF priceRect{};
+    QRectF primaryRect{};
     QRectF spreadRect{};
     QRectF timeRect{};
-    QRectF priceScaleRect{};
+    QRectF primaryScaleRect{};
     QRectF spreadScaleRect{};
 };
 
@@ -167,12 +167,16 @@ LayoutRects makeLayout(const QRectF& bounds) noexcept {
     const QRectF full = bounds.adjusted(kLeftMargin, kTopMargin, -12.0, -10.0);
     const qreal plotRight = full.right() - kRightScaleWidth;
     const qreal plotBottom = full.bottom() - kBottomScaleHeight;
-    const qreal priceHeight = (plotBottom - full.top()) * 0.68 - kGap * 0.5;
+    const qreal plotWidth = plotRight - full.left();
+    const qreal availableHeight = std::max<qreal>(1.0, plotBottom - full.top());
+    const qreal panelGap = std::min(kGap, availableHeight * 0.08);
+    const qreal priceHeight = std::max<qreal>(24.0, (availableHeight - panelGap) * 0.66);
     LayoutRects layout{};
-    layout.priceRect = QRectF{full.left(), full.top(), plotRight - full.left(), priceHeight};
-    layout.spreadRect = QRectF{full.left(), layout.priceRect.bottom() + kGap, plotRight - full.left(), plotBottom - layout.priceRect.bottom() - kGap};
-    layout.timeRect = QRectF{layout.priceRect.left(), plotBottom, layout.priceRect.width(), kBottomScaleHeight};
-    layout.priceScaleRect = QRectF{plotRight, layout.priceRect.top(), kRightScaleWidth, layout.priceRect.height()};
+    layout.primaryRect = QRectF{full.left(), full.top(), plotWidth, priceHeight};
+    layout.spreadRect = QRectF{full.left(), layout.primaryRect.bottom() + panelGap, plotWidth, plotBottom - layout.primaryRect.bottom() - panelGap};
+    if (layout.spreadRect.height() < 24.0) layout.spreadRect.setHeight(24.0);
+    layout.timeRect = QRectF{layout.primaryRect.left(), plotBottom, layout.primaryRect.width(), kBottomScaleHeight};
+    layout.primaryScaleRect = QRectF{plotRight, layout.primaryRect.top(), kRightScaleWidth, layout.primaryRect.height()};
     layout.spreadScaleRect = QRectF{plotRight, layout.spreadRect.top(), kRightScaleWidth, layout.spreadRect.height()};
     return layout;
 }
@@ -444,7 +448,7 @@ void drawTimeTicks(QPainter& painter, const QRectF& plotRect, const QRectF& time
 }
 
 const QRectF* rectForPoint(const QPointF& point, const LayoutRects& layout) noexcept {
-    if (layout.priceRect.contains(point)) return &layout.priceRect;
+    if (layout.primaryRect.contains(point)) return &layout.primaryRect;
     if (layout.spreadRect.contains(point)) return &layout.spreadRect;
     return nullptr;
 }
@@ -539,23 +543,23 @@ void BookTickerCompareItem::paint(QPainter* painter) {
 
     painter->setRenderHint(QPainter::Antialiasing, false);
     painter->setPen(QColor{73, 73, 79});
-    painter->drawRect(layout.priceRect);
+    painter->drawRect(layout.primaryRect);
     painter->drawRect(layout.spreadRect);
-    painter->drawRect(layout.priceScaleRect);
+    painter->drawRect(layout.primaryScaleRect);
     painter->drawRect(layout.spreadScaleRect);
 
-    drawAxisTicks(*painter, layout.priceRect, layout.priceScaleRect, ranges, true);
+    drawAxisTicks(*painter, layout.primaryRect, layout.primaryScaleRect, ranges, true);
     drawAxisTicks(*painter, layout.spreadRect, layout.spreadScaleRect, ranges, false);
-    drawTimeTicks(*painter, layout.priceRect, layout.timeRect, ranges);
+    drawTimeTicks(*painter, layout.spreadRect, layout.timeRect, ranges);
 
     QPolygonF points;
-    appendTickerStepPoints(primary, true, ranges, layout.priceRect, points);
+    appendTickerStepPoints(primary, true, ranges, layout.primaryRect, points);
     drawPolyline(*painter, points, QColor{36, 194, 203});
-    appendTickerStepPoints(primary, false, ranges, layout.priceRect, points);
+    appendTickerStepPoints(primary, false, ranges, layout.primaryRect, points);
     drawPolyline(*painter, points, QColor{218, 37, 54});
-    appendTickerStepPoints(secondary, true, ranges, layout.priceRect, points);
+    appendTickerStepPoints(secondary, true, ranges, layout.primaryRect, points);
     drawPolyline(*painter, points, QColor{76, 212, 126});
-    appendTickerStepPoints(secondary, false, ranges, layout.priceRect, points);
+    appendTickerStepPoints(secondary, false, ranges, layout.primaryRect, points);
     drawPolyline(*painter, points, QColor{179, 102, 255});
 
     drawMeanBands(*painter, means, ranges, layout.spreadRect);
@@ -563,10 +567,10 @@ void BookTickerCompareItem::paint(QPainter* painter) {
 
     painter->setFont(QFont{painter->font().family(), 9});
     painter->setPen(QColor{245, 245, 245});
-    painter->drawText(layout.priceRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("Top: A bid cyan / A ask red   B bid green / B ask purple"));
+    painter->drawText(layout.primaryRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
+                      QStringLiteral("A: bid cyan / ask red   B: bid green / ask purple"));
     painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("Basis: spread min %1   spread max %2   mean avg %3   max cost band +/- %4   max deviation %5   max edge %6")
+                      QStringLiteral("Spread: min %1   max %2   mean avg %3   max cost band +/- %4   max deviation %5   max edge %6")
                           .arg(formatBps(ranges.spreadMin), formatBps(ranges.spreadMax), formatBps(ranges.meanAvg), formatBps(ranges.costBandMax), formatBps(ranges.deviationAbsMax), formatBps(ranges.edgeAfterCostMax)));
 
     const QRectF chartBounds = boundingRect().adjusted(4, 4, -4, -4);
@@ -598,16 +602,16 @@ void BookTickerCompareItem::paint(QPainter* painter) {
             const auto startTs = tsForX(measureStart_.x(), ranges, *startRect);
             const auto endTs = tsForX(measureEnd_.x(), ranges, *startRect);
             QString label = QStringLiteral("dt %1").arg(formatDurationNs(endTs - startTs));
-            if (startRect == &layout.priceRect) {
-                const auto p0 = priceForY(measureStart_.y(), ranges, layout.priceRect);
-                const auto p1 = priceForY(measureEnd_.y(), ranges, layout.priceRect);
-                const double delta = static_cast<double>(p1 - p0) / kE8;
-                const double relBps = p0 != 0 ? (static_cast<double>(p1 - p0) / static_cast<double>(p0)) * 10000.0 : 0.0;
-                label += QStringLiteral("  dP %1  %2").arg(QString::number(delta, 'f', 6), formatBps(relBps));
-            } else {
+            if (startRect == &layout.spreadRect) {
                 const double b0 = spreadForY(measureStart_.y(), ranges, layout.spreadRect);
                 const double b1 = spreadForY(measureEnd_.y(), ranges, layout.spreadRect);
                 label += QStringLiteral("  d %1").arg(formatBps(b1 - b0));
+            } else {
+                const auto p0 = priceForY(measureStart_.y(), ranges, *startRect);
+                const auto p1 = priceForY(measureEnd_.y(), ranges, *startRect);
+                const double delta = static_cast<double>(p1 - p0) / kE8;
+                const double relBps = p0 != 0 ? (static_cast<double>(p1 - p0) / static_cast<double>(p0)) * 10000.0 : 0.0;
+                label += QStringLiteral("  dP %1  %2").arg(QString::number(delta, 'f', 6), formatBps(relBps));
             }
             drawLabel(*painter, measureEnd_, label, chartBounds);
         }

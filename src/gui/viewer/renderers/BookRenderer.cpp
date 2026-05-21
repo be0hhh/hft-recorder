@@ -27,6 +27,11 @@ std::int64_t usdToE8(qreal usd) noexcept {
     return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
 }
 
+std::int64_t usdToE8Min0(qreal usd) noexcept {
+    const qreal clamped = std::clamp<qreal>(usd, 0.0, 1000000.0);
+    return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
+}
+
 bool isVisibleLevel(const BookLevel& level,
                     const ViewportMap& vp,
                     std::int64_t minVisibleAmountE8,
@@ -92,7 +97,7 @@ void renderBook(const RenderContext& ctx) {
     if (!ctx.s.orderbookVisible) return;
 
     const auto brightnessRefE8 = usdToE8(ctx.s.bookOpacityGain);
-    const auto minVisibleAmountE8 = usdToE8(ctx.s.bookRenderDetail);
+    const auto minVisibleAmountE8 = usdToE8Min0(ctx.s.bookRenderDetail);
 
     for (const auto& seg : ctx.s.bookSegments) {
         const qreal xLeft  = std::clamp(ctx.s.vp.toX(seg.tsStartNs), 0.0, ctx.s.vp.w);

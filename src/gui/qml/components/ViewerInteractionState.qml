@@ -62,6 +62,27 @@ QtObject {
         return Math.max(1000, Math.min(1000000, value))
     }
 
+    function usdSliderToValueMin0(sliderValue) {
+        const clamped = Math.max(0.0, Math.min(1.0, sliderValue))
+        return 1000000.0 * clamped
+    }
+
+    function usdValueToSliderMin0(usdValue) {
+        const clamped = Math.max(0.0, Math.min(1000000.0, usdValue))
+        return clamped / 1000000.0
+    }
+
+    function formatUsdInputMin0(usdValue) {
+        return String(Math.round(Math.max(0, Math.min(1000000, usdValue))))
+    }
+
+    function parseUsdInputMin0(text, fallback) {
+        const value = Number(String(text).replace(/[$,\s]/g, ""))
+        if (!isFinite(value))
+            return fallback
+        return Math.max(0, Math.min(1000000, value))
+    }
+
     function selectionLeft() {
         return Math.min(state.selectionStartX, state.selectionEndX)
     }

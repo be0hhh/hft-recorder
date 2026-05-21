@@ -87,21 +87,23 @@ CapturedLiquidationRow CxetCaptureBridge::captureLiquidation(const cxet::composi
 CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot) {
     CapturedOrderBookRow row{};
     row.tsNs = static_cast<std::uint64_t>(snapshot.ts.raw);
-    row.bids.reserve(snapshot.bidCount.raw);
-    for (std::uint32_t i = 0; i < snapshot.bidCount.raw; ++i) {
-        row.bids.push_back(CapturedLevel{
-            static_cast<std::int64_t>(snapshot.bids[i].price.raw),
-            static_cast<std::int64_t>(snapshot.bids[i].amount.raw),
-            static_cast<std::int64_t>(snapshot.bids[i].side.raw)
-        });
-    }
-    row.asks.reserve(snapshot.askCount.raw);
-    for (std::uint32_t i = 0; i < snapshot.askCount.raw; ++i) {
-        row.asks.push_back(CapturedLevel{
-            static_cast<std::int64_t>(snapshot.asks[i].price.raw),
-            static_cast<std::int64_t>(snapshot.asks[i].amount.raw),
-            static_cast<std::int64_t>(snapshot.asks[i].side.raw)
-        });
+    row.bids.reserve(snapshot.levelCount.raw);
+    row.asks.reserve(snapshot.levelCount.raw);
+    for (std::uint32_t i = 0; i < snapshot.levelCount.raw; ++i) {
+        const auto& level = snapshot.levels[i];
+        if (static_cast<std::uint8_t>(level.side.raw) == 1u) {
+            row.bids.push_back(CapturedLevel{
+                static_cast<std::int64_t>(level.price.raw),
+                static_cast<std::int64_t>(level.qty.raw),
+                0
+            });
+        } else {
+            row.asks.push_back(CapturedLevel{
+                static_cast<std::int64_t>(level.price.raw),
+                static_cast<std::int64_t>(level.qty.raw),
+                1
+            });
+        }
     }
     return row;
 }
@@ -111,21 +113,23 @@ CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::
     (void)meta;
     CapturedOrderBookRow row{};
     row.tsNs = static_cast<std::uint64_t>(delta.ts.raw);
-    row.bids.reserve(delta.bidCount.raw);
-    for (std::uint32_t i = 0; i < delta.bidCount.raw; ++i) {
-        row.bids.push_back(CapturedLevel{
-            static_cast<std::int64_t>(delta.bids[i].px.raw),
-            static_cast<std::int64_t>(delta.bids[i].qty.raw),
-            0
-        });
-    }
-    row.asks.reserve(delta.askCount.raw);
-    for (std::uint32_t i = 0; i < delta.askCount.raw; ++i) {
-        row.asks.push_back(CapturedLevel{
-            static_cast<std::int64_t>(delta.asks[i].px.raw),
-            static_cast<std::int64_t>(delta.asks[i].qty.raw),
-            1
-        });
+    row.bids.reserve(delta.levelCount.raw);
+    row.asks.reserve(delta.levelCount.raw);
+    for (std::uint32_t i = 0; i < delta.levelCount.raw; ++i) {
+        const auto& level = delta.levels[i];
+        if (static_cast<std::uint8_t>(level.side.raw) == 1u) {
+            row.bids.push_back(CapturedLevel{
+                static_cast<std::int64_t>(level.price.raw),
+                static_cast<std::int64_t>(level.qty.raw),
+                0
+            });
+        } else {
+            row.asks.push_back(CapturedLevel{
+                static_cast<std::int64_t>(level.price.raw),
+                static_cast<std::int64_t>(level.qty.raw),
+                1
+            });
+        }
     }
     return row;
 }

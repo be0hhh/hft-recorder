@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -281,4 +283,49 @@ TEST(SessionReplay, ShortDepthArrayIsCorrupt) {
     fs::remove_all(dir, ec);
 }
 
+TEST(SessionReplay, NormalizesBitgetFixedDepthSnapshotsOnLoad) {
+    const auto dir = makeTmpDir();
+
+    SessionManifest manifest{};
+    manifest.sessionId = "bitget_session";
+    manifest.exchange = "bitget";
+    manifest.market = "futures_usd";
+    manifest.symbols = {"BSBUSDT"};
+    manifest.tradesEnabled = false;
+    manifest.bookTickerEnabled = false;
+    manifest.orderbookEnabled = true;
+    manifest.depthCount = 2u;
+    manifest.snapshotCount = 1u;
+    manifest.snapshotFiles = {"snapshot_000.json"};
+    writeFile(dir / "manifest.json", renderManifestJson(manifest));
+
+    writeFile(dir / "snapshot_000.json", "[[100,5,0],[110,3,1],1000]\n");
+    writeFile(dir / "depth.jsonl",
+              "[[100,5,0],[101,4,0],[110,3,1],2000]\n"
+              "[[101,7,0],[111,2,1],3000]\n");
+
+    SessionReplay replay{};
+    ASSERT_EQ(replay.open(dir), Status::Ok);
+    ASSERT_EQ(replay.depths().size(), 2u);
+
+    const auto& second = replay.depths()[1].levels;
+    const auto hasDelete = [&](std::int64_t price, std::uint8_t side) {
+        return std::find_if(second.begin(), second.end(), [&](const auto& level) {
+            return level.priceE8 == price && level.qtyE8 == 0 && level.side == side;
+        }) != second.end();
+    };
+    EXPECT_TRUE(hasDelete(100, 0));
+    EXPECT_TRUE(hasDelete(110, 1));
+
+    replay.seek(3000);
+    EXPECT_EQ(replay.book().bids().count(100), 0u);
+    EXPECT_EQ(replay.book().asks().count(110), 0u);
+    EXPECT_EQ(replay.book().bestBidPrice(), 101);
+    EXPECT_EQ(replay.book().bestBidQty(), 7);
+    EXPECT_EQ(replay.book().bestAskPrice(), 111);
+    EXPECT_EQ(replay.book().bestAskQty(), 2);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
 }  // namespace

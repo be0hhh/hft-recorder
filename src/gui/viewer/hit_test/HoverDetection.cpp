@@ -37,7 +37,7 @@ std::ptrdiff_t activeSegmentIndexAt(const RenderSnapshot& snap, qreal x) noexcep
 
 std::int64_t minVisibleAmountE8(const RenderSnapshot& snap) noexcept {
     constexpr std::int64_t kUsdScaleE8 = 100000000ll;
-    const qreal clampedUsd = std::clamp<qreal>(snap.bookRenderDetail, 1000.0, 1000000.0);
+    const qreal clampedUsd = std::clamp<qreal>(snap.bookRenderDetail, 0.0, 1000000.0);
     return static_cast<std::int64_t>(std::llround(clampedUsd * static_cast<qreal>(kUsdScaleE8)));
 }
 
@@ -81,34 +81,31 @@ void expandBookSpan(const RenderSnapshot& snap,
 
 const BookTickerSample* nearestBookTickerSample(const RenderSnapshot& snap, qreal x) noexcept {
     if (snap.bookTickerTrace.samples.empty()) return nullptr;
-    const int xPx = std::clamp(
-        static_cast<int>(std::floor(x)),
-        0,
-        std::max(0, static_cast<int>(std::ceil(snap.vp.w)) - 1));
+    const std::int64_t targetTs = timestampAtX(snap.vp, x);
     const auto& samples = snap.bookTickerTrace.samples;
     const auto it = std::lower_bound(
         samples.begin(),
         samples.end(),
-        xPx,
-        [](const BookTickerSample& sample, int targetX) noexcept {
-            return sample.xPx < targetX;
+        targetTs,
+        [](const BookTickerSample& sample, std::int64_t target) noexcept {
+            return sample.tsNs < target;
         });
 
     const BookTickerSample* best = nullptr;
-    int bestDistance = std::numeric_limits<int>::max();
+    double bestDistancePx = std::numeric_limits<double>::max();
     if (it != samples.end()) {
         best = &*it;
-        bestDistance = std::abs(it->xPx - xPx);
+        bestDistancePx = std::abs(snap.vp.toX(it->tsNs) - x);
     }
     if (it != samples.begin()) {
         const auto* prev = &*std::prev(it);
-        const int distance = std::abs(prev->xPx - xPx);
-        if (distance < bestDistance) {
+        const double distancePx = std::abs(snap.vp.toX(prev->tsNs) - x);
+        if (distancePx < bestDistancePx) {
             best = prev;
-            bestDistance = distance;
+            bestDistancePx = distancePx;
         }
     }
-    return bestDistance <= 6 ? best : nullptr;
+    return bestDistancePx <= 6.0 ? best : nullptr;
 }
 
 }  // namespace

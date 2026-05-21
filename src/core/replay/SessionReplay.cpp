@@ -1,5 +1,7 @@
 #include "core/replay/SessionReplay.hpp"
 
+#include <algorithm>
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -32,6 +34,42 @@ Status parseBookTickerCanonicalLine(std::string_view line, BookTickerRow& row) n
 
 Status parseDepthCanonicalLine(std::string_view line, DepthRow& row) noexcept {
     return parseDepthLine(line, row);
+}
+bool sameLevelKey(const PricePair& lhs, const PricePair& rhs) noexcept {
+    return lhs.priceE8 == rhs.priceE8 && lhs.side == rhs.side;
+}
+
+bool containsLevelKey(const std::vector<PricePair>& levels, const PricePair& needle) noexcept {
+    return std::find_if(levels.begin(), levels.end(), [&](const PricePair& level) noexcept {
+        return sameLevelKey(level, needle);
+    }) != levels.end();
+}
+
+bool hasDeleteLevel(const std::vector<DepthRow>& rows) noexcept {
+    for (const auto& row : rows) {
+        for (const auto& level : row.levels) {
+            if (level.qtyE8 == 0) return true;
+        }
+    }
+    return false;
+}
+
+void normalizeFixedDepthSnapshotDeltas(std::vector<DepthRow>& rows) {
+    if (hasDeleteLevel(rows)) return;
+    std::vector<PricePair> previousLevels;
+    for (auto& row : rows) {
+        std::vector<PricePair> currentLevels;
+        currentLevels.reserve(row.levels.size());
+        for (const auto& level : row.levels) {
+            if (level.qtyE8 > 0) currentLevels.push_back(level);
+        }
+        for (const auto& previous : previousLevels) {
+            if (!containsLevelKey(currentLevels, previous)) {
+                row.levels.push_back(PricePair{previous.priceE8, 0, previous.side});
+            }
+        }
+        previousLevels = std::move(currentLevels);
+    }
 }
 
 void applyLoadIssueToIntegritySummary(const hftrec::corpus::LoadIssue& issue,
@@ -400,6 +438,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
 
     if (loadReport_.manifestPresent) {
         manifestHints_.present = true;
+        manifestHints_.exchange = corpus.manifest.exchange;
         manifestHints_.tradesEnabled = corpus.manifest.tradesEnabled;
         manifestHints_.liquidationsEnabled = corpus.manifest.liquidationsEnabled;
         manifestHints_.bookTickerEnabled = corpus.manifest.bookTickerEnabled;
@@ -497,6 +536,9 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         }
         depths_.push_back(std::move(row));
     }
+    if (manifestHints_.exchange == "bitget") {
+        normalizeFixedDepthSnapshotDeltas(depths_);
+    }
 
     if (!corpus.snapshotDocuments.empty()) {
         const auto st = parseSnapshotDocument(std::string_view{corpus.snapshotDocuments.front()}, snapshot_);
@@ -570,6 +612,7 @@ bool SessionReplay::loadManifestHints_(const std::filesystem::path& sessionDir) 
     if (!isOk(capture::parseManifestJson(blob, manifest))) return false;
 
     manifestHints_.present = true;
+    manifestHints_.exchange = manifest.exchange;
     manifestHints_.tradesEnabled = manifest.tradesEnabled;
     manifestHints_.liquidationsEnabled = manifest.liquidationsEnabled;
     manifestHints_.bookTickerEnabled = manifest.bookTickerEnabled;

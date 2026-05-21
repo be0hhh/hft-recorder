@@ -306,7 +306,7 @@ Rectangle {
                 when: !tradeSizeInput.activeFocus
             }
             onEditingFinished: {
-                const pct = bar.clamp(Number(text), 0, 100)
+                const pct = bar.clamp(Number(text), 0, 100);
                 bar.appVm.tradeAmountScale = pct / 100.0
                 text = Math.round(bar.appVm.tradeAmountScale * 100)
             }
@@ -370,8 +370,8 @@ Rectangle {
             Layout.preferredWidth: bar.sliderPreferredWidth
             from: 0.0
             to: 1.0
-            value: bar.interaction.usdValueToSlider(bar.appVm.bookMinVisibleUsd)
-            onMoved: bar.appVm.bookMinVisibleUsd = bar.interaction.usdSliderToValue(value)
+            value: bar.interaction.usdValueToSliderMin0(bar.appVm.bookMinVisibleUsd)
+            onMoved: bar.appVm.bookMinVisibleUsd = bar.interaction.usdSliderToValueMin0(value)
         }
 
         TextField {
@@ -383,7 +383,7 @@ Rectangle {
             selectedTextColor: "#101012"
             font.pixelSize: 12
             horizontalAlignment: Text.AlignRight
-            validator: IntValidator { bottom: 1000; top: 1000000 }
+            validator: IntValidator { bottom: 0; top: 1000000 }
             background: Rectangle {
                 color: bar.panelColor
                 border.color: minVisibleInput.activeFocus ? bar.accentBuyColor : bar.borderColor
@@ -392,12 +392,12 @@ Rectangle {
             Binding {
                 target: minVisibleInput
                 property: "text"
-                value: bar.interaction.formatUsdInput(bar.appVm.bookMinVisibleUsd)
+                value: bar.interaction.formatUsdInputMin0(bar.appVm.bookMinVisibleUsd)
                 when: !minVisibleInput.activeFocus
             }
             onEditingFinished: {
-                bar.appVm.bookMinVisibleUsd = bar.interaction.parseUsdInput(text, bar.appVm.bookMinVisibleUsd)
-                text = bar.interaction.formatUsdInput(bar.appVm.bookMinVisibleUsd)
+                bar.appVm.bookMinVisibleUsd = bar.interaction.parseUsdInputMin0(text, bar.appVm.bookMinVisibleUsd)
+                text = bar.interaction.formatUsdInputMin0(bar.appVm.bookMinVisibleUsd)
             }
         }
 
@@ -441,7 +441,7 @@ Rectangle {
                 when: !depthWindowInput.activeFocus
             }
             onEditingFinished: {
-                const pct = bar.clamp(Number(text), 1, 25)
+                const pct = bar.clamp(Number(text), 1, 25);
                 bar.appVm.bookDepthWindowPct = pct
                 text = Math.round(bar.appVm.bookDepthWindowPct)
             }

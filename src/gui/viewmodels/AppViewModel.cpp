@@ -98,7 +98,7 @@ void AppViewModel::setBookBrightnessUsdRef(qreal value) {
 }
 
 void AppViewModel::setBookMinVisibleUsd(qreal value) {
-    value = std::clamp<qreal>(value, 1000.0, 1000000.0);
+    value = std::clamp<qreal>(value, 0.0, 1000000.0);
     if (qFuzzyCompare(bookMinVisibleUsd_ + 1.0, value + 1.0)) return;
     bookMinVisibleUsd_ = value;
     markDirty_();
@@ -153,7 +153,7 @@ void AppViewModel::loadSettings_() {
 
     tradeAmountScale_ = std::clamp<qreal>(tradeScale, 0.0, 1.0);
     bookBrightnessUsdRef_ = std::clamp<qreal>(brightnessUsd, 1000.0, 1000000.0);
-    bookMinVisibleUsd_ = std::clamp<qreal>(minVisibleUsd, 1000.0, 1000000.0);
+    bookMinVisibleUsd_ = std::clamp<qreal>(minVisibleUsd, 0.0, 1000000.0);
     bookDepthWindowPct_ = std::clamp<qreal>(depthWindowPct, 1.0, 25.0);
     liveUpdateMode_ = normalizeLiveUpdateMode(liveMode);
     renderWindowSeconds_ = clampRenderWindowSeconds(renderWindowSeconds);

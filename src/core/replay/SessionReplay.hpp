@@ -102,6 +102,7 @@ class SessionReplay {
   private:
     struct ManifestHints {
         bool present{false};
+        std::string exchange{};
         bool tradesEnabled{true};
         bool liquidationsEnabled{true};
         bool bookTickerEnabled{true};
