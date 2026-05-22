@@ -206,6 +206,27 @@ Status parseBookTickerLine(std::string_view line,
     return parseBookTickerLine(line, out);
 }
 
+Status parseCandleLine(std::string_view line, CandleRow& out) noexcept {
+    out = CandleRow{};
+    JsonParser parser{line};
+    if (!parser.parseArrayStart()) return Status::CorruptData;
+    if (!parser.parseInt64(out.tier)) return Status::CorruptData;
+    if (out.tier < 1 || out.tier > 3) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.highE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.lowE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.quoteAmountE8)) return Status::CorruptData;
+    if (out.tsNs <= 0 || out.highE8 <= 0 || out.lowE8 <= 0 || out.highE8 < out.lowE8 || out.quoteAmountE8 < 0) {
+        return Status::CorruptData;
+    }
+    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    return Status::Ok;
+}
+
 Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
     out = DepthRow{};
     JsonParser parser{line};

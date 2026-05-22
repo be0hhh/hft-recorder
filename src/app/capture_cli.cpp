@@ -15,7 +15,7 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook> [seconds] [output_dir] [exchange] [symbol]");
+    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook|candles> [seconds] [output_dir] [exchange] [symbol]");
     std::puts("  hft-recorder capture bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
@@ -25,6 +25,7 @@ void printUsage() {
     std::puts("  hft-recorder capture bookticker 10 ./recordings kucoin BTCUSDTM");
     std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT");
     std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT");
+    std::puts("  hft-recorder capture candles 1 ./recordings binance BSBUSDT");
 }
 
 capture::CaptureConfig makeDefaultConfig() {
@@ -57,6 +58,11 @@ Status startChannel(capture::CaptureCoordinator& coordinator,
     if (channel == "liquidations" || channel == "liquidation" || channel == "forceOrder") return coordinator.startLiquidations(config);
     if (channel == "bookticker") return coordinator.startBookTicker(config);
     if (channel == "orderbook") return coordinator.startOrderbook(config);
+    if (channel == "candles" || channel == "candle" || channel == "klines") {
+        const auto sessionStatus = coordinator.ensureSession(config);
+        if (!isOk(sessionStatus)) return sessionStatus;
+        return coordinator.captureCandlesOnce(config);
+    }
     return Status::InvalidArgument;
 }
 

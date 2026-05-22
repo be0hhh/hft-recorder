@@ -35,10 +35,12 @@ class ChartController : public QObject {
 
     Q_PROPERTY(bool hasTrades READ hasTrades NOTIFY sessionChanged)
     Q_PROPERTY(bool hasLiquidations READ hasLiquidations NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasCandles READ hasCandles NOTIFY sessionChanged)
     Q_PROPERTY(bool hasBookTicker READ hasBookTicker NOTIFY sessionChanged)
     Q_PROPERTY(bool hasOrderbook READ hasOrderbook NOTIFY sessionChanged)
     Q_PROPERTY(bool gpuRendererAvailable READ gpuRendererAvailable CONSTANT)
     Q_PROPERTY(int tradeCount READ tradeCount NOTIFY sessionChanged)
+    Q_PROPERTY(int candleCount READ candleCount NOTIFY sessionChanged)
     Q_PROPERTY(int depthCount READ depthCount NOTIFY sessionChanged)
     Q_PROPERTY(bool selectionActive READ selectionActive NOTIFY selectionChanged)
     Q_PROPERTY(QString selectionSummaryText READ selectionSummaryText NOTIFY selectionChanged)
@@ -76,6 +78,7 @@ class ChartController : public QObject {
             || !liveDataCache_.overlayRows.liquidations.empty()
             || !liveOverlayState_.liquidations.empty();
     }
+    bool hasCandles() const noexcept { return !replay_.candles().empty(); }
     bool hasBookTicker() const noexcept {
         return !replay_.bookTickers().empty()
             || !liveDataCache_.stableRows.bookTickers.empty()
@@ -93,6 +96,7 @@ class ChartController : public QObject {
     bool gpuRendererAvailable() const noexcept { return gpuRendererAvailable_; }
 
     int tradeCount() const { return static_cast<int>(replay_.trades().size()); }
+    int candleCount() const { return static_cast<int>(replay_.candles().size()); }
     int depthCount() const { return static_cast<int>(replay_.depths().size()); }
     bool selectionActive() const noexcept { return selectionActive_; }
     QString selectionSummaryText() const { return selectionSummaryText_; }
@@ -107,6 +111,7 @@ class ChartController : public QObject {
     Q_INVOKABLE void resetSession();
     Q_INVOKABLE bool addTradesFile(const QString& path);
     Q_INVOKABLE bool addLiquidationsFile(const QString& path);
+    Q_INVOKABLE bool addCandlesFile(const QString& path);
     Q_INVOKABLE bool addBookTickerFile(const QString& path);
     Q_INVOKABLE bool addDepthFile(const QString& path);
     Q_INVOKABLE bool addSnapshotFile(const QString& path);
@@ -180,6 +185,15 @@ class ChartController : public QObject {
         std::int64_t sellQtyE8{0};
         std::int64_t buyNotionalE8{0};
         std::int64_t sellNotionalE8{0};
+        std::int64_t candleCount{0};
+        std::int64_t candleQuoteAmountE8{0};
+        bool hasCandleLow{false};
+        std::int64_t candleLowE8{0};
+        bool hasCandleHigh{false};
+        std::int64_t candleHighE8{0};
+        std::int64_t candleM1Count{0};
+        std::int64_t candleM15Count{0};
+        std::int64_t candleD1Count{0};
         std::int64_t bookTickerCount{0};
         std::int64_t depthEventCount{0};
         std::int64_t bidLevelUpdates{0};
@@ -266,6 +280,8 @@ class ChartController : public QObject {
 };
 
 }  // namespace hftrec::gui::viewer
+
+
 
 
 

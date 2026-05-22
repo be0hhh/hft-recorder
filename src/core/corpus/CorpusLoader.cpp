@@ -380,6 +380,7 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
         {"trades.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.tradesPath), static_cast<std::uint64_t>(corpus.tradeLines.size())}},
         {"liquidations.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.liquidationsPath), static_cast<std::uint64_t>(corpus.liquidationLines.size())}},
         {"bookticker.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.bookTickerPath), static_cast<std::uint64_t>(corpus.bookTickerLines.size())}},
+        {"candles.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candlesPath), static_cast<std::uint64_t>(corpus.candleLines.size())}},
         {"depth.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.depthPath), static_cast<std::uint64_t>(corpus.depthLines.size())}},
     };
 
@@ -488,11 +489,13 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     const bool requireTrades = report.manifestPresent ? (out.manifest.tradesEnabled && out.manifest.tradesRequiredWhenEnabled) : false;
     const bool requireLiquidations = report.manifestPresent ? (out.manifest.liquidationsEnabled && out.manifest.liquidationsRequiredWhenEnabled) : false;
     const bool requireBookTicker = report.manifestPresent ? (out.manifest.bookTickerEnabled && out.manifest.bookTickerRequiredWhenEnabled) : false;
+    const bool requireCandles = report.manifestPresent ? (out.manifest.candlesEnabled && out.manifest.candlesRequiredWhenEnabled) : false;
     const bool requireDepth = report.manifestPresent ? (out.manifest.orderbookEnabled && out.manifest.orderbookRequiredWhenEnabled) : false;
 
     const auto tradesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.tradesPath, "trades.jsonl");
     const auto liquidationsPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.liquidationsPath, "liquidations.jsonl");
     const auto bookTickerPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.bookTickerPath, "bookticker.jsonl");
+    const auto candlesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.candlesPath, "candles.jsonl");
     const auto depthPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.depthPath, "depth.jsonl");
 
     if (!isOk(loadJsonLines<decltype(&parseTradeCanonicalLine), hftrec::replay::TradeRow>(
@@ -528,6 +531,18 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
                             bookTickerPath.filename().string(),
                             requireBookTicker,
                             report.bookTickerState))) {
+        out.report = report;
+        return report.finalStatus;
+    }
+    if (!isOk(loadJsonLines<decltype(&hftrec::replay::parseCandleLine), hftrec::replay::CandleRow>(
+                            candlesPath,
+                            out.candleLines,
+                            hftrec::replay::parseCandleLine,
+                            report,
+                            "candles",
+                            candlesPath.filename().string(),
+                            requireCandles,
+                            report.candlesState))) {
         out.report = report;
         return report.finalStatus;
     }

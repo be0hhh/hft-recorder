@@ -198,6 +198,30 @@ Pane {
 
                     CaptureChannelCard {
                         captureVm: root.captureVm
+                        channelKey: "candles"
+                        titleText: "Candles History"
+                        emptyText: "Tiered REST candles: M1, M15, D1."
+                        availableAliases: []
+                        requestPreview: "subscribe().object(candles).tiered(M1,M15,D1) -> jsonl/candles.jsonl"
+                        weightSummary: "Rows " + root.captureVm.candlesCount
+                        running: false
+                        actionText: "Start Candles"
+                        panelColor: root.panelColor
+                        panelAltColor: root.panelAltColor
+                        borderColor: root.borderColor
+                        textColor: root.textColor
+                        mutedTextColor: root.mutedTextColor
+                        accentRequiredColor: root.accentRequiredColor
+                        accentOptionalColor: root.accentOptionalColor
+                        accentSellColor: root.accentSellColor
+                        actionAccentColor: root.accentRequiredColor
+                        actionTextColor: "#071419"
+                        actionVisible: true
+                        onActionTriggered: root.captureVm.startCandles()
+                    }
+
+                    CaptureChannelCard {
+                        captureVm: root.captureVm
                         channelKey: "orderbook"
                         titleText: "Orderbook Request"
                         emptyText: "No orderbook aliases available."

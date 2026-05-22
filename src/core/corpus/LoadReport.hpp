@@ -68,6 +68,7 @@ struct LoadReport {
     ChannelLoadState tradesState{ChannelLoadState::NotCaptured};
     ChannelLoadState liquidationsState{ChannelLoadState::NotCaptured};
     ChannelLoadState bookTickerState{ChannelLoadState::NotCaptured};
+    ChannelLoadState candlesState{ChannelLoadState::NotCaptured};
     ChannelLoadState depthState{ChannelLoadState::NotCaptured};
     ChannelLoadState snapshotState{ChannelLoadState::NotCaptured};
     ChannelLoadState seekIndexState{ChannelLoadState::Missing};

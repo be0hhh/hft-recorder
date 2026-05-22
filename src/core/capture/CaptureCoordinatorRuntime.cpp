@@ -1,14 +1,17 @@
 #include "core/capture/CaptureCoordinator.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
 
 #include "api/run/RunByConfig.hpp"
 #include "api/run/RunByConfigFetch.hpp"
+#include "api/candles/TieredCandleHistoryFetch.hpp"
 #include "api/dispatch/BuildFromConfig.hpp"
 #include "api/connector/ExchangeProductConnector.hpp"
 #include "api/orderbook/OrderBookSnapshotFetch.hpp"
@@ -22,8 +25,14 @@
 #include "core/local_exchange/LocalMarketDataBus.hpp"
 #include "core/local_exchange/LocalOrderEngine.hpp"
 #include "core/metrics/Metrics.hpp"
+#include "primitives/buf/TimeframeBuf.hpp"
 #include "primitives/composite/OrderBookDeltaRuntimeV1.hpp"
+#include "primitives/composite/TieredCandleHistory.hpp"
+#include "primitives/composite/Ohlcv.hpp"
+#include "primitives/composite/StreamSoABuffer.hpp"
 #include "primitives/composite/StreamMeta.hpp"
+#include "network/rest/FetchRestKeepAlive.hpp"
+#include "network/rest/RestKeepAlivePolicy.hpp"
 
 #include "metrics/MetricsControl.hpp"
 #include "metrics/Probes.hpp"
@@ -273,6 +282,301 @@ bool shouldFetchInitialOrderbookSnapshot(const CaptureConfig& config) noexcept {
     return !textEqualsAscii(config.exchange, "bitget");
 }
 
+constexpr std::uint64_t kRecorderCandlePageCount = 200u;
+
+struct CandleFetchDiagnostics {
+    std::string exchange;
+    std::string symbol;
+    std::string timeframe;
+    std::string stage;
+    std::string host;
+    std::string path;
+    int httpStatus{0};
+    std::size_t responseBytes{0};
+};
+
+std::string candleFetchDiagnosticsText(const CandleFetchDiagnostics& diagnostics) {
+    std::ostringstream out;
+    out << "stage=" << (diagnostics.stage.empty() ? "unknown" : diagnostics.stage);
+    if (!diagnostics.exchange.empty()) out << " exchange=" << diagnostics.exchange;
+    if (!diagnostics.symbol.empty()) out << " symbol=" << diagnostics.symbol;
+    if (!diagnostics.timeframe.empty()) out << " tf=" << diagnostics.timeframe;
+    if (!diagnostics.host.empty()) out << " host=" << diagnostics.host;
+    if (!diagnostics.path.empty()) out << " path=" << diagnostics.path;
+    out << " http=" << diagnostics.httpStatus;
+    out << " bytes=" << diagnostics.responseBytes;
+    return out.str();
+}
+
+const char* exchangeNameForDiagnostics(ExchangeId exchange) noexcept {
+    if (exchange.raw == canon::kExchangeIdBinance.raw) return "binance";
+    if (exchange.raw == canon::kExchangeIdKucoin.raw) return "kucoin";
+    if (exchange.raw == canon::kExchangeIdGate.raw) return "gate";
+    if (exchange.raw == canon::kExchangeIdBitget.raw) return "bitget";
+    return "unknown";
+}
+
+void setCandleTimeframe(TimeframeBuf& out, const char* value) noexcept {
+    out.copyFrom(value);
+}
+
+bool candleLessByTs(const cxet::composite::Ohlcv& lhs, const cxet::composite::Ohlcv& rhs) noexcept {
+    return lhs.ts.raw < rhs.ts.raw;
+}
+
+std::uint64_t previousCandleNs(std::uint64_t ts) noexcept {
+    return ts > 0u ? (ts - 1u) : 0u;
+}
+
+std::uint64_t currentUtcNs() noexcept {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(now).count());
+}
+
+const char* candleTierStatusName(cxet::composite::CandleHistoryTierStatus status) noexcept {
+    switch (status) {
+        case cxet::composite::CandleHistoryTierStatus::Ok: return "Ok";
+        case cxet::composite::CandleHistoryTierStatus::NotRequested: return "NotRequested";
+        case cxet::composite::CandleHistoryTierStatus::BadConfig: return "BadConfig";
+        case cxet::composite::CandleHistoryTierStatus::FetchFailed: return "FetchFailed";
+        case cxet::composite::CandleHistoryTierStatus::ParseFailed: return "ParseFailed";
+        case cxet::composite::CandleHistoryTierStatus::Empty: return "Empty";
+    }
+    return "Unknown";
+}
+
+std::size_t copyRecentCandles(const cxet::composite::Ohlcv* in,
+                              std::size_t inCount,
+                              std::uint64_t endNs,
+                              cxet::composite::CandleLite* out) noexcept {
+    std::array<cxet::composite::Ohlcv, cxet::composite::kTieredCandleHistoryCapacity> sorted{};
+    std::size_t filtered = 0u;
+    for (std::size_t i = 0u; i < inCount && filtered < sorted.size(); ++i) {
+        if (in[i].ts.raw == 0u) continue;
+        if (endNs != 0u && in[i].ts.raw > endNs) continue;
+        sorted[filtered++] = in[i];
+    }
+    std::sort(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(filtered), candleLessByTs);
+
+    std::size_t outCount = 0u;
+    for (std::size_t i = 0u; i < filtered; ++i) {
+        out[outCount].ts = sorted[i].ts;
+        out[outCount].high = sorted[i].high;
+        out[outCount].low = sorted[i].low;
+        out[outCount].quoteAmount = sorted[i].quoteAmount;
+        ++outCount;
+    }
+    return outCount;
+}
+
+bool runGetKlinesWithoutTradingSync(cxet::UnifiedRequestBuilder& builder,
+                                    MessageBuffer& requestBuf,
+                                    MessageBuffer& recvBuf,
+                                    cxet::composite::Ohlcv* out,
+                                    std::size_t outCapacity,
+                                    std::size_t* outCount,
+                                    CandleFetchDiagnostics* diagnostics) noexcept {
+    if (!out || !outCount || outCapacity == 0u) return false;
+    *outCount = 0u;
+    const auto* config = cxet::api::findObjectConfig(static_cast<std::uint8_t>(builder.operation()),
+                                                     builder.objectRaw(),
+                                                     builder.exchange().raw,
+                                                     builder.market().raw,
+                                                     builder.typeRaw(),
+                                                     builder.subtypeRaw());
+    if (diagnostics) {
+        diagnostics->exchange = exchangeNameForDiagnostics(builder.exchange());
+        diagnostics->symbol = builder.symbolCount() > 0u ? builder.symbol(0).data : "";
+        diagnostics->stage.clear();
+        diagnostics->host.clear();
+        diagnostics->path.clear();
+        diagnostics->httpStatus = 0;
+        diagnostics->responseBytes = 0u;
+    }
+    if (!config || builder.operation() != cxet::UnifiedRequestBuilder::Operation::Get || !config->parseKlinesFn) {
+        if (diagnostics) diagnostics->stage = "route";
+        return false;
+    }
+    if (!cxet::api::buildFromConfig(builder, *config, requestBuf)) {
+        if (diagnostics) diagnostics->stage = "build";
+        return false;
+    }
+    if (diagnostics) {
+        diagnostics->host = config->rest.host ? config->rest.host : "";
+        diagnostics->path.assign(requestBuf.data(), requestBuf.size());
+    }
+    cxet::primitives::network::RestKeepAlivePolicy policy{};
+    policy.reuse = true;
+    int httpStatus = 0;
+    const bool fetched = (config->restHeaderName && config->restHeaderValue)
+        ? cxet::network::rest::fetchRestKeepAlive(config->rest.host,
+                                                  static_cast<std::uint16_t>(config->rest.port),
+                                                  requestBuf,
+                                                  recvBuf,
+                                                  policy,
+                                                  config->restHeaderName,
+                                                  config->restHeaderValue,
+                                                  &httpStatus)
+        : cxet::network::rest::fetchRestKeepAlive(config->rest.host,
+                                                  static_cast<std::uint16_t>(config->rest.port),
+                                                  requestBuf,
+                                                  recvBuf,
+                                                  policy,
+                                                  &httpStatus);
+    if (diagnostics) {
+        diagnostics->httpStatus = httpStatus;
+        diagnostics->responseBytes = recvBuf.size();
+    }
+    if (!fetched) {
+        if (diagnostics) diagnostics->stage = "fetch";
+        return false;
+    }
+
+    cxet::composite::StreamSoABuffer stream;
+    if (!stream.reserve(outCapacity)) return false;
+    stream.meta.exchangeId.raw = config->exchangeRaw;
+    stream.meta.objectType = cxet::composite::StreamObjectType::Ohlcv;
+    stream.meta.market.raw = config->marketRaw;
+    if (builder.symbolCount() > 0u) stream.meta.symbol = builder.symbol(0);
+
+    const bool parsed = config->parseKlinesFn(recvBuf, stream, 0u, outCount, builder.requestedFields());
+    if (!parsed) {
+        if (diagnostics) diagnostics->stage = "parse";
+        stream.freeAll();
+        return false;
+    }
+
+    for (std::size_t i = 0u; i < *outCount && i < outCapacity; ++i) {
+        out[i].exchangeId = stream.meta.exchangeId;
+        out[i].symbol = stream.meta.symbol;
+        out[i].open.raw = stream.col_open.data[i];
+        out[i].high.raw = stream.col_high.data[i];
+        out[i].low.raw = stream.col_low.data[i];
+        out[i].close.raw = stream.col_close.data[i];
+        out[i].amount.raw = stream.col_ohlcvAmount.data[i];
+        out[i].quoteAmount.raw = stream.col_ohlcvQuoteAmount.data[i];
+        out[i].ts.raw = stream.col_ohlcvTs.data[i];
+        out[i].closeTs.raw = stream.col_closeTs.data[i];
+        out[i].tradesCount.raw = stream.col_tradesCount.data[i];
+        out[i].takerBuyBaseAmount.raw = stream.col_takerBuyBaseAmount.data[i];
+        out[i].takerBuyQuoteAmount.raw = stream.col_takerBuyQuoteAmount.data[i];
+    }
+
+    stream.freeAll();
+    if (*outCount == 0u) {
+        if (diagnostics) diagnostics->stage = "empty";
+        return false;
+    }
+    return true;
+}
+
+cxet::composite::CandleHistoryTierStatus fetchCandleTierWithoutTradingSync(ExchangeId exchange,
+                                                                            canon::MarketType market,
+                                                                            const Symbol& symbol,
+                                                                            const char* timeframe,
+                                                                            std::uint64_t endNs,
+                                                                            cxet::composite::CandleLite* out,
+                                                                            CountVal& outCount,
+                                                                            MessageBuffer& requestBuf,
+                                                                            MessageBuffer& recvBuf,
+                                                                            std::uint8_t apiSlot,
+                                                                            CandleFetchDiagnostics* diagnostics) noexcept {
+    outCount.raw = 0u;
+    std::array<cxet::composite::Ohlcv, cxet::composite::kTieredCandleHistoryCapacity> collected{};
+    std::size_t collectedCount = 0u;
+    std::uint64_t cursorEndNs = endNs;
+
+    while (collectedCount < collected.size()) {
+        bool pageOk = false;
+        for (std::uint32_t attempt = 0u; attempt < 3u && !pageOk; ++attempt) {
+            cxet::UnifiedRequestBuilder builder;
+            builder.get();
+            TimeframeBuf tf{};
+            setCandleTimeframe(tf, timeframe);
+            if (diagnostics) diagnostics->timeframe = timeframe ? timeframe : "";
+            CountVal limit{};
+            limit.raw = static_cast<std::uint32_t>(kRecorderCandlePageCount);
+            builder.object(cxet::composite::out::GetObject::Klines)
+                .exchange(exchange)
+                .market(market)
+                .symbol(symbol)
+                .timeframe(tf)
+                .limit(limit)
+                .api(apiSlot);
+            if (cursorEndNs != 0u) {
+                TimeNs end{};
+                end.raw = cursorEndNs;
+                builder.endTime(end);
+            }
+
+            std::array<cxet::composite::Ohlcv, kRecorderCandlePageCount> raw{};
+            std::size_t rawCount = 0u;
+            if (!runGetKlinesWithoutTradingSync(builder, requestBuf, recvBuf, raw.data(), raw.size(), &rawCount, diagnostics)) continue;
+            std::sort(raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>(rawCount), candleLessByTs);
+
+            std::size_t eligibleBegin = 0u;
+            while (eligibleBegin < rawCount && raw[eligibleBegin].ts.raw == 0u) ++eligibleBegin;
+            std::size_t eligibleEnd = eligibleBegin;
+            while (eligibleEnd < rawCount && (cursorEndNs == 0u || raw[eligibleEnd].ts.raw <= cursorEndNs)) ++eligibleEnd;
+
+            const std::size_t remaining = collected.size() - collectedCount;
+            const std::size_t eligibleCount = eligibleEnd - eligibleBegin;
+            const std::size_t copyBegin = eligibleCount > remaining ? (eligibleEnd - remaining) : eligibleBegin;
+
+            std::size_t pageCopied = 0u;
+            std::uint64_t pageOldest = 0u;
+            for (std::size_t i = copyBegin; i < eligibleEnd && collectedCount < collected.size(); ++i) {
+                if (raw[i].ts.raw == 0u) continue;
+                if (pageOldest == 0u || raw[i].ts.raw < pageOldest) pageOldest = raw[i].ts.raw;
+                collected[collectedCount++] = raw[i];
+                ++pageCopied;
+            }
+            if (pageCopied == 0u || pageOldest == 0u) continue;
+            cursorEndNs = previousCandleNs(pageOldest);
+            pageOk = true;
+        }
+        if (!pageOk) break;
+    }
+
+    const std::size_t copied = copyRecentCandles(collected.data(), collectedCount, endNs, out);
+    if (copied == 0u) return cxet::composite::CandleHistoryTierStatus::FetchFailed;
+    outCount.raw = static_cast<std::uint32_t>(copied);
+    return cxet::composite::CandleHistoryTierStatus::Ok;
+}
+
+std::uint64_t oldestCandleTs(const cxet::composite::CandleLite* candles, CountVal count) noexcept {
+    return count.raw == 0u ? 0u : candles[0].ts.raw;
+}
+
+bool fetchTieredCandlesWithoutTradingSync(ExchangeId exchange,
+                                          canon::MarketType market,
+                                          const Symbol& symbol,
+                                          cxet::composite::TieredCandleHistory& out,
+                                          MessageBuffer& requestBuf,
+                                          MessageBuffer& recvBuf,
+                                          std::uint8_t apiSlot,
+                                          CandleFetchDiagnostics* diagnostics) noexcept {
+    out = cxet::composite::TieredCandleHistory{};
+    out.m1Status = fetchCandleTierWithoutTradingSync(exchange, market, symbol, "1m", currentUtcNs(), out.m1, out.m1Count, requestBuf, recvBuf, apiSlot, diagnostics);
+    if (out.m1Status != cxet::composite::CandleHistoryTierStatus::Ok) return false;
+
+    const std::uint64_t m15End = previousCandleNs(oldestCandleTs(out.m1, out.m1Count));
+    out.m15Status = fetchCandleTierWithoutTradingSync(exchange, market, symbol, "15m", m15End, out.m15, out.m15Count, requestBuf, recvBuf, apiSlot, diagnostics);
+    if (out.m15Status == cxet::composite::CandleHistoryTierStatus::Ok) {
+        const std::uint64_t d1End = previousCandleNs(oldestCandleTs(out.m15, out.m15Count));
+        out.d1Status = fetchCandleTierWithoutTradingSync(exchange, market, symbol, "1d", d1End, out.d1, out.d1Count, requestBuf, recvBuf, apiSlot, diagnostics);
+    }
+    return out.m1Status == cxet::composite::CandleHistoryTierStatus::Ok ||
+           out.m15Status == cxet::composite::CandleHistoryTierStatus::Ok ||
+           out.d1Status == cxet::composite::CandleHistoryTierStatus::Ok;
+}
+
+std::string candleHistoryStatusText(const cxet::composite::TieredCandleHistory& history) {
+    return "m1=" + std::string(candleTierStatusName(history.m1Status)) + " count=" + std::to_string(history.m1Count.raw) +
+           ", m15=" + std::string(candleTierStatusName(history.m15Status)) + " count=" + std::to_string(history.m15Count.raw) +
+           ", d1=" + std::string(candleTierStatusName(history.d1Status)) + " count=" + std::to_string(history.d1Count.raw);
+}
+
 bool fetchInitialOrderbookSnapshot(const CaptureConfig& config,
                                    cxet::composite::OrderBookSnapshot& snapshot) noexcept {
     Symbol symbol{};
@@ -307,6 +611,79 @@ bool fetchInitialOrderbookSnapshot(const CaptureConfig& config,
 }
 
 }  // namespace
+
+
+Status CaptureCoordinator::captureCandlesOnce(const CaptureConfig& config) noexcept {
+    if (config.symbols.empty() || sessionDir_.empty()) return Status::InvalidArgument;
+    if (candlesCount_.load(std::memory_order_acquire) != 0u) return Status::Ok;
+
+    Symbol symbol{};
+    symbol.copyFrom(config.symbols.front().c_str());
+    if (symbol.data[0] == '\0') return Status::InvalidArgument;
+
+    cxet::composite::TieredCandleHistory history{};
+    CandleFetchDiagnostics candleDiagnostics{};
+    MessageBuffer requestBuf{};
+    MessageBuffer recvBuf{};
+    const bool fetched = fetchTieredCandlesWithoutTradingSync(
+        exchangeIdFromConfig(config.exchange),
+        marketTypeFromConfig(config.market),
+        symbol,
+        history,
+        requestBuf,
+        recvBuf,
+        1u,
+        &candleDiagnostics);
+    if (!fetched) {
+        lastError_ = "candles: REST history fetch failed (" + candleHistoryStatusText(history) + "; "
+                   + candleFetchDiagnosticsText(candleDiagnostics) + ")";
+        return Status::Unknown;
+    }
+
+    if (!isOk(candlesWriter_.open(ChannelKind::Candles, sessionDir_))) {
+        if (lastError_.empty()) lastError_ = "candles: failed to create candles.jsonl";
+        return Status::IoError;
+    }
+
+    auto appendTier = [&](std::int64_t tier,
+                          const cxet::composite::CandleLite* rows,
+                          std::uint32_t count) noexcept -> Status {
+        for (std::uint32_t i = 0u; i < count && i < cxet::composite::kTieredCandleHistoryCapacity; ++i) {
+            const auto& candle = rows[i];
+            replay::CandleRow row{};
+            row.tier = tier;
+            row.tsNs = static_cast<std::int64_t>(candle.ts.raw);
+            row.highE8 = static_cast<std::int64_t>(candle.high.raw);
+            row.lowE8 = static_cast<std::int64_t>(candle.low.raw);
+            row.quoteAmountE8 = static_cast<std::int64_t>(candle.quoteAmount.raw);
+            if (row.tsNs <= 0 || row.highE8 <= 0 || row.lowE8 <= 0 || row.highE8 < row.lowE8) continue;
+            const auto line = renderCandleJsonLine(row);
+            const auto writeStatus = candlesWriter_.writeLine(line);
+            if (!isOk(writeStatus)) return writeStatus;
+            candlesCount_.fetch_add(1, std::memory_order_acq_rel);
+        }
+        return Status::Ok;
+    };
+
+    Status status = Status::Ok;
+    if (isOk(status)) status = appendTier(1, history.m1, history.m1Count.raw);
+    if (isOk(status)) status = appendTier(2, history.m15, history.m15Count.raw);
+    if (isOk(status)) status = appendTier(3, history.d1, history.d1Count.raw);
+    if (!isOk(status)) {
+        if (lastError_.empty()) lastError_ = "candles: failed to write candles.jsonl";
+        return status;
+    }
+
+    if (candlesCount_.load(std::memory_order_acquire) != 0u) {
+        if (lastError_.starts_with("candles:")) lastError_.clear();
+        manifest_.candlesEnabled = true;
+        if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.candlesPath)
+            == manifest_.canonicalArtifacts.end()) {
+            manifest_.canonicalArtifacts.push_back(manifest_.candlesPath);
+        }
+    }
+    return Status::Ok;
+}
 
 Status CaptureCoordinator::startManagedMarketData_(const CaptureConfig& config, ManagedStreamKind stream) noexcept {
     const auto sessionStatus = ensureSession(config);
@@ -1082,3 +1459,5 @@ Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSna
 }
 
 }  // namespace hftrec::capture
+
+

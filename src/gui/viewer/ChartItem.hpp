@@ -37,6 +37,7 @@ class ChartItem : public QQuickPaintedItem {
                    READ controller WRITE setController NOTIFY controllerChanged)
     Q_PROPERTY(bool tradesVisible READ tradesVisible WRITE setTradesVisible NOTIFY tradesVisibleChanged)
     Q_PROPERTY(bool liquidationsVisible READ liquidationsVisible WRITE setLiquidationsVisible NOTIFY liquidationsVisibleChanged)
+    Q_PROPERTY(bool candlesVisible READ candlesVisible WRITE setCandlesVisible NOTIFY candlesVisibleChanged)
     Q_PROPERTY(bool orderbookVisible READ orderbookVisible WRITE setOrderbookVisible NOTIFY orderbookVisibleChanged)
     Q_PROPERTY(bool bookTickerVisible READ bookTickerVisible WRITE setBookTickerVisible NOTIFY bookTickerVisibleChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
@@ -56,6 +57,8 @@ class ChartItem : public QQuickPaintedItem {
     void setTradesVisible(bool value);
     bool liquidationsVisible() const noexcept { return liquidationsVisible_; }
     void setLiquidationsVisible(bool value);
+    bool candlesVisible() const noexcept { return candlesVisible_; }
+    void setCandlesVisible(bool value);
     bool orderbookVisible() const noexcept { return orderbookVisible_; }
     void setOrderbookVisible(bool value);
     bool bookTickerVisible() const noexcept { return bookTickerVisible_; }
@@ -82,6 +85,7 @@ class ChartItem : public QQuickPaintedItem {
     void controllerChanged();
     void tradesVisibleChanged();
     void liquidationsVisibleChanged();
+    void candlesVisibleChanged();
     void orderbookVisibleChanged();
     void bookTickerVisibleChanged();
     void tradeAmountScaleChanged();
@@ -139,6 +143,7 @@ class ChartItem : public QQuickPaintedItem {
     std::int64_t hoveredBookTsEndNs_{0};
     bool tradesVisible_{true};
     bool liquidationsVisible_{true};
+    bool candlesVisible_{false};
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};
     qreal tradeAmountScale_{0.45};
@@ -175,3 +180,5 @@ class ChartItem : public QQuickPaintedItem {
 };
 
 }  // namespace hftrec::gui::viewer
+
+

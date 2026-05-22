@@ -23,6 +23,7 @@ struct CaptureBatchSnapshot {
     qulonglong tradesCount{0};
     qulonglong liquidationsCount{0};
     qulonglong bookTickerCount{0};
+    qulonglong candlesCount{0};
     qulonglong depthCount{0};
 };
 

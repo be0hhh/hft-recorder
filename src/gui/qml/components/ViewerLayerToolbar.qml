@@ -10,6 +10,7 @@ Rectangle {
     required property var interaction
     required property bool showTradesLayer
     required property bool showLiquidationsLayer
+    required property bool showCandlesLayer
     required property bool showOrderbookLayer
     required property bool showBookTickerLayer
     required property bool effectiveBookTickerLayer
@@ -23,6 +24,7 @@ Rectangle {
 
     signal toggleTrades()
     signal toggleLiquidations()
+    signal toggleCandles()
     signal toggleOrderbook()
     signal toggleBookTicker()
 
@@ -88,6 +90,17 @@ Rectangle {
             onClicked: bar.toggleLiquidations()
         }
 
+        ViewerChannelButton {
+            text: "Candles"
+            active: bar.showCandlesLayer
+            panelColor: bar.panelColor
+            panelAltColor: bar.panelAltColor
+            borderColor: bar.borderColor
+            textColor: bar.textColor
+            mutedTextColor: bar.mutedTextColor
+            accentBuyColor: bar.accentBuyColor
+            onClicked: bar.toggleCandles()
+        }
         ViewerChannelButton {
             text: "Orderbook"
             active: bar.showOrderbookLayer
@@ -450,3 +463,7 @@ Rectangle {
         Label { text: "%"; color: bar.mutedTextColor; font.pixelSize: 12 }
 }
 }
+
+
+
+

@@ -61,6 +61,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status requestStopOrderbook() noexcept;
     Status stopOrderbook() noexcept;
     Status finalizeSession() noexcept;
+    Status captureCandlesOnce(const CaptureConfig& config) noexcept;
     void reapStoppedThreads() noexcept;
 
     const SessionManifest& manifest() const noexcept { return manifest_; }
@@ -75,6 +76,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::uint64_t liquidationsCount() const noexcept { return liquidationsCount_.load(std::memory_order_relaxed); }
     std::uint64_t bookTickerCount() const noexcept { return bookTickerCount_.load(std::memory_order_relaxed); }
     std::uint64_t depthCount() const noexcept { return depthCount_.load(std::memory_order_relaxed); }
+    std::uint64_t candlesCount() const noexcept { return candlesCount_.load(std::memory_order_relaxed); }
     std::string lastError() const;
     storage::EventBatch liveEventsCopy() const;
     const storage::IEventSource* liveEventSource() const noexcept { return &liveStore_; }
@@ -106,6 +108,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     ChannelJsonWriter tradesWriter_{};
     ChannelJsonWriter liquidationsWriter_{};
     ChannelJsonWriter bookTickerWriter_{};
+    ChannelJsonWriter candlesWriter_{};
     ChannelJsonWriter depthWriter_{};
     storage::LiveEventStore liveStore_{};
     storage::JsonSessionSink jsonSink_{};
@@ -123,6 +126,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::atomic<std::uint64_t> liquidationsCount_{0};
     std::atomic<std::uint64_t> bookTickerCount_{0};
     std::atomic<std::uint64_t> depthCount_{0};
+    std::atomic<std::uint64_t> candlesCount_{0};
     std::atomic<std::uint64_t> snapshotCount_{0};
     std::atomic<std::uint64_t> tradesCaptureSeq_{0};
     std::atomic<std::uint64_t> liquidationsCaptureSeq_{0};

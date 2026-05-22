@@ -190,10 +190,31 @@ bool ChartController::measureTradeHighLowRect(qreal plotWidthPx,
         outerRange.timeEndNs,
         absorbTrade);
 
+    for (const auto& candle : replay_.candles()) {
+        if (candle.tsNs < outerRange.timeStartNs) continue;
+        if (candle.tsNs > outerRange.timeEndNs) break;
+        if (candle.highE8 < outerRange.priceMinE8 || candle.lowE8 > outerRange.priceMaxE8) continue;
+        if (!found) {
+            found = true;
+            highPriceE8 = candle.highE8;
+            lowPriceE8 = candle.lowE8;
+            highTsNs = lowTsNs = candle.tsNs;
+            continue;
+        }
+        if (candle.highE8 > highPriceE8) {
+            highPriceE8 = candle.highE8;
+            highTsNs = candle.tsNs;
+        }
+        if (candle.lowE8 < lowPriceE8) {
+            lowPriceE8 = candle.lowE8;
+            lowTsNs = candle.tsNs;
+        }
+    }
+
     if (!found) {
         selectionSummaryText_ = QStringList{
-            QStringLiteral("High/Low Trade Range"),
-            QStringLiteral("No trades in range"),
+            QStringLiteral("High/Low Market Range"),
+            QStringLiteral("No trades or candles in range"),
         }.join(QLatin1Char('\n'));
         selectionActive_ = true;
         emit selectionChanged();
@@ -211,7 +232,7 @@ bool ChartController::measureTradeHighLowRect(qreal plotWidthPx,
 
     const auto summary = buildSelectionSummary_(range);
     QStringList lines;
-    lines << QStringLiteral("High/Low Trade Range");
+    lines << QStringLiteral("High/Low Market Range");
     lines << QStringLiteral("High  %1 @ %2")
                  .arg(detail::formatTrimmedE8(highPriceE8))
                  .arg(formatShortTimeNs(highTsNs));
@@ -250,6 +271,16 @@ bool ChartController::measureTradeHighLowRect(qreal plotWidthPx,
                                 highTsNs <= lowTsNs ? highPriceE8 : lowPriceE8,
                                 highTsNs <= lowTsNs ? lowPriceE8 : highPriceE8))
                           : QStringLiteral("n/a"));
+    if (summary.candleCount > 0) {
+        lines << QString{};
+        lines << QStringLiteral("Candles");
+        lines << QStringLiteral("Count  %1 | M1 %2 M15 %3 D1 %4")
+                     .arg(summary.candleCount)
+                     .arg(summary.candleM1Count)
+                     .arg(summary.candleM15Count)
+                     .arg(summary.candleD1Count);
+        lines << QStringLiteral("Quote  $%1").arg(detail::formatTrimmedE8(summary.candleQuoteAmountE8));
+    }
     selectionSummaryText_ = lines.join(QLatin1Char('\n'));
     selectionActive_ = true;
     emit selectionChanged();
@@ -313,6 +344,7 @@ ChartController::SelectionRange ChartController::selectionFromRect_(qreal plotWi
                                                                     qreal y1) const noexcept {
     SelectionRange range{};
     const bool hasSelectableRows = loaded_
+        || !replay_.candles().empty()
         || !liveDataCache_.stableRows.trades.empty()
         || !liveDataCache_.stableRows.bookTickers.empty()
         || !liveDataCache_.stableRows.depths.empty()
@@ -404,6 +436,25 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
     if (firstTradeCaptured && summary.tradeCount >= 2 && firstTradePriceE8 > 0) {
         summary.hasMovePct = true;
         summary.movePctE8 = percentScaledE8(firstTradePriceE8, lastTradePriceE8);
+    }
+
+    for (const auto& candle : replay_.candles()) {
+        if (candle.tsNs < range.timeStartNs) continue;
+        if (candle.tsNs > range.timeEndNs) break;
+        if (candle.highE8 < range.priceMinE8 || candle.lowE8 > range.priceMaxE8) continue;
+        ++summary.candleCount;
+        summary.candleQuoteAmountE8 += candle.quoteAmountE8;
+        if (candle.tier == 1) ++summary.candleM1Count;
+        else if (candle.tier == 2) ++summary.candleM15Count;
+        else if (candle.tier == 3) ++summary.candleD1Count;
+        if (!summary.hasCandleLow || candle.lowE8 < summary.candleLowE8) {
+            summary.hasCandleLow = true;
+            summary.candleLowE8 = candle.lowE8;
+        }
+        if (!summary.hasCandleHigh || candle.highE8 > summary.candleHighE8) {
+            summary.hasCandleHigh = true;
+            summary.candleHighE8 = candle.highE8;
+        }
     }
 
     for (const auto& ticker : replay_.bookTickers()) {
@@ -589,6 +640,21 @@ QString ChartController::formatSelectionSummary_(const SelectionRange& range,
                  .arg(detail::formatTrimmedE8(usdDeltaE8));
     lines << QStringLiteral("Move   %1")
                  .arg(summary.hasMovePct ? formatPctE8(summary.movePctE8) : QStringLiteral("n/a"));
+    if (summary.candleCount > 0) {
+        lines << QString{};
+        lines << QStringLiteral("Candles");
+        lines << QStringLiteral("Count  %1 | M1 %2 M15 %3 D1 %4")
+                     .arg(summary.candleCount)
+                     .arg(summary.candleM1Count)
+                     .arg(summary.candleM15Count)
+                     .arg(summary.candleD1Count);
+        lines << QStringLiteral("Quote  $%1").arg(detail::formatTrimmedE8(summary.candleQuoteAmountE8));
+        if (summary.hasCandleLow && summary.hasCandleHigh) {
+            lines << QStringLiteral("Range  %1 .. %2")
+                         .arg(detail::formatTrimmedE8(summary.candleLowE8))
+                         .arg(detail::formatTrimmedE8(summary.candleHighE8));
+        }
+    }
     return lines.join(QLatin1Char('\n'));
 }
 

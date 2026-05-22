@@ -159,6 +159,7 @@ void SessionReplay::reset() noexcept {
     trades_.clear();
     liquidations_.clear();
     bookTickers_.clear();
+    candles_.clear();
     depths_.clear();
     events_.clear();
     buckets_.clear();
@@ -288,6 +289,30 @@ Status SessionReplay::addBookTickerFile(const std::filesystem::path& path) noexc
         });
     }
     return st;
+}
+
+Status SessionReplay::addCandlesFile(const std::filesystem::path& path) noexcept {
+    if (path.empty()) {
+        errorDetail_ = "candles path is empty";
+        ++parseFailureCount_;
+        metrics::recordReplayParseFailure("candles");
+        return Status::InvalidArgument;
+    }
+
+    std::size_t lineNumber = 0;
+    const auto st = loadJsonl<CandleRow>(path, candles_, errorDetail_, parseCandleLine, lineNumber);
+    if (!isOk(st)) {
+        ++parseFailureCount_;
+        metrics::recordReplayParseFailure("candles");
+        status_ = st;
+        return st;
+    }
+    std::stable_sort(candles_.begin(), candles_.end(), [](const CandleRow& lhs, const CandleRow& rhs) noexcept {
+        if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
+        return lhs.tier < rhs.tier;
+    });
+    rebuildBuckets_();
+    return Status::Ok;
 }
 
 Status SessionReplay::addDepthFile(const std::filesystem::path& path) noexcept {
@@ -519,6 +544,27 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         }
         bookTickers_.push_back(std::move(row));
     }
+
+    candles_.reserve(corpus.candleLines.size());
+    for (const auto& line : corpus.candleLines) {
+        if (line.empty()) continue;
+        CandleRow row{};
+        const auto st = parseCandleLine(std::string_view{line}, row);
+        if (!isOk(st)) {
+            errorDetail_ = "failed to parse candles.jsonl line from loaded corpus";
+            ++parseFailureCount_;
+            metrics::recordReplayParseFailure("candles");
+            status_ = st;
+            refreshHealthSummary_();
+            maybeWriteIntegrityReport_();
+            return status_;
+        }
+        candles_.push_back(std::move(row));
+    }
+    std::stable_sort(candles_.begin(), candles_.end(), [](const CandleRow& lhs, const CandleRow& rhs) noexcept {
+        if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
+        return lhs.tier < rhs.tier;
+    });
 
     depths_.reserve(corpus.depthLines.size());
     for (const auto& line : corpus.depthLines) {

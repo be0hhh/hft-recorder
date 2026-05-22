@@ -162,6 +162,19 @@ std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker,
     return renderBookTickerJsonLine(bookTicker);
 }
 
+std::string renderCandleJsonLine(const replay::CandleRow& candle) {
+    std::string out;
+    out.reserve(96);
+    out.push_back('[');
+    appendInt(out, candle.tier); out.push_back(',');
+    appendInt(out, candle.tsNs); out.push_back(',');
+    appendInt(out, candle.highE8); out.push_back(',');
+    appendInt(out, candle.lowE8); out.push_back(',');
+    appendInt(out, candle.quoteAmountE8);
+    out.push_back(']');
+    return out;
+}
+
 std::string renderDepthJsonLine(const replay::DepthRow& delta) {
     std::string out;
     out.reserve(64 + delta.levels.size() * 48);

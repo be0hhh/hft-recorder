@@ -128,6 +128,30 @@ void CaptureViewModel::stopBookTicker() {
     refreshState();
 }
 
+
+bool CaptureViewModel::startCandles() {
+    if (!ensureCoordinatorBatch_()) return false;
+
+    bool ok = true;
+    for (auto& entry : coordinators_) {
+        if (!entry.coordinator) continue;
+        const auto sessionStatus = entry.coordinator->ensureSession(entry.config);
+        if (!isOk(sessionStatus)) {
+            ok = false;
+            continue;
+        }
+        const auto candleStatus = entry.coordinator->captureCandlesOnce(entry.config);
+        if (!isOk(candleStatus)) ok = false;
+    }
+
+    setStatusText(ok
+        ? QStringLiteral("Candles history requested for %1 stream(s)").arg(coordinators_.size())
+        : joinCoordinatorErrors_());
+    registerLiveSources_();
+    refreshState();
+    return ok;
+}
+
 bool CaptureViewModel::startOrderbook() {
     desiredOrderbookRunning_ = true;
     if (!reconcileCoordinatorBatch_()) return false;
@@ -151,10 +175,20 @@ bool CaptureViewModel::startAllChannels() {
     desiredBookTickerRunning_ = true;
     desiredOrderbookRunning_ = true;
     if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("All available capture channels desired for %1 stream(s)").arg(coordinators_.size()));
+
+    bool candlesOk = true;
+    for (auto& entry : coordinators_) {
+        if (!entry.coordinator) continue;
+        const auto candleStatus = entry.coordinator->captureCandlesOnce(entry.config);
+        if (!isOk(candleStatus)) candlesOk = false;
+    }
+
+    setStatusText(candlesOk
+        ? QStringLiteral("All available capture channels desired for %1 stream(s)").arg(coordinators_.size())
+        : joinCoordinatorErrors_());
     registerLiveSources_();
     refreshState();
-    return true;
+    return candlesOk;
 }
 
 void CaptureViewModel::stopAllChannels() {

@@ -30,6 +30,7 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel) {
         snapshot.tradesCount += static_cast<qulonglong>(coordinator->tradesCount());
         snapshot.liquidationsCount += static_cast<qulonglong>(coordinator->liquidationsCount());
         snapshot.bookTickerCount += static_cast<qulonglong>(coordinator->bookTickerCount());
+        snapshot.candlesCount += static_cast<qulonglong>(coordinator->candlesCount());
         snapshot.depthCount += static_cast<qulonglong>(coordinator->depthCount());
 
         const auto error = QString::fromStdString(coordinator->lastError()).trimmed();
@@ -83,10 +84,12 @@ void CaptureViewModel::refreshState() {
     if (snapshot.tradesCount != lastTradesCount_ ||
         snapshot.liquidationsCount != lastLiquidationsCount_ ||
         snapshot.bookTickerCount != lastBookTickerCount_ ||
+        snapshot.candlesCount != lastCandlesCount_ ||
         snapshot.depthCount != lastDepthCount_) {
         lastTradesCount_ = snapshot.tradesCount;
         lastLiquidationsCount_ = snapshot.liquidationsCount;
         lastBookTickerCount_ = snapshot.bookTickerCount;
+        lastCandlesCount_ = snapshot.candlesCount;
         lastDepthCount_ = snapshot.depthCount;
         countersChangedLocal = true;
     }

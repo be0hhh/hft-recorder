@@ -280,6 +280,7 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
                 || !replay_.liquidations().empty()
                 || !replay_.bookTickers().empty()
                 || !replay_.depths().empty()
+                || !replay_.candles().empty()
                 || !replay_.book().bids().empty()
                 || !replay_.book().asks().empty();
             if (loaded_) computeInitialViewport_();
@@ -378,6 +379,29 @@ bool ChartController::addLiquidationsFile(const QString& path) {
     emit statusChanged();
     return true;
 }
+
+bool ChartController::addCandlesFile(const QString& path) {
+    if (path.trimmed().isEmpty()) {
+        statusText_ = QStringLiteral("No path. Enter a candles.jsonl path first.");
+        emit statusChanged();
+        return false;
+    }
+
+    const auto st = replay_.addCandlesFile(stripFileUrl(path));
+    if (!isOk(st)) {
+        statusText_ = replayFailureText(replay_, st, QStringLiteral("candles load failed"));
+        emit statusChanged();
+        return false;
+    }
+
+    loaded_ = loaded_ || !replay_.candles().empty();
+    if (loaded_) computeInitialViewport_();
+    statusText_ = QStringLiteral("+ candles (now %1 rows)").arg(replay_.candles().size());
+    emit sessionChanged();
+    emit statusChanged();
+    emit viewportChanged();
+    return true;
+}
 bool ChartController::addBookTickerFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
         statusText_ = QStringLiteral("No path. Enter a bookticker.jsonl path first.");
@@ -454,6 +478,7 @@ void ChartController::finalizeFiles() {
                 || !replay_.liquidations().empty()
                 || !replay_.bookTickers().empty()
         || !replay_.depths().empty()
+        || !replay_.candles().empty()
         || !replay_.book().bids().empty()
         || !replay_.book().asks().empty();
     if (loaded_) computeInitialViewport_();
@@ -501,12 +526,14 @@ bool ChartController::loadSession(const QString& dir) {
                 || !replay_.liquidations().empty()
                 || !replay_.bookTickers().empty()
         || !replay_.depths().empty()
+        || !replay_.candles().empty()
         || !replay_.book().bids().empty()
         || !replay_.book().asks().empty();
     currentBookTickerIndex_ = -1;
-    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 depth=%3 bookticker=%4")
+    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 candles=%3 depth=%4 bookticker=%5")
                        .arg(replay_.trades().size())
                       .arg(replay_.liquidations().size())
+                      .arg(replay_.candles().size())
                       .arg(replay_.depths().size())
                       .arg(replay_.bookTickers().size());
     if (!replay_.errorDetail().empty()) {
@@ -523,6 +550,8 @@ bool ChartController::loadSession(const QString& dir) {
 }
 
 }  // namespace hftrec::gui::viewer
+
+
 
 
 

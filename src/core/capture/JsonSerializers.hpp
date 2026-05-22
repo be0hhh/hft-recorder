@@ -7,6 +7,7 @@
 namespace hftrec::replay {
 struct TradeRow;
 struct BookTickerRow;
+struct CandleRow;
 struct LiquidationRow;
 struct DepthRow;
 struct SnapshotDocument;
@@ -30,6 +31,8 @@ std::string renderLiquidationJsonLine(const hftrec::replay::LiquidationRow& liqu
 std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker);
 std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker,
                                      const std::vector<std::string>& aliases);
+
+std::string renderCandleJsonLine(const hftrec::replay::CandleRow& candle);
 
 std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta);
 std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta,

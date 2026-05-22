@@ -48,6 +48,7 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(qulonglong tradesCount READ tradesCount NOTIFY countersChanged)
     Q_PROPERTY(qulonglong liquidationsCount READ liquidationsCount NOTIFY countersChanged)
     Q_PROPERTY(qulonglong bookTickerCount READ bookTickerCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong candlesCount READ candlesCount NOTIFY countersChanged)
     Q_PROPERTY(qulonglong depthCount READ depthCount NOTIFY countersChanged)
 
   public:
@@ -80,6 +81,7 @@ class CaptureViewModel : public QObject {
     qulonglong tradesCount() const;
     qulonglong liquidationsCount() const;
     qulonglong bookTickerCount() const;
+    qulonglong candlesCount() const;
     qulonglong depthCount() const;
 
     Q_INVOKABLE void setOutputDirectory(const QString& outputDirectory);
@@ -99,6 +101,7 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE void stopLiquidations();
     Q_INVOKABLE bool startBookTicker();
     Q_INVOKABLE void stopBookTicker();
+    Q_INVOKABLE bool startCandles();
     Q_INVOKABLE bool startOrderbook();
     Q_INVOKABLE void stopOrderbook();
     Q_INVOKABLE bool startAllChannels();
@@ -175,6 +178,7 @@ class CaptureViewModel : public QObject {
     qulonglong lastTradesCount_{0};
     qulonglong lastLiquidationsCount_{0};
     qulonglong lastBookTickerCount_{0};
+    qulonglong lastCandlesCount_{0};
     qulonglong lastDepthCount_{0};
 };
 

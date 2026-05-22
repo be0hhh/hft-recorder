@@ -22,6 +22,10 @@ void SessionReplay::appendBookTickerRow(BookTickerRow row) {
     bookTickers_.push_back(std::move(row));
 }
 
+void SessionReplay::appendCandleRow(CandleRow row) {
+    candles_.push_back(std::move(row));
+}
+
 void SessionReplay::appendDepthRow(DepthRow row) {
     depths_.push_back(std::move(row));
 }
@@ -355,6 +359,9 @@ void SessionReplay::rebuildBuckets_() noexcept {
     if (!events_.empty()) {
         firstTsNs_ = buckets_.front().tsNs;
         lastTsNs_ = buckets_.back().tsNs;
+    } else if (!candles_.empty()) {
+        firstTsNs_ = candles_.front().tsNs;
+        lastTsNs_ = candles_.back().tsNs;
     } else if (snapshot_.tsNs != 0) {
         firstTsNs_ = snapshot_.tsNs;
         lastTsNs_ = snapshot_.tsNs;

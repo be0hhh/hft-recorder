@@ -25,6 +25,7 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept;
 Status parseBookTickerLine(std::string_view line,
                            BookTickerRow& out,
                            const std::vector<std::string>& aliases) noexcept;
+Status parseCandleLine(std::string_view line, CandleRow& out) noexcept;
 Status parseDepthLine(std::string_view line, DepthRow& out) noexcept;
 Status parseDepthLine(std::string_view line,
                       DepthRow& out,

@@ -22,6 +22,7 @@
 #include "gui/viewer/detail/Formatters.hpp"
 #include "gui/viewer/hit_test/HoverDetection.hpp"
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
+#include "gui/viewer/renderers/CandleRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
 #include "gui/viewer/renderers/TradeRenderer.hpp"
 
@@ -33,6 +34,7 @@ SnapshotInputs collectInputs(const GpuChartItem& item) {
     return SnapshotInputs{
         item.tradesVisible(),
         item.liquidationsVisible(),
+        item.candlesVisible(),
         item.orderbookVisible(),
         item.bookTickerVisible(),
         item.interactiveMode(),
@@ -116,6 +118,7 @@ class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
         } else if (snapshot_.vp.tMax > snapshot_.vp.tMin && snapshot_.vp.pMax > snapshot_.vp.pMin) {
             RenderContext ctx{&painter, snapshot_, hover_, dpr_};
             renderers::renderBookTicker(ctx);
+            renderers::renderCandles(ctx);
             renderers::renderTrades(ctx);
             renderers::renderOverlay(ctx);
         }
@@ -266,6 +269,14 @@ void GpuChartItem::setLiquidationsVisible(bool value) {
     update();
 }
 
+void GpuChartItem::setCandlesVisible(bool value) {
+    if (candlesVisible_ == value) return;
+    candlesVisible_ = value;
+    invalidateSnapshotCache_();
+    ensureSnapshot_();
+    emit candlesVisibleChanged();
+    update();
+}
 void GpuChartItem::setOrderbookVisible(bool value) {
     if (orderbookVisible_ == value) return;
     orderbookVisible_ = value;
@@ -480,3 +491,6 @@ HoverInfo GpuChartItem::hoverInfoCopy_() const {
 }
 
 }  // namespace hftrec::gui::viewer::gpu
+
+
+

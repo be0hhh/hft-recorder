@@ -59,6 +59,7 @@ bool CaptureViewModel::orderbookRunning() const { return lastOrderbookRunning_; 
 qulonglong CaptureViewModel::tradesCount() const { return lastTradesCount_; }
 qulonglong CaptureViewModel::liquidationsCount() const { return lastLiquidationsCount_; }
 qulonglong CaptureViewModel::bookTickerCount() const { return lastBookTickerCount_; }
+qulonglong CaptureViewModel::candlesCount() const { return lastCandlesCount_; }
 qulonglong CaptureViewModel::depthCount() const { return lastDepthCount_; }
 QStringList CaptureViewModel::tradesAvailableAliases() const { return tradesAvailableAliases_; }
 QStringList CaptureViewModel::liquidationsAvailableAliases() const { return liquidationsAvailableAliases_; }

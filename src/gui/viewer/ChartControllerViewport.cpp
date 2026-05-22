@@ -425,6 +425,7 @@ void ChartController::computeInitialViewport_() {
     absorbTs(replay_.bookTickers());
     absorbTs(replay_.depths());
     if (!hasMarketTs) absorbTs(replay_.liquidations());
+    if (!hasMarketTs) absorbTs(replay_.candles());
 
     tsMin_ = hasMarketTs ? marketTsMin : replay_.firstTsNs();
     tsMax_ = hasMarketTs ? marketTsMax : replay_.lastTsNs();
@@ -453,6 +454,13 @@ void ChartController::computeInitialViewport_() {
     if (!hasPrice) {
         for (const auto& liquidation : replay_.liquidations()) {
             absorbPrice(liquidation.priceE8, hasPrice, pMin, pMax);
+        }
+    }
+
+    if (!hasPrice) {
+        for (const auto& candle : replay_.candles()) {
+            absorbPrice(candle.lowE8, hasPrice, pMin, pMax);
+            absorbPrice(candle.highE8, hasPrice, pMin, pMax);
         }
     }
 
@@ -632,9 +640,11 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         || !liveDataCache_.overlayRows.trades.empty()
         || !liveDataCache_.overlayRows.liquidations.empty()
         || !liveDataCache_.overlayRows.bookTickers.empty()
-        || !liveDataCache_.overlayRows.depths.empty();
+        || !liveDataCache_.overlayRows.depths.empty()
+        || !replay_.candles().empty();
     snap.tradesVisible = in.tradesVisible;
     snap.liquidationsVisible = in.liquidationsVisible;
+    snap.candlesVisible = in.candlesVisible;
     snap.orderbookVisible = in.orderbookVisible;
     snap.bookTickerVisible = in.bookTickerVisible;
     snap.interactiveMode = in.interactiveMode;
@@ -796,6 +806,40 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         }
     }
 
+    if (in.candlesVisible) {
+        const auto& candles = replay_.candles();
+        std::int64_t previousMidByTier[4]{};
+        bool hasPreviousByTier[4]{};
+        auto tierDurationNs = [](std::int64_t tier) noexcept -> std::int64_t {
+            if (tier == 1) return 60ll * 1000000000ll;
+            if (tier == 2) return 15ll * 60ll * 1000000000ll;
+            return 24ll * 60ll * 60ll * 1000000000ll;
+        };
+        snap.candleRects.reserve(candles.size());
+        for (const auto& row : candles) {
+            if (row.tier < 1 || row.tier > 3) continue;
+            const auto tierIndex = static_cast<std::size_t>(row.tier);
+            const std::int64_t mid = row.lowE8 + (row.highE8 - row.lowE8) / 2;
+            const bool up = !hasPreviousByTier[tierIndex] || mid >= previousMidByTier[tierIndex];
+            previousMidByTier[tierIndex] = mid;
+            hasPreviousByTier[tierIndex] = true;
+
+            const std::int64_t durationNs = tierDurationNs(row.tier);
+            if ((row.tsNs + durationNs) < renderMinTs || row.tsNs > renderMaxTs) continue;
+            if (row.highE8 < snap.vp.pMin || row.lowE8 > snap.vp.pMax) continue;
+
+            const qreal x = snap.vp.toX(row.tsNs);
+            const qreal durationPx = std::abs(snap.vp.toX(row.tsNs + durationNs) - x);
+            const qreal w = std::clamp(durationPx * 0.72, 2.0, row.tier == 3 ? 26.0 : (row.tier == 2 ? 18.0 : 10.0));
+            const qreal yHigh = snap.vp.toY(row.highE8);
+            const qreal yLow = snap.vp.toY(row.lowE8);
+            qreal y = std::min(yHigh, yLow);
+            qreal h = std::max<qreal>(2.0, std::abs(yLow - yHigh));
+            if ((x + w * 0.5) < 0.0 || (x - w * 0.5) > snap.vp.w || (y + h) < 0.0 || y > snap.vp.h) continue;
+            snap.candleRects.push_back(CandleRect{row.tier, row.tsNs, row.highE8, row.lowE8, row.quoteAmountE8, x, y, w, h, up});
+        }
+    }
+
     if (!in.orderbookVisible && !in.bookTickerVisible) return snap;
 
     const auto& tickers = replay_.bookTickers();
@@ -942,5 +986,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
 }
 
 }  // namespace hftrec::gui::viewer
+
+
 
 

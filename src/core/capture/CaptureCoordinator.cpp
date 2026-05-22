@@ -48,12 +48,14 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.liquidationsPath = std::string{channelJsonlRelativePath(ChannelKind::Liquidations)};
     manifest_.bookTickerPath = std::string{channelJsonlRelativePath(ChannelKind::BookTicker)};
     manifest_.depthPath = std::string{channelJsonlRelativePath(ChannelKind::DepthDelta)};
+    manifest_.candlesPath = std::string{channelJsonlRelativePath(ChannelKind::Candles)};
     manifest_.canonicalArtifacts = {"manifest.json", manifest_.instrumentMetadataPath};
     manifest_.captureContractVersion = "hftrec.strict_canonical_rows_json.v1";
     manifest_.tradesRowSchema = "cxet_trade_strict_v1";
     manifest_.liquidationsRowSchema = "cxet_liquidation_alias_first_v1";
     manifest_.bookTickerRowSchema = "cxet_bookticker_strict_v1";
     manifest_.depthRowSchema = "cxet_orderbook_flat_levels_v1";
+    manifest_.candlesRowSchema = "cxet_candle_lite_tiered_v1";
     manifest_.snapshotSchema = "cxet_orderbook_snapshot_flat_levels_v1";
 
     sessionDir_ = config.outputDir / manifest_.sessionId;
@@ -110,6 +112,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     manifest_.liquidationsCount = liquidationsCount_.load(std::memory_order_relaxed);
     manifest_.bookTickerCount = bookTickerCount_.load(std::memory_order_relaxed);
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
+    manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
     manifest_.warningSummary = lastError_;
     manifest_.structuralBlockers.clear();
@@ -119,6 +122,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     (void)tradesWriter_.close();
     (void)liquidationsWriter_.close();
     (void)bookTickerWriter_.close();
+    (void)candlesWriter_.close();
     (void)depthWriter_.close();
 
     {
@@ -192,11 +196,17 @@ void CaptureCoordinator::resetSessionState() noexcept {
     liquidationsCount_.store(0, std::memory_order_release);
     bookTickerCount_.store(0, std::memory_order_release);
     depthCount_.store(0, std::memory_order_release);
+    candlesCount_.store(0, std::memory_order_release);
     snapshotCount_.store(0, std::memory_order_release);
     tradesCaptureSeq_.store(0, std::memory_order_release);
     liquidationsCaptureSeq_.store(0, std::memory_order_release);
     bookTickerCaptureSeq_.store(0, std::memory_order_release);
     ingestSeq_.store(0, std::memory_order_release);
+    (void)tradesWriter_.close();
+    (void)liquidationsWriter_.close();
+    (void)bookTickerWriter_.close();
+    (void)candlesWriter_.close();
+    (void)depthWriter_.close();
     liveStore_.clear();
     eventSink_.clearSinks();
 }
@@ -261,3 +271,5 @@ Status CaptureCoordinator::writeSupportArtifacts() noexcept {
 }
 
 }  // namespace hftrec::capture
+
+

@@ -229,6 +229,15 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
                                     manifest.depthCount)) {
                 return false;
             }
+        } else if (key == "candles") {
+            if (!parseChannelObject(parser,
+                                    manifest.candlesEnabled,
+                                    manifest.candlesRequiredWhenEnabled,
+                                    manifest.candlesPath,
+                                    manifest.candlesRowSchema,
+                                    manifest.candlesCount)) {
+                return false;
+            }
         } else {
             if (!parser.skipValue()) return false;
         }
@@ -412,6 +421,10 @@ bool isSupportedDepthRowSchema(std::string_view schema) noexcept {
         || schema == "cxet_orderbook_alias_first_v5";
 }
 
+bool isSupportedCandlesRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_candle_lite_tiered_v1";
+}
+
 bool isSupportedSnapshotSchema(std::string_view schema) noexcept {
     return schema == "cxet_orderbook_snapshot_flat_levels_v1"
         || schema == "cxet_orderbook_snapshot_alias_first_v5";
@@ -425,6 +438,7 @@ void populateCanonicalArtifacts(SessionManifest& manifest) {
     if (manifest.liquidationsEnabled && !manifest.liquidationsPath.empty()) manifest.canonicalArtifacts.push_back(manifest.liquidationsPath);
     if (manifest.bookTickerEnabled && !manifest.bookTickerPath.empty()) manifest.canonicalArtifacts.push_back(manifest.bookTickerPath);
     if (manifest.orderbookEnabled && !manifest.depthPath.empty()) manifest.canonicalArtifacts.push_back(manifest.depthPath);
+    if (manifest.candlesEnabled && !manifest.candlesPath.empty()) manifest.canonicalArtifacts.push_back(manifest.candlesPath);
     for (const auto& snapshotFile : manifest.snapshotFiles) {
         manifest.canonicalArtifacts.push_back(snapshotFile);
     }
@@ -475,6 +489,12 @@ bool validateStructurally(SessionManifest& manifest) {
     }
     if (manifest.orderbookEnabled && !isSupportedDepthRowSchema(manifest.depthRowSchema)) {
         manifest.structuralBlockers.push_back("unsupported depth row schema");
+    }
+    if (manifest.candlesEnabled && manifest.candlesRequiredWhenEnabled && manifest.candlesPath.empty()) {
+        manifest.structuralBlockers.push_back("missing candles path");
+    }
+    if (manifest.candlesEnabled && !isSupportedCandlesRowSchema(manifest.candlesRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported candles row schema");
     }
     if (manifest.snapshotCount > 0u && manifest.snapshotFiles.empty()) {
         manifest.structuralBlockers.push_back("missing snapshot file inventory");
@@ -559,6 +579,13 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"path\": " << json::quote(manifest.depthPath) << ",\n";
     out << "      \"row_schema\": " << json::quote(manifest.depthRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.depthCount << "\n";
+    out << "    },\n";
+    out << "    \"candles\": {\n";
+    out << "      \"enabled\": " << boolToString(manifest.candlesEnabled) << ",\n";
+    out << "      \"required_when_enabled\": " << boolToString(manifest.candlesRequiredWhenEnabled) << ",\n";
+    out << "      \"path\": " << json::quote(manifest.candlesPath) << ",\n";
+    out << "      \"row_schema\": " << json::quote(manifest.candlesRowSchema) << ",\n";
+    out << "      \"declared_event_count\": " << manifest.candlesCount << "\n";
     out << "    }\n";
     out << "  },\n";
     out << "  \"snapshots\": {\n";

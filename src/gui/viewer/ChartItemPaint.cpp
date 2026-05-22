@@ -27,6 +27,7 @@
 #include "gui/viewer/detail/TradeGrouping.hpp"
 #include "gui/viewer/renderers/BookRenderer.hpp"
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
+#include "gui/viewer/renderers/CandleRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
 #include "gui/viewer/renderers/TradeRenderer.hpp"
 #include "core/common/Timing.hpp"
@@ -54,6 +55,7 @@ void paintSnapshotFrame(QPainter* painter,
 
     RenderContext ctx{painter, snap, hover, dpr};
     renderers::renderBook(ctx);
+    renderers::renderCandles(ctx);
     renderers::renderTrades(ctx);
     renderers::renderOverlay(ctx);
 }
@@ -72,6 +74,7 @@ void paintSnapshotLayers(QPainter* painter,
     layerSnap.bookTickerVisible = drawBookTicker && snap.bookTickerVisible;
     layerSnap.tradesVisible = drawTrades && snap.tradesVisible;
     layerSnap.liquidationsVisible = drawTrades && snap.liquidationsVisible;
+    layerSnap.candlesVisible = drawTrades && snap.candlesVisible;
     layerSnap.tradeConnectorsVisible = drawTrades && snap.tradeConnectorsVisible;
     if (drawBackground && !layerSnap.overlayOnly) {
         painter->fillRect(QRectF{0.0, 0.0, layerSnap.vp.w, layerSnap.vp.h}, bgColor());
@@ -82,6 +85,7 @@ void paintSnapshotLayers(QPainter* painter,
     RenderContext ctx{painter, layerSnap, drawOverlay ? hover : HoverInfo{}, dpr};
     if (layerSnap.orderbookVisible) renderers::renderBook(ctx);
     if (layerSnap.bookTickerVisible) renderers::renderBookTicker(ctx);
+    if (layerSnap.candlesVisible) renderers::renderCandles(ctx);
     if (layerSnap.tradesVisible || layerSnap.liquidationsVisible) renderers::renderTrades(ctx);
     if (drawOverlay) renderers::renderOverlay(ctx);
 }
@@ -477,6 +481,7 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     live.bookSegments.clear();
     live.bookTickerTrace = BookTickerTrace{};
     live.tradeDots.clear();
+    live.candleRects.clear();
     live.liquidationDots.clear();
     live.gpuBookVertices.clear();
     live.tradeConnectorsVisible = true;
@@ -568,6 +573,10 @@ void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
         target.tradeDots.end(),
         std::make_move_iterator(rows.tradeDots.begin()),
         std::make_move_iterator(rows.tradeDots.end()));
+    target.candleRects.insert(
+        target.candleRects.end(),
+        std::make_move_iterator(rows.candleRects.begin()),
+        std::make_move_iterator(rows.candleRects.end()));
     target.liquidationDots.insert(
         target.liquidationDots.end(),
         std::make_move_iterator(rows.liquidationDots.begin()),
@@ -683,6 +692,7 @@ void ChartItem::mergeLiveSnapshotIntoBaseImage_() {
         painter.setRenderHint(QPainter::TextAntialiasing, true);
         RenderSnapshot liveBook = *cachedLiveSnap_;
         liveBook.tradesVisible = false;
+        liveBook.candlesVisible = false;
         liveBook.bookTickerVisible = false;
         RenderContext ctx{&painter, liveBook, HoverInfo{}, 1.0};
         renderers::renderBook(ctx);
@@ -696,6 +706,7 @@ void ChartItem::mergeLiveSnapshotIntoBaseImage_() {
         painter.setRenderHint(QPainter::TextAntialiasing, true);
         RenderSnapshot liveTicker = *cachedLiveSnap_;
         liveTicker.tradesVisible = false;
+        liveTicker.candlesVisible = false;
         liveTicker.orderbookVisible = false;
         RenderContext ctx{&painter, liveTicker, HoverInfo{}, 1.0};
         renderers::renderBookTicker(ctx);
@@ -965,3 +976,7 @@ void ChartItem::paint(QPainter* painter) {
 }
 
 }  // namespace hftrec::gui::viewer
+
+
+
+

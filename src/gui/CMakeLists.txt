@@ -32,6 +32,7 @@ qt_add_executable(hft-recorder-gui
     viewer/hit_test/HoverDetection.cpp
     viewer/renderers/BookRenderer.cpp
     viewer/renderers/BookTickerRenderer.cpp
+    viewer/renderers/CandleRenderer.cpp
     viewer/renderers/TradeRenderer.cpp
     viewer/renderers/OverlayRenderer.cpp
 )
@@ -109,3 +110,6 @@ if(WIN32 AND HFT_COMPRESSOR_RUNTIME_LIB)
             "$<TARGET_FILE_DIR:hft-recorder-gui>"
     )
 endif()
+
+
+

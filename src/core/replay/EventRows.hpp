@@ -60,6 +60,14 @@ struct BookTickerRow {
     std::int64_t askQtyE8{0};
 };
 
+struct CandleRow {
+    std::int64_t tier{0};  // 1 = M1, 2 = M15, 3 = D1
+    std::int64_t tsNs{0};
+    std::int64_t highE8{0};
+    std::int64_t lowE8{0};
+    std::int64_t quoteAmountE8{0};
+};
+
 struct PricePair {
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};

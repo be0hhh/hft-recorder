@@ -11,6 +11,7 @@ enum class ChannelKind : std::uint8_t {
     DepthDelta = 3,
     Snapshot   = 4,
     Liquidations = 5,
+    Candles = 6,
 };
 
 constexpr std::string_view channelFileName(ChannelKind k) noexcept {
@@ -20,6 +21,7 @@ constexpr std::string_view channelFileName(ChannelKind k) noexcept {
         case ChannelKind::DepthDelta: return "depth.jsonl";
         case ChannelKind::Snapshot:   return "snapshot_000.json";
         case ChannelKind::Liquidations: return "liquidations.jsonl";
+        case ChannelKind::Candles: return "candles.jsonl";
     }
     return "unknown";
 }
@@ -32,6 +34,7 @@ constexpr std::string_view channelJsonlRelativePath(ChannelKind k) noexcept {
         case ChannelKind::DepthDelta: return "jsonl/depth.jsonl";
         case ChannelKind::Snapshot:   return "snapshot_000.json";
         case ChannelKind::Liquidations: return "jsonl/liquidations.jsonl";
+        case ChannelKind::Candles: return "jsonl/candles.jsonl";
     }
     return "unknown";
 }
@@ -42,6 +45,7 @@ constexpr std::string_view channelName(ChannelKind k) noexcept {
         case ChannelKind::DepthDelta: return "depth";
         case ChannelKind::Snapshot:   return "snapshot";
         case ChannelKind::Liquidations: return "liquidations";
+        case ChannelKind::Candles: return "candles";
     }
     return "unknown";
 }

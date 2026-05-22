@@ -79,6 +79,19 @@ struct TradeDot {
     std::vector<TradeGroupEntry> groupEntries;
 };
 
+struct CandleRect {
+    std::int64_t tier{0};
+    std::int64_t tsNs{0};
+    std::int64_t highE8{0};
+    std::int64_t lowE8{0};
+    std::int64_t quoteAmountE8{0};
+    qreal x{0.0};
+    qreal y{0.0};
+    qreal w{0.0};
+    qreal h{0.0};
+    bool up{true};
+};
+
 struct LiquidationDot {
     std::int64_t tsNs{0};
     std::int64_t priceE8{0};
@@ -140,6 +153,7 @@ struct RenderSnapshot {
     // Visibility + tuning knobs (snapshot of ChartItem state at build time).
     bool  tradesVisible{true};
     bool  liquidationsVisible{true};
+    bool  candlesVisible{false};
     bool  tradeConnectorsVisible{true};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
@@ -157,6 +171,7 @@ struct RenderSnapshot {
 
     // Trades pre-filtered to viewport (original order by tsNs).
     std::vector<TradeDot> tradeDots;
+    std::vector<CandleRect> candleRects;
     std::vector<LiquidationDot> liquidationDots;
 
     // API-injected vertical markers for the active chart.
@@ -170,6 +185,7 @@ struct RenderSnapshot {
 struct SnapshotInputs {
     bool  tradesVisible{true};
     bool  liquidationsVisible{true};
+    bool  candlesVisible{false};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
     bool  interactiveMode{false};
@@ -182,3 +198,5 @@ struct SnapshotInputs {
 };
 
 }  // namespace hftrec::gui::viewer
+
+

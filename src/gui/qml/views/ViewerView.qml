@@ -35,12 +35,14 @@ Pane {
     property bool comparePickerActive: compareMode
     property bool showTradesLayer: true
     property bool showLiquidationsLayer: false
+    property bool showCandlesLayer: false
     property bool showOrderbookLayer: false
     property bool showBookTickerLayer: false
     property bool effectiveBookTickerLayer: showBookTickerLayer
     property bool userHasExplicitLayerSelection: false
     property bool userDisabledTradesLayer: false
     property bool userDisabledLiquidationsLayer: false
+    property bool userDisabledCandlesLayer: false
     property bool userDisabledOrderbookLayer: false
     property bool userDisabledBookTickerLayer: false
     property bool useDedicatedGpuPath: false
@@ -83,11 +85,15 @@ Pane {
 
     function loadSingleSelectedSource() {
         var sourceId = root.singleSelectedSourceId()
-        root.userHasExplicitLayerSelection = false
-        root.userDisabledTradesLayer = false
-        root.userDisabledLiquidationsLayer = false
-        root.userDisabledOrderbookLayer = false
-        root.userDisabledBookTickerLayer = false
+        var sourceChanged = root.selectedSourceId !== sourceId
+        if (sourceChanged) {
+            root.userHasExplicitLayerSelection = false
+            root.userDisabledTradesLayer = false
+            root.userDisabledLiquidationsLayer = false
+            root.userDisabledCandlesLayer = false
+            root.userDisabledOrderbookLayer = false
+            root.userDisabledBookTickerLayer = false
+        }
         root.userHasExplicitSelection = sourceId !== ""
         root.selectedSourceId = sourceId
         if (sourceId === "") {
@@ -113,14 +119,15 @@ Pane {
         if (!root.compareMode && root.selectedSourceId !== "") {
             root.showTradesLayer = chart.hasTrades && !root.userDisabledTradesLayer
             root.showLiquidationsLayer = chart.hasLiquidations && !chart.hasTrades && !root.userDisabledLiquidationsLayer
+            root.showCandlesLayer = chart.hasCandles && !root.userDisabledCandlesLayer
             root.showOrderbookLayer = chart.hasOrderbook && !root.userDisabledOrderbookLayer
             root.showBookTickerLayer = chart.hasBookTicker && !root.userDisabledBookTickerLayer
-            if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer)
+            if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer)
                 root.showTradesLayer = !root.userDisabledTradesLayer
             return
         }
 
-        if (root.showTradesLayer || root.showLiquidationsLayer) {
+        if (root.showTradesLayer || root.showLiquidationsLayer || root.showCandlesLayer) {
             root.showTradesLayer = false
             root.showLiquidationsLayer = false
             if (chart.hasOrderbook && !root.userDisabledOrderbookLayer)
@@ -129,7 +136,7 @@ Pane {
                 root.showBookTickerLayer = true
         }
 
-        if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
+        if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
             if (chart.hasOrderbook && !root.userDisabledOrderbookLayer)
                 root.showOrderbookLayer = true
             else if (chart.hasBookTicker && !root.userDisabledBookTickerLayer)
@@ -539,6 +546,7 @@ Pane {
             interaction: interaction
             showTradesLayer: root.showTradesLayer
             showLiquidationsLayer: root.showLiquidationsLayer
+            showCandlesLayer: root.showCandlesLayer
             showOrderbookLayer: root.showOrderbookLayer
             showBookTickerLayer: root.showBookTickerLayer
             effectiveBookTickerLayer: root.effectiveBookTickerLayer
@@ -559,6 +567,12 @@ Pane {
                     root.applySourceSelection(root.selectedSourceId)
                     root.userHasExplicitLayerSelection = true
                 }
+            }
+            onToggleCandles: {
+                root.userHasExplicitLayerSelection = true
+                var nextVisible = !root.showCandlesLayer
+                root.showCandlesLayer = nextVisible
+                root.userDisabledCandlesLayer = !nextVisible
             }
             onToggleLiquidations: {
                 root.userHasExplicitLayerSelection = true
@@ -588,7 +602,7 @@ Pane {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 8
-                text: root.compareMode ? "Top: combined bookTicker traces. Bottom: best-side spread in bps with rolling mean and cost band." : "Single source: trades, bookTicker, and orderbook layers are drawn together when present."
+                text: root.compareMode ? "Top: combined bookTicker traces. Bottom: best-side spread in bps with rolling mean and cost band." : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
                 color: root.mutedTextColor
                 font.pixelSize: 12
             }
@@ -686,6 +700,7 @@ Pane {
                         controller: chart
                         tradesVisible: root.showTradesLayer
                         liquidationsVisible: root.showLiquidationsLayer
+                        candlesVisible: root.showCandlesLayer
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
                         tradeAmountScale: root.appVm.tradeAmountScale
@@ -702,6 +717,7 @@ Pane {
                         controller: chart
                         tradesVisible: root.showTradesLayer
                         liquidationsVisible: root.showLiquidationsLayer
+                        candlesVisible: root.showCandlesLayer
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
                         tradeAmountScale: root.appVm.tradeAmountScale
@@ -930,13 +946,13 @@ Pane {
                 color: "#2b2b31"
                 border.color: root.borderColor
                 border.width: 1
-                visible: !root.comparePickerActive && (root.showOrderbookLayer || root.showBookTickerLayer || root.showLiquidationsLayer || !root.showTradesLayer)
+                visible: !root.comparePickerActive && (root.showOrderbookLayer || root.showBookTickerLayer || root.showLiquidationsLayer || root.showCandlesLayer || !root.showTradesLayer)
                 implicitWidth: layerStatusText.implicitWidth + 20
                 implicitHeight: layerStatusText.implicitHeight + 12
                 Label {
                     id: layerStatusText
                     anchors.centerIn: parent
-                    text: root.showLiquidationsLayer ? "Liquidations" : !root.showTradesLayer ? "Trades hidden" : root.showOrderbookLayer ? "Orderbook" : "BookTicker mode"
+                    text: root.showLiquidationsLayer ? "Liquidations" : root.showCandlesLayer ? "Candles" : !root.showTradesLayer ? "Trades hidden" : root.showOrderbookLayer ? "Orderbook" : "BookTicker mode"
                     color: root.mutedTextColor
                     font.pixelSize: 12
                 }
@@ -944,6 +960,9 @@ Pane {
         }
     }
 }
+
+
+
 
 
 

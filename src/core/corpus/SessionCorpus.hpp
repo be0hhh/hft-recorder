@@ -17,6 +17,7 @@ struct SessionCorpus {
     std::vector<std::string> tradeLines;
     std::vector<std::string> liquidationLines;
     std::vector<std::string> bookTickerLines;
+    std::vector<std::string> candleLines;
     std::vector<std::string> depthLines;
     std::vector<std::string> snapshotDocuments;
     std::string instrumentMetadataDocument;
