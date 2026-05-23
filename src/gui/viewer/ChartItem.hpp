@@ -110,6 +110,8 @@ class ChartItem : public QQuickPaintedItem {
     void updateHover_();
     void invalidateSnapshotCache_();
     void invalidateBaseImage_();
+    void invalidateOrderbookImage_();
+    void invalidateTradesImage_();
     const RenderSnapshot& ensureSnapshot_();
     std::unique_ptr<RenderSnapshot>& activeSnapshotCache_() noexcept;
     void mergeLiveSnapshotIntoBaseImage_();

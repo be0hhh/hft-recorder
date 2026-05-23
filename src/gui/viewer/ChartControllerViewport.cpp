@@ -651,6 +651,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     snap.candlesVisible = in.candlesVisible;
     snap.orderbookVisible = in.orderbookVisible;
     snap.bookTickerVisible = in.bookTickerVisible;
+    snap.tradeConnectorsVisible = in.tradesVisible;
     snap.interactiveMode = in.interactiveMode;
     snap.overlayOnly = in.overlayOnly;
     snap.exactTradeRendering = in.exactTradeRendering;
@@ -658,6 +659,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     snap.bookOpacityGain = in.bookOpacityGain;
     snap.bookRenderDetail = in.bookRenderDetail;
     snap.bookDepthWindowPct = std::clamp<qreal>(in.bookDepthWindowPct, 1.0, 25.0);
+    const bool buildGpuOrderbookVertices = in.gpuOrderbookVertices;
     snap.verticalMarkers = verticalMarkers_;
 
     if (!snap.loaded || widthPx <= 0.0 || heightPx <= 0.0) return snap;
@@ -926,7 +928,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
                     continue;
                 }
                 if (yPx == lastBidYPx) continue;
-                seg.bids.push_back(BookLevel{price, qty});
+                seg.bids.push_back(BookLevel{price, qty, alpha});
                 if (qty > maxBid) maxBid = qty;
                 ++keptBids;
                 lastBidYPx = yPx;
@@ -946,7 +948,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
                     continue;
                 }
                 if (yPx == lastAskYPx) continue;
-                seg.asks.push_back(BookLevel{price, qty});
+                seg.asks.push_back(BookLevel{price, qty, alpha});
                 if (qty > maxAsk) maxAsk = qty;
                 ++keptAsks;
                 lastAskYPx = yPx;
@@ -955,7 +957,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             seg.maxAskQty = std::max<std::int64_t>(maxAsk, 1);
         }
         if (seg.bids.empty() && seg.asks.empty()) return;
-        if (in.orderbookVisible) {
+        if (buildGpuOrderbookVertices) {
             appendGpuVerticesForSide(
                 snap.gpuBookVertices,
                 seg.bids,

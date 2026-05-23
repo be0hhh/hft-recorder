@@ -13,6 +13,7 @@ namespace hftrec::gui::viewer {
 struct BookLevel {
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
+    std::uint8_t alpha{255};
 };
 
 struct GpuBookLineVertex {
@@ -154,7 +155,7 @@ struct RenderSnapshot {
     bool  tradesVisible{true};
     bool  liquidationsVisible{true};
     bool  candlesVisible{false};
-    bool  tradeConnectorsVisible{true};
+    bool  tradeConnectorsVisible{false};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
     bool  interactiveMode{false};
@@ -195,6 +196,7 @@ struct SnapshotInputs {
     qreal bookOpacityGain{15000.0};
     qreal bookRenderDetail{5000.0};
     qreal bookDepthWindowPct{5.0};
+    bool  gpuOrderbookVertices{false};
 };
 
 }  // namespace hftrec::gui::viewer

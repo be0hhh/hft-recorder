@@ -38,6 +38,7 @@ RenderSnapshot buildInteractiveTickerSnapshot(ChartController& controller,
         item.bookOpacityGain(),
         item.bookRenderDetail(),
         item.bookDepthWindowPct(),
+        false,
     };
     if (!tickerInputs.bookTickerVisible) return RenderSnapshot{};
     return controller.buildSnapshot(width, height, tickerInputs);

@@ -253,6 +253,7 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
         && currentSourceId_ == normalizedSourceId
         && sessionDir_ == sessionPath) {
         refreshProviderFromRegistry_();
+        pollLiveData_();
         return true;
     }
 
@@ -292,6 +293,7 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
     emit statusChanged();
     emit viewportChanged();
     emit selectionChanged();
+    pollLiveData_();
     return true;
 }
 

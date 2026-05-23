@@ -194,7 +194,8 @@ bool prepareVisibleLevelForScreen(const BookLevel& level,
                                   const ViewportMap& vp,
                                   std::int64_t minVisibleAmountE8,
                                   std::int64_t brightnessRefE8,
-                                  int& outYPx) noexcept {
+                                  int& outYPx,
+                                  std::uint8_t& outAlpha) noexcept {
     if (level.qtyE8 <= 0) return false;
     if (level.priceE8 < vp.pMin || level.priceE8 > vp.pMax) return false;
 
@@ -212,6 +213,7 @@ bool prepareVisibleLevelForScreen(const BookLevel& level,
     if (alpha <= 1) return false;
 
     outYPx = y;
+    outAlpha = static_cast<std::uint8_t>(alpha);
     return true;
 }
 
@@ -233,16 +235,18 @@ void appendVisibleLiveLevels(const BookMap& levels,
         if (limitMaxPriceE8 > 0 && price > limitMaxPriceE8) break;
 
         int yPx = 0;
+        std::uint8_t alpha = 0;
         if (!prepareVisibleLevelForScreen(
                 BookLevel{price, qty},
                 vp,
                 minVisibleAmountE8,
                 brightnessRefE8,
-                yPx)) {
+                yPx,
+                alpha)) {
             continue;
         }
         if (yPx == lastYPx) continue;
-        out.push_back(BookLevel{price, qty});
+        out.push_back(BookLevel{price, qty, alpha});
         outMaxQty = std::max(outMaxQty, qty);
         lastYPx = yPx;
         ++kept;
@@ -495,7 +499,7 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     live.candleRects.clear();
     live.liquidationDots.clear();
     live.gpuBookVertices.clear();
-    live.tradeConnectorsVisible = true;
+    live.tradeConnectorsVisible = live.tradesVisible;
 
     if (!live.loaded || live.vp.tMax <= live.vp.tMin || live.vp.pMax <= live.vp.pMin) return live;
 
@@ -597,7 +601,7 @@ void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
 }
 
 void drawTradeBridge(QPainter* painter, const RenderSnapshot& base, const RenderSnapshot& live) {
-    if (!base.tradesVisible || base.tradeDots.empty() || live.tradeDots.empty()) return;
+    if (!base.tradesVisible || !base.tradeConnectorsVisible || !live.tradeConnectorsVisible || base.tradeDots.empty() || live.tradeDots.empty()) return;
     const auto& prev = base.tradeDots.back();
     const auto& last = live.tradeDots.front();
     const int prevLastOrig = prev.lastOrigIndex >= 0 ? prev.lastOrigIndex : prev.origIndex;
@@ -683,6 +687,24 @@ void ChartItem::invalidateBaseImage_() {
     cachedLayerImageH_ = 0.0;
     cachedOrderbookEndTsNs_ = 0;
     cachedBookTickerEndTsNs_ = 0;
+    cachedTradesEndTsNs_ = 0;
+    cachedLiveDataBatchId_ = 0;
+    cachedHitTestBatchId_ = 0;
+    cachedLiveSnap_.reset();
+    cachedHitTestSnap_.reset();
+}
+
+void ChartItem::invalidateOrderbookImage_() {
+    cachedOrderbookImage_ = QImage{};
+    cachedOrderbookEndTsNs_ = 0;
+    cachedLiveDataBatchId_ = 0;
+    cachedHitTestBatchId_ = 0;
+    cachedLiveSnap_.reset();
+    cachedHitTestSnap_.reset();
+}
+
+void ChartItem::invalidateTradesImage_() {
+    cachedTradesImage_ = QImage{};
     cachedTradesEndTsNs_ = 0;
     cachedLiveDataBatchId_ = 0;
     cachedHitTestBatchId_ = 0;
@@ -824,9 +846,7 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
         painter.setRenderHint(QPainter::Antialiasing, false);
         painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
         painter.setRenderHint(QPainter::TextAntialiasing, true);
-        RenderSnapshot cachedTradesSnap = baseSnap;
-        cachedTradesSnap.tradeConnectorsVisible = true;
-        paintSnapshotLayers(&painter, cachedTradesSnap, false, false, false, true, false, HoverInfo{}, 1.0);
+        paintSnapshotLayers(&painter, baseSnap, false, false, false, true, false, HoverInfo{}, 1.0);
         painter.end();
         cachedTradesImage_ = std::move(tradesImage);
     }

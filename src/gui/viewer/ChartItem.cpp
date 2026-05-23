@@ -89,8 +89,11 @@ void ChartItem::setTradeAmountScale(qreal value) {
     value = detail::clampReal(value, 0.0, 1.0);
     if (qFuzzyCompare(tradeAmountScale_ + 1.0, value + 1.0)) return;
     tradeAmountScale_ = value;
-    invalidateSnapshotCache_();
-    invalidateBaseImage_();
+    if (cachedInteractiveSnap_) cachedInteractiveSnap_->tradeAmountScale = value;
+    if (cachedExactSnap_) cachedExactSnap_->tradeAmountScale = value;
+    if (cachedLiveSnap_) cachedLiveSnap_->tradeAmountScale = value;
+    if (cachedHitTestSnap_) cachedHitTestSnap_->tradeAmountScale = value;
+    invalidateTradesImage_();
     emit tradeAmountScaleChanged();
     update();
 }
@@ -100,7 +103,7 @@ void ChartItem::setBookOpacityGain(qreal value) {
     if (qFuzzyCompare(bookOpacityGain_ + 1.0, value + 1.0)) return;
     bookOpacityGain_ = value;
     invalidateSnapshotCache_();
-    invalidateBaseImage_();
+    invalidateOrderbookImage_();
     emit bookOpacityGainChanged();
     update();
 }
@@ -110,7 +113,7 @@ void ChartItem::setBookRenderDetail(qreal value) {
     if (qFuzzyCompare(bookRenderDetail_ + 1.0, value + 1.0)) return;
     bookRenderDetail_ = value;
     invalidateSnapshotCache_();
-    invalidateBaseImage_();
+    invalidateOrderbookImage_();
     emit bookRenderDetailChanged();
     update();
 }
@@ -120,7 +123,7 @@ void ChartItem::setBookDepthWindowPct(qreal value) {
     if (qFuzzyCompare(bookDepthWindowPct_ + 1.0, value + 1.0)) return;
     bookDepthWindowPct_ = value;
     invalidateSnapshotCache_();
-    invalidateBaseImage_();
+    invalidateOrderbookImage_();
     updateHover_();
     emit bookDepthWindowPctChanged();
     update();
@@ -180,6 +183,7 @@ SnapshotInputs collectInputs(const ChartItem& item) {
         item.bookOpacityGain(),
         item.bookRenderDetail(),
         item.bookDepthWindowPct(),
+        false,
     };
 }
 

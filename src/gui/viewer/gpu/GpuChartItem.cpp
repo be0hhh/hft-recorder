@@ -44,6 +44,7 @@ SnapshotInputs collectInputs(const GpuChartItem& item) {
         item.bookOpacityGain(),
         item.bookRenderDetail(),
         item.bookDepthWindowPct(),
+        true,
     };
 }
 

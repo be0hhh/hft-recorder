@@ -128,6 +128,10 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
     liquidations_ = TailFile{liveChannelPath(sessionDir_, "liquidations.jsonl"), 0, {}};
     bookTicker_ = TailFile{liveChannelPath(sessionDir_, "bookticker.jsonl"), 0, {}};
     depth_ = TailFile{liveChannelPath(sessionDir_, "depth.jsonl"), 0, {}};
+    syncTailOffset_(trades_);
+    syncTailOffset_(liquidations_);
+    syncTailOffset_(bookTicker_);
+    syncTailOffset_(depth_);
     snapshotPath_ = findLatestSnapshotPath_();
     snapshot_ = hftrec::replay::SnapshotDocument{};
     snapshotLoaded_ = false;
@@ -547,7 +551,6 @@ std::filesystem::path JsonTailLiveDataProvider::findLatestSnapshotPath_() const 
 }
 
 }  // namespace hftrec::gui::viewer
-
 
 
 
