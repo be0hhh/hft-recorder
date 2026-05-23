@@ -762,17 +762,35 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         };
 
         std::size_t visibleTradeCount = 0;
+        std::size_t visibleTradeDotCount = 0;
+        bool hasPreviousVisibleDot = false;
+        std::int64_t previousDotTsNs = 0;
+        std::int64_t previousDotPriceE8 = 0;
+        bool previousDotSideBuy = false;
         for (auto it = tradeBegin; it != tradeEnd; ++it) {
-            if (visible(*it)) ++visibleTradeCount;
+            if (!visible(*it)) continue;
+            const auto& t = *it;
+            ++visibleTradeCount;
+            const bool sideBuy = t.sideBuy != 0;
+            if (!hasPreviousVisibleDot
+                || previousDotTsNs != t.tsNs
+                || previousDotPriceE8 != t.priceE8
+                || previousDotSideBuy != sideBuy) {
+                ++visibleTradeDotCount;
+                hasPreviousVisibleDot = true;
+                previousDotTsNs = t.tsNs;
+                previousDotPriceE8 = t.priceE8;
+                previousDotSideBuy = sideBuy;
+            }
         }
 
-        const auto lod = decideTradeLod(visibleTradeCount, widthPx, in.exactTradeRendering, tradeLodAggregated_);
+        const auto lod = decideTradeLod(visibleTradeDotCount, widthPx, in.exactTradeRendering, tradeLodAggregated_);
         tradeLodAggregated_ = lod.aggregate;
         snap.tradeDecimated = lod.aggregate;
         snap.tradeConnectorsVisible = snap.tradeConnectorsVisible && !snap.tradeDecimated;
         snap.tradeDots.reserve(snap.tradeDecimated
             ? std::max<std::size_t>(1u, static_cast<std::size_t>(std::ceil(widthPx)))
-            : visibleTradeCount);
+            : visibleTradeDotCount);
 
         if (!snap.tradeDecimated) {
             for (auto it = tradeBegin; it != tradeEnd; ++it) {
