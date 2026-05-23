@@ -52,7 +52,8 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QStringList& selectedTradesAliases,
                                                 const QStringList& selectedLiquidationsAliases,
                                                 const QStringList& selectedBookTickerAliases,
-                                                const QStringList& selectedOrderbookAliases);
+                                                const QStringList& selectedOrderbookAliases,
+                                                int tradesHistoryWarmupSec);
 CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel);
 
 }  // namespace detail

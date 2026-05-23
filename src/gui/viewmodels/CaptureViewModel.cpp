@@ -31,6 +31,7 @@ QString CaptureViewModel::outputDirectory() const { return outputDirectory_; }
 QStringList CaptureViewModel::selectedVenueKeys() const { return selectedVenueKeys_; }
 QVariantList CaptureViewModel::venueChoices() const { return detail::venueChoices(); }
 QString CaptureViewModel::symbolsText() const { return symbolsText_; }
+int CaptureViewModel::tradesHistoryWarmupSec() const noexcept { return tradesHistoryWarmupSec_; }
 QString CaptureViewModel::sessionId() const { return lastSessionId_; }
 QString CaptureViewModel::sessionPath() const { return lastSessionPath_; }
 QString CaptureViewModel::statusText() const { return statusText_; }
@@ -172,6 +173,16 @@ void CaptureViewModel::setSymbolsText(const QString& symbolsText) {
     reconcileActiveChannels_();
 }
 
+void CaptureViewModel::setTradesHistoryWarmupSec(int seconds) {
+    if (seconds < 0) seconds = 0;
+    if (seconds > 86400) seconds = 86400;
+    if (seconds == tradesHistoryWarmupSec_) return;
+    tradesHistoryWarmupSec_ = seconds;
+    emit tradesHistoryWarmupSecChanged();
+    emit requestBuilderChanged();
+    reconcileActiveChannels_();
+}
+
 void CaptureViewModel::toggleAlias(const QString& channel, const QString& alias) {
     auto* selectedAliases = selectedAliasesForChannel_(channel);
     const auto* availableAliases = availableAliasesForChannel_(channel);
@@ -220,7 +231,8 @@ std::vector<capture::CaptureConfig> CaptureViewModel::makeConfigs() const {
                                selectedTradesAliases_,
                                selectedLiquidationsAliases_,
                                selectedBookTickerAliases_,
-                               selectedOrderbookAliases_);
+                               selectedOrderbookAliases_,
+                               tradesHistoryWarmupSec_);
 }
 
 QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& channel) {

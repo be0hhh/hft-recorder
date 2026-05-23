@@ -149,6 +149,10 @@ constexpr std::size_t kLiveRenderBookLevelsBudgetPerSide = 256;
 constexpr std::size_t kLiveInteractiveBookLevelsBudgetPerSide = 192;
 constexpr std::int64_t kUsdScaleE8 = 100000000ll;
 
+std::size_t liveBookLevelCandidateBudget(std::size_t levelsBudget) noexcept {
+    return std::max<std::size_t>(levelsBudget * 8u, levelsBudget);
+}
+
 std::int64_t usdToE8(qreal usd) noexcept {
     const qreal clamped = std::clamp<qreal>(usd, 1000.0, 1000000.0);
     return static_cast<std::int64_t>(std::llround(clamped * static_cast<qreal>(kUsdScaleE8)));
@@ -335,7 +339,7 @@ void appendLiveBookSegment(std::vector<BookSegment>& out,
                            std::int64_t tsStart,
                            std::int64_t tsEnd) {
     if (tsEnd <= tsStart) return;
-    if (state.bids().empty() && state.asks().empty()) return;
+    if (state.empty()) return;
 
     BookSegment seg{};
     seg.tsStartNs = tsStart;
@@ -350,11 +354,18 @@ void appendLiveBookSegment(std::vector<BookSegment>& out,
     const std::int64_t anchorAskE8 = anchor.askPriceE8 > 0 ? anchor.askPriceE8 : state.bestAskPrice();
     const std::int64_t bidMinE8 = windowBidMinE8(anchorBidE8, live.bookDepthWindowPct);
     const std::int64_t askMaxE8 = windowAskMaxE8(anchorAskE8, live.bookDepthWindowPct);
+    const std::size_t candidateBudget = liveBookLevelCandidateBudget(levelsBudget);
+    const std::int64_t bidFilterMinE8 = std::max<std::int64_t>(vp.pMin, bidMinE8);
+    const std::int64_t askFilterMaxE8 = askMaxE8 > 0
+        ? std::min<std::int64_t>(vp.pMax, askMaxE8)
+        : vp.pMax;
+    const auto bidLevels = state.filteredBids(bidFilterMinE8, vp.pMax, candidateBudget);
+    const auto askLevels = state.filteredAsks(vp.pMin, askFilterMaxE8, candidateBudget);
     std::int64_t maxBid = 0;
     std::int64_t maxAsk = 0;
 
     appendVisibleLiveLevels(
-        state.bids(),
+        bidLevels,
         seg.bids,
         bidMinE8,
         0,
@@ -364,7 +375,7 @@ void appendLiveBookSegment(std::vector<BookSegment>& out,
         levelsBudget,
         maxBid);
     appendVisibleLiveLevels(
-        state.asks(),
+        askLevels,
         seg.asks,
         0,
         askMaxE8,
@@ -442,7 +453,7 @@ void buildLiveOrderbookSegments(RenderSnapshot& live, const LiveDataCache& cache
         else if (event.depth != nullptr) state.applyDelta(*event.depth);
         else if (event.bookTicker != nullptr) absorbBookTickerAnchor(anchor, *event.bookTicker);
 
-        hasState = !state.bids().empty() || !state.asks().empty();
+        hasState = !state.empty();
         segmentStartTs = std::max<std::int64_t>(renderTsMin, eventTs);
         if (segmentStartTs >= liveVisibleTsMax) break;
     }
@@ -498,8 +509,10 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
             detail::appendGroupedTradeDot(live.tradeDots, TradeDot{row.tsNs, row.priceE8, row.qtyE8, row.sideBuy != 0, rowOrigIndex});
         }
     };
-    appendTradeRows(cache.stableRows.trades);
-    appendTradeRows(cache.overlayRows.trades);
+    if (live.tradesVisible) {
+        appendTradeRows(cache.stableRows.trades);
+        appendTradeRows(cache.overlayRows.trades);
+    }
 
     if (live.liquidationsVisible) {
         int liquidationOrigIndex = 0;

@@ -301,6 +301,10 @@ bool shouldDecimateTrades(std::size_t visibleTradeCount,
     return static_cast<double>(visibleTradeCount) > budget;
 }
 
+std::size_t bookLevelCandidateBudget(std::size_t levelsBudget) noexcept {
+    return std::max<std::size_t>(levelsBudget * 8u, levelsBudget);
+}
+
 std::int64_t windowBidMinE8(std::int64_t bestBidE8, qreal windowPct) noexcept {
     if (bestBidE8 <= 0) return 0;
     const qreal clampedPct = std::clamp<qreal>(windowPct, 1.0, 25.0);
@@ -670,6 +674,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     if ((latestOnlyWindow || limitedRenderWindow_()) && (latestTsNs <= 0 || renderMaxTs < renderMinTs)) return snap;
 
     const auto minVisibleAmountE8 = usdToE8Min0(in.bookRenderDetail);
+    if (in.tradesVisible) {
     const auto& trades = replay_.trades();
     auto tradeBegin = trades.begin();
     auto tradeEnd = trades.end();
@@ -762,6 +767,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             else pixelBin.sell.absorb(dot);
         }
         flushTradeBin();
+    }
     }
 
     if (in.liquidationsVisible) {
@@ -898,7 +904,14 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             const std::size_t levelsBudget = in.interactiveMode
                 ? kInteractiveBookLevelsBudgetPerSide
                 : kRenderBookLevelsBudgetPerSide;
-            for (const auto& [price, qty] : book.bids()) {
+            const std::size_t candidateBudget = bookLevelCandidateBudget(levelsBudget);
+            const std::int64_t bidFilterMinE8 = std::max<std::int64_t>(snap.vp.pMin, bidMinE8);
+            const std::int64_t askFilterMaxE8 = askMaxE8 > 0
+                ? std::min<std::int64_t>(snap.vp.pMax, askMaxE8)
+                : snap.vp.pMax;
+            const auto bidLevels = book.filteredBids(bidFilterMinE8, snap.vp.pMax, candidateBudget);
+            const auto askLevels = book.filteredAsks(snap.vp.pMin, askFilterMaxE8, candidateBudget);
+            for (const auto& [price, qty] : bidLevels) {
                 if (keptBids >= levelsBudget) break;
                 if (bidMinE8 > 0 && price < bidMinE8) break;
                 int yPx = 0;
@@ -918,7 +931,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
                 ++keptBids;
                 lastBidYPx = yPx;
             }
-            for (const auto& [price, qty] : book.asks()) {
+            for (const auto& [price, qty] : askLevels) {
                 if (keptAsks >= levelsBudget) break;
                 if (askMaxE8 > 0 && price > askMaxE8) break;
                 int yPx = 0;

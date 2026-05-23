@@ -433,23 +433,20 @@ LiveDataBatch InMemoryLiveDataProvider::materializeRange(const LiveDataRangeRequ
         : std::string_view{request.symbol};
     for (const auto& state : sources_) {
         if (!sourceMatches_(state, activeSourceId_, requestedSymbol)) continue;
-        const auto allRows = state.ref.source->readAll();
-        const auto snapshotIt = std::upper_bound(
-            allRows.snapshots.begin(),
-            allRows.snapshots.end(),
-            request.tsMax,
-            [](std::int64_t ts, const hftrec::replay::SnapshotDocument& row) noexcept { return ts < row.tsNs; });
-        std::int64_t depthTsMin = std::numeric_limits<std::int64_t>::min();
-        if (snapshotIt != allRows.snapshots.begin()) {
-            const auto& snapshot = *std::prev(snapshotIt);
+        hftrec::replay::SnapshotDocument snapshot{};
+        std::int64_t depthTsMin = request.tsMin;
+        if (state.ref.source->readSnapshotAtOrBefore(request.tsMax, snapshot)) {
             batch.snapshots.push_back(snapshot);
             depthTsMin = snapshot.tsNs;
         }
 
-        appendSortedRange(allRows.trades, request.tsMin, request.tsMax, batch.trades);
-        appendSortedRange(allRows.liquidations, request.tsMin, request.tsMax, batch.liquidations);
-        appendSortedRange(allRows.bookTickers, request.tsMin, request.tsMax, batch.bookTickers);
-        appendSortedRange(allRows.depths, depthTsMin, request.tsMax, batch.depths);
+        const auto visibleRows = state.ref.source->readRange(request.tsMin, request.tsMax);
+        batch.trades.insert(batch.trades.end(), visibleRows.trades.begin(), visibleRows.trades.end());
+        batch.liquidations.insert(batch.liquidations.end(), visibleRows.liquidations.begin(), visibleRows.liquidations.end());
+        batch.bookTickers.insert(batch.bookTickers.end(), visibleRows.bookTickers.begin(), visibleRows.bookTickers.end());
+
+        auto depthRows = state.ref.source->readDepthRange(depthTsMin, request.tsMax);
+        batch.depths.insert(batch.depths.end(), depthRows.begin(), depthRows.end());
     }
     return batch;
 }
@@ -550,7 +547,6 @@ std::filesystem::path JsonTailLiveDataProvider::findLatestSnapshotPath_() const 
 }
 
 }  // namespace hftrec::gui::viewer
-
 
 
 

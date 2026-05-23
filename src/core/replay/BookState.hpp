@@ -23,6 +23,7 @@ namespace hftrec::replay {
 class BookState {
   public:
     using LevelMap = absl::flat_hash_map<std::int64_t, std::int64_t>;
+    using FilteredLevels = std::vector<std::pair<std::int64_t, std::int64_t>>;
 
     class BookSideView {
       public:
@@ -48,6 +49,14 @@ class BookState {
 
     const BookSideView& bids() const;
     const BookSideView& asks() const;
+
+    bool empty() const noexcept { return bids_.empty() && asks_.empty(); }
+    FilteredLevels filteredBids(std::int64_t minPriceE8,
+                                std::int64_t maxPriceE8,
+                                std::size_t maxCandidates) const;
+    FilteredLevels filteredAsks(std::int64_t minPriceE8,
+                                std::int64_t maxPriceE8,
+                                std::size_t maxCandidates) const;
 
     std::int64_t bestBidPrice() const;
     std::int64_t bestAskPrice() const;

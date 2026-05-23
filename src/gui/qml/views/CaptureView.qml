@@ -146,6 +146,33 @@ Pane {
 
                     }
 
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: "Trades warmup"
+                            color: root.mutedTextColor
+                        }
+
+                        SpinBox {
+                            id: tradesWarmupSpin
+                            from: 0
+                            to: 86400
+                            stepSize: 300
+                            value: root.captureVm.tradesHistoryWarmupSec
+                            editable: true
+                            enabled: !root.captureVm.tradesRunning
+                            onValueModified: root.captureVm.tradesHistoryWarmupSec = value
+                        }
+
+                        Label {
+                            text: "sec"
+                            color: root.mutedTextColor
+                        }
+                    }
+
                     CaptureChannelCard {
                         captureVm: root.captureVm
                         channelKey: "liquidations"

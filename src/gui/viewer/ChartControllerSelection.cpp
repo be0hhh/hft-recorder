@@ -536,8 +536,10 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
                                 std::int64_t& outSpreadE8) {
         std::int64_t bidE8 = 0;
         std::int64_t askE8 = 0;
-        const bool hasBid = findBestBidInBand(state.bids(), range.priceMinE8, range.priceMaxE8, bidE8);
-        const bool hasAsk = findBestAskInBand(state.asks(), range.priceMinE8, range.priceMaxE8, askE8);
+        const auto bids = state.filteredBids(range.priceMinE8, range.priceMaxE8, 1u);
+        const auto asks = state.filteredAsks(range.priceMinE8, range.priceMaxE8, 1u);
+        const bool hasBid = findBestBidInBand(bids, range.priceMinE8, range.priceMaxE8, bidE8);
+        const bool hasAsk = findBestAskInBand(asks, range.priceMinE8, range.priceMaxE8, askE8);
         if (!hasBid || !hasAsk || askE8 < bidE8) return;
         outHasState = true;
         outBidE8 = bidE8;

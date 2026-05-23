@@ -53,6 +53,10 @@ class IEventSource {
 
     virtual EventBatch readAll() const = 0;
     virtual EventBatch readRange(std::int64_t fromTsNs, std::int64_t toTsNs) const = 0;
+    virtual bool readSnapshotAtOrBefore(std::int64_t tsNs,
+                                        replay::SnapshotDocument& out) const;
+    virtual std::vector<replay::DepthRow> readDepthRange(std::int64_t fromTsNs,
+                                                         std::int64_t toTsNs) const;
     virtual EventBatch readSince(std::size_t tradeOffset,
                                  std::size_t liquidationOffset,
                                  std::size_t bookTickerOffset,
@@ -95,6 +99,10 @@ class LiveEventStore final : public IHotEventCache {
 
     EventBatch readAll() const override;
     EventBatch readRange(std::int64_t fromTsNs, std::int64_t toTsNs) const override;
+    bool readSnapshotAtOrBefore(std::int64_t tsNs,
+                                replay::SnapshotDocument& out) const override;
+    std::vector<replay::DepthRow> readDepthRange(std::int64_t fromTsNs,
+                                                 std::int64_t toTsNs) const override;
     EventBatch readSince(std::size_t tradeOffset,
                                  std::size_t liquidationOffset,
                                  std::size_t bookTickerOffset,

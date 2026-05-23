@@ -87,8 +87,7 @@ class ChartController : public QObject {
     }
     bool hasOrderbook() const noexcept {
         return !replay_.depths().empty()
-            || !replay_.book().bids().empty()
-            || !replay_.book().asks().empty()
+            || !replay_.book().empty()
             || !liveDataCache_.stableRows.depths.empty()
             || !liveDataCache_.overlayRows.depths.empty()
             || !liveOverlayState_.depths.empty();

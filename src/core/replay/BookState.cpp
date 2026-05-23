@@ -12,6 +12,32 @@ void applyLevel(BookState::LevelMap& side, const PricePair& level, bool& dirty) 
     dirty = true;
 }
 
+BookState::FilteredLevels filteredLevels(const BookState::LevelMap& side,
+                                         std::int64_t minPriceE8,
+                                         std::int64_t maxPriceE8,
+                                         std::size_t maxCandidates,
+                                         bool descending) {
+    BookState::FilteredLevels out;
+    out.reserve(maxCandidates > 0 ? std::min(maxCandidates, side.size()) : side.size());
+    for (const auto& [price, qty] : side) {
+        if (qty <= 0) continue;
+        if (minPriceE8 > 0 && price < minPriceE8) continue;
+        if (maxPriceE8 > 0 && price > maxPriceE8) continue;
+        out.push_back({price, qty});
+    }
+
+    const auto less = [descending](const auto& a, const auto& b) noexcept {
+        return descending ? a.first > b.first : a.first < b.first;
+    };
+    if (maxCandidates > 0 && out.size() > maxCandidates) {
+        std::partial_sort(out.begin(), out.begin() + static_cast<std::ptrdiff_t>(maxCandidates), out.end(), less);
+        out.resize(maxCandidates);
+    } else {
+        std::sort(out.begin(), out.end(), less);
+    }
+    return out;
+}
+
 }  // namespace
 
 std::size_t BookState::BookSideView::count(std::int64_t priceE8) const noexcept {
@@ -69,24 +95,58 @@ const BookState::BookSideView& BookState::asks() const {
     return askView_;
 }
 
+BookState::FilteredLevels BookState::filteredBids(std::int64_t minPriceE8,
+                                                  std::int64_t maxPriceE8,
+                                                  std::size_t maxCandidates) const {
+    return filteredLevels(bids_, minPriceE8, maxPriceE8, maxCandidates, true);
+}
+
+BookState::FilteredLevels BookState::filteredAsks(std::int64_t minPriceE8,
+                                                  std::int64_t maxPriceE8,
+                                                  std::size_t maxCandidates) const {
+    return filteredLevels(asks_, minPriceE8, maxPriceE8, maxCandidates, false);
+}
+
 std::int64_t BookState::bestBidPrice() const {
-    const auto& view = bids();
-    return view.empty() ? 0 : view.begin()->first;
+    std::int64_t best = 0;
+    for (const auto& [price, qty] : bids_) {
+        if (qty > 0 && price > best) best = price;
+    }
+    return best;
 }
 
 std::int64_t BookState::bestAskPrice() const {
-    const auto& view = asks();
-    return view.empty() ? 0 : view.begin()->first;
+    std::int64_t best = 0;
+    for (const auto& [price, qty] : asks_) {
+        if (qty <= 0) continue;
+        if (best == 0 || price < best) best = price;
+    }
+    return best;
 }
 
 std::int64_t BookState::bestBidQty() const {
-    const auto& view = bids();
-    return view.empty() ? 0 : view.begin()->second;
+    std::int64_t bestPrice = 0;
+    std::int64_t bestQty = 0;
+    for (const auto& [price, qty] : bids_) {
+        if (qty > 0 && price > bestPrice) {
+            bestPrice = price;
+            bestQty = qty;
+        }
+    }
+    return bestQty;
 }
 
 std::int64_t BookState::bestAskQty() const {
-    const auto& view = asks();
-    return view.empty() ? 0 : view.begin()->second;
+    std::int64_t bestPrice = 0;
+    std::int64_t bestQty = 0;
+    for (const auto& [price, qty] : asks_) {
+        if (qty <= 0) continue;
+        if (bestPrice == 0 || price < bestPrice) {
+            bestPrice = price;
+            bestQty = qty;
+        }
+    }
+    return bestQty;
 }
 
 void BookState::ensureBidsView_() const {

@@ -15,7 +15,7 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook|candles> [seconds] [output_dir] [exchange] [symbol]");
+    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook|candles> [seconds] [output_dir] [exchange] [symbol] [trades_warmup_sec]");
     std::puts("  hft-recorder capture bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
@@ -24,7 +24,7 @@ void printUsage() {
     std::puts("  hft-recorder capture bookticker 10 ./recordings binance BTCUSDT");
     std::puts("  hft-recorder capture bookticker 10 ./recordings kucoin BTCUSDTM");
     std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT");
-    std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT");
+    std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT 300");
     std::puts("  hft-recorder capture candles 1 ./recordings binance BSBUSDT");
 }
 
@@ -72,6 +72,11 @@ bool applyOptionalSingleVenueArgs(capture::CaptureConfig& config, int argc, char
     }
     if (argc >= 6) {
         config.symbols = {argv[5]};
+    }
+    if (argc >= 7) {
+        config.tradesHistoryWarmupSec = std::strtoll(argv[6], nullptr, 10);
+        if (config.tradesHistoryWarmupSec < 0) config.tradesHistoryWarmupSec = 0;
+        if (config.tradesHistoryWarmupSec > 86400) config.tradesHistoryWarmupSec = 86400;
     }
     return true;
 }
@@ -179,13 +184,14 @@ int runCapture(int argc, char** argv) {
         return 1;
     }
 
-    std::printf("capture started: channel=%s exchange=%s market=%s symbol=%s duration=%llds dir=%s\n",
+    std::printf("capture started: channel=%s exchange=%s market=%s symbol=%s duration=%llds dir=%s trades_warmup=%llds\n",
                 channel.c_str(),
                 config.exchange.c_str(),
                 config.market.c_str(),
                 config.symbols.empty() ? "" : config.symbols.front().c_str(),
                 static_cast<long long>(config.durationSec),
-                config.outputDir.string().c_str());
+                config.outputDir.string().c_str(),
+                static_cast<long long>(config.tradesHistoryWarmupSec));
 
     std::this_thread::sleep_for(std::chrono::seconds(config.durationSec));
     const auto finalizeStatus = coordinator.finalizeSession();

@@ -340,7 +340,8 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QStringList& selectedTradesAliases,
                                                 const QStringList& selectedLiquidationsAliases,
                                                 const QStringList& selectedBookTickerAliases,
-                                                const QStringList& selectedOrderbookAliases) {
+                                                const QStringList& selectedOrderbookAliases,
+                                                int tradesHistoryWarmupSec) {
     std::vector<capture::CaptureConfig> configs;
     const auto venues = selectedVenues(venueKeys);
 
@@ -363,6 +364,11 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
             config.outputDir = std::filesystem::path{outputDirectory.toStdString()};
             config.durationSec = 0;
             config.snapshotIntervalSec = 60;
+            int effectiveTradesHistoryWarmupSec = tradesHistoryWarmupSec;
+            if ((venue.exchange[0] == 'g' || venue.exchange[0] == 'k') && effectiveTradesHistoryWarmupSec > 60) {
+                effectiveTradesHistoryWarmupSec = 60;
+            }
+            config.tradesHistoryWarmupSec = effectiveTradesHistoryWarmupSec;
 
             const auto symbolDsl = toDslSymbol(symbol);
             config.tradesAliases.reserve(static_cast<std::size_t>(normalizedTradesAliases.size()));

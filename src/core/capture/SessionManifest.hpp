@@ -63,6 +63,13 @@ struct SessionManifest {
     std::uint64_t depthCount{0};
     std::uint64_t candlesCount{0};
     std::uint64_t snapshotCount{0};
+    std::int64_t tradesHistoryWarmupSec{0};
+    std::int64_t tradesHistoryRequestedStartNs{0};
+    std::int64_t tradesHistoryRequestedEndNs{0};
+    std::uint64_t tradesHistoryRows{0};
+    std::uint64_t tradesHistoryRequests{0};
+    std::string tradesHistoryFeedKind{};
+    std::string tradesHistoryStatus{};
     SessionHealth sessionHealth{SessionHealth::Clean};
     bool exactReplayEligible{false};
     std::string integrityReportPath{"reports/integrity_report.json"};

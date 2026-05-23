@@ -31,6 +31,8 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
             lastError_ = "capture session already open with a different exchange/market/symbol/output directory";
             return Status::InvalidArgument;
         }
+        config_.tradesHistoryWarmupSec = config.tradesHistoryWarmupSec;
+        manifest_.tradesHistoryWarmupSec = config.tradesHistoryWarmupSec;
         return Status::Ok;
     }
 
@@ -44,6 +46,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.startedAtNs = internal::nowNs();
     manifest_.targetDurationSec = config.durationSec;
     manifest_.snapshotIntervalSec = config.snapshotIntervalSec;
+    manifest_.tradesHistoryWarmupSec = config.tradesHistoryWarmupSec;
     manifest_.tradesPath = std::string{channelJsonlRelativePath(ChannelKind::Trades)};
     manifest_.liquidationsPath = std::string{channelJsonlRelativePath(ChannelKind::Liquidations)};
     manifest_.bookTickerPath = std::string{channelJsonlRelativePath(ChannelKind::BookTicker)};

@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
+#include <cctype>
+#include <cstdio>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -12,6 +15,7 @@
 #include "api/run/RunByConfig.hpp"
 #include "api/run/RunByConfigFetch.hpp"
 #include "api/candles/TieredCandleHistoryFetch.hpp"
+#include "api/trades/HistoricalTradesFetch.hpp"
 #include "api/dispatch/BuildFromConfig.hpp"
 #include "api/connector/ExchangeProductConnector.hpp"
 #include "api/orderbook/OrderBookSnapshotFetch.hpp"
@@ -27,6 +31,7 @@
 #include "core/metrics/Metrics.hpp"
 #include "primitives/buf/TimeframeBuf.hpp"
 #include "primitives/composite/OrderBookDeltaRuntimeV1.hpp"
+#include "primitives/composite/Trade.hpp"
 #include "primitives/composite/TieredCandleHistory.hpp"
 #include "primitives/composite/Ohlcv.hpp"
 #include "primitives/composite/StreamSoABuffer.hpp"
@@ -46,6 +51,195 @@ namespace {
 constexpr unsigned kRecorderTradesKeepaliveMs = 0u;
 constexpr unsigned kRecorderQuietStreamKeepaliveMs = 5000u;
 constexpr unsigned kRecorderReconnectRetryMs = 100u;
+constexpr std::uint64_t kNsPerMs = 1000000ull;
+constexpr std::int64_t kTradesHistoryWarmupMaxSec = 86400;
+constexpr std::size_t kTradesHistoryWarmupTargetRows = 40000u;
+constexpr std::uint32_t kTradesHistoryWarmupPageLimit = 250u;
+constexpr std::size_t kBinanceAggTradesPageLimit = 250u;
+constexpr std::size_t kBinanceAggTradesMaxPages = 256u;
+
+void skipJsonWs(const char*& p, const char* end) noexcept {
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
+}
+
+bool consumeJson(const char*& p, const char* end, char expected) noexcept {
+    skipJsonWs(p, end);
+    if (p >= end || *p != expected) return false;
+    ++p;
+    return true;
+}
+
+bool parseJsonStringView(const char*& p, const char* end, std::string_view& out) noexcept {
+    skipJsonWs(p, end);
+    constexpr char quote = static_cast<char>(34);
+    constexpr char slash = static_cast<char>(92);
+    if (p >= end || *p != quote) return false;
+    const char* start = ++p;
+    while (p < end) {
+        const char ch = *p++;
+        if (ch == quote) {
+            out = std::string_view{start, static_cast<std::size_t>((p - 1) - start)};
+            return true;
+        }
+        if (ch == slash || static_cast<unsigned char>(ch) < 0x20u) return false;
+    }
+    return false;
+}
+
+bool parseJsonUint64(const char*& p, const char* end, std::uint64_t& out) noexcept {
+    skipJsonWs(p, end);
+    if (p >= end || *p < '0' || *p > '9') return false;
+    const char* start = p;
+    while (p < end && *p >= '0' && *p <= '9') ++p;
+    const auto [ptr, ec] = std::from_chars(start, p, out);
+    return ec == std::errc{} && ptr == p;
+}
+
+bool parseJsonBool(const char*& p, const char* end, bool& out) noexcept {
+    skipJsonWs(p, end);
+    if ((end - p) >= 4 && p[0] == 't' && p[1] == 'r' && p[2] == 'u' && p[3] == 'e') {
+        p += 4u;
+        out = true;
+        return true;
+    }
+    if ((end - p) >= 5 && p[0] == 'f' && p[1] == 'a' && p[2] == 'l' && p[3] == 's' && p[4] == 'e') {
+        p += 5u;
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+bool skipFlatJsonValue(const char*& p, const char* end) noexcept {
+    skipJsonWs(p, end);
+    if (p >= end) return false;
+    if (*p == static_cast<char>(34)) {
+        std::string_view ignored;
+        return parseJsonStringView(p, end, ignored);
+    }
+    while (p < end && *p != ',' && *p != '}' && *p != ']') ++p;
+    return true;
+}
+
+std::int64_t decimalStringToE8(std::string_view text) noexcept {
+    if (text.empty()) return 0;
+    bool negative = false;
+    std::size_t i = 0u;
+    if (text[i] == '-') {
+        negative = true;
+        ++i;
+    }
+    std::int64_t integer = 0;
+    while (i < text.size() && text[i] >= '0' && text[i] <= '9') {
+        integer = integer * 10 + static_cast<std::int64_t>(text[i] - '0');
+        ++i;
+    }
+    std::int64_t fraction = 0;
+    std::int64_t scale = 10000000ll;
+    if (i < text.size() && text[i] == '.') {
+        ++i;
+        while (i < text.size() && text[i] >= '0' && text[i] <= '9') {
+            if (scale > 0) {
+                fraction += static_cast<std::int64_t>(text[i] - '0') * scale;
+                scale /= 10;
+            }
+            ++i;
+        }
+    }
+    const std::int64_t value = integer * 100000000ll + fraction;
+    return negative ? -value : value;
+}
+
+std::string upperAsciiSymbol(std::string_view symbol) {
+    std::string out;
+    out.reserve(symbol.size());
+    for (const char ch : symbol) {
+        out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+    }
+    return out;
+}
+
+bool parseBinanceAggTradesPage(std::string_view json,
+                               std::string_view symbol,
+                               std::string_view exchange,
+                               std::string_view market,
+                               std::vector<replay::TradeRow>& rows) noexcept {
+    rows.clear();
+    const char* p = json.data();
+    const char* end = json.data() + json.size();
+    if (!consumeJson(p, end, '[')) return false;
+    skipJsonWs(p, end);
+    if (p < end && *p == ']') return true;
+    for (;;) {
+        if (!consumeJson(p, end, '{')) return false;
+        replay::TradeRow row{};
+        row.symbol = std::string{symbol};
+        row.exchange = std::string{exchange};
+        row.market = std::string{market};
+        bool havePrice = false;
+        bool haveQty = false;
+        bool haveTs = false;
+        bool haveMaker = false;
+        for (;;) {
+            std::string_view key;
+            if (!parseJsonStringView(p, end, key)) return false;
+            if (!consumeJson(p, end, ':')) return false;
+            if (key.size() == 1u && key[0] == 'a') {
+                if (!parseJsonUint64(p, end, row.tradeId)) return false;
+            } else if (key.size() == 1u && key[0] == 'p') {
+                std::string_view value;
+                if (!parseJsonStringView(p, end, value)) return false;
+                row.priceE8 = decimalStringToE8(value);
+                havePrice = row.priceE8 > 0;
+            } else if (key.size() == 1u && key[0] == 'q') {
+                std::string_view value;
+                if (!parseJsonStringView(p, end, value)) return false;
+                row.qtyE8 = decimalStringToE8(value);
+                haveQty = row.qtyE8 > 0;
+            } else if (key.size() == 1u && key[0] == 'f') {
+                if (!parseJsonUint64(p, end, row.firstTradeId)) return false;
+            } else if (key.size() == 1u && key[0] == 'l') {
+                if (!parseJsonUint64(p, end, row.lastTradeId)) return false;
+            } else if (key.size() == 1u && key[0] == 'T') {
+                std::uint64_t tsMs = 0;
+                if (!parseJsonUint64(p, end, tsMs)) return false;
+                row.tsNs = static_cast<std::int64_t>(tsMs * kNsPerMs);
+                haveTs = row.tsNs > 0;
+            } else if (key.size() == 1u && key[0] == 'm') {
+                bool isBuyerMaker = false;
+                if (!parseJsonBool(p, end, isBuyerMaker)) return false;
+                row.isBuyerMaker = isBuyerMaker ? 1u : 0u;
+                row.side = isBuyerMaker ? 0 : 1;
+                row.sideBuy = isBuyerMaker ? 0u : 1u;
+                haveMaker = true;
+            } else if (!skipFlatJsonValue(p, end)) {
+                return false;
+            }
+            skipJsonWs(p, end);
+            if (p < end && *p == ',') {
+                ++p;
+                continue;
+            }
+            if (p < end && *p == '}') {
+                ++p;
+                break;
+            }
+            return false;
+        }
+        if (havePrice && haveQty && haveTs && haveMaker) rows.push_back(std::move(row));
+        skipJsonWs(p, end);
+        if (p < end && *p == ',') {
+            ++p;
+            continue;
+        }
+        if (p < end && *p == ']') {
+            ++p;
+            skipJsonWs(p, end);
+            return p == end;
+        }
+        return false;
+    }
+}
 
 EventSequenceIds nextEventSequenceIds(std::atomic<std::uint64_t>& channelCounter,
                                       std::atomic<std::uint64_t>& ingestCounter) noexcept {
@@ -84,6 +278,246 @@ replay::TradeRow makeTradeRow(const cxet_bridge::CapturedTradeRow& trade,
     row.isBuyerMaker = trade.isBuyerMaker ? 1u : 0u;
     row.sideBuy = trade.sideBuy ? 1u : 0u;
     return row;
+}
+
+replay::TradeRow makeHistoricalTradeRow(const cxet::composite::TradePublic& trade,
+                                        std::string_view exchange,
+                                        std::string_view market,
+                                        const EventSequenceIds& sequenceIds) {
+    replay::TradeRow row{};
+    row.tradeId = static_cast<std::uint64_t>(trade.id.raw);
+    row.firstTradeId = static_cast<std::uint64_t>(trade.firstTradeId.raw);
+    row.lastTradeId = static_cast<std::uint64_t>(trade.lastTradeId.raw);
+    row.symbol = trade.symbol.data;
+    row.exchange = std::string(exchange);
+    row.market = std::string(market);
+    row.tsNs = static_cast<std::int64_t>(trade.ts.raw);
+    row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
+    row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
+    row.priceE8 = static_cast<std::int64_t>(trade.price.raw);
+    row.qtyE8 = static_cast<std::int64_t>(trade.amount.raw);
+    row.quoteQtyE8 = static_cast<std::int64_t>(trade.quoteAmount.raw);
+    row.side = static_cast<std::int64_t>(trade.side.raw);
+    row.isBuyerMaker = trade.isBuyerMaker == canon::TriState::True ? 1u : 0u;
+    row.sideBuy = static_cast<std::uint8_t>(trade.side.raw) == 1u ? 1u : 0u;
+    return row;
+}
+
+bool tradeLessByEventTime(const replay::TradeRow& lhs, const replay::TradeRow& rhs) noexcept {
+    if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
+    if (lhs.tradeId != rhs.tradeId) return lhs.tradeId < rhs.tradeId;
+    if (lhs.priceE8 != rhs.priceE8) return lhs.priceE8 < rhs.priceE8;
+    if (lhs.qtyE8 != rhs.qtyE8) return lhs.qtyE8 < rhs.qtyE8;
+    return lhs.captureSeq < rhs.captureSeq;
+}
+
+bool sameTradeEvent(const replay::TradeRow& lhs, const replay::TradeRow& rhs) noexcept {
+    if (lhs.tradeId != 0u && rhs.tradeId != 0u) {
+        return lhs.tradeId == rhs.tradeId && lhs.symbol == rhs.symbol;
+    }
+    return lhs.tsNs == rhs.tsNs
+        && lhs.priceE8 == rhs.priceE8
+        && lhs.qtyE8 == rhs.qtyE8
+        && lhs.side == rhs.side
+        && lhs.symbol == rhs.symbol;
+}
+
+const char* historicalTradeFeedKindName(cxet::api::trades::HistoricalTradeFeedKind kind) noexcept {
+    switch (kind) {
+        case cxet::api::trades::HistoricalTradeFeedKind::RawTrades: return "raw_trades";
+        case cxet::api::trades::HistoricalTradeFeedKind::AggTrades: return "agg_trades";
+        case cxet::api::trades::HistoricalTradeFeedKind::RecentTrades: return "recent_trades";
+    }
+    return "unknown";
+}
+
+const char* historicalTradesStatusName(cxet::api::trades::HistoricalTradesStatus status) noexcept {
+    switch (status) {
+        case cxet::api::trades::HistoricalTradesStatus::Ok: return "ok";
+        case cxet::api::trades::HistoricalTradesStatus::Empty: return "empty";
+        case cxet::api::trades::HistoricalTradesStatus::BadConfig: return "bad_config";
+        case cxet::api::trades::HistoricalTradesStatus::UnsupportedRange: return "unsupported_range";
+        case cxet::api::trades::HistoricalTradesStatus::RecentOnly: return "recent_only";
+        case cxet::api::trades::HistoricalTradesStatus::FetchFailed: return "fetch_failed";
+        case cxet::api::trades::HistoricalTradesStatus::ParseFailed: return "parse_failed";
+        case cxet::api::trades::HistoricalTradesStatus::StoppedBySink: return "stopped_by_sink";
+    }
+    return "unknown";
+}
+
+struct TradesHistoryWarmupState {
+    std::atomic<bool> started{false};
+    std::atomic<bool> done{false};
+    std::atomic<bool> ok{false};
+    std::mutex mutex{};
+    std::vector<replay::TradeRow> historyRows{};
+    cxet::api::trades::HistoricalTradesResult result{};
+    std::string error{};
+    std::int64_t requestedStartNs{0};
+    std::int64_t requestedEndNs{0};
+};
+
+struct TradesHistorySinkContext {
+    TradesHistoryWarmupState* state{nullptr};
+    std::atomic<std::uint64_t>* tradesCaptureSeq{nullptr};
+    std::atomic<std::uint64_t>* ingestSeq{nullptr};
+    std::string exchange{};
+    std::string market{};
+    std::size_t maxRows{0u};
+    bool hitRowLimit{false};
+};
+
+bool appendHistoricalTradesToWarmup(void* userData,
+                                    const cxet::composite::TradePublic* rows,
+                                    std::size_t rowCount) noexcept {
+    auto* context = static_cast<TradesHistorySinkContext*>(userData);
+    if (context == nullptr || context->state == nullptr || context->tradesCaptureSeq == nullptr || context->ingestSeq == nullptr) return false;
+    std::lock_guard<std::mutex> lock(context->state->mutex);
+    context->state->historyRows.reserve(context->state->historyRows.size() + rowCount);
+    for (std::size_t i = 0u; i < rowCount; ++i) {
+        if (rows[i].ts.raw == 0u || rows[i].price.raw == 0u || rows[i].amount.raw == 0u) continue;
+        if (context->maxRows != 0u && context->state->historyRows.size() >= context->maxRows) {
+            context->hitRowLimit = true;
+            return false;
+        }
+        const auto ids = nextEventSequenceIds(*context->tradesCaptureSeq, *context->ingestSeq);
+        context->state->historyRows.push_back(makeHistoricalTradeRow(rows[i], context->exchange, context->market, ids));
+    }
+    return true;
+}
+
+bool appendParsedBinanceAggTrades(TradesHistorySinkContext& context,
+                                  const std::vector<replay::TradeRow>& rows,
+                                  cxet::api::trades::HistoricalTradesResult& out) noexcept {
+    if (context.state == nullptr || context.tradesCaptureSeq == nullptr || context.ingestSeq == nullptr) return false;
+    std::lock_guard<std::mutex> lock(context.state->mutex);
+    context.state->historyRows.reserve(context.state->historyRows.size() + rows.size());
+    for (auto row : rows) {
+        if (context.maxRows != 0u && context.state->historyRows.size() >= context.maxRows) {
+            context.hitRowLimit = true;
+            break;
+        }
+        const auto ids = nextEventSequenceIds(*context.tradesCaptureSeq, *context.ingestSeq);
+        row.captureSeq = static_cast<std::int64_t>(ids.captureSeq);
+        row.ingestSeq = static_cast<std::int64_t>(ids.ingestSeq);
+        context.state->historyRows.push_back(row);
+        ++out.rowsTotal.raw;
+        const auto ts = static_cast<std::uint64_t>(row.tsNs > 0 ? row.tsNs : 0);
+        if (ts != 0u) {
+            if (out.firstTs.raw == 0u || ts < out.firstTs.raw) out.firstTs.raw = ts;
+            if (out.lastTs.raw == 0u || ts > out.lastTs.raw) out.lastTs.raw = ts;
+        }
+    }
+    return true;
+}
+
+bool fetchBinanceFapiAggTradesWarmup(const cxet::api::trades::HistoricalTradesRequest& request,
+                                     TradesHistorySinkContext& sinkContext,
+                                     cxet::api::trades::HistoricalTradesResult& out,
+                                     MessageBuffer& requestBuf,
+                                     MessageBuffer& recvBuf) noexcept {
+    out = cxet::api::trades::HistoricalTradesResult{};
+    out.feedKind = cxet::api::trades::HistoricalTradeFeedKind::AggTrades;
+    if (request.symbol.data[0] == '\0') {
+        out.status = cxet::api::trades::HistoricalTradesStatus::BadConfig;
+        return false;
+    }
+
+    const std::string symbol = upperAsciiSymbol(request.symbol.data);
+    const std::uint64_t startMs = request.startTime.raw / kNsPerMs;
+    const std::uint64_t endMs = request.endTime.raw / kNsPerMs;
+    std::uint64_t nextFromId = 0u;
+    std::vector<replay::TradeRow> pageRows;
+    pageRows.reserve(kBinanceAggTradesPageLimit);
+
+    cxet::primitives::network::RestKeepAlivePolicy policy{};
+    policy.reuse = true;
+    static constexpr char kAggTradesPath[] = {
+        '/', 'f', 'a', 'p', 'i', '/', 'v', '1', '/', 'a', 'g', 'g', 'T', 'r', 'a', 'd', 'e', 's',
+        '?', 's', 'y', 'm', 'b', 'o', 'l', '=', '%', 's', '&', 'l', 'i', 'm', 'i', 't', '=', '%', 'z', 'u',
+        '&', 's', 't', 'a', 'r', 't', 'T', 'i', 'm', 'e', '=', '%', 'l', 'l', 'u',
+        '&', 'e', 'n', 'd', 'T', 'i', 'm', 'e', '=', '%', 'l', 'l', 'u', '\0'};
+    static constexpr char kAggTradesPathFromId[] = {
+        '/', 'f', 'a', 'p', 'i', '/', 'v', '1', '/', 'a', 'g', 'g', 'T', 'r', 'a', 'd', 'e', 's',
+        '?', 's', 'y', 'm', 'b', 'o', 'l', '=', '%', 's', '&', 'l', 'i', 'm', 'i', 't', '=', '%', 'z', 'u',
+        '&', 's', 't', 'a', 'r', 't', 'T', 'i', 'm', 'e', '=', '%', 'l', 'l', 'u',
+        '&', 'e', 'n', 'd', 'T', 'i', 'm', 'e', '=', '%', 'l', 'l', 'u',
+        '&', 'f', 'r', 'o', 'm', 'I', 'd', '=', '%', 'l', 'l', 'u', '\0'};
+    static constexpr char kBinanceFapiHost[] = {
+        'f', 'a', 'p', 'i', '.', 'b', 'i', 'n', 'a', 'n', 'c', 'e', '.', 'c', 'o', 'm', '\0'};
+    for (std::size_t page = 0u; page < kBinanceAggTradesMaxPages; ++page) {
+        int written = 0;
+        if (nextFromId == 0u) {
+            written = std::snprintf(requestBuf.data(),
+                                    requestBuf.capacityBytes(),
+                                    kAggTradesPath,
+                                    symbol.c_str(),
+                                    kBinanceAggTradesPageLimit,
+                                    static_cast<unsigned long long>(startMs),
+                                    static_cast<unsigned long long>(endMs));
+        } else {
+            written = std::snprintf(requestBuf.data(),
+                                    requestBuf.capacityBytes(),
+                                    kAggTradesPathFromId,
+                                    symbol.c_str(),
+                                    kBinanceAggTradesPageLimit,
+                                    static_cast<unsigned long long>(startMs),
+                                    static_cast<unsigned long long>(endMs),
+                                    static_cast<unsigned long long>(nextFromId));
+        }
+        if (written <= 0 || static_cast<std::size_t>(written) >= requestBuf.capacityBytes()) {
+            out.status = cxet::api::trades::HistoricalTradesStatus::BadConfig;
+            return false;
+        }
+        requestBuf.setSize(static_cast<std::size_t>(written));
+
+        int httpStatus = 0;
+        recvBuf.setSize(0u);
+        const bool fetched = cxet::network::rest::fetchRestKeepAlive(kBinanceFapiHost,
+                                                                     443u,
+                                                                     requestBuf,
+                                                                     recvBuf,
+                                                                     policy,
+                                                                     &httpStatus);
+        ++out.requestsTotal.raw;
+        if (!fetched || httpStatus < 200 || httpStatus >= 300) {
+            out.status = cxet::api::trades::HistoricalTradesStatus::FetchFailed;
+            return false;
+        }
+        if (!parseBinanceAggTradesPage(std::string_view{recvBuf.data(), recvBuf.size()},
+                                       symbol,
+                                       sinkContext.exchange,
+                                       sinkContext.market,
+                                       pageRows)) {
+            out.status = cxet::api::trades::HistoricalTradesStatus::ParseFailed;
+            return false;
+        }
+        if (pageRows.empty()) break;
+
+        std::uint64_t maxId = 0u;
+        bool sawPastEnd = false;
+        std::vector<replay::TradeRow> filtered;
+        filtered.reserve(pageRows.size());
+        for (const auto& row : pageRows) {
+            if (row.tradeId > maxId) maxId = row.tradeId;
+            if (request.endTime.raw != 0u && static_cast<std::uint64_t>(row.tsNs) > request.endTime.raw) sawPastEnd = true;
+            if (request.startTime.raw != 0u && static_cast<std::uint64_t>(row.tsNs) < request.startTime.raw) continue;
+            if (request.endTime.raw != 0u && static_cast<std::uint64_t>(row.tsNs) > request.endTime.raw) continue;
+            filtered.push_back(row);
+        }
+        if (!appendParsedBinanceAggTrades(sinkContext, filtered, out)) {
+            out.status = cxet::api::trades::HistoricalTradesStatus::StoppedBySink;
+            return false;
+        }
+        if (sinkContext.hitRowLimit) break;
+        if (pageRows.size() < kBinanceAggTradesPageLimit || maxId == 0u || sawPastEnd) break;
+        nextFromId = maxId + 1u;
+    }
+
+    out.status = out.rowsTotal.raw == 0u
+        ? cxet::api::trades::HistoricalTradesStatus::Empty
+        : cxet::api::trades::HistoricalTradesStatus::Ok;
+    return true;
 }
 replay::BookTickerRow makeBookTickerRow(const cxet_bridge::CapturedBookTickerRow& bookTicker,
                                         std::string_view exchange,
@@ -1142,6 +1576,10 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
     std::uint8_t appliedMask = 0u;
     bool initialOrderbookSeedAttempted = depthCount_.load(std::memory_order_acquire) != 0u;
     std::vector<replay::PricePair> bitgetPreviousOrderbookLevels{};
+    TradesHistoryWarmupState tradesWarmup{};
+    std::thread tradesWarmupThread{};
+    std::vector<replay::TradeRow> bufferedLiveTradeRows{};
+    bool tradesWarmupFlushed = false;
 
     auto closeChannels = [&]() noexcept {
         for (std::size_t i = 0u; i < channelCount; ++i) {
@@ -1261,6 +1699,184 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         return true;
     };
 
+    auto appendTradeRowToStores = [&](const replay::TradeRow& row, bool publish) -> bool {
+        const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
+        if (publish) local_exchange::globalLocalMarketDataBus().publish("trades", row.symbol, jsonLine);
+        const auto liveStatus = liveStore_.appendTrade(row);
+        const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendTradeLine(row, jsonLine) : liveStatus;
+        if (!isOk(fileStatus)) {
+            metrics::recordCaptureWriteError("trades");
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            lastError_ = "trades: failed to write trades.jsonl";
+            marketDataStop_.store(true, std::memory_order_release);
+            return false;
+        }
+        tradesCount_.fetch_add(1, std::memory_order_acq_rel);
+        metrics::recordCaptureEvent("trades",
+                                    static_cast<std::uint64_t>(row.tsNs > 0 ? row.tsNs : 0),
+                                    static_cast<std::uint64_t>(jsonLine.size() + 1u),
+                                    static_cast<std::uint64_t>(internal::nowNs()));
+        return true;
+    };
+
+    auto appendTradeRowToLiveOnly = [&](const replay::TradeRow& row, const std::string& jsonLine) -> bool {
+        static constexpr char kTradesText[] = {'t', 'r', 'a', 'd', 'e', 's', '\0'};
+        local_exchange::globalLocalMarketDataBus().publish(kTradesText, row.symbol, jsonLine);
+        const auto liveStatus = liveStore_.appendTrade(row);
+        if (!isOk(liveStatus)) {
+            metrics::recordCaptureWriteError(kTradesText);
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            lastError_ = kTradesText;
+            marketDataStop_.store(true, std::memory_order_release);
+            return false;
+        }
+        tradesCount_.fetch_add(1, std::memory_order_acq_rel);
+        metrics::recordCaptureEvent(kTradesText,
+                                    static_cast<std::uint64_t>(row.tsNs > 0 ? row.tsNs : 0),
+                                    static_cast<std::uint64_t>(jsonLine.size() + 1u),
+                                    static_cast<std::uint64_t>(internal::nowNs()));
+        return true;
+    };
+
+    auto appendTradeRowToFileOnly = [&](const replay::TradeRow& row) -> bool {
+        static constexpr char kTradesText[] = {'t', 'r', 'a', 'd', 'e', 's', '\0'};
+        const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
+        const auto fileStatus = jsonSink_.appendTradeLine(row, jsonLine);
+        if (!isOk(fileStatus)) {
+            metrics::recordCaptureWriteError(kTradesText);
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            lastError_ = kTradesText;
+            marketDataStop_.store(true, std::memory_order_release);
+            return false;
+        }
+        return true;
+    };
+
+    auto startTradesWarmupIfNeeded = [&]() {
+        if (tradesWarmup.started.load(std::memory_order_acquire)) return;
+        if (!desiredTrades_.load(std::memory_order_acquire)) return;
+        if (config.tradesHistoryWarmupSec <= 0) return;
+        const auto warmupSec = std::min<std::int64_t>(config.tradesHistoryWarmupSec, kTradesHistoryWarmupMaxSec);
+        const auto warmupNs = warmupSec * 1000000000LL;
+        const auto endNs = internal::nowNs();
+        const auto startNs = endNs > warmupNs ? endNs - warmupNs : 0;
+        tradesWarmup.requestedStartNs = startNs;
+        tradesWarmup.requestedEndNs = endNs;
+        tradesWarmup.started.store(true, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            manifest_.tradesHistoryWarmupSec = warmupSec;
+            manifest_.tradesHistoryRequestedStartNs = startNs;
+            manifest_.tradesHistoryRequestedEndNs = endNs;
+            manifest_.tradesHistoryStatus = "running";
+        }
+        tradesWarmupThread = std::thread([this, &tradesWarmup, config, startNs, endNs]() noexcept {
+            cxet::api::trades::HistoricalTradesRequest request{};
+            request.exchange = exchangeIdFromConfig(config.exchange);
+            request.market = marketTypeFromConfig(config.market);
+            request.startTime.raw = static_cast<std::uint64_t>(startNs > 0 ? startNs : 0);
+            request.endTime.raw = static_cast<std::uint64_t>(endNs > 0 ? endNs : 0);
+            request.pageLimit.raw = kTradesHistoryWarmupPageLimit;
+            request.apiSlot = 1u;
+            request.allowRecentFallback = true;
+            if (!config.symbols.empty()) request.symbol.copyFrom(config.symbols.front().c_str());
+
+            TradesHistorySinkContext sinkContext{};
+            sinkContext.state = &tradesWarmup;
+            sinkContext.tradesCaptureSeq = &tradesCaptureSeq_;
+            sinkContext.ingestSeq = &ingestSeq_;
+            sinkContext.exchange = config.exchange;
+            sinkContext.market = config.market;
+            sinkContext.maxRows = kTradesHistoryWarmupTargetRows;
+
+            MessageBuffer requestBuf{};
+            MessageBuffer recvBuf{};
+            cxet::api::trades::HistoricalTradesResult result{};
+            static constexpr char kBinanceExchangeText[] = {'b', 'i', 'n', 'a', 'n', 'c', 'e', '\0'};
+            static constexpr char kSwapMarketText[] = {'s', 'w', 'a', 'p', '\0'};
+            bool ok = textEqualsAscii(config.exchange, kBinanceExchangeText)
+                && !textEqualsAscii(config.market, kSwapMarketText)
+                ? fetchBinanceFapiAggTradesWarmup(request, sinkContext, result, requestBuf, recvBuf)
+                : cxet::api::trades::fetchHistoricalTrades(request,
+                                                           appendHistoricalTradesToWarmup,
+                                                           &sinkContext,
+                                                           result,
+                                                           requestBuf,
+                                                           recvBuf);
+            if (sinkContext.hitRowLimit) {
+                std::lock_guard<std::mutex> lock(tradesWarmup.mutex);
+                result.rowsTotal.raw = static_cast<std::uint64_t>(tradesWarmup.historyRows.size());
+                result.status = cxet::api::trades::HistoricalTradesStatus::Ok;
+                ok = true;
+            }
+            tradesWarmup.result = result;
+            if (!ok) {
+                tradesWarmup.error = std::string{"trades history warmup failed: "}
+                    + historicalTradesStatusName(result.status);
+            }
+            tradesWarmup.ok.store(ok, std::memory_order_release);
+            tradesWarmup.done.store(true, std::memory_order_release);
+        });
+    };
+
+    auto flushTradesWarmupIfReady = [&]() -> bool {
+        if (tradesWarmupFlushed) return true;
+        if (!tradesWarmup.started.load(std::memory_order_acquire)) return true;
+        if (!tradesWarmup.done.load(std::memory_order_acquire)) return true;
+        if (tradesWarmupThread.joinable()) tradesWarmupThread.join();
+
+        std::vector<replay::TradeRow> historyRows;
+        {
+            std::lock_guard<std::mutex> lock(tradesWarmup.mutex);
+            historyRows = std::move(tradesWarmup.historyRows);
+        }
+        struct PendingTradeRow {
+            replay::TradeRow row{};
+            bool publish{false};
+        };
+        std::vector<PendingTradeRow> pending;
+        pending.reserve(historyRows.size() + bufferedLiveTradeRows.size());
+        for (const auto& row : historyRows) pending.push_back(PendingTradeRow{row, false});
+        for (const auto& row : bufferedLiveTradeRows) pending.push_back(PendingTradeRow{row, true});
+        std::sort(pending.begin(), pending.end(), [](const PendingTradeRow& lhs, const PendingTradeRow& rhs) noexcept {
+            if (tradeLessByEventTime(lhs.row, rhs.row)) return true;
+            if (tradeLessByEventTime(rhs.row, lhs.row)) return false;
+            return !lhs.publish && rhs.publish;
+        });
+
+        bool havePrevious = false;
+        replay::TradeRow previous{};
+        for (const auto& pendingRow : pending) {
+            if (havePrevious && sameTradeEvent(previous, pendingRow.row)) {
+                if (pendingRow.publish) tradesCount_.fetch_sub(1, std::memory_order_acq_rel);
+                continue;
+            }
+            if (pendingRow.publish) {
+                if (!appendTradeRowToFileOnly(pendingRow.row)) return false;
+            } else if (!appendTradeRowToStores(pendingRow.row, false)) {
+                return false;
+            }
+            previous = pendingRow.row;
+            havePrevious = true;
+        }
+        bufferedLiveTradeRows.clear();
+        {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            manifest_.tradesHistoryWarmupSec = std::min<std::int64_t>(config.tradesHistoryWarmupSec, kTradesHistoryWarmupMaxSec);
+            manifest_.tradesHistoryRequestedStartNs = tradesWarmup.requestedStartNs;
+            manifest_.tradesHistoryRequestedEndNs = tradesWarmup.requestedEndNs;
+            manifest_.tradesHistoryRows = static_cast<std::uint64_t>(historyRows.size());
+            manifest_.tradesHistoryRequests = static_cast<std::uint64_t>(tradesWarmup.result.requestsTotal.raw);
+            manifest_.tradesHistoryFeedKind = historicalTradeFeedKindName(tradesWarmup.result.feedKind);
+            manifest_.tradesHistoryStatus = historicalTradesStatusName(tradesWarmup.result.status);
+            if (!tradesWarmup.ok.load(std::memory_order_acquire)) {
+                lastError_ = tradesWarmup.error;
+            }
+        }
+        tradesWarmupFlushed = true;
+        return true;
+    };
+
     auto desiredMask = [&]() noexcept -> std::uint8_t {
         std::uint8_t mask = 0u;
         if (desiredTrades_.load(std::memory_order_acquire)) mask |= 1u;
@@ -1275,7 +1891,9 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         if (mask != appliedMask) {
             if (!rebuildDesired()) break;
             appliedMask = mask;
+            startTradesWarmupIfNeeded();
         }
+        if (!flushTradesWarmupIfReady()) break;
 
         std::size_t eventCount = 0u;
         for (std::size_t channelIndex = 0u; channelIndex < channelCount; ++channelIndex) {
@@ -1294,7 +1912,6 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 cxet::composite::TradeRuntimeV1 trade{};
                 cxet::composite::StreamMeta meta{};
                 if (!readTradeSnapshot(*snapshot, trade, meta)) continue;
-                tradesCount_.fetch_add(1, std::memory_order_acq_rel);
                 const auto sequenceIds = nextEventSequenceIds(tradesCaptureSeq_, ingestSeq_);
                 TscTick bridgeStartTsc{};
                 if (captureMetrics) bridgeStartTsc = cxet::probes::captureTsc();
@@ -1309,6 +1926,12 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
                 const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
+                if (tradesWarmup.started.load(std::memory_order_acquire)
+                    && !tradesWarmupFlushed) {
+                    bufferedLiveTradeRows.push_back(row);
+                    if (!appendTradeRowToLiveOnly(row, jsonLine)) break;
+                    continue;
+                }
                 local_exchange::globalLocalMarketDataBus().publish("trades", row.symbol, jsonLine);
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
@@ -1322,6 +1945,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                     marketDataStop_.store(true, std::memory_order_release);
                     break;
                 }
+                tradesCount_.fetch_add(1, std::memory_order_acq_rel);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                 metrics::recordCaptureEvent("trades", capturedTrade.tsNs,
                                             static_cast<std::uint64_t>(jsonLine.size() + 1u),
@@ -1404,7 +2028,13 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                                             static_cast<std::uint64_t>(internal::nowNs()));
             }
         }
+        if (!flushTradesWarmupIfReady()) break;
         if (eventCount == 0u) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    if (tradesWarmupThread.joinable()) {
+        tradesWarmupThread.join();
+        (void)flushTradesWarmupIfReady();
     }
 
     closeChannels();

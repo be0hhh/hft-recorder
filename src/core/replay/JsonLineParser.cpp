@@ -62,6 +62,20 @@ bool parseFlatOrderbook(JsonParser& parser, std::vector<PricePair>& levels, std:
     return parser.parseArrayEnd() && parser.finish();
 }
 
+bool parseBoolByte(JsonParser& parser, std::uint8_t& out) noexcept {
+    bool boolValue = false;
+    if (parser.peek('t') || parser.peek('f')) {
+        if (!parser.parseBool(boolValue)) return false;
+        out = boolValue ? 1u : 0u;
+        return true;
+    }
+    std::int64_t intValue = 0;
+    if (!parser.parseInt64(intValue)) return false;
+    if (intValue != 0 && intValue != 1) return false;
+    out = static_cast<std::uint8_t>(intValue);
+    return true;
+}
+
 }  // namespace
 
 Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
@@ -77,6 +91,30 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
     out.sideBuy = static_cast<std::uint8_t>(out.side);
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+    if (parser.peek(']')) {
+        if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+        return Status::Ok;
+    }
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseUInt64(out.tradeId)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseUInt64(out.firstTradeId)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseUInt64(out.lastTradeId)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.quoteQtyE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parseBoolByte(parser, out.isBuyerMaker)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseString(out.symbol)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseString(out.exchange)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseString(out.market)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
     if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
     return Status::Ok;
 }
@@ -84,8 +122,54 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
 Status parseTradeLine(std::string_view line,
                       TradeRow& out,
                       const std::vector<std::string>& aliases) noexcept {
-    (void)aliases;
-    return parseTradeLine(line, out);
+    out = TradeRow{};
+    if (aliases.empty()) return parseTradeLine(line, out);
+
+    JsonParser parser{line};
+    if (!parser.parseArrayStart()) return Status::CorruptData;
+    bool firstValue = true;
+    for (const auto& alias : aliases) {
+        if (!firstValue) {
+            if (parser.peek(']')) break;
+            if (!parser.parseComma()) return Status::CorruptData;
+        }
+        if (alias == price) {
+            if (!parser.parseInt64(out.priceE8)) return Status::CorruptData;
+        } else if (alias == amount) {
+            if (!parser.parseInt64(out.qtyE8)) return Status::CorruptData;
+        } else if (alias == side) {
+            if (!parser.parseInt64(out.side)) return Status::CorruptData;
+            if (out.side != 0 && out.side != 1) return Status::CorruptData;
+            out.sideBuy = static_cast<std::uint8_t>(out.side);
+        } else if (alias == timestamp) {
+            if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+        } else if (alias == id) {
+            if (!parser.parseUInt64(out.tradeId)) return Status::CorruptData;
+        } else if (alias == firstTradeId) {
+            if (!parser.parseUInt64(out.firstTradeId)) return Status::CorruptData;
+        } else if (alias == lastTradeId) {
+            if (!parser.parseUInt64(out.lastTradeId)) return Status::CorruptData;
+        } else if (alias == quoteQty) {
+            if (!parser.parseInt64(out.quoteQtyE8)) return Status::CorruptData;
+        } else if (alias == isBuyerMaker) {
+            if (!parseBoolByte(parser, out.isBuyerMaker)) return Status::CorruptData;
+        } else if (alias == symbol) {
+            if (!parser.parseString(out.symbol)) return Status::CorruptData;
+        } else if (alias == exchange) {
+            if (!parser.parseString(out.exchange)) return Status::CorruptData;
+        } else if (alias == market) {
+            if (!parser.parseString(out.market)) return Status::CorruptData;
+        } else if (alias == captureSeq) {
+            if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
+        } else if (alias == ingestSeq) {
+            if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
+        } else if (!parser.skipValue()) {
+            return Status::CorruptData;
+        }
+        firstValue = false;
+    }
+    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    return Status::Ok;
 }
 
 Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept {

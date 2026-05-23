@@ -26,6 +26,7 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(QVariantList venueChoices READ venueChoices CONSTANT)
     Q_PROPERTY(QString symbolsText READ symbolsText WRITE setSymbolsText NOTIFY symbolsTextChanged)
     Q_PROPERTY(QString normalizedSymbolsText READ normalizedSymbolsText NOTIFY symbolsTextChanged)
+    Q_PROPERTY(int tradesHistoryWarmupSec READ tradesHistoryWarmupSec WRITE setTradesHistoryWarmupSec NOTIFY tradesHistoryWarmupSecChanged)
     Q_PROPERTY(QStringList tradesAvailableAliases READ tradesAvailableAliases NOTIFY requestBuilderChanged)
     Q_PROPERTY(QStringList liquidationsAvailableAliases READ liquidationsAvailableAliases NOTIFY requestBuilderChanged)
     Q_PROPERTY(QStringList bookTickerAvailableAliases READ bookTickerAvailableAliases NOTIFY requestBuilderChanged)
@@ -59,6 +60,7 @@ class CaptureViewModel : public QObject {
     QVariantList venueChoices() const;
     QString symbolsText() const;
     QString normalizedSymbolsText() const;
+    int tradesHistoryWarmupSec() const noexcept;
     QStringList tradesAvailableAliases() const;
     QStringList liquidationsAvailableAliases() const;
     QStringList bookTickerAvailableAliases() const;
@@ -90,6 +92,7 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE QString venueSymbolsText(const QString& venueKey) const;
     Q_INVOKABLE void setVenueSymbolsText(const QString& venueKey, const QString& symbolsText);
     Q_INVOKABLE void setSymbolsText(const QString& symbolsText);
+    Q_INVOKABLE void setTradesHistoryWarmupSec(int seconds);
     Q_INVOKABLE void toggleAlias(const QString& channel, const QString& alias);
     Q_INVOKABLE bool isAliasSelected(const QString& channel, const QString& alias) const;
     Q_INVOKABLE bool isRequiredAlias(const QString& channel, const QString& alias) const;
@@ -112,6 +115,7 @@ class CaptureViewModel : public QObject {
     void outputDirectoryChanged();
     void venueChanged();
     void symbolsTextChanged();
+    void tradesHistoryWarmupSecChanged();
     void requestBuilderChanged();
     void sessionStateChanged();
     void statusTextChanged();
@@ -155,6 +159,7 @@ class CaptureViewModel : public QObject {
     };
     QStringList venueSymbolsTexts_{};
     QString symbolsText_{"ETHUSDT"};
+    int tradesHistoryWarmupSec_{300};
     QStringList tradesAvailableAliases_{};
     QStringList liquidationsAvailableAliases_{};
     QStringList bookTickerAvailableAliases_{};

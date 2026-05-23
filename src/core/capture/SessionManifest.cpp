@@ -186,6 +186,44 @@ bool parseChannelObject(JsonParser& parser,
     return parser.parseObjectEnd();
 }
 
+bool parseTradesChannelObject(JsonParser& parser, SessionManifest& manifest) noexcept {
+    if (!parser.parseObjectStart()) return false;
+    if (parser.peek('}')) return parser.parseObjectEnd();
+    std::string key;
+    do {
+        if (!parser.parseKey(key)) return false;
+        if (key == "enabled") {
+            if (!parser.parseBool(manifest.tradesEnabled)) return false;
+        } else if (key == "required_when_enabled") {
+            if (!parser.parseBool(manifest.tradesRequiredWhenEnabled)) return false;
+        } else if (key == "path") {
+            if (!parser.parseString(manifest.tradesPath)) return false;
+        } else if (key == "row_schema") {
+            if (!parser.parseString(manifest.tradesRowSchema)) return false;
+        } else if (key == "declared_event_count") {
+            if (!parseUint64Field(parser, manifest.tradesCount)) return false;
+        } else if (key == "history_warmup_sec") {
+            if (!parseInt64Field(parser, manifest.tradesHistoryWarmupSec)) return false;
+        } else if (key == "history_requested_start_ns") {
+            if (!parseInt64Field(parser, manifest.tradesHistoryRequestedStartNs)) return false;
+        } else if (key == "history_requested_end_ns") {
+            if (!parseInt64Field(parser, manifest.tradesHistoryRequestedEndNs)) return false;
+        } else if (key == "history_rows") {
+            if (!parseUint64Field(parser, manifest.tradesHistoryRows)) return false;
+        } else if (key == "history_requests") {
+            if (!parseUint64Field(parser, manifest.tradesHistoryRequests)) return false;
+        } else if (key == "history_feed_kind") {
+            if (!parser.parseString(manifest.tradesHistoryFeedKind)) return false;
+        } else if (key == "history_status") {
+            if (!parser.parseString(manifest.tradesHistoryStatus)) return false;
+        } else {
+            if (!parser.skipValue()) return false;
+        }
+        if (parser.peek('}')) break;
+    } while (parser.parseComma());
+    return parser.parseObjectEnd();
+}
+
 
 bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
@@ -194,12 +232,7 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
     do {
         if (!parser.parseKey(key)) return false;
         if (key == "trades") {
-            if (!parseChannelObject(parser,
-                                    manifest.tradesEnabled,
-                                    manifest.tradesRequiredWhenEnabled,
-                                    manifest.tradesPath,
-                                    manifest.tradesRowSchema,
-                                    manifest.tradesCount)) {
+            if (!parseTradesChannelObject(parser, manifest)) {
                 return false;
             }
         } else if (key == "liquidations") {
@@ -557,7 +590,14 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"required_when_enabled\": " << boolToString(manifest.tradesRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.tradesPath) << ",\n";
     out << "      \"row_schema\": " << json::quote(manifest.tradesRowSchema) << ",\n";
-    out << "      \"declared_event_count\": " << manifest.tradesCount << "\n";
+    out << "      \"declared_event_count\": " << manifest.tradesCount << ",\n";
+    out << "      \"history_warmup_sec\": " << manifest.tradesHistoryWarmupSec << ",\n";
+    out << "      \"history_requested_start_ns\": " << manifest.tradesHistoryRequestedStartNs << ",\n";
+    out << "      \"history_requested_end_ns\": " << manifest.tradesHistoryRequestedEndNs << ",\n";
+    out << "      \"history_rows\": " << manifest.tradesHistoryRows << ",\n";
+    out << "      \"history_requests\": " << manifest.tradesHistoryRequests << ",\n";
+    out << "      \"history_feed_kind\": " << json::quote(manifest.tradesHistoryFeedKind) << ",\n";
+    out << "      \"history_status\": " << json::quote(manifest.tradesHistoryStatus) << "\n";
     out << "    },\n";
     out << "    \"liquidations\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.liquidationsEnabled) << ",\n";

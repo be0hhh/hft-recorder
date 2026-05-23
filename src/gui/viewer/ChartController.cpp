@@ -326,8 +326,7 @@ void ChartController::refreshLoadedStateFromSources_() noexcept {
         || !replay_.liquidations().empty()
         || !replay_.bookTickers().empty()
         || !replay_.depths().empty()
-        || !replay_.book().bids().empty()
-        || !replay_.book().asks().empty()
+        || !replay_.book().empty()
         || !liveDataCache_.stableRows.trades.empty()
         || !liveDataCache_.stableRows.liquidations.empty()
         || !liveDataCache_.stableRows.bookTickers.empty()
@@ -392,7 +391,7 @@ std::int64_t ChartController::effectiveRenderMinTs_(std::int64_t latestTsNs) con
 void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
     if (liveInitialViewportApplied_) return;
     if (!replay_.trades().empty() || !replay_.liquidations().empty() || !replay_.bookTickers().empty() || !replay_.depths().empty()
-        || !replay_.book().bids().empty() || !replay_.book().asks().empty()) {
+        || !replay_.book().empty()) {
         liveInitialViewportApplied_ = true;
         return;
     }

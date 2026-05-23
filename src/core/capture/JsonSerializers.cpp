@@ -89,8 +89,30 @@ std::string renderTradeJsonLine(const replay::TradeRow& trade) {
 
 std::string renderTradeJsonLine(const replay::TradeRow& trade,
                                 const std::vector<std::string>& aliases) {
-    (void)aliases;
-    return renderTradeJsonLine(trade);
+    if (aliases.empty()) return renderTradeJsonLine(trade);
+
+    std::string out;
+    out.reserve(256);
+    out.push_back('[');
+    bool first = true;
+    for (const auto& alias : aliases) {
+        if (alias == price) appendValue(out, first, [&] { appendInt(out, trade.priceE8); });
+        else if (alias == amount) appendValue(out, first, [&] { appendInt(out, trade.qtyE8); });
+        else if (alias == side) appendValue(out, first, [&] { appendInt(out, trade.side); });
+        else if (alias == timestamp) appendValue(out, first, [&] { appendInt(out, trade.tsNs); });
+        else if (alias == id) appendValue(out, first, [&] { appendInt(out, trade.tradeId); });
+        else if (alias == firstTradeId) appendValue(out, first, [&] { appendInt(out, trade.firstTradeId); });
+        else if (alias == lastTradeId) appendValue(out, first, [&] { appendInt(out, trade.lastTradeId); });
+        else if (alias == quoteQty) appendValue(out, first, [&] { appendInt(out, trade.quoteQtyE8); });
+        else if (alias == isBuyerMaker) appendValue(out, first, [&] { appendInt(out, static_cast<int>(trade.isBuyerMaker)); });
+        else if (alias == symbol) appendValue(out, first, [&] { appendString(out, trade.symbol); });
+        else if (alias == exchange) appendValue(out, first, [&] { appendString(out, trade.exchange); });
+        else if (alias == market) appendValue(out, first, [&] { appendString(out, trade.market); });
+        else if (alias == captureSeq) appendValue(out, first, [&] { appendInt(out, trade.captureSeq); });
+        else if (alias == ingestSeq) appendValue(out, first, [&] { appendInt(out, trade.ingestSeq); });
+    }
+    out.push_back(']');
+    return out;
 }
 
 std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation) {

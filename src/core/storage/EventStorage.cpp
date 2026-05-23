@@ -85,6 +85,24 @@ EventBatch IEventSource::readSince(std::size_t tradeOffset,
     return batch;
 }
 
+bool IEventSource::readSnapshotAtOrBefore(std::int64_t tsNs,
+                                          replay::SnapshotDocument& out) const {
+    const auto batch = readAll();
+    const auto it = std::upper_bound(
+        batch.snapshots.begin(),
+        batch.snapshots.end(),
+        tsNs,
+        [](std::int64_t ts, const replay::SnapshotDocument& row) noexcept { return ts < row.tsNs; });
+    if (it == batch.snapshots.begin()) return false;
+    out = *std::prev(it);
+    return true;
+}
+
+std::vector<replay::DepthRow> IEventSource::readDepthRange(std::int64_t fromTsNs,
+                                                           std::int64_t toTsNs) const {
+    return readRange(fromTsNs, toTsNs).depths;
+}
+
 Status LiveEventStore::appendTrade(const replay::TradeRow& row) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     events_.trades.push_back(row);
@@ -142,6 +160,27 @@ EventBatch LiveEventStore::readRange(std::int64_t fromTsNs, std::int64_t toTsNs)
     appendRowsInSortedRange(events_.bookTickers, fromTsNs, toTsNs, out.bookTickers);
     appendRowsInSortedRange(events_.depths, fromTsNs, toTsNs, out.depths);
     appendRowsInSortedRange(events_.snapshots, fromTsNs, toTsNs, out.snapshots);
+    return out;
+}
+
+bool LiveEventStore::readSnapshotAtOrBefore(std::int64_t tsNs,
+                                            replay::SnapshotDocument& out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = std::upper_bound(
+        events_.snapshots.begin(),
+        events_.snapshots.end(),
+        tsNs,
+        [](std::int64_t ts, const replay::SnapshotDocument& row) noexcept { return ts < row.tsNs; });
+    if (it == events_.snapshots.begin()) return false;
+    out = *std::prev(it);
+    return true;
+}
+
+std::vector<replay::DepthRow> LiveEventStore::readDepthRange(std::int64_t fromTsNs,
+                                                             std::int64_t toTsNs) const {
+    std::vector<replay::DepthRow> out;
+    std::lock_guard<std::mutex> lock(mutex_);
+    appendRowsInSortedRange(events_.depths, fromTsNs, toTsNs, out);
     return out;
 }
 

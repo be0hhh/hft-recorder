@@ -32,6 +32,7 @@ struct CaptureConfig {
     std::filesystem::path outputDir{"./recordings"};
     std::int64_t durationSec{0};
     std::int64_t snapshotIntervalSec{60};
+    std::int64_t tradesHistoryWarmupSec{3600};
     std::vector<std::string> tradesAliases{};
     std::vector<std::string> liquidationAliases{};
     std::vector<std::string> bookTickerAliases{};
