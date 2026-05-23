@@ -4,6 +4,7 @@
 set(HFTREC_CORE_SOURCES
     arbitrage/BookTickerSpread.cpp
     arbitrage/BookTickerSpreadMean.cpp
+    backtest/BacktestRunner.cpp
     capture/SessionId.cpp
     capture/SessionManifest.cpp
     capture/ChannelJsonWriter.cpp
@@ -25,6 +26,7 @@ set(HFTREC_CORE_SOURCES
     lab/LabRunner.cpp
     lab/RankingEngine.cpp
     metrics/Metrics.cpp
+    recorder_api.cpp
     replay/JsonLineParser.cpp
     replay/BookState.cpp
     replay/CxetReplaySessionLoader.cpp
@@ -50,11 +52,14 @@ else()
 endif()
 
 add_library(hftrec_core STATIC ${HFTREC_CORE_SOURCES})
+add_library(hftrec::core ALIAS hftrec_core)
+add_library(hftrec_recorder_api INTERFACE)
+add_library(hftrec::recorder_api ALIAS hftrec_recorder_api)
 
 target_include_directories(hftrec_core
     PUBLIC
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src
 )
 
 target_link_libraries(hftrec_core
@@ -82,4 +87,6 @@ endif()
 target_compile_definitions(hftrec_core PUBLIC HFTREC_HOTPATH_METRICS_DEFAULT=${HFTREC_HOTPATH_METRICS_DEFAULT_VALUE})
 
 target_compile_features(hftrec_core PUBLIC cxx_std_23)
+target_link_libraries(hftrec_recorder_api INTERFACE hftrec_core)
+target_compile_features(hftrec_recorder_api INTERFACE cxx_std_23)
 

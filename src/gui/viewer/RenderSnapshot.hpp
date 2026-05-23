@@ -77,6 +77,15 @@ struct TradeDot {
     int          lastOrigIndex{-1};
     std::int64_t totalQtyE8{0};
     std::int64_t totalAmountE8{0};
+    std::int64_t tsStartNs{0};
+    std::int64_t tsEndNs{0};
+    bool         aggregated{false};
+    std::int64_t tradeCount{0};
+    std::int64_t buyQtyE8{0};
+    std::int64_t sellQtyE8{0};
+    std::int64_t buyAmountE8{0};
+    std::int64_t sellAmountE8{0};
+    std::int64_t representativePriceE8{0};
     std::vector<TradeGroupEntry> groupEntries;
 };
 
@@ -121,6 +130,15 @@ struct HoverInfo {
     std::int64_t tradeQtyE8{0};
     std::int64_t tradeTotalQtyE8{0};
     std::int64_t tradeTotalAmountE8{0};
+    std::int64_t tradeTsStartNs{0};
+    std::int64_t tradeTsEndNs{0};
+    std::int64_t tradeCount{0};
+    std::int64_t tradeBuyQtyE8{0};
+    std::int64_t tradeSellQtyE8{0};
+    std::int64_t tradeBuyAmountE8{0};
+    std::int64_t tradeSellAmountE8{0};
+    std::int64_t tradeRepresentativePriceE8{0};
+    bool         tradeAggregated{false};
     bool         tradeSideBuy{true};
     std::vector<TradeGroupEntry> tradeGroupEntries;
 

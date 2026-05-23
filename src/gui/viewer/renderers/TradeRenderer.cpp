@@ -63,7 +63,7 @@ void renderTrades(const RenderContext& ctx) {
         const qreal radius = detail::amountRadiusScale(amountE8, ctx.s.tradeAmountScale, ctx.s.interactiveMode);
         if ((x + radius) < 0.0 || (x - radius) > vp.w || (y + radius) < 0.0 || (y - radius) > vp.h) continue;
         if ((radius * 2.0) < 1.0) continue;
-        QColor fill = dot.sideBuy ? tradeBuyColor() : tradeSellColor();
+        QColor fill = dot.aggregated ? tradeAggregateColor() : (dot.sideBuy ? tradeBuyColor() : tradeSellColor());
         fill.setAlpha(255);
         ctx.p->setBrush(fill);
         if (denseApproximation) {

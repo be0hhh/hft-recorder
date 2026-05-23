@@ -193,4 +193,61 @@ TEST(ChartTradeGrouping, GroupsOnlyContiguousSameTimestampPriceAndSide) {
     fs::remove_all(dir, ec);
 }
 
+TEST(ChartTradeLod, AggregatesDenseTradesByScreenPixel) {
+    ChartController chart;
+    const auto dir = makeTmpDir();
+    std::string lines;
+    for (int i = 0; i < 25000; ++i) {
+        lines += tradeLineWithSide(1000 + i, e8(100 + (i % 5)), e8(1), i % 2);
+    }
+    writeFile(dir / "trades.jsonl", lines);
+
+    ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
+    chart.setViewport(1000, 25999, e8(95), e8(110));
+
+    const auto snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
+    EXPECT_TRUE(snap.tradeDecimated);
+    EXPECT_FALSE(snap.tradeConnectorsVisible);
+    ASSERT_LE(snap.tradeDots.size(), 100u);
+    ASSERT_FALSE(snap.tradeDots.empty());
+    EXPECT_TRUE(snap.tradeDots.front().aggregated);
+    EXPECT_GT(snap.tradeDots.front().tradeCount, 1);
+    EXPECT_GT(snap.tradeDots.front().totalQtyE8, 0);
+    EXPECT_GT(snap.tradeDots.front().buyQtyE8 + snap.tradeDots.front().sellQtyE8, 0);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(ChartTradeLod, UsesHysteresisBeforeReturningToExact) {
+    ChartController chart;
+    const auto dir = makeTmpDir();
+    std::string lines;
+    for (int i = 0; i < 25000; ++i) {
+        lines += tradeLineWithSide(1000 + i, e8(100), e8(1), 1);
+    }
+    writeFile(dir / "trades.jsonl", lines);
+
+    ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
+
+    chart.setViewport(1000, 25999, e8(95), e8(105));
+    auto snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
+    ASSERT_TRUE(snap.tradeDecimated);
+
+    chart.setViewport(1000, 21000, e8(95), e8(105));
+    snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
+    EXPECT_TRUE(snap.tradeDecimated);
+
+    chart.setViewport(1000, 20000, e8(95), e8(105));
+    snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
+    EXPECT_FALSE(snap.tradeDecimated);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 }  // namespace

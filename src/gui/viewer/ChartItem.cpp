@@ -178,7 +178,7 @@ SnapshotInputs collectInputs(const ChartItem& item) {
         item.bookTickerVisible(),
         item.interactiveMode(),
         item.overlayOnly(),
-        true,
+        false,
         item.tradeAmountScale(),
         item.bookOpacityGain(),
         item.bookRenderDetail(),

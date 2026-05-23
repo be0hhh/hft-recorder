@@ -10,7 +10,7 @@ add_library(hftrec_support STATIC
 
 target_include_directories(hftrec_support
     PUBLIC
-        ${CMAKE_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/src
 )
 
 target_link_libraries(hftrec_support

@@ -20,11 +20,15 @@ namespace {
 
 constexpr std::int64_t kOneMsNs = 1000000ll;
 constexpr std::size_t kViewportBookLevelsPerSide = 24;
-constexpr std::size_t kRenderBookLevelsBudgetPerSide = 256;
-constexpr std::size_t kInteractiveBookLevelsBudgetPerSide = 192;
+constexpr std::size_t kRenderBookLevelsBudgetPerSide = 96;
+constexpr std::size_t kInteractiveBookLevelsBudgetPerSide = 48;
 constexpr std::int64_t kUsdScaleE8 = 100000000ll;
-constexpr double kTradeDenseMultiplierInteractive = 2.25;
-constexpr double kTradeDenseMultiplierStatic = 5.0;
+constexpr double kTradeLodEnterMultiplier = 4.0;
+constexpr double kTradeLodExitMultiplier = 3.0;
+constexpr std::size_t kTradeExactExitBudget = 20000;
+constexpr std::size_t kTradeAggregateEnterBudget = 24000;
+constexpr double kBookMinSegmentWidthPxStatic = 2.0;
+constexpr double kBookMinSegmentWidthPxInteractive = 4.0;
 
 std::int64_t ceilToStep(std::int64_t value, std::int64_t step) {
     if (step <= 0) return value;
@@ -244,62 +248,105 @@ QVariantList buildAxisTicks(int tickCount, const auto& formatter) {
     return ticks;
 }
 
-struct TradePixelAccumulator {
-    bool hasLow{false};
-    bool hasHigh{false};
-    TradeDot low{};
-    TradeDot high{};
-
-    void absorb(const TradeDot& dot) noexcept {
-        if (!hasLow || dot.priceE8 < low.priceE8) {
-            low = dot;
-            hasLow = true;
-        }
-        if (!hasHigh || dot.priceE8 > high.priceE8) {
-            high = dot;
-            hasHigh = true;
-        }
-    }
-
-    void appendTo(std::vector<TradeDot>& out) const {
-        if (!hasLow) return;
-        if (hasLow && hasHigh && low.origIndex > high.origIndex) {
-            out.push_back(high);
-            if (low.origIndex != high.origIndex) out.push_back(low);
-            return;
-        }
-        out.push_back(low);
-        if (hasHigh && high.origIndex != low.origIndex) out.push_back(high);
-    }
+struct TradeLodDecision {
+    bool aggregate{false};
+    std::size_t enterBudget{0};
+    std::size_t exitBudget{0};
 };
 
-struct TradePixelBin {
+TradeLodDecision decideTradeLod(std::size_t visibleTradeCount,
+                                qreal widthPx,
+                                bool forceExact,
+                                bool previousAggregated) noexcept {
+    const std::size_t width = widthPx <= 0.0
+        ? 0u
+        : static_cast<std::size_t>(std::ceil(widthPx));
+    const std::size_t enterBudget = std::max<std::size_t>(
+        kTradeAggregateEnterBudget,
+        static_cast<std::size_t>(std::ceil(widthPx * kTradeLodEnterMultiplier)));
+    const std::size_t exitBudget = std::max<std::size_t>(
+        kTradeExactExitBudget,
+        static_cast<std::size_t>(std::ceil(widthPx * kTradeLodExitMultiplier)));
+    if (forceExact || visibleTradeCount <= 1u || width == 0u) return TradeLodDecision{false, enterBudget, exitBudget};
+    const bool aggregate = previousAggregated
+        ? visibleTradeCount >= exitBudget
+        : visibleTradeCount > enterBudget;
+    return TradeLodDecision{aggregate, enterBudget, exitBudget};
+}
+
+struct TradePixelBucket {
     int xPx{-1};
-    TradePixelAccumulator buy{};
-    TradePixelAccumulator sell{};
+    bool active{false};
+    TradeDot dot{};
+    std::int64_t largestAmountE8{0};
 
     void reset(int nextXPx) noexcept {
         xPx = nextXPx;
-        buy = TradePixelAccumulator{};
-        sell = TradePixelAccumulator{};
+        active = false;
+        dot = TradeDot{};
+        largestAmountE8 = 0;
     }
 
-    void appendTo(std::vector<TradeDot>& out) const {
-        buy.appendTo(out);
-        sell.appendTo(out);
+    void absorb(std::int64_t tsNs,
+                std::int64_t priceE8,
+                std::int64_t qtyE8,
+                bool sideBuy,
+                int origIndex) noexcept {
+        const std::int64_t amountE8 = detail::multiplyScaledE8(qtyE8, priceE8);
+        if (!active) {
+            active = true;
+            dot.tsNs = tsNs;
+            dot.tsStartNs = tsNs;
+            dot.tsEndNs = tsNs;
+            dot.priceE8 = priceE8;
+            dot.representativePriceE8 = priceE8;
+            dot.qtyE8 = qtyE8;
+            dot.sideBuy = sideBuy;
+            dot.origIndex = origIndex;
+            dot.firstOrigIndex = origIndex;
+            dot.lastOrigIndex = origIndex;
+            dot.aggregated = true;
+            dot.tradeCount = 0;
+        }
+
+        dot.tsStartNs = std::min(dot.tsStartNs, tsNs);
+        dot.tsEndNs = std::max(dot.tsEndNs, tsNs);
+        dot.firstOrigIndex = dot.firstOrigIndex < 0 ? origIndex : std::min(dot.firstOrigIndex, origIndex);
+        dot.lastOrigIndex = dot.lastOrigIndex < 0 ? origIndex : std::max(dot.lastOrigIndex, origIndex);
+        ++dot.tradeCount;
+        dot.totalQtyE8 += qtyE8;
+        dot.totalAmountE8 += amountE8;
+        if (sideBuy) {
+            dot.buyQtyE8 += qtyE8;
+            dot.buyAmountE8 += amountE8;
+        } else {
+            dot.sellQtyE8 += qtyE8;
+            dot.sellAmountE8 += amountE8;
+        }
+        if (amountE8 > largestAmountE8) {
+            largestAmountE8 = amountE8;
+            dot.tsNs = tsNs;
+            dot.qtyE8 = qtyE8;
+            dot.sideBuy = sideBuy;
+            dot.origIndex = origIndex;
+            dot.representativePriceE8 = priceE8;
+        }
+    }
+
+    void appendTo(std::vector<TradeDot>& out) noexcept {
+        if (!active || dot.tradeCount <= 0) return;
+        if (dot.totalQtyE8 > 0 && dot.totalAmountE8 > 0) {
+            const long double scaledPrice =
+                (static_cast<long double>(dot.totalAmountE8) * 100000000.0L)
+                / static_cast<long double>(dot.totalQtyE8);
+            dot.priceE8 = static_cast<std::int64_t>(std::llround(scaledPrice));
+        }
+        dot.tsNs = dot.tsStartNs + (dot.tsEndNs - dot.tsStartNs) / 2;
+        dot.groupEntries.clear();
+        out.push_back(dot);
+        active = false;
     }
 };
-
-bool shouldDecimateTrades(std::size_t visibleTradeCount,
-                          qreal widthPx,
-                          bool interactiveMode) noexcept {
-    if (visibleTradeCount <= 1u || widthPx <= 0.0) return false;
-    const double multiplier = interactiveMode
-        ? kTradeDenseMultiplierInteractive
-        : kTradeDenseMultiplierStatic;
-    const double budget = std::max(32.0, static_cast<double>(widthPx) * multiplier);
-    return static_cast<double>(visibleTradeCount) > budget;
-}
 
 std::size_t bookLevelCandidateBudget(std::size_t levelsBudget) noexcept {
     return std::max<std::size_t>(levelsBudget * 8u, levelsBudget);
@@ -677,99 +724,82 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
 
     const auto minVisibleAmountE8 = usdToE8Min0(in.bookRenderDetail);
     if (in.tradesVisible) {
-    const auto& trades = replay_.trades();
-    auto tradeBegin = trades.begin();
-    auto tradeEnd = trades.end();
-    if (latestOnlyWindow) {
-        const auto latestTradeIt = std::upper_bound(
-            trades.begin(),
-            trades.end(),
-            latestTsNs,
-            [](std::int64_t ts, const hftrec::replay::TradeRow& row) noexcept { return ts < row.tsNs; });
-        if (latestTradeIt == trades.begin()) {
-            tradeBegin = trades.end();
-            tradeEnd = trades.end();
+        const auto& trades = replay_.trades();
+        auto tradeBegin = trades.begin();
+        auto tradeEnd = trades.end();
+        if (latestOnlyWindow) {
+            const auto latestTradeIt = std::upper_bound(
+                trades.begin(),
+                trades.end(),
+                latestTsNs,
+                [](std::int64_t ts, const hftrec::replay::TradeRow& row) noexcept { return ts < row.tsNs; });
+            if (latestTradeIt == trades.begin()) {
+                tradeBegin = trades.end();
+                tradeEnd = trades.end();
+            } else {
+                tradeBegin = std::prev(latestTradeIt);
+                tradeEnd = latestTradeIt;
+            }
         } else {
-            tradeBegin = std::prev(latestTradeIt);
-            tradeEnd = latestTradeIt;
+            tradeBegin = std::lower_bound(
+                trades.begin(),
+                trades.end(),
+                renderMinTs,
+                [](const hftrec::replay::TradeRow& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
+            tradeEnd = std::upper_bound(
+                tradeBegin,
+                trades.end(),
+                renderMaxTs,
+                [](std::int64_t ts, const hftrec::replay::TradeRow& row) noexcept { return ts < row.tsNs; });
         }
-    } else {
-        tradeBegin = std::lower_bound(
-            trades.begin(),
-            trades.end(),
-            renderMinTs,
-            [](const hftrec::replay::TradeRow& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
-        tradeEnd = std::upper_bound(
-            tradeBegin,
-            trades.end(),
-            renderMaxTs,
-            [](std::int64_t ts, const hftrec::replay::TradeRow& row) noexcept { return ts < row.tsNs; });
-    }
 
-    std::size_t visibleTradeCount = 0;
-    for (auto it = tradeBegin; it != tradeEnd; ++it) {
-        const auto& trade = *it;
-        if (latestOnlyWindow) {
-            if (trade.tsNs < snap.vp.tMin || trade.tsNs > snap.vp.tMax) continue;
-        }
-        if (trade.priceE8 < snap.vp.pMin || trade.priceE8 > snap.vp.pMax) continue;
-        ++visibleTradeCount;
-    }
-
-    snap.tradeDecimated = !in.exactTradeRendering
-        && shouldDecimateTrades(visibleTradeCount, widthPx, in.interactiveMode);
-    snap.tradeDots.reserve(
-        snap.tradeDecimated
-            ? static_cast<std::size_t>(std::max<qreal>(32.0, std::ceil(widthPx) * 4.0))
-            : visibleTradeCount);
-
-    std::vector<TradeDot> groupedTradeDots;
-    groupedTradeDots.reserve(visibleTradeCount);
-
-    for (auto it = tradeBegin; it != tradeEnd; ++it) {
-        const auto& t = *it;
-        if (latestOnlyWindow) {
-            if (t.tsNs < snap.vp.tMin || t.tsNs > snap.vp.tMax) continue;
-        }
-        if (t.priceE8 < snap.vp.pMin || t.priceE8 > snap.vp.pMax) continue;
-        const auto x = snap.vp.toX(t.tsNs);
-        const auto y = snap.vp.toY(t.priceE8);
-        if (x < 0.0 || x > snap.vp.w || y < 0.0 || y > snap.vp.h) continue;
-
-        const auto origIndex = static_cast<int>(std::distance(trades.begin(), it));
-        const TradeDot dot{t.tsNs, t.priceE8, t.qtyE8, t.sideBuy != 0, origIndex};
-        detail::appendGroupedTradeDot(groupedTradeDots, dot);
-    }
-
-    if (!snap.tradeDecimated) {
-        snap.tradeDots = std::move(groupedTradeDots);
-    } else {
-        TradePixelBin pixelBin{};
-        bool pixelBinActive = false;
-        auto flushTradeBin = [&]() {
-            if (!pixelBinActive) return;
-            pixelBin.appendTo(snap.tradeDots);
-            pixelBinActive = false;
+        const auto visible = [&](const hftrec::replay::TradeRow& trade) noexcept {
+            if (latestOnlyWindow && (trade.tsNs < snap.vp.tMin || trade.tsNs > snap.vp.tMax)) return false;
+            if (trade.priceE8 < snap.vp.pMin || trade.priceE8 > snap.vp.pMax) return false;
+            const auto x = snap.vp.toX(trade.tsNs);
+            const auto y = snap.vp.toY(trade.priceE8);
+            return x >= 0.0 && x <= snap.vp.w && y >= 0.0 && y <= snap.vp.h;
         };
 
-        for (const auto& dot : groupedTradeDots) {
-            const auto x = snap.vp.toX(dot.tsNs);
-
-            const int xPx = std::clamp(
-                static_cast<int>(std::floor(x)),
-                0,
-                std::max(0, static_cast<int>(std::ceil(widthPx)) - 1));
-            if (!pixelBinActive || pixelBin.xPx != xPx) {
-                flushTradeBin();
-                pixelBin.reset(xPx);
-                pixelBinActive = true;
-            }
-
-            if (dot.sideBuy) pixelBin.buy.absorb(dot);
-            else pixelBin.sell.absorb(dot);
+        std::size_t visibleTradeCount = 0;
+        for (auto it = tradeBegin; it != tradeEnd; ++it) {
+            if (visible(*it)) ++visibleTradeCount;
         }
-        flushTradeBin();
-    }
+
+        const auto lod = decideTradeLod(visibleTradeCount, widthPx, in.exactTradeRendering, tradeLodAggregated_);
+        tradeLodAggregated_ = lod.aggregate;
+        snap.tradeDecimated = lod.aggregate;
+        snap.tradeConnectorsVisible = snap.tradeConnectorsVisible && !snap.tradeDecimated;
+        snap.tradeDots.reserve(snap.tradeDecimated
+            ? std::max<std::size_t>(1u, static_cast<std::size_t>(std::ceil(widthPx)))
+            : visibleTradeCount);
+
+        if (!snap.tradeDecimated) {
+            for (auto it = tradeBegin; it != tradeEnd; ++it) {
+                const auto& t = *it;
+                if (!visible(t)) continue;
+                const auto origIndex = static_cast<int>(std::distance(trades.begin(), it));
+                detail::appendGroupedTradeDot(snap.tradeDots, TradeDot{t.tsNs, t.priceE8, t.qtyE8, t.sideBuy != 0, origIndex});
+            }
+        } else {
+            TradePixelBucket bucket{};
+            const auto flushTradeBucket = [&]() { bucket.appendTo(snap.tradeDots); };
+            for (auto it = tradeBegin; it != tradeEnd; ++it) {
+                const auto& t = *it;
+                if (!visible(t)) continue;
+                const int xPx = std::clamp(
+                    static_cast<int>(std::floor(snap.vp.toX(t.tsNs))),
+                    0,
+                    std::max(0, static_cast<int>(std::ceil(widthPx)) - 1));
+                if (bucket.xPx != xPx) {
+                    flushTradeBucket();
+                    bucket.reset(xPx);
+                }
+                const auto origIndex = static_cast<int>(std::distance(trades.begin(), it));
+                bucket.absorb(t.tsNs, t.priceE8, t.qtyE8, t.sideBuy != 0, origIndex);
+            }
+            flushTradeBucket();
+        }
     }
 
     if (in.liquidationsVisible) {
@@ -877,6 +907,10 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     const auto& buckets = replay_.buckets();
 
     const auto brightnessRefE8 = usdToE8(in.bookOpacityGain);
+
+    const double minOrderbookSegmentWidthPx = in.interactiveMode
+        ? kBookMinSegmentWidthPxInteractive
+        : kBookMinSegmentWidthPxStatic;
 
     auto emitSegment = [&](std::int64_t tsStart,
                            std::int64_t tsEnd) {
@@ -986,7 +1020,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         const auto stampTs = buckets[bucketCursor].tsNs;
         const double xStart = snap.vp.toX(segStart);
         const double xStamp = snap.vp.toX(stampTs);
-        const bool wide = (xStamp - xStart) >= 1.0;
+        const bool wide = (xStamp - xStart) >= minOrderbookSegmentWidthPx;
 
         if (wide) {
             emitSegment(segStart, stampTs);

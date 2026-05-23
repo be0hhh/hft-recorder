@@ -128,6 +128,15 @@ class ChartItem : public QQuickPaintedItem {
     std::int64_t hoveredTradeQtyE8_{0};
     std::int64_t hoveredTradeTotalQtyE8_{0};
     std::int64_t hoveredTradeTotalAmountE8_{0};
+    std::int64_t hoveredTradeTsStartNs_{0};
+    std::int64_t hoveredTradeTsEndNs_{0};
+    std::int64_t hoveredTradeCount_{0};
+    std::int64_t hoveredTradeBuyQtyE8_{0};
+    std::int64_t hoveredTradeSellQtyE8_{0};
+    std::int64_t hoveredTradeBuyAmountE8_{0};
+    std::int64_t hoveredTradeSellAmountE8_{0};
+    std::int64_t hoveredTradeRepresentativePriceE8_{0};
+    bool hoveredTradeAggregated_{false};
     bool hoveredTradeSideBuy_{true};
     std::vector<TradeGroupEntry> hoveredTradeGroupEntries_{};
     int hoveredLiquidationIndex_{-1};

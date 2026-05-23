@@ -24,21 +24,21 @@ ApplicationWindow {
 
     AppViewModel { id: rootAppVm; objectName: "appVm" }
     CaptureViewModel { id: rootCaptureVm; objectName: "captureVm" }
+    BacktestViewModel { id: rootBacktestVm; objectName: "backtestVm" }
     CompressionViewModel { id: rootCompressionVm; objectName: "compressionVm" }
-    TradingControlViewModel { id: rootTradingVm; objectName: "tradingVm" }
     WorkspaceViewModel { id: rootWorkspaceVm; objectName: "workspaceVm" }
 
     Item { id: inactiveTabStorage; visible: false; anchors.fill: parent }
     Component { id: captureComponent; CaptureView { captureVm: rootCaptureVm; tabActive: false } }
     Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; tabActive: false } }
     Component { id: compressComponent; CompressView { compressionVm: rootCompressionVm; tabActive: false } }
-    Component { id: tradingComponent; TradingControlView { tradingVm: rootTradingVm; tabActive: false } }
+    Component { id: backtestsComponent; BacktestResultsView { backtestVm: rootBacktestVm; captureVm: rootCaptureVm; tabActive: false } }
 
     function componentForTab(tabId) {
         if (tabId === "capture") return captureComponent
         if (tabId === "viewer") return viewerComponent
         if (tabId === "compress") return compressComponent
-        if (tabId === "trading") return tradingComponent
+        if (tabId === "backtests") return backtestsComponent
         return null
     }
 

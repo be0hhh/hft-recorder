@@ -260,6 +260,7 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
     stopLiveData_();
     replay_.reset();
     loaded_ = false;
+    tradeLodAggregated_ = false;
     sessionDir_ = sessionPath;
     currentSourceId_ = normalizedSourceId;
     currentSourceKind_ = QStringLiteral("live");
@@ -301,6 +302,7 @@ void ChartController::activateLiveOnlyMode() {
     stopLiveData_();
     replay_.reset();
     loaded_ = false;
+    tradeLodAggregated_ = false;
     sessionDir_.clear();
     currentSourceId_.clear();
     liveProviderSourceId_.clear();
@@ -324,6 +326,7 @@ void ChartController::resetSession() {
     stopLiveData_();
     replay_.reset();
     loaded_ = false;
+    tradeLodAggregated_ = false;
     sessionDir_.clear();
     currentSourceId_.clear();
     liveProviderSourceId_.clear();
@@ -344,6 +347,7 @@ void ChartController::resetSession() {
 }
 
 bool ChartController::addTradesFile(const QString& path) {
+    tradeLodAggregated_ = false;
     if (path.trimmed().isEmpty()) {
         statusText_ = QStringLiteral("No path. Enter a trades.jsonl path first.");
         emit statusChanged();
@@ -461,6 +465,7 @@ bool ChartController::addSnapshotFile(const QString& path) {
 }
 
 void ChartController::finalizeFiles() {
+    tradeLodAggregated_ = false;
     stopLiveData_();
     clearSelection();
     replay_.finalize();
@@ -498,6 +503,7 @@ bool ChartController::loadSession(const QString& dir) {
     currentSourceKind_ = QStringLiteral("recorded");
     loaded_ = false;
     replay_ = hftrec::replay::SessionReplay{};
+    tradeLodAggregated_ = false;
     clearSelection();
     if (!verticalMarkers_.empty()) {
         verticalMarkers_.clear();

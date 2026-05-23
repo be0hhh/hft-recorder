@@ -21,6 +21,17 @@ inline void appendGroupedTradeDot(std::vector<TradeDot>& out, TradeDot dot) {
     dot.lastOrigIndex = dot.origIndex;
     dot.totalQtyE8 = dot.qtyE8;
     dot.totalAmountE8 = entry.amountE8;
+    dot.tsStartNs = dot.tsNs;
+    dot.tsEndNs = dot.tsNs;
+    dot.tradeCount = 1;
+    dot.representativePriceE8 = dot.priceE8;
+    if (dot.sideBuy) {
+        dot.buyQtyE8 = dot.qtyE8;
+        dot.buyAmountE8 = entry.amountE8;
+    } else {
+        dot.sellQtyE8 = dot.qtyE8;
+        dot.sellAmountE8 = entry.amountE8;
+    }
     dot.groupEntries = {entry};
 
     if (out.empty()
@@ -32,8 +43,16 @@ inline void appendGroupedTradeDot(std::vector<TradeDot>& out, TradeDot dot) {
     }
 
     auto& group = out.back();
+    ++group.tradeCount;
     group.totalQtyE8 += entry.qtyE8;
     group.totalAmountE8 += entry.amountE8;
+    if (entry.sideBuy) {
+        group.buyQtyE8 += entry.qtyE8;
+        group.buyAmountE8 += entry.amountE8;
+    } else {
+        group.sellQtyE8 += entry.qtyE8;
+        group.sellAmountE8 += entry.amountE8;
+    }
     group.firstOrigIndex = group.firstOrigIndex < 0 ? entry.origIndex : std::min(group.firstOrigIndex, entry.origIndex);
     group.lastOrigIndex = group.lastOrigIndex < 0 ? entry.origIndex : std::max(group.lastOrigIndex, entry.origIndex);
 

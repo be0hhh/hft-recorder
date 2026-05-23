@@ -19,6 +19,7 @@ inline QColor bidColor()            { return QColor(0x15, 0x63, 0xBD); }
 inline QColor askColor()            { return QColor(0xAD, 0x18, 0x20); }  
 inline QColor tradeBuyColor()       { return QColor(0x22, 0xC5, 0x5E); }  // зелёный #22C55E
 inline QColor tradeSellColor()      { return QColor(0xA8, 0x55, 0xF0); }  // фиолетовый #ac4dff
+inline QColor tradeAggregateColor() { return QColor(0xD7, 0xD7, 0xDC); }
 inline QColor tradeConnectorColor() { return QColor(0x70, 0x80, 0x90, 0x50); }
 inline QColor tradeOutlineColor()   { return QColor(0x0A, 0x0A, 0x0A, 0xC0); }
 inline QColor tooltipBackColor()    { return QColor(0x10, 0x10, 0x12, 0xEB); }

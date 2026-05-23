@@ -5,8 +5,8 @@
 #   ./compile.sh              build hft-recorder app using existing hft-compressor shared library
 #   ./compile.sh --build-compressor build hft-compressor shared library, then build hft-recorder app
 #   ./compile.sh --compressor-only build only hft-compressor shared library
-#   ./compile.sh --force-cxet build/install CXETCPP, then build hft-recorder app
-#   ./compile.sh --force      build hft-compressor, build/install CXETCPP, then build hft-recorder app
+#   ./compile.sh --force-cxet build/install CXETCPP core library, then build hft-recorder app
+#   ./compile.sh --force      build hft-compressor, build/install CXETCPP core library, then build hft-recorder app
 #   ./compile.sh --force clang  same as --force, but rebuild with Clang
 #   ./compile.sh --force gcc    same as --force, but rebuild with GCC
 #
@@ -28,6 +28,7 @@ C_COMPILER=""
 CXX_COMPILER=""
 CMAKE_COMPILER_ARGS=()
 HOTPATH_METRICS_DEFAULT="ON"
+CXET_REFRESHED=0
 
 resolveCxetRoot() {
     local candidate
@@ -192,20 +193,21 @@ _install_cxet_force() {
     _reset_build_dir_for_explicit_compiler "$CXETCPP/build" "CXETCPP"
     cmake -B build \
           -DCXET_FULL_BUILD=OFF \
-          -DCXET_BUILD_REPLAY=ON \
-          -DCXET_ENABLE_HFTRECORDER_LOCAL=ON \
+          -DCXET_BUILD_REPLAY=OFF \
+          -DCXET_ENABLE_HFTRECORDER_LOCAL=OFF \
           -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
           -DCMAKE_BUILD_TYPE=Release \
           "${CMAKE_COMPILER_ARGS[@]}" \
           -DCMAKE_CXX_FLAGS="-w" \
           > /dev/null
-    cmake --build build --target cxet_lib cxet_replay_core -j"$JOBS"
+    cmake --build build --target cxet_lib -j"$JOBS"
     cmake --install build > /dev/null
 
     mkdir -p "$INSTALL_DIR/lib"
     _copy_runtime_glob "build/extra/wolfssl/libwolfssl.so*"
     _copy_runtime_glob "build/extra/simdjson/libsimdjson.so*"
     find build/extra/abseil-cpp/absl -name 'libabsl*.so*' -exec cp -a {} "$INSTALL_DIR/lib/" \;
+    CXET_REFRESHED=1
     cd "$APP"
 }
 
@@ -215,11 +217,9 @@ _resolve_cxet_paths() {
     if [ ! -f "$CXET_LIB" ] && [ -f "$INSTALL_DIR/lib/libcxet_lib.so.1" ]; then
         CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so.1"
     fi
-    CXET_REPLAY_LIB="$INSTALL_DIR/lib/libcxet_replay_core.so"
-    if [ ! -f "$CXET_REPLAY_LIB" ] && [ -f "$INSTALL_DIR/lib/libcxet_replay_core.so.1" ]; then
-        CXET_REPLAY_LIB="$INSTALL_DIR/lib/libcxet_replay_core.so.1"
-    fi
-    if [ ! -d "$CXET_INCLUDE" ] || [ ! -f "$CXET_LIB" ] || [ ! -f "$CXET_REPLAY_LIB" ]; then
+    # Replay-core is intentionally disabled for the recorder build. The app has an offline SessionReplay fallback.
+    CXET_REPLAY_LIB=""
+    if [ ! -d "$CXET_INCLUDE" ] || [ ! -f "$CXET_LIB" ]; then
         echo "ERROR: CXETCPP install incomplete at $INSTALL_DIR" >&2
         exit 2
     fi
@@ -346,7 +346,7 @@ _build_recorder_app() {
     fi
     _reset_build_dir_for_explicit_compiler "$APP/build" "hft-recorder"
 
-    if [ ! -f build/CMakeCache.txt ] || [ "$CLEAN" = "1" ] || [ "$COMPILER" != "default" ]; then
+    if [ ! -f build/CMakeCache.txt ] || [ "$CLEAN" = "1" ] || [ "$COMPILER" != "default" ] || [ "$CXET_REFRESHED" = "1" ]; then
         echo ">>> Configuring hft-recorder app"
         cmake -B build \
               -DCMAKE_BUILD_TYPE=Release \

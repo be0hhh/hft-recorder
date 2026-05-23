@@ -5,7 +5,7 @@ add_library(hftrec_variant_orderbook_var01 STATIC
 
 target_include_directories(hftrec_variant_orderbook_var01
     PUBLIC
-        ${CMAKE_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/src
 )
 
 target_link_libraries(hftrec_variant_orderbook_var01

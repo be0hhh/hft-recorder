@@ -206,13 +206,13 @@ void renderTradeOverlay(const RenderContext& ctx) {
     if (hov.tradePriceE8 < snap.vp.pMin || hov.tradePriceE8 > snap.vp.pMax) return;
 
     const QPointF center{snap.vp.toX(hov.tradeTsNs), snap.vp.toY(hov.tradePriceE8)};
-    const QColor accent = hov.tradeSideBuy ? tradeBuyColor() : tradeSellColor();
+    const QColor accent = hov.tradeAggregated ? tradeAggregateColor() : (hov.tradeSideBuy ? tradeBuyColor() : tradeSellColor());
     const auto amountE8 = hov.tradeTotalAmountE8 != 0
         ? hov.tradeTotalAmountE8
         : detail::multiplyScaledE8(hov.tradeQtyE8, hov.tradePriceE8);
     const qreal tradeRadius = detail::amountRadiusScale(amountE8, snap.tradeAmountScale, false);
 
-    QPen haloPen(hov.tradeSideBuy ? haloBuyColor() : haloSellColor());
+    QPen haloPen(hov.tradeAggregated ? tradeAggregateColor() : (hov.tradeSideBuy ? haloBuyColor() : haloSellColor()));
     haloPen.setWidthF(3.0);
     ctx.p->setPen(haloPen);
     ctx.p->setBrush(Qt::NoBrush);
@@ -225,7 +225,21 @@ void renderTradeOverlay(const RenderContext& ctx) {
     ctx.p->drawEllipse(center, tradeRadius + 1.7, tradeRadius + 1.7);
 
     QStringList lines;
-    if (hov.tradeGroupEntries.size() <= 1u) {
+    if (hov.tradeAggregated) {
+        lines << QStringLiteral("Trades %1 aggregated").arg(hov.tradeCount);
+        lines << QStringLiteral("VWAP   %1").arg(detail::formatTrimmedE8(hov.tradePriceE8));
+        lines << QStringLiteral("Total Qty    %1").arg(detail::formatTrimmedE8(hov.tradeTotalQtyE8));
+        lines << QStringLiteral("Total Amount %1").arg(detail::formatTrimmedE8(amountE8));
+        lines << QStringLiteral("Buy Qty      %1").arg(detail::formatTrimmedE8(hov.tradeBuyQtyE8));
+        lines << QStringLiteral("Sell Qty     %1").arg(detail::formatTrimmedE8(hov.tradeSellQtyE8));
+        lines << QStringLiteral("Time   %1 -> %2")
+                     .arg(detail::formatTimeNs(hov.tradeTsStartNs))
+                     .arg(detail::formatTimeNs(hov.tradeTsEndNs));
+        lines << QStringLiteral("Largest %1 %2 x %3")
+                     .arg(hov.tradeSideBuy ? QStringLiteral("BUY") : QStringLiteral("SELL"))
+                     .arg(detail::formatTrimmedE8(hov.tradeQtyE8))
+                     .arg(detail::formatTrimmedE8(hov.tradeRepresentativePriceE8));
+    } else if (hov.tradeGroupEntries.size() <= 1u) {
         lines << QStringLiteral("%1 trade")
                      .arg(hov.tradeSideBuy ? QStringLiteral("BUY") : QStringLiteral("SELL"));
         lines << QStringLiteral("Price  %1").arg(detail::formatTrimmedE8(hov.tradePriceE8));

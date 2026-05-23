@@ -276,6 +276,7 @@ class ChartController : public QObject {
     QString selectionSummaryText_{};
     std::vector<VerticalMarker> verticalMarkers_{};
     int renderWindowSeconds_{0};
+    bool tradeLodAggregated_{false};
 };
 
 }  // namespace hftrec::gui::viewer

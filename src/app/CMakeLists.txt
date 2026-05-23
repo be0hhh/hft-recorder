@@ -14,8 +14,8 @@ add_executable(hft-recorder
 
 target_include_directories(hft-recorder
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src
 )
 
 target_link_libraries(hft-recorder
@@ -35,8 +35,8 @@ add_executable(hft-recorder-bench
 
 target_include_directories(hft-recorder-bench
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src
 )
 
 target_link_libraries(hft-recorder-bench

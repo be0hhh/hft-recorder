@@ -8,11 +8,6 @@
 
 #include "app/metrics_bootstrap.hpp"
 #include "gui/api/ChartApiServer.hpp"
-#if HFTREC_WITH_CXET
-#include "gui/api/ExecutionChartAdapter.hpp"
-#include "gui/api/LocalMarketDataWsServer.hpp"
-#include "gui/api/LocalVenueWsServer.hpp"
-#endif
 #include "gui/models/SessionListModel.hpp"
 #include "gui/models/ViewerSourceListModel.hpp"
 #include "gui/viewer/BookTickerCompareController.hpp"
@@ -21,9 +16,9 @@
 #include "gui/viewer/ChartItem.hpp"
 #include "gui/viewer/gpu/GpuChartItem.hpp"
 #include "gui/viewmodels/AppViewModel.hpp"
+#include "gui/viewmodels/BacktestViewModel.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
 #include "gui/viewmodels/CompressionViewModel.hpp"
-#include "gui/viewmodels/TradingControlViewModel.hpp"
 #include "gui/viewmodels/WorkspaceViewModel.hpp"
 
 namespace {
@@ -63,11 +58,6 @@ int main(int argc, char* argv[]) {
 #endif
     QGuiApplication app(argc, argv);
     hftrec::app::MetricsBootstrap metricsBootstrap{};
-#if HFTREC_WITH_CXET
-    hftrec::gui::api::LocalMarketDataWsServer localMarketDataWsServer;
-    hftrec::gui::api::LocalVenueWsServer localVenueWsServer;
-    hftrec::gui::api::ExecutionChartAdapter executionChartAdapter;
-#endif
     QCoreApplication::setOrganizationName(QStringLiteral("hftrec"));
     QCoreApplication::setApplicationName(QStringLiteral("hft-recorder"));
     const QString requestedMode = qEnvironmentVariable("HFTREC_RENDER_MODE", "cpu").trimmed().toLower();
@@ -78,9 +68,9 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<hftrec::gui::SessionListModel>("HftRecorder", 1, 0, "SessionListModel");
     qmlRegisterType<hftrec::gui::ViewerSourceListModel>("HftRecorder", 1, 0, "ViewerSourceListModel");
     qmlRegisterType<hftrec::gui::AppViewModel>("HftRecorder", 1, 0, "AppViewModel");
+    qmlRegisterType<hftrec::gui::BacktestViewModel>("HftRecorder", 1, 0, "BacktestViewModel");
     qmlRegisterType<hftrec::gui::CaptureViewModel>("HftRecorder", 1, 0, "CaptureViewModel");
     qmlRegisterType<hftrec::gui::CompressionViewModel>("HftRecorder", 1, 0, "CompressionViewModel");
-    qmlRegisterType<hftrec::gui::TradingControlViewModel>("HftRecorder", 1, 0, "TradingControlViewModel");
     qmlRegisterType<hftrec::gui::WorkspaceViewModel>("HftRecorder", 1, 0, "WorkspaceViewModel");
     qmlRegisterType<hftrec::gui::viewer::BookTickerCompareController>("HftRecorder", 1, 0, "BookTickerCompareController");
     qmlRegisterType<hftrec::gui::viewer::BookTickerCompareItem>("HftRecorder", 1, 0, "BookTickerCompareItem");
@@ -104,20 +94,6 @@ int main(int argc, char* argv[]) {
         : engine.rootObjects().constFirst()->findChild<hftrec::gui::viewer::ChartController*>(QStringLiteral("chartController")));
     chartApiServer.startFromEnvironment();
 
-#if HFTREC_WITH_CXET
-    auto* chartController = engine.rootObjects().isEmpty()
-        ? nullptr
-        : engine.rootObjects().constFirst()->findChild<hftrec::gui::viewer::ChartController*>(QStringLiteral("chartController"));
-    executionChartAdapter.setChartController(chartController);
-    localVenueWsServer.setDownstreamSink(&executionChartAdapter);
-    localMarketDataWsServer.startFromEnvironment();
-    localVenueWsServer.startFromEnvironment();
-#endif
-
     const int rc = app.exec();
-#if HFTREC_WITH_CXET
-    localVenueWsServer.stop();
-    localMarketDataWsServer.stop();
-#endif
     return rc;
 }

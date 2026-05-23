@@ -7,6 +7,8 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_identity_codec.cpp
     test_json_line_parser.cpp
     test_validation_runner.cpp
+    test_recorder_api.cpp
+    test_backtest_runner.cpp
     test_book_state.cpp
     test_session_replay.cpp
     test_bookticker_exactness.cpp
@@ -31,16 +33,18 @@ if(Qt6_FOUND)
             test_viewer_bookticker_trace.cpp
             test_chart_markers.cpp
             test_workspace_viewmodel.cpp
+            test_backtest_viewmodel.cpp
             test_recorded_render_once.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartController.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerSession.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartControllerSelection.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewer/LiveDataProvider.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
-            ${CMAKE_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerSession.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerSelection.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/LiveDataProvider.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/BacktestViewModel.cpp
     )
 endif()
 
@@ -48,19 +52,19 @@ if(Qt6_FOUND AND HFTREC_WITH_CXET)
     target_sources(hftrec_unit_tests
         PRIVATE
             test_local_venue_ws_order_parser.cpp
-            ${CMAKE_SOURCE_DIR}/src/gui/api/LocalVenueWsServer.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/api/LocalVenueWsServer.cpp
     )
 endif()
 
 target_include_directories(hftrec_unit_tests
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src
 )
 
 target_link_libraries(hftrec_unit_tests
     PRIVATE
-        hftrec_core
+        hftrec_recorder_api
         hftrec_variant_orderbook_var01
         GTest::gtest
         GTest::gtest_main
@@ -76,6 +80,6 @@ if(Qt6_FOUND)
 endif()
 
 target_compile_features(hftrec_unit_tests PRIVATE cxx_std_23)
-target_compile_definitions(hftrec_unit_tests PRIVATE HFTRREC_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(hftrec_unit_tests PRIVATE HFTRREC_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 
 gtest_discover_tests(hftrec_unit_tests)

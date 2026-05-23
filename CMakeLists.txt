@@ -21,6 +21,14 @@ set(CXET_REPLAY_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_replay_co
 set(HFTREC_CXET_MODE "AUTO" CACHE STRING "CXET integration mode: AUTO, ON, or OFF")
 set_property(CACHE HFTREC_CXET_MODE PROPERTY STRINGS AUTO ON OFF)
 option(HFTREC_HOTPATH_METRICS_DEFAULT "Enable hft-recorder/CXET hot-path metrics by default" ON)
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    set(HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS ON)
+else()
+    set(HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS OFF)
+endif()
+option(HFTREC_BUILD_APP_TARGETS "Build hft-recorder CLI app targets" ${HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS})
+option(HFTREC_BUILD_GUI "Build hft-recorder Qt GUI" ${HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS})
+option(HFTREC_BUILD_TESTS "Build hft-recorder tests" ${HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS})
 if(HFTREC_HOTPATH_METRICS_DEFAULT)
     set(HFTREC_HOTPATH_METRICS_DEFAULT_VALUE 1)
 else()
@@ -80,6 +88,7 @@ find_package(Threads REQUIRED)
 find_package(absl CONFIG REQUIRED)
 find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2 Network QUIET)
 
+if(HFTREC_BUILD_GUI OR HFTREC_BUILD_APP_TARGETS)
 set(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/include" CACHE PATH "Path to hft-compressor public headers")
 set(HFT_COMPRESSOR_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt hft-compressor shared/import library")
 set(HFT_COMPRESSOR_RUNTIME_LIB "" CACHE FILEPATH "Path to hft-compressor runtime library, usually DLL on Windows")
@@ -125,7 +134,8 @@ if(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR AND HFT_COMPRESSOR_SHARED_LIB
     endif()
     message(STATUS "hft-recorder: hft-compressor prebuilt dependency enabled: ${HFT_COMPRESSOR_SHARED_LIB}")
 else()
-    message(FATAL_ERROR "hft-recorder compression tab requires prebuilt hft-compressor. Configure with HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR and HFT_COMPRESSOR_SHARED_LIB.")
+    message(FATAL_ERROR "hft-recorder GUI/bench compression features require prebuilt hft-compressor. Configure with HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR and HFT_COMPRESSOR_SHARED_LIB.")
+endif()
 endif()
 
 include(FetchContent)
@@ -148,6 +158,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
+if(HFTREC_BUILD_TESTS)
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -156,8 +167,11 @@ FetchContent_Declare(
 )
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+endif()
 
+if(HFTREC_BUILD_TESTS)
 enable_testing()
+endif()
 
 add_compile_options(
     -Wall
@@ -174,4 +188,6 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 add_subdirectory(src)
-add_subdirectory(tests)
+if(HFTREC_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

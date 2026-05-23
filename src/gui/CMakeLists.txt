@@ -9,12 +9,12 @@ qt_add_executable(hft-recorder-gui
     models/SessionListModel.cpp
     models/ViewerSourceListModel.cpp
     viewmodels/AppViewModel.cpp
+    viewmodels/BacktestViewModel.cpp
     viewmodels/CaptureViewModel.cpp
     viewmodels/CaptureViewModelBatch.cpp
     viewmodels/CaptureViewModelRequests.cpp
     viewmodels/CaptureViewModelState.cpp
     viewmodels/CompressionViewModel.cpp
-    viewmodels/TradingControlViewModel.cpp
     viewmodels/WorkspaceViewModel.cpp
     viewer/ChartController.cpp
     viewer/ChartControllerSession.cpp
@@ -39,18 +39,9 @@ qt_add_executable(hft-recorder-gui
 
 target_include_directories(hft-recorder-gui
     PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src
 )
-
-if(HFTREC_WITH_CXET)
-    target_sources(hft-recorder-gui
-        PRIVATE
-            api/ExecutionChartAdapter.cpp
-            api/LocalMarketDataWsServer.cpp
-            api/LocalVenueWsServer.cpp
-    )
-endif()
 
 qt_add_qml_module(hft-recorder-gui
     URI HftRecorder
@@ -63,6 +54,7 @@ qt_add_qml_module(hft-recorder-gui
         qml/components/CaptureAccentActionButton.qml
         qml/components/CaptureSessionSummaryCard.qml
         qml/components/CaptureChannelCard.qml
+        qml/components/RecorderComboBox.qml
         qml/components/ViewerChromeButton.qml
         qml/components/ViewerChannelButton.qml
         qml/components/ViewerInteractionState.qml
@@ -75,12 +67,12 @@ qt_add_qml_module(hft-recorder-gui
         qml/components/WorkspaceFloatingWindow.qml
         qml/views/CaptureView.qml
         qml/views/CompressView.qml
-        qml/views/TradingControlView.qml
         qml/views/SessionsView.qml
         qml/views/ValidationView.qml
         qml/views/LabView.qml
         qml/views/DashboardView.qml
         qml/views/ViewerView.qml
+        qml/views/BacktestResultsView.qml
 )
 
 target_link_libraries(hft-recorder-gui
@@ -100,7 +92,7 @@ target_link_libraries(hft-recorder-gui
 target_compile_features(hft-recorder-gui PRIVATE cxx_std_23)
 target_compile_definitions(hft-recorder-gui
     PRIVATE
-        HFT_COMPRESSOR_SOURCE_DIR="${CMAKE_SOURCE_DIR}/../hft-compressor"
+        HFT_COMPRESSOR_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-compressor"
 )
 
 if(WIN32 AND HFT_COMPRESSOR_RUNTIME_LIB)
