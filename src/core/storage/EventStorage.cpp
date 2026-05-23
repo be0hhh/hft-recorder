@@ -22,6 +22,17 @@ bool inRange(const Row& row, std::int64_t fromTsNs, std::int64_t toTsNs) noexcep
 }
 
 template <typename Row>
+bool eventLess(const Row& lhs, const Row& rhs) noexcept {
+    if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
+    if constexpr (requires { lhs.captureSeq; lhs.ingestSeq; }) {
+        if (lhs.captureSeq != rhs.captureSeq) return lhs.captureSeq < rhs.captureSeq;
+        return lhs.ingestSeq < rhs.ingestSeq;
+    } else {
+        return false;
+    }
+}
+
+template <typename Row>
 void appendRowsInSortedRange(const std::vector<Row>& src,
                              std::int64_t fromTsNs,
                              std::int64_t toTsNs,
@@ -38,6 +49,18 @@ void appendRowsInSortedRange(const std::vector<Row>& src,
         toTsNs,
         [](std::int64_t ts, const Row& row) noexcept { return ts < row.tsNs; });
     out.insert(out.end(), begin, end);
+}
+
+template <typename Row>
+void appendRowsInAnyOrderRange(const std::vector<Row>& src,
+                               std::int64_t fromTsNs,
+                               std::int64_t toTsNs,
+                               std::vector<Row>& out) {
+    if (src.empty() || toTsNs < fromTsNs) return;
+    for (const auto& row : src) {
+        if (inRange(row, fromTsNs, toTsNs)) out.push_back(row);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const Row& lhs, const Row& rhs) noexcept { return eventLess(lhs, rhs); });
 }
 
 Status mergeStatus(Status current, Status next) noexcept {
@@ -155,11 +178,11 @@ EventBatch LiveEventStore::readAll() const {
 EventBatch LiveEventStore::readRange(std::int64_t fromTsNs, std::int64_t toTsNs) const {
     EventBatch out{};
     std::lock_guard<std::mutex> lock(mutex_);
-    appendRowsInSortedRange(events_.trades, fromTsNs, toTsNs, out.trades);
-    appendRowsInSortedRange(events_.liquidations, fromTsNs, toTsNs, out.liquidations);
-    appendRowsInSortedRange(events_.bookTickers, fromTsNs, toTsNs, out.bookTickers);
-    appendRowsInSortedRange(events_.depths, fromTsNs, toTsNs, out.depths);
-    appendRowsInSortedRange(events_.snapshots, fromTsNs, toTsNs, out.snapshots);
+    appendRowsInAnyOrderRange(events_.trades, fromTsNs, toTsNs, out.trades);
+    appendRowsInAnyOrderRange(events_.liquidations, fromTsNs, toTsNs, out.liquidations);
+    appendRowsInAnyOrderRange(events_.bookTickers, fromTsNs, toTsNs, out.bookTickers);
+    appendRowsInAnyOrderRange(events_.depths, fromTsNs, toTsNs, out.depths);
+    appendRowsInAnyOrderRange(events_.snapshots, fromTsNs, toTsNs, out.snapshots);
     return out;
 }
 

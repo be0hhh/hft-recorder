@@ -50,26 +50,15 @@ bool eventKeyLess(const Row& lhs, const Row& rhs) noexcept {
 }
 
 template <typename Row>
-bool appendMonotonicRows(const std::vector<Row>& src,
-                         std::vector<Row>& dst,
-                         QString* failureText,
-                         QStringView label) {
+bool appendOrderedRows(const std::vector<Row>& src,
+                       std::vector<Row>& dst,
+                       QString*,
+                       QStringView) {
     if (src.empty()) return true;
-    if (!dst.empty() && eventKeyLess(src.front(), dst.back())) {
-        if (failureText != nullptr) {
-            *failureText = QStringLiteral("Live %1 ordering changed, full reload required").arg(label);
-        }
-        return false;
-    }
-    for (std::size_t i = 1; i < src.size(); ++i) {
-        if (eventKeyLess(src[i], src[i - 1u])) {
-            if (failureText != nullptr) {
-                *failureText = QStringLiteral("Live %1 batch is out of order, full reload required").arg(label);
-            }
-            return false;
-        }
-    }
     dst.insert(dst.end(), src.begin(), src.end());
+    std::stable_sort(dst.begin(), dst.end(), [](const Row& lhs, const Row& rhs) noexcept {
+        return eventKeyLess(lhs, rhs);
+    });
     return true;
 }
 
@@ -302,11 +291,11 @@ void ChartController::refreshProviderFromRegistry_() {
 }
 
 bool ChartController::appendOverlayBatch_(const LiveDataBatch& batch, QString* failureText) {
-    if (!appendMonotonicRows(batch.trades, liveOverlayState_.trades, failureText, QStringLiteral("trade"))) return false;
-    if (!appendMonotonicRows(batch.liquidations, liveOverlayState_.liquidations, failureText, QStringLiteral("liquidation"))) return false;
-    if (!appendMonotonicRows(batch.bookTickers, liveOverlayState_.bookTickers, failureText, QStringLiteral("bookticker"))) return false;
-    if (!appendMonotonicRows(batch.depths, liveOverlayState_.depths, failureText, QStringLiteral("depth"))) return false;
-    if (!appendMonotonicRows(batch.snapshots, liveOverlayState_.snapshots, failureText, QStringLiteral("snapshot"))) return false;
+    if (!appendOrderedRows(batch.trades, liveOverlayState_.trades, failureText, QStringLiteral("trade"))) return false;
+    if (!appendOrderedRows(batch.liquidations, liveOverlayState_.liquidations, failureText, QStringLiteral("liquidation"))) return false;
+    if (!appendOrderedRows(batch.bookTickers, liveOverlayState_.bookTickers, failureText, QStringLiteral("bookticker"))) return false;
+    if (!appendOrderedRows(batch.depths, liveOverlayState_.depths, failureText, QStringLiteral("depth"))) return false;
+    if (!appendOrderedRows(batch.snapshots, liveOverlayState_.snapshots, failureText, QStringLiteral("snapshot"))) return false;
 
     liveOverlayState_.id = batch.id;
     return true;
