@@ -33,12 +33,14 @@ ApplicationWindow {
     Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; tabActive: false } }
     Component { id: compressComponent; CompressView { compressionVm: rootCompressionVm; tabActive: false } }
     Component { id: backtestsComponent; BacktestResultsView { backtestVm: rootBacktestVm; captureVm: rootCaptureVm; tabActive: false } }
+    Component { id: resultsComponent; ResultsView { backtestVm: rootBacktestVm; tabActive: false } }
 
     function componentForTab(tabId) {
         if (tabId === "capture") return captureComponent
         if (tabId === "viewer") return viewerComponent
         if (tabId === "compress") return compressComponent
         if (tabId === "backtests") return backtestsComponent
+        if (tabId === "results") return resultsComponent
         return null
     }
 

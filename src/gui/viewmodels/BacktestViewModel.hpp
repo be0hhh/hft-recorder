@@ -42,6 +42,12 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedJson READ selectedJson NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedSummaryJson READ selectedSummaryJson NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedErrorText READ selectedErrorText NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedEquityPoints READ selectedEquityPoints NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedResultMetrics READ selectedResultMetrics NOTIFY selectionChanged)
+    Q_PROPERTY(bool hasEquityPoints READ hasEquityPoints NOTIFY selectionChanged)
+    Q_PROPERTY(qint64 selectedInitialBalanceE8 READ selectedInitialBalanceE8 NOTIFY selectionChanged)
+    Q_PROPERTY(qint64 selectedPnlMinE8 READ selectedPnlMinE8 NOTIFY selectionChanged)
+    Q_PROPERTY(qint64 selectedPnlMaxE8 READ selectedPnlMaxE8 NOTIFY selectionChanged)
     Q_PROPERTY(bool hasSelection READ hasSelection NOTIFY selectionChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(bool running READ running NOTIFY runningChanged)
@@ -79,6 +85,12 @@ class BacktestViewModel : public QObject {
     QString selectedJson() const;
     QString selectedSummaryJson() const;
     QString selectedErrorText() const;
+    QVariantList selectedEquityPoints() const;
+    QVariantList selectedResultMetrics() const;
+    bool hasEquityPoints() const;
+    qint64 selectedInitialBalanceE8() const;
+    qint64 selectedPnlMinE8() const;
+    qint64 selectedPnlMaxE8() const;
     bool hasSelection() const noexcept { return selectedRecord_() != nullptr; }
     QString statusText() const { return statusText_; }
     bool running() const noexcept { return running_; }
@@ -132,6 +144,8 @@ class BacktestViewModel : public QObject {
   private:
     struct RunRecord {
         QString runId{};
+        QString displayName{};
+        QString configText{};
         QString status{};
         QString strategy{};
         QString filePath{};
@@ -139,6 +153,11 @@ class BacktestViewModel : public QObject {
         QString rawJson{};
         QString summaryJson{};
         QString errorText{};
+        QVariantList equityPoints{};
+        QVariantList resultMetrics{};
+        qint64 initialBalanceE8{0};
+        qint64 pnlMinE8{0};
+        qint64 pnlMaxE8{0};
         qint64 modifiedMs{0};
         int errorCount{0};
         bool valid{false};
@@ -155,6 +174,8 @@ class BacktestViewModel : public QObject {
     void setProgress_(int percent, const QString& text);
     void stopWorker_();
     QString runId_() const;
+    QString displayName_() const;
+    QString configSummary_() const;
     void loadStrategyDefaults_();
     void loadPersistentConfig_();
     void loadSavedParameterValues_();

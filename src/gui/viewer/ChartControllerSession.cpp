@@ -1,6 +1,8 @@
 #include "gui/viewer/ChartController.hpp"
 
 #include <QFileInfo>
+#include <QStringList>
+#include <QVariantMap>
 #include <algorithm>
 #include <filesystem>
 #include <string>
@@ -43,6 +45,26 @@ QString recordedSourceIdFromPath(const QString& dir) {
     return sessionName.isEmpty() ? QStringLiteral("recorded") : QStringLiteral("recorded:%1").arg(sessionName);
 }
 
+void appendBacktestResultRows(const QString& sessionPath, QStringView prefix, QVariantList& rows) {
+    if (sessionPath.trimmed().isEmpty()) return;
+    const std::filesystem::path dir = std::filesystem::path(stripFileUrl(sessionPath)) / "backtests";
+    std::error_code ec;
+    if (!std::filesystem::exists(dir, ec) || ec || !std::filesystem::is_directory(dir, ec) || ec) return;
+
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec) break;
+        if (!entry.is_regular_file(ec) || ec) continue;
+        const auto path = entry.path();
+        if (path.extension() != ".json") continue;
+
+        QVariantMap row;
+        row.insert(QStringLiteral("sessionPath"), sessionPath);
+        row.insert(QStringLiteral("path"), QString::fromStdString(path.string()));
+        row.insert(QStringLiteral("label"), prefix.toString() + QStringLiteral(" ") + QString::fromStdString(path.stem().string()));
+        rows.push_back(row);
+    }
+}
+
 }  // namespace
 
 void ChartController::clearLiveDataCache_() noexcept {
@@ -58,6 +80,70 @@ void ChartController::clearLiveDataCache_() noexcept {
     liveWindowTsMin_ = 0;
     liveWindowTsMax_ = 0;
     liveWindowVersion_ = 0;
+}
+
+void ChartController::clearStrategyOverlay_() noexcept {
+    const bool changed = !selectedBacktestResult_.isEmpty() || !strategyOverlay_.empty();
+    selectedBacktestResult_.clear();
+    strategyOverlay_ = StrategyOverlayData{};
+    if (!changed) return;
+    emit backtestResultChanged();
+    emit markersChanged();
+    emit viewportChanged();
+}
+
+void ChartController::refreshBacktestResults(const QString& primarySessionPath, const QString& secondarySessionPath) {
+    QVariantList rows;
+    appendBacktestResultRows(primarySessionPath, QStringLiteral("A"), rows);
+    appendBacktestResultRows(secondarySessionPath, QStringLiteral("B"), rows);
+
+    QVariantList deduped;
+    QStringList seen;
+    for (const QVariant& rowValue : rows) {
+        const QVariantMap row = rowValue.toMap();
+        const QString path = row.value(QStringLiteral("path")).toString();
+        if (path.isEmpty() || seen.contains(path)) continue;
+        seen.push_back(path);
+        deduped.push_back(row);
+    }
+
+    backtestResults_ = deduped;
+    bool stillSelected = selectedBacktestResult_.isEmpty();
+    for (const QVariant& rowValue : backtestResults_) {
+        if (rowValue.toMap().value(QStringLiteral("path")).toString() == selectedBacktestResult_) {
+            stillSelected = true;
+            break;
+        }
+    }
+    if (!stillSelected) clearStrategyOverlay_();
+    emit backtestResultsChanged();
+}
+
+bool ChartController::selectBacktestResult(const QString& resultPath) {
+    const QString pathText = resultPath.trimmed();
+    if (pathText.isEmpty()) {
+        clearBacktestResult();
+        return true;
+    }
+
+    StrategyOverlayData next{};
+    std::string error;
+    if (!loadStrategyOverlayFromResult(std::filesystem::path(stripFileUrl(pathText)), latestRenderableTsNs_(), next, error)) {
+        statusText_ = QStringLiteral("Backtest load failed: ") + QString::fromStdString(error);
+        emit statusChanged();
+        return false;
+    }
+
+    selectedBacktestResult_ = pathText;
+    strategyOverlay_ = std::move(next);
+    emit backtestResultChanged();
+    emit markersChanged();
+    emit viewportChanged();
+    return true;
+}
+
+void ChartController::clearBacktestResult() {
+    clearStrategyOverlay_();
 }
 
 void ChartController::startLiveData_(const std::filesystem::path& sessionDir) {
@@ -258,6 +344,7 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
     }
 
     stopLiveData_();
+    clearStrategyOverlay_();
     replay_.reset();
     loaded_ = false;
     tradeLodAggregated_ = false;
@@ -300,6 +387,7 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
 
 void ChartController::activateLiveOnlyMode() {
     stopLiveData_();
+    clearStrategyOverlay_();
     replay_.reset();
     loaded_ = false;
     tradeLodAggregated_ = false;
@@ -324,6 +412,7 @@ void ChartController::activateLiveOnlyMode() {
 
 void ChartController::resetSession() {
     stopLiveData_();
+    clearStrategyOverlay_();
     replay_.reset();
     loaded_ = false;
     tradeLodAggregated_ = false;
@@ -497,6 +586,7 @@ void ChartController::finalizeFiles() {
 
 bool ChartController::loadSession(const QString& dir) {
     stopLiveData_();
+    clearStrategyOverlay_();
     sessionDir_ = dir;
     currentSourceId_ = recordedSourceIdFromPath(dir);
     liveProviderSourceId_.clear();

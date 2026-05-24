@@ -29,10 +29,11 @@ Pane {
     property int selectedCompareIndexA: -1
     property int selectedCompareIndexB: -1
     property var compareSourceRows: [{ id: "", label: "Select session" }]
+    property var backtestRows: [{ path: "", sessionPath: "", label: "Backtest" }]
     property bool userHasExplicitSelection: false
     property bool userHasExplicitCompareSelection: false
     property bool compareMode: selectedCompareSourceA !== "" && selectedCompareSourceB !== "" && selectedCompareSourceA !== selectedCompareSourceB
-    property bool comparePickerActive: compareMode
+    property bool comparePickerActive: compareMode && chart.selectedBacktestResult === ""
     property bool showTradesLayer: true
     property bool showLiquidationsLayer: false
     property bool showCandlesLayer: false
@@ -55,6 +56,45 @@ Pane {
         compareChart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs)
     }
     function syncRenderWindow() { chart.setRenderWindowSeconds(root.appVm.renderWindowSeconds) }
+
+    function syncBacktestRows() {
+        var rows = [{ path: "", sessionPath: "", label: "Backtest" }]
+        for (var i = 0; i < chart.backtestResults.length; ++i)
+            rows.push(chart.backtestResults[i])
+        root.backtestRows = rows
+        root.syncBacktestComboIndex()
+    }
+
+    function refreshBacktestChoices() {
+        chart.refreshBacktestResults(sourcesModel.sessionPath(root.selectedCompareSourceA),
+                                     sourcesModel.sessionPath(root.selectedCompareSourceB))
+        root.syncBacktestRows()
+    }
+
+    function syncBacktestComboIndex() {
+        if (!backtestCombo)
+            return
+        var selected = chart.selectedBacktestResult
+        var nextIndex = 0
+        for (var i = 1; i < root.backtestRows.length; ++i) {
+            if (root.backtestRows[i].path === selected) {
+                nextIndex = i
+                break
+            }
+        }
+        backtestCombo.currentIndex = nextIndex
+    }
+
+    function chooseBacktestRow(index) {
+        if (index <= 0 || index >= root.backtestRows.length) {
+            chart.clearBacktestResult()
+            return
+        }
+        var row = root.backtestRows[index]
+        if (row.sessionPath !== "" && chart.sessionDir !== row.sessionPath)
+            chart.loadSession(row.sessionPath)
+        chart.selectBacktestResult(row.path)
+    }
 
     function applySourceSelection(sourceId) {
         if (sourceId !== "" && chart.currentSourceId === sourceId)
@@ -160,6 +200,7 @@ Pane {
             root.selectedSourceId = root.selectedCompareSourceA
         else
             root.loadSingleSelectedSource()
+        root.refreshBacktestChoices()
     }
 
     function loadCompareFees() {
@@ -408,6 +449,8 @@ Pane {
         target: chart
         function onSessionChanged() { Qt.callLater(root.ensureVisibleLayerSelection) }
         function onLiveDataChanged() { Qt.callLater(root.ensureVisibleLayerSelection) }
+        function onBacktestResultsChanged() { Qt.callLater(root.syncBacktestRows) }
+        function onBacktestResultChanged() { Qt.callLater(root.syncBacktestComboIndex) }
     }
 
     Keys.onEscapePressed: {
@@ -506,6 +549,61 @@ Pane {
                     onEditingFinished: compareChart.setMeanWindowSeconds(Number(text))
                     onAccepted: compareChart.setMeanWindowSeconds(Number(text))
                 }
+
+                ComboBox {
+                    id: backtestCombo
+                    Layout.preferredWidth: 220
+                    enabled: root.backtestRows.length > 1
+                    model: root.backtestRows
+                    textRole: "label"
+                    valueRole: "path"
+                    onActivated: function(index) { root.chooseBacktestRow(index) }
+                    contentItem: Text {
+                        text: backtestCombo.displayText === "" ? "Backtest" : backtestCombo.displayText
+                        color: backtestCombo.enabled ? root.textColor : root.mutedTextColor
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                        leftPadding: 10
+                        rightPadding: 28
+                    }
+                    background: Rectangle {
+                        radius: 7
+                        color: backtestCombo.down ? root.panelAltColor : root.panelColor
+                        border.color: backtestCombo.activeFocus ? root.accentBuyColor : root.borderColor
+                        border.width: 1
+                    }
+                    delegate: Component {
+                        ItemDelegate {
+                            width: backtestCombo.width
+                            text: modelData.label
+                            highlighted: backtestCombo.highlightedIndex === index
+                            contentItem: Text {
+                                text: modelData.label
+                                color: index === 0 ? root.mutedTextColor : root.textColor
+                                elide: Text.ElideRight
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle { color: highlighted ? root.panelAltColor : root.panelColor }
+                        }
+                    }
+                    popup: Popup {
+                        y: backtestCombo.height + 2
+                        width: backtestCombo.width
+                        implicitHeight: Math.min(contentItem.implicitHeight, 320)
+                        padding: 1
+                        contentItem: ListView {
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: backtestCombo.popup.visible ? backtestCombo.delegateModel : null
+                            currentIndex: backtestCombo.highlightedIndex
+                        }
+                        background: Rectangle {
+                            color: root.panelColor
+                            border.color: root.borderColor
+                            radius: 7
+                        }
+                    }
+                }
                 Label {
                     Layout.fillWidth: true
                     text: root.compareMode
@@ -602,7 +700,7 @@ Pane {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 8
-                text: root.compareMode ? "Top: combined bookTicker traces. Bottom: best-side spread in bps with rolling mean and cost band." : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
+                text: chart.selectedBacktestResult !== "" ? chart.statusText : root.compareMode ? "Top: combined bookTicker traces. Bottom: best-side spread in bps with rolling mean and cost band." : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
                 color: root.mutedTextColor
                 font.pixelSize: 12
             }

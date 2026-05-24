@@ -723,6 +723,24 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         : snap.vp.tMax;
     if ((latestOnlyWindow || limitedRenderWindow_()) && (latestTsNs <= 0 || renderMaxTs < renderMinTs)) return snap;
 
+    if (!strategyOverlay_.empty()) {
+        snap.strategyOrderSegments.reserve(strategyOverlay_.orderSegments.size());
+        for (const auto& segment : strategyOverlay_.orderSegments) {
+            if (segment.tsEndNs < renderMinTs || segment.tsStartNs > renderMaxTs) continue;
+            if (segment.priceE8 < snap.vp.pMin || segment.priceE8 > snap.vp.pMax) continue;
+            snap.strategyOrderSegments.push_back(segment);
+        }
+        snap.strategyFillMarkers.reserve(strategyOverlay_.fillMarkers.size());
+        for (const auto& marker : strategyOverlay_.fillMarkers) {
+            if (marker.tsNs < renderMinTs || marker.tsNs > renderMaxTs) continue;
+            if (marker.priceE8 < snap.vp.pMin || marker.priceE8 > snap.vp.pMax) continue;
+            const auto x = snap.vp.toX(marker.tsNs);
+            const auto y = snap.vp.toY(marker.priceE8);
+            if (x < -12.0 || x > snap.vp.w + 12.0 || y < -12.0 || y > snap.vp.h + 12.0) continue;
+            snap.strategyFillMarkers.push_back(marker);
+        }
+    }
+
     const auto minVisibleAmountE8 = usdToE8Min0(in.bookRenderDetail);
     if (in.tradesVisible) {
         const auto& trades = replay_.trades();

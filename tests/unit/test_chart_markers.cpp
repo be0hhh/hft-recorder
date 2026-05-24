@@ -87,6 +87,53 @@ TEST(ChartMarkers, RequiresLoadedChartAndAppearsInSnapshot) {
     fs::remove_all(dir, ec);
 }
 
+TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
+    ChartController chart;
+    const auto dir = makeTmpDir();
+    fs::create_directories(dir / "backtests");
+    writeFile(dir / "trades.jsonl", tradeLine(1000, e8(100), 1) + tradeLine(2500, e8(101), 2));
+    writeFile(dir / "manifest.json", R"json({
+  "manifest_schema_version": 1,
+  "corpus_schema_version": 2,
+  "replay": { "structurally_loadable": true },
+  "channels": {
+    "trades": { "enabled": true, "required_when_enabled": true, "path": "trades.jsonl" }
+  }
+})json");
+    const auto resultPath = dir / "backtests" / "run-a.json";
+    writeFile(resultPath, R"json({
+      "run_id":"run-a",
+      "strategy":"test",
+      "session_path":"session",
+      "orders":[
+        {"id":1,"target_id":0,"active_ts_ns":1200,"action":"order","side":"buy","type":"limit","price_e8":9900000000,"qty_e8":100000000},
+        {"id":2,"target_id":0,"active_ts_ns":1500,"action":"order","side":"sell","type":"market","price_e8":0,"qty_e8":100000000}
+      ],
+      "fills":[
+        {"order_id":1,"exit_ts_ns":1800,"side":"buy","price_e8":9900000000,"qty_e8":100000000},
+        {"order_id":2,"exit_ts_ns":1600,"side":"sell","price_e8":10100000000,"qty_e8":100000000}
+      ]
+    })json");
+
+    ASSERT_TRUE(chart.loadSession(QString::fromStdString(dir.string())));
+    chart.setViewport(0, 3000, e8(90), e8(110));
+    chart.refreshBacktestResults(QString::fromStdString(dir.string()));
+    ASSERT_EQ(chart.backtestResults().size(), 1);
+    ASSERT_TRUE(chart.selectBacktestResult(QString::fromStdString(resultPath.string())));
+
+    const auto snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{});
+    ASSERT_EQ(snap.strategyOrderSegments.size(), 1u);
+    EXPECT_EQ(snap.strategyOrderSegments.front().tsStartNs, 1200);
+    EXPECT_EQ(snap.strategyOrderSegments.front().tsEndNs, 1800);
+    EXPECT_TRUE(snap.strategyOrderSegments.front().sideBuy);
+    ASSERT_EQ(snap.strategyFillMarkers.size(), 2u);
+    EXPECT_EQ(snap.strategyFillMarkers[0].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
+    EXPECT_EQ(snap.strategyFillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
     ChartController chart;
     const auto dir = makeTmpDir();

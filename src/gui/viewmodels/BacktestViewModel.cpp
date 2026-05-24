@@ -22,6 +22,8 @@
 namespace hftrec::gui {
 namespace {
 
+constexpr qint64 kMaxEagerResultBytes = 8 * 1024 * 1024;
+
 struct StrategyParamSpec {
     const char* strategy;
     const char* key;
@@ -103,6 +105,12 @@ QString manifestObjectValue(const QJsonObject& object, const QString& key) {
     return identity.isEmpty() ? QString{} : jsonValueString(identity, key);
 }
 
+QJsonObject humanSummaryObject(const QJsonObject& object);
+
+bool isE8Key(const QString& key) {
+    return key.size() > 3 && key.at(key.size() - 3) == QLatin1Char('_') && key.at(key.size() - 2) == QLatin1Char('e') && key.at(key.size() - 1) == QLatin1Char('8');
+}
+
 QString prettyJson(const QJsonValue& value) {
     if (value.isUndefined()) return {};
     QJsonDocument doc;
@@ -112,8 +120,186 @@ QString prettyJson(const QJsonValue& value) {
     return QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
 }
 
+QString e8DisplayString(qint64 value) {
+    const bool negative = value < 0;
+    const quint64 magnitude = negative ? static_cast<quint64>(-(value + 1)) + 1U : static_cast<quint64>(value);
+    const quint64 whole = magnitude / 100000000U;
+    quint64 fractional = magnitude % 100000000U;
+    QString out = QString::number(static_cast<qulonglong>(whole));
+    if (fractional != 0U) {
+        QString fraction = QString::number(static_cast<qulonglong>(fractional)).rightJustified(8, QLatin1Char('0'));
+        while (fraction.endsWith(QLatin1Char('0'))) fraction.chop(1);
+        out += QLatin1Char('.');
+        out += fraction;
+    }
+    return negative ? QString(QLatin1Char('-')) + out : out;
+}
+
+QJsonValue humanSummaryValue(const QString& key, const QJsonValue& value);
+
+QJsonObject humanSummaryObject(const QJsonObject& object) {
+    QJsonObject out;
+    for (auto it = object.constBegin(); it != object.constEnd(); ++it) {
+        const QString key = it.key();
+        const QString displayKey = isE8Key(key) ? key.left(key.size() - 3) : key;
+        out.insert(displayKey, humanSummaryValue(key, it.value()));
+    }
+    return out;
+}
+
+QJsonArray humanSummaryArray(const QJsonArray& array) {
+    QJsonArray out;
+    for (const QJsonValue& value : array) out.push_back(humanSummaryValue(QString{}, value));
+    return out;
+}
+
+QJsonValue humanSummaryValue(const QString& key, const QJsonValue& value) {
+    if (isE8Key(key) && value.isDouble()) return e8DisplayString(value.toInteger());
+    if (value.isObject()) return humanSummaryObject(value.toObject());
+    if (value.isArray()) return humanSummaryArray(value.toArray());
+    return value;
+}
+
+QString humanSummaryJson(const QJsonValue& value) {
+    if (!value.isObject()) return prettyJson(value);
+    return prettyJson(humanSummaryObject(value.toObject()));
+}
+
 int errorCount(const QJsonValue& value) {
     return value.isArray() ? value.toArray().size() : 0;
+}
+
+QString metricDisplayValue(const QString& key, const QJsonValue& value) {
+    if (isE8Key(key) && value.isDouble()) return e8DisplayString(value.toInteger());
+    if (value.isBool()) return value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+    if (value.isDouble()) return QString::number(value.toInteger());
+    if (value.isString()) return value.toString();
+    return prettyJson(value).trimmed();
+}
+
+QString metricLabel(QString key) {
+    if (key == QStringLiteral("wallet_balance_e8")) return QStringLiteral("Final balance");
+    if (isE8Key(key)) key = key.left(key.size() - 3);
+    key.replace(QLatin1Char('_'), QLatin1Char(' '));
+    if (!key.isEmpty()) key[0] = key[0].toUpper();
+    return key;
+}
+
+QVariantList resultMetrics(const QJsonObject& summary) {
+    static constexpr const char* kKeys[] = {
+        "initial_balance_e8",
+        "wallet_balance_e8",
+        "total_pnl_e8",
+        "gross_realized_pnl_e8",
+        "fees_paid_e8",
+        "net_realized_pnl_e8",
+        "realized_pnl_e8",
+        "unrealized_pnl_e8",
+        "fills",
+        "reduce_only_orders",
+        "reduce_only_fills",
+        "strategy_closed",
+        "open_position_qty_e8",
+    };
+    QVariantList out;
+    for (const char* rawKey : kKeys) {
+        const QString key = QString::fromUtf8(rawKey);
+        if (!summary.contains(key)) continue;
+        QVariantMap row;
+        row.insert(QStringLiteral("key"), key);
+        row.insert(QStringLiteral("label"), metricLabel(key));
+        row.insert(QStringLiteral("value"), metricDisplayValue(key, summary.value(key)));
+        out.push_back(row);
+    }
+    return out;
+}
+
+QVariantList equityPoints(const QJsonArray& points, const QJsonObject& summary, qint64& minPnl, qint64& maxPnl) {
+    QVariantList out;
+    bool hasPoint = false;
+    qint64 lastTs = 0;
+    auto appendRow = [&](qint64 ts,
+                         qint64 grossRealized,
+                         qint64 realized,
+                         qint64 unrealized,
+                         qint64 total,
+                         qint64 grossTotal,
+                         qint64 netTotal,
+                         qint64 fees,
+                         qint64 wallet,
+                         qint64 position,
+                         qint64 fillCount) {
+        const qint64 rowMin = std::min(std::min(grossTotal, netTotal), fees);
+        const qint64 rowMax = std::max(std::max(grossTotal, netTotal), fees);
+        if (!hasPoint) {
+            minPnl = rowMin;
+            maxPnl = rowMax;
+            hasPoint = true;
+        } else {
+            minPnl = std::min(minPnl, rowMin);
+            maxPnl = std::max(maxPnl, rowMax);
+        }
+        QVariantMap row;
+        row.insert(QStringLiteral("index"), out.size());
+        row.insert(QStringLiteral("tsNs"), ts);
+        row.insert(QStringLiteral("grossRealizedPnlE8"), grossRealized);
+        row.insert(QStringLiteral("realizedPnlE8"), realized);
+        row.insert(QStringLiteral("unrealizedPnlE8"), unrealized);
+        row.insert(QStringLiteral("grossTotalPnlE8"), grossTotal);
+        row.insert(QStringLiteral("netTotalPnlE8"), netTotal);
+        row.insert(QStringLiteral("totalPnlE8"), total);
+        row.insert(QStringLiteral("feesPaidE8"), fees);
+        row.insert(QStringLiteral("walletBalanceE8"), wallet);
+        row.insert(QStringLiteral("positionQtyE8"), position);
+        row.insert(QStringLiteral("fillCount"), fillCount);
+        row.insert(QStringLiteral("grossTotalPnl"), e8DisplayString(grossTotal));
+        row.insert(QStringLiteral("netTotalPnl"), e8DisplayString(netTotal));
+        row.insert(QStringLiteral("feesPaid"), e8DisplayString(fees));
+        row.insert(QStringLiteral("totalPnl"), e8DisplayString(total));
+        out.push_back(row);
+        lastTs = ts;
+    };
+    for (const QJsonValue& value : points) {
+        if (!value.isObject()) continue;
+        const QJsonObject object = value.toObject();
+        const qint64 ts = object.value(QStringLiteral("ts_ns")).toInteger();
+        const qint64 realized = object.value(QStringLiteral("realized_pnl_e8")).toInteger();
+        const qint64 grossRealized = object.value(QStringLiteral("gross_realized_pnl_e8")).toInteger(realized);
+        const qint64 unrealized = object.value(QStringLiteral("unrealized_pnl_e8")).toInteger();
+        const qint64 total = object.value(QStringLiteral("total_pnl_e8")).toInteger(realized + unrealized);
+        const qint64 grossTotal = object.value(QStringLiteral("gross_total_pnl_e8")).toInteger(grossRealized + unrealized);
+        const qint64 netTotal = object.value(QStringLiteral("net_total_pnl_e8")).toInteger(total);
+        const qint64 fees = object.value(QStringLiteral("fees_paid_e8")).toInteger();
+        const qint64 wallet = object.value(QStringLiteral("wallet_balance_e8")).toInteger();
+        const qint64 position = object.value(QStringLiteral("position_qty_e8")).toInteger();
+        const qint64 fillCount = object.value(QStringLiteral("fill_count")).toInteger();
+        appendRow(ts, grossRealized, realized, unrealized, total, grossTotal, netTotal, fees, wallet, position, fillCount);
+    }
+    if (!summary.isEmpty() && summary.contains(QStringLiteral("total_pnl_e8"))) {
+        const qint64 realized = summary.value(QStringLiteral("net_realized_pnl_e8")).toInteger(summary.value(QStringLiteral("realized_pnl_e8")).toInteger());
+        const qint64 grossRealized = summary.value(QStringLiteral("gross_realized_pnl_e8")).toInteger(realized);
+        const qint64 unrealized = summary.value(QStringLiteral("unrealized_pnl_e8")).toInteger();
+        const qint64 total = summary.value(QStringLiteral("total_pnl_e8")).toInteger(realized + unrealized);
+        const qint64 grossTotal = summary.value(QStringLiteral("gross_total_pnl_e8")).toInteger(grossRealized + unrealized);
+        const qint64 netTotal = summary.value(QStringLiteral("net_total_pnl_e8")).toInteger(total);
+        const qint64 fees = summary.value(QStringLiteral("fees_paid_e8")).toInteger();
+        const qint64 wallet = summary.value(QStringLiteral("wallet_balance_e8")).toInteger();
+        const qint64 position = summary.value(QStringLiteral("open_position_qty_e8")).toInteger(summary.value(QStringLiteral("net_qty_e8")).toInteger());
+        const qint64 fillCount = summary.value(QStringLiteral("fills")).toInteger();
+        bool appendSummary = out.empty();
+        if (!appendSummary) {
+            const QVariantMap last = out.constLast().toMap();
+            appendSummary = last.value(QStringLiteral("grossTotalPnlE8")).toLongLong() != grossTotal ||
+                            last.value(QStringLiteral("netTotalPnlE8")).toLongLong() != netTotal ||
+                            last.value(QStringLiteral("feesPaidE8")).toLongLong() != fees;
+        }
+        if (appendSummary) appendRow(lastTs + 1, grossRealized, realized, unrealized, total, grossTotal, netTotal, fees, wallet, position, fillCount);
+    }
+    if (!hasPoint) {
+        minPnl = 0;
+        maxPnl = 0;
+    }
+    return out;
 }
 
 QString resolveRecordingsRoot() {
@@ -246,6 +432,36 @@ QString cleanProfileName(QString name) {
     name.replace(QLatin1Char('/'), QLatin1Char('_'));
     name.replace(QLatin1Char('\\'), QLatin1Char('_'));
     return name;
+}
+
+QString cleanRunSlugPart(QString text) {
+    text = text.trimmed();
+    QString out;
+    out.reserve(text.size());
+    bool lastDash = false;
+    for (const QChar ch : text) {
+        const bool keep = ch.isLetterOrNumber() || ch == QLatin1Char('_');
+        if (keep) {
+            out.push_back(ch);
+            lastDash = false;
+        } else if (!lastDash) {
+            out.push_back(QLatin1Char('-'));
+            lastDash = true;
+        }
+    }
+    while (out.startsWith(QLatin1Char('-'))) out.remove(0, 1);
+    while (out.endsWith(QLatin1Char('-'))) out.chop(1);
+    return out.isEmpty() ? QStringLiteral("run") : out;
+}
+
+QString metadataCommentValue(const QString& text, const QString& key) {
+    const QString prefix = QStringLiteral("# %1=").arg(key);
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    for (QString line : lines) {
+        if (line.endsWith(QLatin1Char('\r'))) line.chop(1);
+        if (line.startsWith(prefix)) return line.mid(prefix.size()).trimmed();
+    }
+    return {};
 }
 
 QString normalizeConfigMode(QString mode) {
@@ -454,6 +670,9 @@ QVariantList BacktestViewModel::runs() const {
     for (const auto& record : records_) {
         QVariantMap row;
         row.insert(QStringLiteral("runId"), record.runId);
+        row.insert(QStringLiteral("id"), record.runId);
+        row.insert(QStringLiteral("label"), record.displayName.isEmpty() ? record.runId : record.displayName);
+        row.insert(QStringLiteral("configText"), record.configText);
         row.insert(QStringLiteral("status"), record.status);
         row.insert(QStringLiteral("strategy"), record.strategy);
         row.insert(QStringLiteral("filePath"), record.filePath);
@@ -479,6 +698,36 @@ QString BacktestViewModel::selectedSummaryJson() const {
 QString BacktestViewModel::selectedErrorText() const {
     const auto* record = selectedRecord_();
     return record == nullptr ? QString{} : record->errorText;
+}
+
+QVariantList BacktestViewModel::selectedEquityPoints() const {
+    const auto* record = selectedRecord_();
+    return record == nullptr ? QVariantList{} : record->equityPoints;
+}
+
+QVariantList BacktestViewModel::selectedResultMetrics() const {
+    const auto* record = selectedRecord_();
+    return record == nullptr ? QVariantList{} : record->resultMetrics;
+}
+
+bool BacktestViewModel::hasEquityPoints() const {
+    const auto* record = selectedRecord_();
+    return record != nullptr && !record->equityPoints.empty();
+}
+
+qint64 BacktestViewModel::selectedInitialBalanceE8() const {
+    const auto* record = selectedRecord_();
+    return record == nullptr ? 0 : record->initialBalanceE8;
+}
+
+qint64 BacktestViewModel::selectedPnlMinE8() const {
+    const auto* record = selectedRecord_();
+    return record == nullptr ? 0 : record->pnlMinE8;
+}
+
+qint64 BacktestViewModel::selectedPnlMaxE8() const {
+    const auto* record = selectedRecord_();
+    return record == nullptr ? 0 : record->pnlMaxE8;
 }
 
 bool BacktestViewModel::canRun() const {
@@ -668,8 +917,19 @@ void BacktestViewModel::refresh() {
     if (!dirPath.isEmpty()) {
         QDir dir(dirPath);
         const QFileInfoList files = dir.entryInfoList({QStringLiteral("*.json")}, QDir::Files, QDir::Time | QDir::Name);
+        QStringList compactRunIds;
+        for (const QFileInfo& file : files) {
+            const QString name = file.fileName();
+            if (!name.endsWith(QStringLiteral(".summary.json"))) continue;
+            compactRunIds.push_back(name.left(name.size() - QStringLiteral(".summary.json").size()));
+        }
         next.reserve(static_cast<std::size_t>(files.size()));
         for (const QFileInfo& file : files) {
+            const QString name = file.fileName();
+            if (!name.endsWith(QStringLiteral(".summary.json"))) {
+                const QString runId = file.completeBaseName();
+                if (compactRunIds.contains(runId)) continue;
+            }
             filesToWatch.push_back(file.absoluteFilePath());
             next.push_back(loadRecord_(file.absoluteFilePath()));
         }
@@ -765,7 +1025,16 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.filePath = info.absoluteFilePath();
     record.fileName = info.fileName();
     record.runId = info.completeBaseName();
+    if (record.fileName.endsWith(QStringLiteral(".summary.json"))) {
+        record.runId = record.fileName.left(record.fileName.size() - QStringLiteral(".summary.json").size());
+    }
     record.modifiedMs = info.lastModified().toMSecsSinceEpoch();
+
+    if (info.size() > kMaxEagerResultBytes) {
+        record.status = QStringLiteral("large_result");
+        record.errorText = QStringLiteral("Result file is too large to load eagerly");
+        return record;
+    }
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -791,7 +1060,19 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.status = jsonValueString(object, QStringLiteral("status"));
     if (record.status.trimmed().isEmpty()) record.status = QStringLiteral("unknown");
     record.strategy = jsonValueString(object, QStringLiteral("strategy"));
-    record.summaryJson = prettyJson(object.value(QStringLiteral("summary")));
+    const QString configPath = jsonValueString(object, QStringLiteral("config_path"));
+    if (!configPath.trimmed().isEmpty()) {
+        const QString configText = readTextFile(configPath);
+        record.displayName = metadataCommentValue(configText, QStringLiteral("display_name"));
+        record.configText = metadataCommentValue(configText, QStringLiteral("config_summary"));
+    }
+    if (record.displayName.isEmpty()) record.displayName = jsonValueString(object, QStringLiteral("display_name"));
+    if (record.configText.isEmpty()) record.configText = jsonValueString(object, QStringLiteral("config_summary"));
+    const QJsonObject summary = object.value(QStringLiteral("summary")).toObject();
+    record.initialBalanceE8 = summary.value(QStringLiteral("initial_balance_e8")).toInteger();
+    record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
+    record.resultMetrics = resultMetrics(summary);
+    record.equityPoints = equityPoints(object.value(QStringLiteral("equity_points")).toArray(), summary, record.pnlMinE8, record.pnlMaxE8);
     record.errorCount = errorCount(object.value(QStringLiteral("errors")));
     record.rawJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
     return record;
@@ -854,7 +1135,28 @@ void BacktestViewModel::stopWorker_() {
 }
 
 QString BacktestViewModel::runId_() const {
-    return QStringLiteral("run-%1").arg(QDateTime::currentMSecsSinceEpoch());
+    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
+    return QStringLiteral("%1-%2-%3-%4")
+        .arg(cleanRunSlugPart(selectedStrategy_), cleanRunSlugPart(selectedSymbol()), cleanRunSlugPart(configMode_), stamp);
+}
+
+QString BacktestViewModel::displayName_() const {
+    return QStringLiteral("%1 %2 %3")
+        .arg(selectedStrategy_.trimmed(), selectedSymbol().trimmed(), configMode_.trimmed())
+        .simplified();
+}
+
+QString BacktestViewModel::configSummary_() const {
+    QStringList parts;
+    for (const QString& key : paramOrder_) {
+        if (!keyVisibleForConfigMode(selectedStrategy_, key, configMode_)) continue;
+        const QString value = paramValues_.value(key).trimmed();
+        if (!value.isEmpty()) parts.push_back(QStringLiteral("%1=%2").arg(key, value));
+        if (parts.size() >= 3) break;
+    }
+    QString summary = configMode_.trimmed();
+    if (!parts.empty()) summary += QStringLiteral(": ") + parts.join(QStringLiteral(", "));
+    return summary;
 }
 
 void BacktestViewModel::loadStrategyDefaults_() {
@@ -942,6 +1244,9 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId) {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) return {};
     QTextStream out(&file);
+    out << "# recorder backtest metadata\n";
+    out << "# display_name=" << displayName_() << "\n";
+    out << "# config_summary=" << configSummary_() << "\n\n";
     const QString filteredBase = filteredBaseConfig(base, selectedStrategy_);
     out << filteredBase;
     if (!filteredBase.endsWith(QLatin1Char('\n'))) out << "\n";

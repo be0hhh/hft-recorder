@@ -6,6 +6,8 @@
 #include <QPointF>
 #include <QString>
 
+#include "gui/viewer/StrategyOverlay.hpp"
+
 #include "gui/viewer/ViewportMap.hpp"
 
 namespace hftrec::gui::viewer {
@@ -193,6 +195,8 @@ struct RenderSnapshot {
     std::vector<TradeDot> tradeDots;
     std::vector<CandleRect> candleRects;
     std::vector<LiquidationDot> liquidationDots;
+    std::vector<StrategyOrderSegment> strategyOrderSegments;
+    std::vector<StrategyFillMarker> strategyFillMarkers;
 
     // API-injected vertical markers for the active chart.
     std::vector<VerticalMarker> verticalMarkers;

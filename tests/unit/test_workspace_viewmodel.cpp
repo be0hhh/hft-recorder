@@ -20,7 +20,7 @@ TEST(WorkspaceViewModel, StartsWithSingletonTabsInMainHost) {
 
     hftrec::gui::WorkspaceViewModel workspace;
 
-    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")), QStringList({QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("compress"), QStringLiteral("backtests")}));
+    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")), QStringList({QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("compress"), QStringLiteral("backtests"), QStringLiteral("results")}));
     EXPECT_EQ(workspace.activeTab(QStringLiteral("main")), QStringLiteral("capture"));
     EXPECT_EQ(workspace.tabHost(QStringLiteral("viewer")), QStringLiteral("main"));
     EXPECT_TRUE(workspace.floatingHosts().empty());
@@ -69,7 +69,7 @@ TEST(WorkspaceViewModel, RestoreAllTabsToMainClearsFloatingHosts) {
     workspace.restoreAllTabsToMain();
 
     EXPECT_TRUE(workspace.floatingHosts().empty());
-    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")), QStringList({QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("compress"), QStringLiteral("backtests")}));
+    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")), QStringList({QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("compress"), QStringLiteral("backtests"), QStringLiteral("results")}));
     EXPECT_EQ(workspace.tabHost(QStringLiteral("viewer")), QStringLiteral("main"));
 }
 

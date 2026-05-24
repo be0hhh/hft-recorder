@@ -99,7 +99,7 @@ SnapshotInputs bookTickerInputs() {
     return in;
 }
 
-TEST(ViewerBookTickerTrace, BuildsContinuousTickerTraceWithoutBookSegments) {
+TEST(ViewerBookTickerTrace, BuildsSampleTickerTraceWithoutBookSegments) {
     const auto dir = makeTmpDir();
     writeFile(
         dir / "bookticker.jsonl",
@@ -114,14 +114,14 @@ TEST(ViewerBookTickerTrace, BuildsContinuousTickerTraceWithoutBookSegments) {
 
     const auto snap = chart.buildSnapshot(200.0, 300.0, bookTickerInputs());
     EXPECT_TRUE(snap.bookSegments.empty());
-    EXPECT_FALSE(snap.bookTickerTrace.bidLines.empty());
-    EXPECT_FALSE(snap.bookTickerTrace.askLines.empty());
-    EXPECT_LT(snap.bookTickerTrace.samples.size(), 120u);
+    EXPECT_TRUE(snap.bookTickerTrace.bidLines.empty());
+    EXPECT_TRUE(snap.bookTickerTrace.askLines.empty());
+    ASSERT_EQ(snap.bookTickerTrace.samples.size(), 2u);
 
     HoverInfo hover{};
     hftrec::gui::viewer::hit_test::computeHover(
         snap,
-        QPointF{50.0, snap.vp.toY(e8(10000))},
+        QPointF{0.0, snap.vp.toY(e8(10000))},
         true,
         hover);
     EXPECT_EQ(hover.bookKind, 1);
@@ -137,20 +137,11 @@ TEST(ViewerBookTickerTrace, BuildsContinuousTickerTraceWithoutBookSegments) {
     EXPECT_EQ(hover.bookPriceE8, e8(10150));
     EXPECT_EQ(hover.bookQtyE8, e8(3));
 
-    hftrec::gui::viewer::hit_test::computeHover(
-        snap,
-        QPointF{150.0, snap.vp.toY(e8(10150))},
-        true,
-        hover);
-    EXPECT_EQ(hover.bookKind, 2);
-    EXPECT_EQ(hover.bookPriceE8, e8(10150));
-    EXPECT_EQ(hover.bookQtyE8, e8(3));
-
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
 
-TEST(ViewerBookTickerTrace, HoldsLastQuoteAcrossSparseUpdateGap) {
+TEST(ViewerBookTickerTrace, DoesNotMaterializeSamplesAcrossSparseUpdateGap) {
     const auto dir = makeTmpDir();
     writeFile(
         dir / "bookticker.jsonl",
@@ -164,7 +155,7 @@ TEST(ViewerBookTickerTrace, HoldsLastQuoteAcrossSparseUpdateGap) {
     chart.setViewport(0, 10'000'000'000ll, e8(9900), e8(10200));
 
     const auto snap = chart.buildSnapshot(200.0, 300.0, bookTickerInputs());
-    ASSERT_FALSE(snap.bookTickerTrace.bidLines.empty());
+    ASSERT_EQ(snap.bookTickerTrace.samples.size(), 2u);
 
     HoverInfo hover{};
     hftrec::gui::viewer::hit_test::computeHover(
@@ -172,8 +163,7 @@ TEST(ViewerBookTickerTrace, HoldsLastQuoteAcrossSparseUpdateGap) {
         QPointF{100.0, snap.vp.toY(e8(10000))},
         true,
         hover);
-    EXPECT_EQ(hover.bookKind, 1);
-    EXPECT_EQ(hover.bookPriceE8, e8(10000));
+    EXPECT_EQ(hover.bookKind, 0);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

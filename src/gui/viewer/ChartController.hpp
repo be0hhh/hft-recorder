@@ -46,6 +46,8 @@ class ChartController : public QObject {
     Q_PROPERTY(QString selectionSummaryText READ selectionSummaryText NOTIFY selectionChanged)
     Q_PROPERTY(int verticalMarkerCount READ verticalMarkerCount NOTIFY markersChanged)
     Q_PROPERTY(int renderWindowSeconds READ renderWindowSeconds WRITE setRenderWindowSeconds NOTIFY renderWindowChanged)
+    Q_PROPERTY(QVariantList backtestResults READ backtestResults NOTIFY backtestResultsChanged)
+    Q_PROPERTY(QString selectedBacktestResult READ selectedBacktestResult NOTIFY backtestResultChanged)
 
   public:
     explicit ChartController(QObject* parent = nullptr);
@@ -102,6 +104,8 @@ class ChartController : public QObject {
     int verticalMarkerCount() const { return static_cast<int>(verticalMarkers_.size()); }
     int renderWindowSeconds() const noexcept { return renderWindowSeconds_; }
     bool renderWindowActive() const noexcept { return renderWindowSeconds_ != 0; }
+    QVariantList backtestResults() const { return backtestResults_; }
+    QString selectedBacktestResult() const { return selectedBacktestResult_; }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
     Q_INVOKABLE void setActive(bool active);
@@ -146,6 +150,9 @@ class ChartController : public QObject {
     Q_INVOKABLE bool addVerticalMarker(qint64 tsNs, const QString& label = QString{});
     Q_INVOKABLE void clearVerticalMarkers();
     Q_INVOKABLE void setRenderWindowSeconds(int seconds);
+    Q_INVOKABLE void refreshBacktestResults(const QString& primarySessionPath, const QString& secondarySessionPath = QString{});
+    Q_INVOKABLE bool selectBacktestResult(const QString& resultPath);
+    Q_INVOKABLE void clearBacktestResult();
 
     void syncReplayCursorToViewport();
     std::int64_t viewportCursorTs() const noexcept;
@@ -167,6 +174,8 @@ class ChartController : public QObject {
     void markersChanged();
     void renderWindowChanged();
     void activeChanged();
+    void backtestResultsChanged();
+    void backtestResultChanged();
 
   private:
     struct SelectionRange {
@@ -226,6 +235,7 @@ class ChartController : public QObject {
     void stopLiveData_() noexcept;
     void pollLiveData_();
     void clearLiveDataCache_() noexcept;
+    void clearStrategyOverlay_() noexcept;
     void refreshProviderFromRegistry_();
     bool appendOverlayBatch_(const LiveDataBatch& batch, QString* failureText = nullptr);
     void reconcileOverlayWithStable_();
@@ -275,6 +285,9 @@ class ChartController : public QObject {
     bool selectionActive_{false};
     QString selectionSummaryText_{};
     std::vector<VerticalMarker> verticalMarkers_{};
+    QVariantList backtestResults_{};
+    QString selectedBacktestResult_{};
+    StrategyOverlayData strategyOverlay_{};
     int renderWindowSeconds_{0};
     bool tradeLodAggregated_{false};
 };

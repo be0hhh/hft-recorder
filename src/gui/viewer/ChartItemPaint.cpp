@@ -29,6 +29,7 @@
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 #include "gui/viewer/renderers/CandleRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
+#include "gui/viewer/renderers/StrategyOverlayRenderer.hpp"
 #include "gui/viewer/renderers/TradeRenderer.hpp"
 #include "core/common/Timing.hpp"
 
@@ -57,6 +58,7 @@ void paintSnapshotFrame(QPainter* painter,
     renderers::renderBook(ctx);
     renderers::renderCandles(ctx);
     renderers::renderTrades(ctx);
+    renderers::renderStrategyOverlay(ctx);
     renderers::renderOverlay(ctx);
 }
 
@@ -87,6 +89,7 @@ void paintSnapshotLayers(QPainter* painter,
     if (layerSnap.bookTickerVisible) renderers::renderBookTicker(ctx);
     if (layerSnap.candlesVisible) renderers::renderCandles(ctx);
     if (layerSnap.tradesVisible || layerSnap.liquidationsVisible) renderers::renderTrades(ctx);
+    if (drawTrades) renderers::renderStrategyOverlay(ctx);
     if (drawOverlay) renderers::renderOverlay(ctx);
 }
 

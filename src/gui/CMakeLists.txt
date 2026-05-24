@@ -22,6 +22,7 @@ qt_add_executable(hft-recorder-gui
     viewer/ChartControllerSelection.cpp
     api/ChartApiServer.cpp
     viewer/LiveDataProvider.cpp
+    viewer/StrategyOverlay.cpp
     viewer/BookTickerCompareController.cpp
     viewer/BookTickerCompareItem.cpp
     viewer/ChartItem.cpp
@@ -34,6 +35,7 @@ qt_add_executable(hft-recorder-gui
     viewer/renderers/BookTickerRenderer.cpp
     viewer/renderers/CandleRenderer.cpp
     viewer/renderers/TradeRenderer.cpp
+    viewer/renderers/StrategyOverlayRenderer.cpp
     viewer/renderers/OverlayRenderer.cpp
 )
 
@@ -73,6 +75,7 @@ qt_add_qml_module(hft-recorder-gui
         qml/views/DashboardView.qml
         qml/views/ViewerView.qml
         qml/views/BacktestResultsView.qml
+        qml/views/ResultsView.qml
 )
 
 target_link_libraries(hft-recorder-gui

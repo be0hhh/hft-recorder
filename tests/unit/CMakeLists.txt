@@ -35,11 +35,13 @@ if(Qt6_FOUND)
             test_workspace_viewmodel.cpp
             test_backtest_viewmodel.cpp
             test_recorded_render_once.cpp
+            test_strategy_overlay.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerSession.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerSelection.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/LiveDataProvider.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/StrategyOverlay.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
@@ -76,7 +78,9 @@ if(Qt6_FOUND)
             Qt6::Core
             Qt6::Gui
             Qt6::Network
+            hft_backtest_core
     )
+    target_compile_definitions(hftrec_unit_tests PRIVATE HFT_BACKTEST_TRADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-trader")
 endif()
 
 target_compile_features(hftrec_unit_tests PRIVATE cxx_std_23)

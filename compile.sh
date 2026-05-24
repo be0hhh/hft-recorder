@@ -352,10 +352,26 @@ export HFTREC_BUILD_COMPILER="\${HFTREC_BUILD_COMPILER:-$build_compiler}"
 export HFTREC_BUILD_CXX="\${HFTREC_BUILD_CXX:-$build_cxx}"
 
 MODE="cpu"
-if [ "\${1:-}" = "--gpu" ]; then
-    MODE="gpu"
-    shift
-fi
+FOREGROUND="0"
+while [ "\$#" -gt 0 ]; do
+    case "\${1:-}" in
+        --gpu)
+            MODE="gpu"
+            shift
+            ;;
+        --foreground)
+            FOREGROUND="1"
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if [ "\$MODE" = "gpu" ]; then
     export HFTREC_RENDER_MODE=gpu
@@ -415,15 +431,29 @@ LOG_FILE="\$LOG_DIR/gui.log"
     printf '\n'
 } >>"\$LOG_FILE"
 
+if [ "\$FOREGROUND" = "1" ]; then
+    echo ">>> hft-recorder gui foreground mode, log: \$LOG_FILE"
+    "\$APP_DIR/build/bin/hft-recorder-gui" "\$@" 2>&1 | tee -a "\$LOG_FILE"
+    exit "\${PIPESTATUS[0]}"
+fi
+
 if command -v setsid >/dev/null 2>&1; then
     setsid "\$APP_DIR/build/bin/hft-recorder-gui" "\$@" </dev/null >>"\$LOG_FILE" 2>&1 &
 else
     nohup "\$APP_DIR/build/bin/hft-recorder-gui" "\$@" </dev/null >>"\$LOG_FILE" 2>&1 &
 fi
+gui_pid="\$!"
+
+sleep 0.35
+if ! kill -0 "\$gui_pid" >/dev/null 2>&1; then
+    echo ">>> hft-recorder gui failed during startup, log: \$LOG_FILE" >&2
+    tail -n 80 "\$LOG_FILE" >&2 || true
+    exit 1
+fi
 
 disown 2>/dev/null || true
 nudge_cursor_after_spawn
-echo ">>> hft-recorder gui started, log: \$LOG_FILE"
+echo ">>> hft-recorder gui started pid=\$gui_pid, log: \$LOG_FILE"
 EOF
     chmod +x "$APP/build/start"
 }

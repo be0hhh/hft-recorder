@@ -47,6 +47,9 @@ Pane {
         radius: 6
         implicitWidth: Math.max(76, label.implicitWidth + 18)
         implicitHeight: 30
+        Layout.minimumWidth: implicitWidth
+        Layout.preferredWidth: implicitWidth
+        Layout.preferredHeight: implicitHeight
         color: enabledValue ? (mouse.containsMouse ? "#2b303a" : root.panelColor) : root.panelDeepColor
         border.color: enabledValue ? accent : root.borderColor
         border.width: 1
@@ -61,6 +64,7 @@ Pane {
         property int fieldWidth: 92
         signal edited(string value)
         Layout.preferredWidth: fieldWidth
+        Layout.minimumWidth: fieldWidth
         Layout.preferredHeight: 42
         ColumnLayout {
             anchors.fill: parent
@@ -85,12 +89,14 @@ Pane {
 
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 150
+            Layout.preferredHeight: headerLayout.implicitHeight + 16
+            Layout.minimumHeight: headerLayout.implicitHeight + 16
             color: root.chromeColor
             border.color: root.borderColor
             border.width: 1
 
             ColumnLayout {
+                id: headerLayout
                 anchors.fill: parent
                 anchors.margins: 8
                 spacing: 6
@@ -251,7 +257,7 @@ Pane {
                     delegate: Rectangle {
                         required property var modelData
                         width: ListView.view.width
-                        height: 50
+                        height: 64
                         radius: 5
                         color: modelData.runId === root.backtestVm.selectedRunId ? Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.16) : root.panelDeepColor
                         border.color: modelData.runId === root.backtestVm.selectedRunId ? root.accentColor : root.borderColor
@@ -263,8 +269,9 @@ Pane {
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
-                                Label { text: modelData.runId; color: root.textColor; font.pixelSize: 12; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-                                Label { text: modelData.strategy + " / " + modelData.status + " / " + modelData.modifiedText; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Label { text: modelData.label; color: root.textColor; font.pixelSize: 12; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Label { text: modelData.status + " / " + modelData.modifiedText; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Label { text: modelData.configText || modelData.runId; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
                             }
                         }
                         MouseArea { anchors.fill: parent; onClicked: root.backtestVm.selectRun(modelData.runId) }
@@ -289,8 +296,8 @@ Pane {
                     }
                     TextArea {
                         Layout.fillWidth: true
-                        Layout.fillHeight: !rawToggle.checked
-                        Layout.preferredHeight: rawToggle.checked ? 180 : 320
+                        Layout.fillHeight: true
+                        Layout.preferredHeight: 320
                         text: root.backtestVm.selectedSummaryJson
                         readOnly: true
                         selectByMouse: true
@@ -304,10 +311,11 @@ Pane {
                         id: rawToggle
                         text: "Raw"
                         checked: false
+                        visible: false
                         contentItem: Text { text: rawToggle.text; color: root.mutedTextColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; leftPadding: rawToggle.indicator.width + rawToggle.spacing }
                     }
                     TextArea {
-                        visible: rawToggle.checked
+                        visible: false
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         text: root.backtestVm.selectedJson

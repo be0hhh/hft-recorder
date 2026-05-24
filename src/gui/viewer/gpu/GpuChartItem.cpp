@@ -24,6 +24,7 @@
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
 #include "gui/viewer/renderers/CandleRenderer.hpp"
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
+#include "gui/viewer/renderers/StrategyOverlayRenderer.hpp"
 #include "gui/viewer/renderers/TradeRenderer.hpp"
 
 namespace hftrec::gui::viewer::gpu {
@@ -122,6 +123,7 @@ class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
             renderers::renderBookTicker(ctx);
             renderers::renderCandles(ctx);
             renderers::renderTrades(ctx);
+            renderers::renderStrategyOverlay(ctx);
             renderers::renderOverlay(ctx);
         }
 
