@@ -258,6 +258,7 @@ TradeLodDecision decideTradeLod(std::size_t visibleTradeCount,
                                 qreal widthPx,
                                 bool forceExact,
                                 bool previousAggregated) noexcept {
+    (void)previousAggregated;
     const std::size_t width = widthPx <= 0.0
         ? 0u
         : static_cast<std::size_t>(std::ceil(widthPx));
@@ -268,10 +269,7 @@ TradeLodDecision decideTradeLod(std::size_t visibleTradeCount,
         kTradeExactExitBudget,
         static_cast<std::size_t>(std::ceil(widthPx * kTradeLodExitMultiplier)));
     if (forceExact || visibleTradeCount <= 1u || width == 0u) return TradeLodDecision{false, enterBudget, exitBudget};
-    const bool aggregate = previousAggregated
-        ? visibleTradeCount >= exitBudget
-        : visibleTradeCount > enterBudget;
-    return TradeLodDecision{aggregate, enterBudget, exitBudget};
+    return TradeLodDecision{false, enterBudget, exitBudget};
 }
 
 struct TradePixelBucket {
@@ -780,7 +778,6 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             return x >= 0.0 && x <= snap.vp.w && y >= 0.0 && y <= snap.vp.h;
         };
 
-        std::size_t visibleTradeCount = 0;
         std::size_t visibleTradeDotCount = 0;
         bool hasPreviousVisibleDot = false;
         std::int64_t previousDotTsNs = 0;
@@ -789,7 +786,6 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         for (auto it = tradeBegin; it != tradeEnd; ++it) {
             if (!visible(*it)) continue;
             const auto& t = *it;
-            ++visibleTradeCount;
             const bool sideBuy = t.sideBuy != 0;
             if (!hasPreviousVisibleDot
                 || previousDotTsNs != t.tsNs
@@ -816,7 +812,13 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
                 const auto& t = *it;
                 if (!visible(t)) continue;
                 const auto origIndex = static_cast<int>(std::distance(trades.begin(), it));
-                detail::appendGroupedTradeDot(snap.tradeDots, TradeDot{t.tsNs, t.priceE8, t.qtyE8, t.sideBuy != 0, origIndex});
+                TradeDot dot{};
+                dot.tsNs = t.tsNs;
+                dot.priceE8 = t.priceE8;
+                dot.qtyE8 = t.qtyE8;
+                dot.sideBuy = t.sideBuy != 0;
+                dot.origIndex = origIndex;
+                detail::appendGroupedTradeDot(snap.tradeDots, std::move(dot));
             }
         } else {
             TradePixelBucket bucket{};

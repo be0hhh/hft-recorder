@@ -154,6 +154,15 @@ struct HoverInfo {
     std::int64_t liquidationFilledQtyE8{0};
     bool         liquidationSideBuy{true};
 
+    // Strategy/backtest fill hit-test result.
+    bool         strategyFillHit{false};
+    std::int64_t strategyFillTsNs{0};
+    std::int64_t strategyFillPriceE8{0};
+    std::int64_t strategyFillQtyE8{0};
+    std::int64_t strategyFillAmountE8{0};
+    bool         strategyFillSideBuy{true};
+    bool         strategyFillReduceOnly{false};
+
     // Book hit-test result. 0 none, 1 bid ticker, 2 ask ticker, 3 bid book, 4 ask book.
     int          bookKind{0};
     std::int64_t bookPriceE8{0};

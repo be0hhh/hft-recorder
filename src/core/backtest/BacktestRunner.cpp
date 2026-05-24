@@ -27,21 +27,23 @@ const char* resultStatusName(Status status) noexcept {
 }
 
 std::filesystem::path resultPathFor(const BacktestRunRequest& request, const std::string& runId) {
-    return request.sessionPath / "backtests" / (runId + ".json");
+    return request.sessionPath / "backtests" / runId;
 }
 
-std::string renderResultJson(const BacktestRunResult& result) {
+std::string renderManifestJson(const BacktestRunResult& result) {
     std::ostringstream out;
     out << "{\n";
-    out << "  \"type\": \"run.result\",\n";
+    out << "  \"type\": \"run.result.v2\",\n";
     out << "  \"request_id\": " << json::quote(result.requestId) << ",\n";
     out << "  \"run_id\": " << json::quote(result.runId) << ",\n";
     out << "  \"status\": " << json::quote(resultStatusName(result.status)) << ",\n";
     out << "  \"strategy\": " << json::quote(result.strategy) << ",\n";
     out << "  \"session_path\": " << json::quote(result.sessionPath.generic_string()) << ",\n";
-    out << "  \"orders\": [],\n";
-    out << "  \"fills\": [],\n";
-    out << "  \"equity_points\": [],\n";
+    out << "  \"streams\": {\n";
+    out << "    \"orders\": {\"path\": \"orders.jsonl\", \"rows\": 0},\n";
+    out << "    \"fills\": {\"path\": \"fills.jsonl\", \"rows\": 0},\n";
+    out << "    \"equity\": {\"path\": \"equity.jsonl\", \"rows\": 0}\n";
+    out << "  },\n";
     out << "  \"summary\": {\n";
     out << "    \"mode\": \"skeleton_session_scan\",\n";
     out << "    \"trades\": " << result.trades << ",\n";
@@ -67,17 +69,27 @@ std::string renderResultJson(const BacktestRunResult& result) {
 
 Status writeResult(BacktestRunResult& result) noexcept {
     std::error_code ec;
-    std::filesystem::create_directories(result.resultPath.parent_path(), ec);
+    std::filesystem::create_directories(result.resultPath, ec);
     if (ec) {
-        result.error = "failed to create backtests directory";
+        result.error = "failed to create backtest result directory";
         return Status::IoError;
     }
-    std::ofstream out(result.resultPath, std::ios::out | std::ios::trunc);
+
+    static constexpr const char* kStreamFiles[] = {"orders.jsonl", "fills.jsonl", "equity.jsonl"};
+    for (const char* name : kStreamFiles) {
+        std::ofstream stream(result.resultPath / name, std::ios::out | std::ios::trunc);
+        if (!stream.is_open() || !stream.good()) {
+            result.error = std::string{"failed to write result stream "} + name;
+            return Status::IoError;
+        }
+    }
+
+    std::ofstream out(result.resultPath / "manifest.json", std::ios::out | std::ios::trunc);
     if (!out.is_open()) {
-        result.error = "failed to open result file";
+        result.error = "failed to open result manifest";
         return Status::IoError;
     }
-    out << renderResultJson(result);
+    out << renderManifestJson(result);
     return out.good() ? Status::Ok : Status::IoError;
 }
 

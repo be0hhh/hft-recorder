@@ -29,6 +29,7 @@ struct StrategyFillMarker {
     std::int64_t qtyE8{0};
     bool sideBuy{true};
     bool marketOrder{false};
+    bool reduceOnly{false};
     StrategyFillShape shape{StrategyFillShape::BuyUp};
 };
 

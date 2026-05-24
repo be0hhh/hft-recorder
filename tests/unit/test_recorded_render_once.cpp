@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <string>
 
 #include <QString>
 
@@ -12,6 +15,22 @@ namespace {
 
 fs::path fixtureDir(const char* name) {
     return fs::path(HFTRREC_SOURCE_DIR) / "tests" / "fixtures" / "session_corpus" / name;
+}
+
+fs::path makeTmpDir(const char* prefix) {
+    const auto dir = fs::temp_directory_path() / (std::string{prefix} + "_" + std::to_string(std::rand()));
+    fs::create_directories(dir);
+    return dir;
+}
+
+void writeFile(const fs::path& path, const std::string& data) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << data;
+}
+
+std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8) {
+    return "[" + std::to_string(priceE8)
+        + ",100000000,1," + std::to_string(tsNs) + "]\n";
 }
 
 class CountingLiveDataProvider final : public hftrec::gui::viewer::ILiveDataProvider {
@@ -48,4 +67,49 @@ TEST(RecordedRenderOnce, LoadSessionMaterializesRowsAndDoesNotStartLiveProvider)
     EXPECT_EQ(providerPtr->startCount, 0);
     chart.refreshLiveDataWindow(0, 4000);
     EXPECT_EQ(providerPtr->materializeCount, 0);
+}
+
+TEST(ViewerTradeRendering, DenseTradesRemainExactDots) {
+    const auto dir = makeTmpDir("hftrec_dense_trades_exact");
+    std::string trades;
+    trades.reserve(24002u * 32u);
+    for (std::int64_t ts = 1; ts <= 24002; ++ts) {
+        trades += tradeLine(ts, 10000000000ll);
+    }
+    writeFile(dir / "trades.jsonl", trades);
+
+    hftrec::gui::viewer::ChartController chart;
+    ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
+    chart.setViewport(1, 24002, 9900000000ll, 10100000000ll);
+
+    hftrec::gui::viewer::SnapshotInputs inputs{};
+    inputs.tradesVisible = true;
+    const auto snap = chart.buildSnapshot(10.0, 200.0, inputs);
+    EXPECT_FALSE(snap.tradeDecimated);
+    EXPECT_EQ(snap.tradeDots.size(), 24002u);
+    EXPECT_FALSE(snap.tradeDots.front().aggregated);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(ViewerBacktestResults, DiscoversV2RunDirectoriesOnly) {
+    const auto session = makeTmpDir("hftrec_viewer_backtest_results");
+    fs::create_directories(session / "backtests");
+    fs::create_directories(session / "backtests" / "run-a");
+    writeFile(session / "backtests" / "run-a" / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","summary":{},"errors":[]})json");
+    writeFile(session / "backtests" / "legacy.json", R"json({"type":"run.result","run_id":"legacy","orders":[],"fills":[],"summary":{},"errors":[]})json");
+
+    hftrec::gui::viewer::ChartController chart;
+    chart.refreshBacktestResults(QString::fromStdString(session.string()));
+
+    ASSERT_EQ(chart.backtestResults().size(), 1);
+    const QVariantMap row = chart.backtestResults().front().toMap();
+    EXPECT_TRUE(row.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("run-a")));
+    EXPECT_FALSE(row.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("legacy.json")));
+
+    std::error_code ec;
+    fs::remove_all(session, ec);
 }

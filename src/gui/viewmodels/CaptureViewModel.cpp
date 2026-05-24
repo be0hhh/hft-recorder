@@ -154,7 +154,7 @@ void CaptureViewModel::setVenueSymbolsText(const QString& venueKey, const QStrin
         const auto row = choices[i].toMap();
         if (row.value(QStringLiteral("key")).toString() != key) continue;
         while (venueSymbolsTexts_.size() <= i) venueSymbolsTexts_.push_back({});
-        const auto normalized = symbolsText.simplified();
+        const auto normalized = symbolsText.trimmed();
         if (venueSymbolsTexts_[i] == normalized) return;
         venueSymbolsTexts_[i] = normalized;
         emit symbolsTextChanged();
@@ -165,7 +165,7 @@ void CaptureViewModel::setVenueSymbolsText(const QString& venueKey, const QStrin
 }
 
 void CaptureViewModel::setSymbolsText(const QString& symbolsText) {
-    const auto normalized = symbolsText.simplified();
+    const auto normalized = symbolsText.trimmed();
     if (normalized == symbolsText_) return;
     symbolsText_ = normalized;
     emit symbolsTextChanged();

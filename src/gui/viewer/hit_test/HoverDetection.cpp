@@ -208,6 +208,31 @@ void computeHover(const RenderSnapshot& snap,
         if (out.liquidationHit) return;
     }
 
+    {
+        constexpr double kHitRadiusPx = 9.0;
+        const double hitSq = kHitRadiusPx * kHitRadiusPx;
+        double bestSq = hitSq;
+        for (const auto& marker : snap.strategyFillMarkers) {
+            const double x = vp.toX(marker.tsNs);
+            if (x < (point.x() - kHitRadiusPx)) continue;
+            if (x > (point.x() + kHitRadiusPx)) break;
+            const double dx = x - point.x();
+            const double dy = vp.toY(marker.priceE8) - point.y();
+            const double distSq = dx * dx + dy * dy;
+            if (distSq <= bestSq) {
+                bestSq = distSq;
+                out.strategyFillHit = true;
+                out.strategyFillTsNs = marker.tsNs;
+                out.strategyFillPriceE8 = marker.priceE8;
+                out.strategyFillQtyE8 = marker.qtyE8;
+                out.strategyFillAmountE8 = detail::multiplyScaledE8(marker.qtyE8, marker.priceE8);
+                out.strategyFillSideBuy = marker.sideBuy;
+                out.strategyFillReduceOnly = marker.reduceOnly;
+            }
+        }
+        if (out.strategyFillHit) return;
+    }
+
     if (!snap.tradesVisible) return;
 
     constexpr double kHitRadiusPx = 9.0;

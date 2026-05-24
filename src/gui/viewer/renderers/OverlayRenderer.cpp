@@ -198,6 +198,35 @@ void renderLiquidationOverlay(const RenderContext& ctx) {
 
     renderObjectCard(ctx.p, lines, accent, center.x(), center.y(), snap.vp.w, snap.vp.h);
 }
+void renderStrategyFillOverlay(const RenderContext& ctx) {
+    const auto& snap = ctx.s;
+    const auto& hov = ctx.hov;
+    if (!hov.contextActive || !hov.strategyFillHit) return;
+    if (hov.strategyFillTsNs < snap.vp.tMin || hov.strategyFillTsNs > snap.vp.tMax) return;
+    if (hov.strategyFillPriceE8 < snap.vp.pMin || hov.strategyFillPriceE8 > snap.vp.pMax) return;
+
+    const QPointF center{snap.vp.toX(hov.strategyFillTsNs), snap.vp.toY(hov.strategyFillPriceE8)};
+    const QColor accent = hov.strategyFillSideBuy ? QColor(0xFF, 0xD8, 0x4D) : QColor(0xFF, 0x1A, 0xC8);
+
+    QPen focusPen(accent);
+    focusPen.setWidthF(2.0);
+    focusPen.setCosmetic(true);
+    ctx.p->setPen(focusPen);
+    ctx.p->setBrush(Qt::NoBrush);
+    ctx.p->drawEllipse(center, 8.0, 8.0);
+
+    QStringList lines;
+    lines << QStringLiteral("My %1 %2")
+                 .arg(hov.strategyFillSideBuy ? QStringLiteral("BUY") : QStringLiteral("SELL"))
+                 .arg(hov.strategyFillReduceOnly ? QStringLiteral("close") : QStringLiteral("fill"));
+    lines << QStringLiteral("Price  %1").arg(detail::formatTrimmedE8(hov.strategyFillPriceE8));
+    lines << QStringLiteral("Qty    %1").arg(detail::formatTrimmedE8(hov.strategyFillQtyE8));
+    lines << QStringLiteral("Amount %1").arg(detail::formatTrimmedE8(hov.strategyFillAmountE8));
+    lines << QStringLiteral("Time   %1").arg(detail::formatTimeNs(hov.strategyFillTsNs));
+
+    renderObjectCard(ctx.p, lines, accent, center.x(), center.y(), snap.vp.w, snap.vp.h);
+}
+
 void renderTradeOverlay(const RenderContext& ctx) {
     const auto& snap = ctx.s;
     const auto& hov  = ctx.hov;
@@ -281,6 +310,7 @@ void renderOverlay(const RenderContext& ctx) {
     renderVerticalMarkers(ctx);
     renderBookOverlay(ctx);
     renderLiquidationOverlay(ctx);
+    renderStrategyFillOverlay(ctx);
     renderTradeOverlay(ctx);
 }
 

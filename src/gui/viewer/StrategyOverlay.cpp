@@ -14,10 +14,10 @@ struct OrderRow {
     std::uint64_t id{0};
     std::uint64_t targetId{0};
     std::int64_t activeTsNs{0};
-    std::string action{};
-    std::string side{};
-    std::string type{};
-    std::string status{};
+    std::uint8_t action{0};
+    std::uint8_t side{0};
+    std::uint8_t type{0};
+    std::uint8_t status{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
 };
@@ -25,9 +25,10 @@ struct OrderRow {
 struct FillRow {
     std::uint64_t orderId{0};
     std::int64_t exitTsNs{0};
-    std::string side{};
+    std::uint8_t side{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
+    bool reduceOnly{false};
 };
 
 struct ParsedResult {
@@ -47,92 +48,7 @@ bool readText(const std::filesystem::path& path, std::string& out) {
     return true;
 }
 
-bool parseOrder(hftrec::json::MiniJsonParser& parser, OrderRow& out) noexcept {
-    out = OrderRow{};
-    if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
-    std::string key;
-    do {
-        if (!parser.parseKey(key)) return false;
-        if (key == "id") {
-            if (!parser.parseUInt64(out.id)) return false;
-        } else if (key == "target_id") {
-            if (!parser.parseUInt64(out.targetId)) return false;
-        } else if (key == "active_ts_ns") {
-            if (!parser.parseInt64(out.activeTsNs)) return false;
-        } else if (key == "action") {
-            if (!parser.parseString(out.action)) return false;
-        } else if (key == "side") {
-            if (!parser.parseString(out.side)) return false;
-        } else if (key == "type") {
-            if (!parser.parseString(out.type)) return false;
-        } else if (key == "status") {
-            if (!parser.parseString(out.status)) return false;
-        } else if (key == "price_e8") {
-            if (!parser.parseInt64(out.priceE8)) return false;
-        } else if (key == "qty_e8") {
-            if (!parser.parseInt64(out.qtyE8)) return false;
-        } else if (!parser.skipValue()) {
-            return false;
-        }
-        if (parser.peek('}')) break;
-    } while (parser.parseComma());
-    return parser.parseObjectEnd();
-}
-
-bool parseFill(hftrec::json::MiniJsonParser& parser, FillRow& out) noexcept {
-    out = FillRow{};
-    if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
-    std::string key;
-    do {
-        if (!parser.parseKey(key)) return false;
-        if (key == "order_id") {
-            if (!parser.parseUInt64(out.orderId)) return false;
-        } else if (key == "exit_ts_ns") {
-            if (!parser.parseInt64(out.exitTsNs)) return false;
-        } else if (key == "side") {
-            if (!parser.parseString(out.side)) return false;
-        } else if (key == "price_e8") {
-            if (!parser.parseInt64(out.priceE8)) return false;
-        } else if (key == "qty_e8") {
-            if (!parser.parseInt64(out.qtyE8)) return false;
-        } else if (!parser.skipValue()) {
-            return false;
-        }
-        if (parser.peek('}')) break;
-    } while (parser.parseComma());
-    return parser.parseObjectEnd();
-}
-
-bool parseOrders(hftrec::json::MiniJsonParser& parser, std::vector<OrderRow>& out) noexcept {
-    out.clear();
-    if (!parser.parseArrayStart()) return false;
-    if (parser.peek(']')) return parser.parseArrayEnd();
-    do {
-        OrderRow row{};
-        if (!parseOrder(parser, row)) return false;
-        out.push_back(std::move(row));
-        if (parser.peek(']')) break;
-    } while (parser.parseComma());
-    return parser.parseArrayEnd();
-}
-
-bool parseFills(hftrec::json::MiniJsonParser& parser, std::vector<FillRow>& out) noexcept {
-    out.clear();
-    if (!parser.parseArrayStart()) return false;
-    if (parser.peek(']')) return parser.parseArrayEnd();
-    do {
-        FillRow row{};
-        if (!parseFill(parser, row)) return false;
-        out.push_back(std::move(row));
-        if (parser.peek(']')) break;
-    } while (parser.parseComma());
-    return parser.parseArrayEnd();
-}
-
-bool parseResult(std::string_view text, ParsedResult& out) noexcept {
-    out = ParsedResult{};
+bool parseManifest(std::string_view text, ParsedResult& out) noexcept {
     hftrec::json::MiniJsonParser parser{text};
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return parser.parseObjectEnd() && parser.finish();
@@ -145,10 +61,6 @@ bool parseResult(std::string_view text, ParsedResult& out) noexcept {
             if (!parser.parseString(out.strategy)) return false;
         } else if (key == "session_path") {
             if (!parser.parseString(out.sessionPath)) return false;
-        } else if (key == "orders") {
-            if (!parseOrders(parser, out.orders)) return false;
-        } else if (key == "fills") {
-            if (!parseFills(parser, out.fills)) return false;
         } else if (!parser.skipValue()) {
             return false;
         }
@@ -157,14 +69,92 @@ bool parseResult(std::string_view text, ParsedResult& out) noexcept {
     return parser.parseObjectEnd() && parser.finish();
 }
 
-bool sideBuy(std::string_view side) noexcept {
-    return side == "buy";
+bool parseByte(hftrec::json::MiniJsonParser& parser, std::uint8_t& out) noexcept {
+    std::int64_t value = 0;
+    if (!parser.parseInt64(value) || value < 0 || value > 255) return false;
+    out = static_cast<std::uint8_t>(value);
+    return true;
 }
 
-bool isEffectiveCommandStatus(std::string_view status) noexcept {
-    return status != "missing" && status != "rejected" && status != "pending" &&
-           status != "failed" && status != "error";
+bool parseBoolByte(hftrec::json::MiniJsonParser& parser, bool& out) noexcept {
+    std::int64_t value = 0;
+    if (!parser.parseInt64(value) || (value != 0 && value != 1)) return false;
+    out = value != 0;
+    return true;
 }
+
+bool parseOrderLine(std::string_view line, OrderRow& out) noexcept {
+    out = OrderRow{};
+    hftrec::json::MiniJsonParser parser{line};
+    if (!parser.parseArrayStart()) return false;
+    if (!parser.parseUInt64(out.id) || !parser.parseComma()) return false;
+    if (!parser.parseUInt64(out.targetId) || !parser.parseComma()) return false;
+    std::int64_t ignored = 0;
+    if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.activeTsNs) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.action) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.side) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.type) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.status) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.priceE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
+    bool ignoredBool = false;
+    if (!parseBoolByte(parser, ignoredBool)) return false;
+    return parser.parseArrayEnd() && parser.finish();
+}
+
+bool parseFillLine(std::string_view line, FillRow& out) noexcept {
+    out = FillRow{};
+    hftrec::json::MiniJsonParser parser{line};
+    if (!parser.parseArrayStart()) return false;
+    std::int64_t ignored = 0;
+    if (!parser.parseUInt64(out.orderId) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.exitTsNs) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.side) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.priceE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
+    if (!parseBoolByte(parser, out.reduceOnly)) return false;
+    return parser.parseArrayEnd() && parser.finish();
+}
+
+template <typename Row, typename ParseFn>
+bool loadJsonl(const std::filesystem::path& path, std::vector<Row>& out, ParseFn parse) {
+    out.clear();
+    std::ifstream in(path, std::ios::in | std::ios::binary);
+    if (!in.is_open()) return false;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        Row row{};
+        if (!parse(line, row)) return false;
+        out.push_back(row);
+    }
+    return in.eof();
+}
+
+bool sideBuy(std::uint8_t side) noexcept {
+    return side == 1u;
+}
+
+bool isLiveCommand(std::uint8_t action) noexcept {
+    return action == 1u || action == 2u;
+}
+
+bool isMarketType(std::uint8_t type) noexcept {
+    return type == 2u;
+}
+
+bool isLimitType(std::uint8_t type) noexcept {
+    return type == 1u;
+}
+
+bool isEffectiveCommandStatus(std::uint8_t status) noexcept {
+    return status == 2u || status == 3u || status == 4u;
+}
+
 const FillRow* findFill(const std::vector<FillRow>& fills, std::uint64_t orderId) noexcept {
     const FillRow* best = nullptr;
     for (const FillRow& fill : fills) {
@@ -180,11 +170,21 @@ std::int64_t findCommandEndTs(const std::vector<OrderRow>& orders,
     std::int64_t best = 0;
     for (const OrderRow& order : orders) {
         if (order.targetId != orderId || order.activeTsNs <= startTsNs) continue;
-        if (order.action != "cancel" && order.action != "amend") continue;
+        if (order.action != 2u && order.action != 3u) continue;
         if (!isEffectiveCommandStatus(order.status)) continue;
         if (best == 0 || order.activeTsNs < best) best = order.activeTsNs;
     }
     return best;
+}
+
+bool hasSameTimestampReplaceEnd(const std::vector<OrderRow>& orders,
+                                  std::uint64_t orderId,
+                                  std::int64_t startTsNs) noexcept {
+    for (const OrderRow& order : orders) {
+        if (order.targetId != orderId || order.activeTsNs != startTsNs) continue;
+        if ((order.action == 2u || order.action == 3u) && isEffectiveCommandStatus(order.status)) return true;
+    }
+    return false;
 }
 
 void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, StrategyOverlayData& out) {
@@ -194,16 +194,20 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
     out.sourceSessionPath = QString::fromStdString(parsed.sessionPath);
 
     for (const OrderRow& order : parsed.orders) {
-        const bool liveCommand = order.action == "order" || order.action == "amend";
-        if (!liveCommand || !isEffectiveCommandStatus(order.status)) continue;
+        if (!isLiveCommand(order.action) || !isEffectiveCommandStatus(order.status)) continue;
         const FillRow* fill = findFill(parsed.fills, order.id);
-        if (order.type == "limit" && order.activeTsNs > 0 && order.priceE8 > 0) {
+        const bool replacedAtStart = order.action == 1u && hasSameTimestampReplaceEnd(parsed.orders, order.id, order.activeTsNs);
+        if (!replacedAtStart && isLimitType(order.type) && order.activeTsNs > 0 && order.priceE8 > 0) {
             std::int64_t endTs = findCommandEndTs(parsed.orders, order.id, order.activeTsNs);
             if (fill != nullptr && (endTs == 0 || fill->exitTsNs < endTs)) endTs = fill->exitTsNs;
             bool openEnded = false;
             if (endTs <= order.activeTsNs) {
-                endTs = fallbackRunEndNs;
-                openEnded = true;
+                if (fill != nullptr) {
+                    endTs = order.activeTsNs;
+                } else {
+                    endTs = fallbackRunEndNs;
+                    openEnded = true;
+                }
             }
             if (endTs > order.activeTsNs) {
                 out.orderSegments.push_back(StrategyOrderSegment{
@@ -223,7 +227,8 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
                 fill->priceE8,
                 fill->qtyE8,
                 buy,
-                order.type == "market",
+                isMarketType(order.type),
+                fill->reduceOnly,
                 buy ? StrategyFillShape::BuyUp : StrategyFillShape::SellDown,
             });
         }
@@ -247,14 +252,22 @@ bool loadStrategyOverlayFromResult(const std::filesystem::path& path,
                                    std::string& error) noexcept {
     out = StrategyOverlayData{};
     error.clear();
-    std::string text;
-    if (!readText(path, text)) {
-        error = "failed to read backtest result";
+    ParsedResult parsed{};
+    std::string manifest;
+    if (!readText(path / "manifest.json", manifest)) {
+        error = "failed to read backtest manifest";
         return false;
     }
-    ParsedResult parsed{};
-    if (!parseResult(text, parsed)) {
-        error = "failed to parse backtest result";
+    if (!parseManifest(manifest, parsed)) {
+        error = "failed to parse backtest manifest";
+        return false;
+    }
+    if (!loadJsonl(path / "orders.jsonl", parsed.orders, parseOrderLine)) {
+        error = "failed to parse backtest orders";
+        return false;
+    }
+    if (!loadJsonl(path / "fills.jsonl", parsed.fills, parseFillLine)) {
+        error = "failed to parse backtest fills";
         return false;
     }
     materialize(parsed, fallbackRunEndNs, out);

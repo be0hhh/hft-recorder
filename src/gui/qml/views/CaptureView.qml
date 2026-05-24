@@ -86,10 +86,13 @@ Pane {
                                         onClicked: root.captureVm.toggleVenue(venueRow.modelData.key)
                                     }
 
-                                    TextField {
+                                    TextArea {
                                         Layout.fillWidth: true
+                                        Layout.preferredHeight: 56
                                         text: root.captureVm.venueSymbolsText(venueRow.modelData.key)
-                                        placeholderText: "symbols exactly as this venue expects"
+                                        placeholderText: "symbols exactly as this venue expects; split by space, comma, or new line"
+                                        wrapMode: TextEdit.WrapAnywhere
+                                        selectByMouse: true
                                         color: root.textColor
                                         placeholderTextColor: root.mutedTextColor
                                         selectedTextColor: root.textColor

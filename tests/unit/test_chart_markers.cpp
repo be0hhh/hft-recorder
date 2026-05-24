@@ -8,6 +8,7 @@
 #include <QString>
 
 #include "gui/viewer/ChartController.hpp"
+#include "gui/viewer/hit_test/HoverDetection.hpp"
 
 namespace fs = std::filesystem;
 
@@ -100,22 +101,19 @@ TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
     "trades": { "enabled": true, "required_when_enabled": true, "path": "trades.jsonl" }
   }
 })json");
-    const auto resultPath = dir / "backtests" / "run-a.json";
-    writeFile(resultPath, R"json({
-      "run_id":"run-a",
-      "strategy":"test",
-      "session_path":"session",
-      "orders":[
-        {"id":1,"target_id":0,"active_ts_ns":1200,"action":"order","side":"buy","type":"limit","price_e8":9900000000,"qty_e8":100000000},
-        {"id":2,"target_id":0,"active_ts_ns":1500,"action":"order","side":"sell","type":"market","price_e8":0,"qty_e8":100000000}
-      ],
-      "fills":[
-        {"order_id":1,"exit_ts_ns":1800,"side":"buy","price_e8":9900000000,"qty_e8":100000000},
-        {"order_id":2,"exit_ts_ns":1600,"side":"sell","price_e8":10100000000,"qty_e8":100000000}
-      ]
-    })json");
+    const auto resultPath = dir / "backtests" / "run-a";
+    fs::create_directories(resultPath);
+    writeFile(resultPath / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","strategy":"test","session_path":"session","summary":{},"errors":[]})json");
+    writeFile(resultPath / "orders.jsonl",
+              "[1,0,0,1200,0,1,1,1,2,9900000000,100000000,0]\n"
+              "[2,0,0,1500,0,1,0,2,2,0,100000000,0]\n");
+    writeFile(resultPath / "fills.jsonl",
+              "[1,1200,1800,1,9900000000,100000000,0,0]\n"
+              "[2,1500,1600,0,10100000000,100000000,0,1]\n");
 
-    ASSERT_TRUE(chart.loadSession(QString::fromStdString(dir.string())));
+    ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
     chart.setViewport(0, 3000, e8(90), e8(110));
     chart.refreshBacktestResults(QString::fromStdString(dir.string()));
     ASSERT_EQ(chart.backtestResults().size(), 1);
@@ -128,7 +126,22 @@ TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
     EXPECT_TRUE(snap.strategyOrderSegments.front().sideBuy);
     ASSERT_EQ(snap.strategyFillMarkers.size(), 2u);
     EXPECT_EQ(snap.strategyFillMarkers[0].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
+    EXPECT_TRUE(snap.strategyFillMarkers[0].reduceOnly);
     EXPECT_EQ(snap.strategyFillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
+    EXPECT_FALSE(snap.strategyFillMarkers[1].reduceOnly);
+
+    hftrec::gui::viewer::HoverInfo hover{};
+    hftrec::gui::viewer::hit_test::computeHover(snap,
+                                                QPointF{snap.vp.toX(1600), snap.vp.toY(e8(101))},
+                                                true,
+                                                hover);
+    EXPECT_TRUE(hover.strategyFillHit);
+    EXPECT_EQ(hover.strategyFillTsNs, 1600);
+    EXPECT_EQ(hover.strategyFillPriceE8, e8(101));
+    EXPECT_EQ(hover.strategyFillQtyE8, e8(1));
+    EXPECT_EQ(hover.strategyFillAmountE8, e8(101));
+    EXPECT_FALSE(hover.strategyFillSideBuy);
+    EXPECT_TRUE(hover.strategyFillReduceOnly);
 
     std::error_code ec;
     fs::remove_all(dir, ec);
@@ -193,7 +206,9 @@ TEST(ChartRenderWindow, LoadSessionOpensAtLatestWindowWhenConfigured) {
 
     ChartController chart;
     chart.setRenderWindowSeconds(30);
-    ASSERT_TRUE(chart.loadSession(QString::fromStdString(dir.string())));
+    ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
     ASSERT_TRUE(chart.loaded());
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
     EXPECT_EQ(chart.tsMin(), 31000000000ll);

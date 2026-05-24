@@ -150,6 +150,13 @@ class ChartItem : public QQuickPaintedItem {
     std::int64_t hoveredLiquidationAvgPriceE8_{0};
     std::int64_t hoveredLiquidationFilledQtyE8_{0};
     bool hoveredLiquidationSideBuy_{true};
+    bool hoveredStrategyFill_{false};
+    std::int64_t hoveredStrategyFillTsNs_{0};
+    std::int64_t hoveredStrategyFillPriceE8_{0};
+    std::int64_t hoveredStrategyFillQtyE8_{0};
+    std::int64_t hoveredStrategyFillAmountE8_{0};
+    bool hoveredStrategyFillSideBuy_{true};
+    bool hoveredStrategyFillReduceOnly_{false};
     int hoveredBookKind_{0};
     std::int64_t hoveredBookPriceE8_{0};
     std::int64_t hoveredBookQtyE8_{0};

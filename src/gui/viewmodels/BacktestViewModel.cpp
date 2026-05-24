@@ -14,6 +14,7 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <array>
 #include <limits>
 
 #include "hft_backtest/backtest.hpp"
@@ -22,7 +23,7 @@
 namespace hftrec::gui {
 namespace {
 
-constexpr qint64 kMaxEagerResultBytes = 8 * 1024 * 1024;
+constexpr qsizetype kMaxDisplayEquityPoints = 4096;
 
 struct StrategyParamSpec {
     const char* strategy;
@@ -300,6 +301,55 @@ QVariantList equityPoints(const QJsonArray& points, const QJsonObject& summary, 
         maxPnl = 0;
     }
     return out;
+}
+
+bool parseEquityLine(const QByteArray& line, std::array<qint64, 11>& out) {
+    const QByteArray trimmed = line.trimmed();
+    if (trimmed.size() < 2 || !trimmed.startsWith('[') || !trimmed.endsWith(']')) return false;
+    const QList<QByteArray> parts = trimmed.mid(1, trimmed.size() - 2).split(',');
+    if (parts.size() != static_cast<int>(out.size())) return false;
+    for (qsizetype i = 0; i < static_cast<qsizetype>(out.size()); ++i) {
+        bool ok = false;
+        out[static_cast<std::size_t>(i)] = parts.at(i).toLongLong(&ok);
+        if (!ok) return false;
+    }
+    return true;
+}
+
+QVariantList equityPointsFromJsonl(const QString& path, const QJsonObject& summary, qint64 totalRows, qint64& minPnl, qint64& maxPnl) {
+    QJsonArray sampled;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return equityPoints(sampled, summary, minPnl, maxPnl);
+
+    const qint64 stride = totalRows > kMaxDisplayEquityPoints ? ((totalRows + kMaxDisplayEquityPoints - 1) / kMaxDisplayEquityPoints) : 1;
+    qint64 index = 0;
+    QJsonObject lastObject;
+    while (!file.atEnd()) {
+        const QByteArray line = file.readLine();
+        if (line.trimmed().isEmpty()) continue;
+        std::array<qint64, 11> row{};
+        if (!parseEquityLine(line, row)) continue;
+        QJsonObject object{
+            {QStringLiteral("ts_ns"), row[0]},
+            {QStringLiteral("gross_realized_pnl_e8"), row[1]},
+            {QStringLiteral("realized_pnl_e8"), row[2]},
+            {QStringLiteral("unrealized_pnl_e8"), row[3]},
+            {QStringLiteral("gross_total_pnl_e8"), row[4]},
+            {QStringLiteral("net_total_pnl_e8"), row[5]},
+            {QStringLiteral("total_pnl_e8"), row[6]},
+            {QStringLiteral("fees_paid_e8"), row[7]},
+            {QStringLiteral("wallet_balance_e8"), row[8]},
+            {QStringLiteral("position_qty_e8"), row[9]},
+            {QStringLiteral("fill_count"), row[10]},
+        };
+        lastObject = object;
+        if (index == 0 || stride <= 1 || (index % stride) == 0) sampled.push_back(object);
+        ++index;
+    }
+    if (!lastObject.isEmpty() && (sampled.isEmpty() || sampled.last().toObject().value(QStringLiteral("ts_ns")).toInteger() != lastObject.value(QStringLiteral("ts_ns")).toInteger())) {
+        sampled.push_back(lastObject);
+    }
+    return equityPoints(sampled, summary, minPnl, maxPnl);
 }
 
 QString resolveRecordingsRoot() {
@@ -916,22 +966,14 @@ void BacktestViewModel::refresh() {
     QStringList filesToWatch;
     if (!dirPath.isEmpty()) {
         QDir dir(dirPath);
-        const QFileInfoList files = dir.entryInfoList({QStringLiteral("*.json")}, QDir::Files, QDir::Time | QDir::Name);
-        QStringList compactRunIds;
-        for (const QFileInfo& file : files) {
-            const QString name = file.fileName();
-            if (!name.endsWith(QStringLiteral(".summary.json"))) continue;
-            compactRunIds.push_back(name.left(name.size() - QStringLiteral(".summary.json").size()));
-        }
-        next.reserve(static_cast<std::size_t>(files.size()));
-        for (const QFileInfo& file : files) {
-            const QString name = file.fileName();
-            if (!name.endsWith(QStringLiteral(".summary.json"))) {
-                const QString runId = file.completeBaseName();
-                if (compactRunIds.contains(runId)) continue;
-            }
-            filesToWatch.push_back(file.absoluteFilePath());
-            next.push_back(loadRecord_(file.absoluteFilePath()));
+        const QFileInfoList dirs = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Name);
+        next.reserve(static_cast<std::size_t>(dirs.size()));
+        for (const QFileInfo& runDir : dirs) {
+            const QString manifestPath = QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json"));
+            if (!QFileInfo::exists(manifestPath)) continue;
+            filesToWatch.push_back(manifestPath);
+            filesToWatch.push_back(QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("equity.jsonl")));
+            next.push_back(loadRecord_(runDir.absoluteFilePath()));
         }
     }
 
@@ -996,6 +1038,7 @@ void BacktestViewModel::startBacktest() {
         request.initialBalanceE8 = initialBalance;
         request.makerFeeBpsE8 = makerFee;
         request.takerFeeBpsE8 = takerFee;
+        request.outputPath = (QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();
 
         const auto result = hft_backtest::runBacktest(request, progressCallback, this);
         const QString status = statusTextFor(result.status);
@@ -1022,24 +1065,17 @@ void BacktestViewModel::applyWorkerProgress(int percent, const QString& text) {
 BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& filePath) {
     RunRecord record;
     const QFileInfo info(filePath);
+    const QDir runDir(info.absoluteFilePath());
+    const QString manifestPath = runDir.absoluteFilePath(QStringLiteral("manifest.json"));
     record.filePath = info.absoluteFilePath();
     record.fileName = info.fileName();
-    record.runId = info.completeBaseName();
-    if (record.fileName.endsWith(QStringLiteral(".summary.json"))) {
-        record.runId = record.fileName.left(record.fileName.size() - QStringLiteral(".summary.json").size());
-    }
+    record.runId = info.fileName();
     record.modifiedMs = info.lastModified().toMSecsSinceEpoch();
 
-    if (info.size() > kMaxEagerResultBytes) {
-        record.status = QStringLiteral("large_result");
-        record.errorText = QStringLiteral("Result file is too large to load eagerly");
-        return record;
-    }
-
-    QFile file(filePath);
+    QFile file(manifestPath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         record.status = QStringLiteral("unreadable");
-        record.errorText = QStringLiteral("failed to open result file");
+        record.errorText = QStringLiteral("failed to open result manifest");
         return record;
     }
     const QByteArray raw = file.readAll();
@@ -1062,7 +1098,9 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.strategy = jsonValueString(object, QStringLiteral("strategy"));
     const QString configPath = jsonValueString(object, QStringLiteral("config_path"));
     if (!configPath.trimmed().isEmpty()) {
-        const QString configText = readTextFile(configPath);
+        const QFileInfo configInfo(configPath);
+        const QString resolvedConfigPath = configInfo.isRelative() ? runDir.absoluteFilePath(configPath) : configPath;
+        const QString configText = readTextFile(resolvedConfigPath);
         record.displayName = metadataCommentValue(configText, QStringLiteral("display_name"));
         record.configText = metadataCommentValue(configText, QStringLiteral("config_summary"));
     }
@@ -1072,7 +1110,10 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.initialBalanceE8 = summary.value(QStringLiteral("initial_balance_e8")).toInteger();
     record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
     record.resultMetrics = resultMetrics(summary);
-    record.equityPoints = equityPoints(object.value(QStringLiteral("equity_points")).toArray(), summary, record.pnlMinE8, record.pnlMaxE8);
+    const QJsonObject streams = object.value(QStringLiteral("streams")).toObject();
+    const QJsonObject equityStream = streams.value(QStringLiteral("equity")).toObject();
+    const qint64 equityRows = equityStream.value(QStringLiteral("rows")).toInteger();
+    record.equityPoints = equityPointsFromJsonl(runDir.absoluteFilePath(QStringLiteral("equity.jsonl")), summary, equityRows, record.pnlMinE8, record.pnlMaxE8);
     record.errorCount = errorCount(object.value(QStringLiteral("errors")));
     record.rawJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
     return record;
@@ -1239,8 +1280,8 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId) {
     QString apiSlot = iniValue(base, QStringLiteral("venue.%1").arg(venue), QStringLiteral("api_slot"));
     if (apiSlot.isEmpty()) apiSlot = QStringLiteral("1");
     QDir outDir(QDir(session).absoluteFilePath(QStringLiteral("backtests")));
-    outDir.mkpath(QStringLiteral("."));
-    const QString path = outDir.absoluteFilePath(runId + QStringLiteral(".ini"));
+    outDir.mkpath(runId);
+    const QString path = QDir(outDir.absoluteFilePath(runId)).absoluteFilePath(QStringLiteral("config.ini"));
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) return {};
     QTextStream out(&file);

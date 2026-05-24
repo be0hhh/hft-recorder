@@ -463,7 +463,7 @@ Pane {
                         Label {
                             anchors.centerIn: parent
                             visible: !root.backtestVm.hasEquityPoints
-                            text: root.backtestVm.hasSelection ? "Selected run has no equity_points" : "No run selected"
+                            text: root.backtestVm.hasSelection ? "Selected run has no equity data" : "No run selected"
                             color: root.mutedTextColor
                             font.pixelSize: 14
                         }

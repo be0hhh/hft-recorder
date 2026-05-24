@@ -53,14 +53,14 @@ void appendBacktestResultRows(const QString& sessionPath, QStringView prefix, QV
 
     for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
         if (ec) break;
-        if (!entry.is_regular_file(ec) || ec) continue;
+        if (!entry.is_directory(ec) || ec) continue;
         const auto path = entry.path();
-        if (path.extension() != ".json") continue;
+        if (!std::filesystem::is_regular_file(path / "manifest.json", ec) || ec) continue;
 
         QVariantMap row;
         row.insert(QStringLiteral("sessionPath"), sessionPath);
         row.insert(QStringLiteral("path"), QString::fromStdString(path.string()));
-        row.insert(QStringLiteral("label"), prefix.toString() + QStringLiteral(" ") + QString::fromStdString(path.stem().string()));
+        row.insert(QStringLiteral("label"), prefix.toString() + QStringLiteral(" ") + QString::fromStdString(path.filename().string()));
         rows.push_back(row);
     }
 }
