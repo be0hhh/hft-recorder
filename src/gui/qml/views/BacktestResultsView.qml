@@ -20,16 +20,12 @@ Pane {
     property color mutedTextColor: "#a8afbd"
     property color accentColor: "#24c2cb"
     property color goodColor: "#82d46b"
-    property color warnColor: "#f0b35a"
     property color badColor: "#ef6f6c"
 
     function syncSelections() {
         sessionBox.currentIndex = sessionBox.indexOfValue(root.backtestVm.selectedSessionId)
         strategyBox.currentIndex = strategyBox.indexOfValue(root.backtestVm.selectedStrategy)
-    }
-
-    function useCaptureSession() {
-        if (root.captureVm.sessionPath !== "") root.backtestVm.sessionPath = root.captureVm.sessionPath
+        configModeBox.currentIndex = configModeBox.indexOfValue(root.backtestVm.configMode)
     }
 
     background: Rectangle { color: root.windowColor }
@@ -38,7 +34,9 @@ Pane {
         target: root.backtestVm
         function onSessionsChanged() { root.syncSelections() }
         function onSelectedSessionChanged() { root.syncSelections() }
+        function onSymbolChanged() { symbolField.text = root.backtestVm.selectedSymbol }
         function onSelectedStrategyChanged() { root.syncSelections() }
+        function onConfigChanged() { root.syncSelections() }
     }
 
     component ActionButton: Rectangle {
@@ -47,7 +45,7 @@ Pane {
         property color accent: root.accentColor
         signal clicked()
         radius: 6
-        implicitWidth: Math.max(92, label.implicitWidth + 18)
+        implicitWidth: Math.max(76, label.implicitWidth + 18)
         implicitHeight: 30
         color: enabledValue ? (mouse.containsMouse ? "#2b303a" : root.panelColor) : root.panelDeepColor
         border.color: enabledValue ? accent : root.borderColor
@@ -57,59 +55,45 @@ Pane {
         MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; enabled: parent.enabledValue; onClicked: parent.clicked() }
     }
 
-    component MetricCard: Rectangle {
-        property string title: ""
-        property string value: ""
-        property string subtext: ""
-        property color accent: root.accentColor
-        Layout.fillWidth: true
-        Layout.preferredHeight: 58
-        radius: 8
-        color: root.panelColor
-        border.color: root.borderColor
-        border.width: 1
-        Rectangle { width: 3; radius: 2; color: accent; anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom }
+    component CompactField: Item {
+        property string caption: ""
+        property alias text: input.text
+        property int fieldWidth: 92
+        signal edited(string value)
+        Layout.preferredWidth: fieldWidth
+        Layout.preferredHeight: 42
         ColumnLayout {
             anchors.fill: parent
-            anchors.leftMargin: 12
-            anchors.rightMargin: 10
-            anchors.topMargin: 6
-            anchors.bottomMargin: 6
-            spacing: 3
-            Label { text: title; color: root.mutedTextColor; font.pixelSize: 9 }
-            Label { Layout.fillWidth: true; text: value; color: root.textColor; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight }
-            Label { Layout.fillWidth: true; text: subtext; color: root.mutedTextColor; font.pixelSize: 9; elide: Text.ElideRight }
+            spacing: 2
+            Label { text: caption; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+            TextField {
+                id: input
+                Layout.fillWidth: true
+                Layout.preferredHeight: 24
+                color: root.textColor
+                font.pixelSize: 12
+                selectByMouse: true
+                background: Rectangle { radius: 5; color: root.panelDeepColor; border.color: root.borderColor; border.width: 1 }
+                onEditingFinished: edited(text)
+            }
         }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 0
+        spacing: 8
 
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 108
+            implicitHeight: 150
             color: root.chromeColor
             border.color: root.borderColor
             border.width: 1
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 10
-                spacing: 8
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        Label { text: "Backtests"; color: root.textColor; font.pixelSize: 20; font.bold: true }
-                        Label { text: root.backtestVm.statusText; color: root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
-                    }
-                    ActionButton { text: "Refresh"; onClicked: { root.backtestVm.reloadSessions(); root.backtestVm.refreshResults() } }
-                    ActionButton { text: "Use capture"; enabledValue: root.captureVm.sessionPath !== ""; onClicked: root.useCaptureSession() }
-                }
+                anchors.margins: 8
+                spacing: 6
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -126,67 +110,138 @@ Pane {
                         onActivated: root.backtestVm.setSelectedSessionId(currentValue)
                         Component.onCompleted: root.syncSelections()
                     }
+                    CompactField {
+                        id: symbolField
+                        caption: "Symbol"
+                        fieldWidth: 120
+                        text: root.backtestVm.selectedSymbol
+                        onEdited: function(value) { root.backtestVm.selectedSymbol = value }
+                    }
                     RecorderComboBox {
                         id: strategyBox
-                        Layout.preferredWidth: 280
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 300
                         caption: "Strategy"
                         textRole: "label"
                         valueRole: "id"
                         model: root.backtestVm.strategyChoices
-                        popupWidth: 300
+                        popupWidth: 320
                         onActivated: root.backtestVm.setSelectedStrategy(currentValue)
                         Component.onCompleted: root.syncSelections()
                     }
+                    RecorderComboBox {
+                        id: configModeBox
+                        Layout.preferredWidth: 132
+                        caption: "Config"
+                        textRole: "label"
+                        valueRole: "id"
+                        model: root.backtestVm.configModeChoices
+                        popupWidth: 150
+                        enabled: count > 1
+                        opacity: enabled ? 1.0 : 0.55
+                        onActivated: root.backtestVm.setConfigMode(currentValue)
+                        Component.onCompleted: root.syncSelections()
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    CompactField {
+                        caption: "Balance USDT"
+                        fieldWidth: 126
+                        text: root.backtestVm.initialBalanceUsdt
+                        onEdited: function(value) { root.backtestVm.initialBalanceUsdt = value }
+                    }
+                    CompactField {
+                        caption: "Maker fee bps"
+                        fieldWidth: 116
+                        text: root.backtestVm.makerFeeBps
+                        onEdited: function(value) { root.backtestVm.makerFeeBps = value }
+                    }
+                    CompactField {
+                        caption: "Taker fee bps"
+                        fieldWidth: 116
+                        text: root.backtestVm.takerFeeBps
+                        onEdited: function(value) { root.backtestVm.takerFeeBps = value }
+                    }
+                    CompactField {
+                        caption: "Ping us"
+                        fieldWidth: 92
+                        text: root.backtestVm.pingLatencyUs
+                        onEdited: function(value) { root.backtestVm.pingLatencyUs = value }
+                    }
+                    Item { Layout.fillWidth: true }
+                    ActionButton { text: "Refresh"; onClicked: { root.backtestVm.reloadSessions(); root.backtestVm.refreshResults() } }
                     ActionButton { text: root.backtestVm.running ? "Running" : "Start"; enabledValue: root.backtestVm.canRun; accent: root.goodColor; onClicked: root.backtestVm.startBacktest() }
-                    ActionButton { text: "Cancel"; enabledValue: root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.cancelBacktest() }
+                    ActionButton { visible: root.backtestVm.running; text: "Cancel"; enabledValue: root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.cancelBacktest() }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    ProgressBar { Layout.preferredWidth: 220; from: 0; to: 100; value: root.backtestVm.progressPercent }
+                    Label { text: root.backtestVm.progressPercent + "%"; color: root.textColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 42 }
+                    Label { text: root.backtestVm.progressText; color: root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; Layout.preferredWidth: 260 }
+                    Label { text: root.backtestVm.statusText; color: root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
                 }
             }
         }
 
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 44
-            color: root.panelDeepColor
+            Layout.preferredHeight: 116
+            Layout.leftMargin: 10
+            Layout.rightMargin: 10
+            color: root.panelColor
             border.color: root.borderColor
-            border.width: 1
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                spacing: 10
-                ProgressBar { Layout.preferredWidth: 260; from: 0; to: 100; value: root.backtestVm.progressPercent }
-                Label { text: root.backtestVm.progressPercent + "%"; color: root.textColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 46 }
-                Label { text: root.backtestVm.progressText; color: root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
-                Label { text: root.backtestVm.backtestsDirectory; color: root.mutedTextColor; font.pixelSize: 11; elide: Text.ElideLeft; Layout.maximumWidth: 520 }
-            }
-        }
+            radius: 6
 
-        GridLayout {
-            Layout.fillWidth: true
-            Layout.margins: 12
-            columns: 4
-            columnSpacing: 10
-            rowSpacing: 10
-            MetricCard { title: "Runs"; value: root.backtestVm.runCount; subtext: "stored results"; accent: root.accentColor }
-            MetricCard { title: "Strategy"; value: root.backtestVm.selectedStrategy; subtext: "skeleton parameter"; accent: root.warnColor }
-            MetricCard { title: "Selected"; value: root.backtestVm.selectedRunId === "" ? "none" : root.backtestVm.selectedRunId; subtext: root.backtestVm.hasSelection ? "loaded" : "no result"; accent: root.goodColor }
-            MetricCard { title: "Errors"; value: root.backtestVm.selectedErrorText === "" ? "0" : "see details"; subtext: root.backtestVm.selectedErrorText; accent: root.backtestVm.selectedErrorText === "" ? root.goodColor : root.badColor }
+            GridView {
+                anchors.fill: parent
+                anchors.margins: 8
+                clip: true
+                cellWidth: 244
+                cellHeight: 46
+                model: root.backtestVm.strategyParameters
+                delegate: Item {
+                    required property var modelData
+                    width: GridView.view.cellWidth
+                    height: GridView.view.cellHeight
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.rightMargin: 10
+                        spacing: 6
+                        Label { text: modelData.label; color: root.textColor; font.pixelSize: 11; elide: Text.ElideRight; Layout.preferredWidth: 112 }
+                        TextField {
+                            Layout.preferredWidth: 88
+                            Layout.preferredHeight: 26
+                            text: modelData.value
+                            selectByMouse: true
+                            color: root.textColor
+                            font.pixelSize: 12
+                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                            onEditingFinished: root.backtestVm.setStrategyParameter(modelData.key, text)
+                        }
+                    }
+                }
+            }
         }
 
         SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.leftMargin: 12
-            Layout.rightMargin: 12
-            Layout.bottomMargin: 12
+            Layout.leftMargin: 10
+            Layout.rightMargin: 10
+            Layout.bottomMargin: 10
             orientation: Qt.Horizontal
 
             Rectangle {
-                SplitView.preferredWidth: 420
-                SplitView.minimumWidth: 280
+                SplitView.preferredWidth: 360
+                SplitView.minimumWidth: 260
                 color: root.panelColor
                 border.color: root.borderColor
-                radius: 8
+                radius: 6
 
                 ListView {
                     anchors.fill: parent
@@ -196,21 +251,20 @@ Pane {
                     delegate: Rectangle {
                         required property var modelData
                         width: ListView.view.width
-                        height: 58
-                        radius: 6
+                        height: 50
+                        radius: 5
                         color: modelData.runId === root.backtestVm.selectedRunId ? Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.16) : root.panelDeepColor
                         border.color: modelData.runId === root.backtestVm.selectedRunId ? root.accentColor : root.borderColor
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 9
-                            anchors.rightMargin: 9
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
                             spacing: 8
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
                                 Label { text: modelData.runId; color: root.textColor; font.pixelSize: 12; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-                                Label { text: modelData.strategy + " / " + modelData.status; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
-                                Label { text: modelData.modifiedText; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Label { text: modelData.strategy + " / " + modelData.status + " / " + modelData.modifiedText; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
                             }
                         }
                         MouseArea { anchors.fill: parent; onClicked: root.backtestVm.selectRun(modelData.runId) }
@@ -222,16 +276,21 @@ Pane {
                 SplitView.fillWidth: true
                 color: root.panelColor
                 border.color: root.borderColor
-                radius: 8
+                radius: 6
 
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 10
                     spacing: 8
-                    Label { text: "Summary"; color: root.textColor; font.pixelSize: 15; font.bold: true }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: "Summary"; color: root.textColor; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
+                        Label { text: root.backtestVm.selectedErrorText; visible: text !== ""; color: root.badColor; font.pixelSize: 11; elide: Text.ElideRight; Layout.maximumWidth: 420 }
+                    }
                     TextArea {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 180
+                        Layout.fillHeight: !rawToggle.checked
+                        Layout.preferredHeight: rawToggle.checked ? 180 : 320
                         text: root.backtestVm.selectedSummaryJson
                         readOnly: true
                         selectByMouse: true
@@ -239,10 +298,16 @@ Pane {
                         color: root.textColor
                         font.family: "monospace"
                         font.pixelSize: 11
-                        background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 6 }
+                        background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                     }
-                    Label { text: "Raw result"; color: root.textColor; font.pixelSize: 15; font.bold: true }
+                    CheckBox {
+                        id: rawToggle
+                        text: "Raw"
+                        checked: false
+                        contentItem: Text { text: rawToggle.text; color: root.mutedTextColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; leftPadding: rawToggle.indicator.width + rawToggle.spacing }
+                    }
                     TextArea {
+                        visible: rawToggle.checked
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         text: root.backtestVm.selectedJson
@@ -252,7 +317,7 @@ Pane {
                         color: root.textColor
                         font.family: "monospace"
                         font.pixelSize: 11
-                        background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 6 }
+                        background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                     }
                 }
             }

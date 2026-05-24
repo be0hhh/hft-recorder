@@ -20,7 +20,7 @@ void renderCandles(const RenderContext& ctx) {
     ctx.p->save();
     ctx.p->setRenderHint(QPainter::Antialiasing, false);
     for (const auto& candle : ctx.s.candleRects) {
-        QRectF body{candle.x - candle.w / 2.0, candle.y, candle.w, candle.h};
+        QRectF body{candle.x, candle.y, candle.w, candle.h};
         if (body.right() < 0.0 || body.left() > ctx.s.vp.w || body.bottom() < 0.0 || body.top() > ctx.s.vp.h) continue;
         QColor fill = candle.up ? tradeBuyColor() : tradeSellColor();
         const int tierBoost = candle.tier == 1 ? 0 : (candle.tier == 2 ? 24 : 44);

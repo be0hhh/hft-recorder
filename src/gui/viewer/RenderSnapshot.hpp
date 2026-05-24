@@ -179,6 +179,7 @@ struct RenderSnapshot {
     bool  interactiveMode{false};
     bool  overlayOnly{false};
     qreal tradeAmountScale{0.45};
+    qreal candleWidthPx{10.0};
     qreal bookOpacityGain{15000.0};
     qreal bookRenderDetail{5000.0};
     qreal bookDepthWindowPct{5.0};
@@ -211,6 +212,7 @@ struct SnapshotInputs {
     bool  overlayOnly{false};
     bool  exactTradeRendering{false};
     qreal tradeAmountScale{0.45};
+    qreal candleWidthPx{10.0};
     qreal bookOpacityGain{15000.0};
     qreal bookRenderDetail{5000.0};
     qreal bookDepthWindowPct{5.0};

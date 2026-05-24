@@ -704,6 +704,7 @@ Pane {
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
                         tradeAmountScale: root.appVm.tradeAmountScale
+                        candleWidthPx: root.appVm.candleWidthPx
                         bookOpacityGain: root.appVm.bookBrightnessUsdRef
                         bookRenderDetail: root.appVm.bookMinVisibleUsd
                         bookDepthWindowPct: root.appVm.bookDepthWindowPct
@@ -721,6 +722,7 @@ Pane {
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
                         tradeAmountScale: root.appVm.tradeAmountScale
+                        candleWidthPx: root.appVm.candleWidthPx
                         bookOpacityGain: root.appVm.bookBrightnessUsdRef
                         bookRenderDetail: root.appVm.bookMinVisibleUsd
                         bookDepthWindowPct: root.appVm.bookDepthWindowPct

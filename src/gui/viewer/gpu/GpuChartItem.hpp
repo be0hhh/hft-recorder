@@ -27,6 +27,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     Q_PROPERTY(bool orderbookVisible READ orderbookVisible WRITE setOrderbookVisible NOTIFY orderbookVisibleChanged)
     Q_PROPERTY(bool bookTickerVisible READ bookTickerVisible WRITE setBookTickerVisible NOTIFY bookTickerVisibleChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
+    Q_PROPERTY(qreal candleWidthPx READ candleWidthPx WRITE setCandleWidthPx NOTIFY candleWidthPxChanged)
     Q_PROPERTY(qreal bookOpacityGain READ bookOpacityGain WRITE setBookOpacityGain NOTIFY bookOpacityGainChanged)
     Q_PROPERTY(qreal bookRenderDetail READ bookRenderDetail WRITE setBookRenderDetail NOTIFY bookRenderDetailChanged)
     Q_PROPERTY(qreal bookDepthWindowPct READ bookDepthWindowPct WRITE setBookDepthWindowPct NOTIFY bookDepthWindowPctChanged)
@@ -51,6 +52,8 @@ class GpuChartItem : public QQuickFramebufferObject {
     void setBookTickerVisible(bool value);
     qreal tradeAmountScale() const noexcept { return tradeAmountScale_; }
     void setTradeAmountScale(qreal value);
+    qreal candleWidthPx() const noexcept { return candleWidthPx_; }
+    void setCandleWidthPx(qreal value);
     qreal bookOpacityGain() const noexcept { return bookOpacityGain_; }
     void setBookOpacityGain(qreal value);
     qreal bookRenderDetail() const noexcept { return bookRenderDetail_; }
@@ -75,6 +78,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     void orderbookVisibleChanged();
     void bookTickerVisibleChanged();
     void tradeAmountScaleChanged();
+    void candleWidthPxChanged();
     void bookOpacityGainChanged();
     void bookRenderDetailChanged();
     void bookDepthWindowPctChanged();
@@ -115,6 +119,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};
     qreal tradeAmountScale_{0.45};
+    qreal candleWidthPx_{10.0};
     qreal bookOpacityGain_{15000.0};
     qreal bookRenderDetail_{5000.0};
     qreal bookDepthWindowPct_{5.0};

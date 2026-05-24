@@ -87,12 +87,14 @@ target_link_libraries(hft-recorder-gui
         hftrec_core
         hftrec_support
         hft_compressor_core
+        hft_backtest_core
 )
 
 target_compile_features(hft-recorder-gui PRIVATE cxx_std_23)
 target_compile_definitions(hft-recorder-gui
     PRIVATE
         HFT_COMPRESSOR_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-compressor"
+        HFT_BACKTEST_TRADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-trader"
 )
 
 if(WIN32 AND HFT_COMPRESSOR_RUNTIME_LIB)

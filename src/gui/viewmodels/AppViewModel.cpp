@@ -89,6 +89,14 @@ void AppViewModel::setTradeAmountScale(qreal value) {
     emit tradeAmountScaleChanged();
 }
 
+void AppViewModel::setCandleWidthPx(qreal value) {
+    value = std::clamp<qreal>(value, 1.0, 80.0);
+    if (qFuzzyCompare(candleWidthPx_ + 1.0, value + 1.0)) return;
+    candleWidthPx_ = value;
+    markDirty_();
+    emit candleWidthPxChanged();
+}
+
 void AppViewModel::setBookBrightnessUsdRef(qreal value) {
     value = std::clamp<qreal>(value, 1000.0, 1000000.0);
     if (qFuzzyCompare(bookBrightnessUsdRef_ + 1.0, value + 1.0)) return;
@@ -145,6 +153,7 @@ void AppViewModel::setActiveChartRenderer(const QString& rendererName) {
 
 void AppViewModel::loadSettings_() {
     const auto tradeScale = settings_.value(QStringLiteral("viewer/trade_amount_scale"), tradeAmountScale_).toReal();
+    const auto candleWidthPx = settings_.value(QStringLiteral("viewer/candle_width_px"), candleWidthPx_).toReal();
     const auto brightnessUsd = settings_.value(QStringLiteral("viewer/book_brightness_usd_ref"), bookBrightnessUsdRef_).toReal();
     const auto minVisibleUsd = settings_.value(QStringLiteral("viewer/book_min_visible_usd"), bookMinVisibleUsd_).toReal();
     const auto depthWindowPct = settings_.value(QStringLiteral("viewer/book_depth_window_pct"), bookDepthWindowPct_).toReal();
@@ -152,6 +161,7 @@ void AppViewModel::loadSettings_() {
     const auto renderWindowSeconds = settings_.value(QStringLiteral("viewer/render_window_seconds"), renderWindowSeconds_).toInt();
 
     tradeAmountScale_ = std::clamp<qreal>(tradeScale, 0.0, 1.0);
+    candleWidthPx_ = std::clamp<qreal>(candleWidthPx, 1.0, 80.0);
     bookBrightnessUsdRef_ = std::clamp<qreal>(brightnessUsd, 1000.0, 1000000.0);
     bookMinVisibleUsd_ = std::clamp<qreal>(minVisibleUsd, 0.0, 1000000.0);
     bookDepthWindowPct_ = std::clamp<qreal>(depthWindowPct, 1.0, 25.0);
@@ -164,6 +174,7 @@ void AppViewModel::flushSettings_() {
     if (!settingsDirty_) return;
 
     settings_.setValue(QStringLiteral("viewer/trade_amount_scale"), tradeAmountScale_);
+    settings_.setValue(QStringLiteral("viewer/candle_width_px"), candleWidthPx_);
     settings_.setValue(QStringLiteral("viewer/book_brightness_usd_ref"), bookBrightnessUsdRef_);
     settings_.setValue(QStringLiteral("viewer/book_min_visible_usd"), bookMinVisibleUsd_);
     settings_.setValue(QStringLiteral("viewer/book_depth_window_pct"), bookDepthWindowPct_);

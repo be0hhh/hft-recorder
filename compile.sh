@@ -2,11 +2,14 @@
 # hft-recorder compile.sh - WSL build orchestrator.
 #
 # Modes:
-#   ./compile.sh              build hft-recorder app using existing hft-compressor shared library
-#   ./compile.sh --build-compressor build hft-compressor shared library, then build hft-recorder app
-#   ./compile.sh --compressor-only build only hft-compressor shared library
+#   ./compile.sh              build hft-recorder app using existing dependency shared libraries
+#   ./compile.sh --force      build/install CXETCPP, hft-trader, hft-backtest, then hft-recorder app
 #   ./compile.sh --force-cxet build/install CXETCPP core library, then build hft-recorder app
-#   ./compile.sh --force      build hft-compressor, build/install CXETCPP core library, then build hft-recorder app
+#   ./compile.sh --force-trader build hft-trader, hft-backtest, then hft-recorder app
+#   ./compile.sh --force-back build hft-backtest, then hft-recorder app
+#   ./compile.sh --force-compr build hft-compressor shared library, then build hft-recorder app
+#   ./compile.sh --build-compressor alias for --force-compr
+#   ./compile.sh --compressor-only build only hft-compressor shared library
 #   ./compile.sh --force clang  same as --force, but rebuild with Clang
 #   ./compile.sh --force gcc    same as --force, but rebuild with GCC
 #
@@ -14,13 +17,17 @@
 #   --clean                   remove hft-recorder/build before app configure
 #   --compiler clang|gcc       explicit compiler toolchain
 #   --metrics-off             build with hot-path metrics disabled by default
+#   p|parallel|--parallel     use all CPU jobs and forward p to hft-trader
 #   -j N                      parallel jobs (default: nproc)
 set -euo pipefail
 
 APP="$(cd "$(dirname "$0")" && pwd)"
 COMPRESSOR="$(cd "$APP/../hft-compressor" && pwd)"
+TRADER="$(cd "$APP/../hft-trader" && pwd)"
+BACKTEST="$(cd "$APP/../hft-backtest" && pwd)"
 INSTALL_DIR="$HOME/.local/cxet"
 JOBS="$(nproc 2>/dev/null || echo 4)"
+FULL_PARALLEL=0
 MODE="app"
 CLEAN=0
 COMPILER="default"
@@ -29,6 +36,7 @@ CXX_COMPILER=""
 CMAKE_COMPILER_ARGS=()
 HOTPATH_METRICS_DEFAULT="ON"
 CXET_REFRESHED=0
+RECORDER_DEPS_REFRESHED=0
 
 resolveCxetRoot() {
     local candidate
@@ -51,18 +59,21 @@ resolveCxetRoot() {
 CXETCPP="$(resolveCxetRoot)"
 
 usage() {
-    sed -n '2,14p' "$0"
+    sed -n '2,21p' "$0"
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --build-compressor) MODE="app-with-compressor"; shift ;;
+        --build-compressor|--force-compr) MODE="app-with-compressor"; shift ;;
         --compressor-only) MODE="compressor-only"; shift ;;
         --force-cxet) MODE="app-with-cxet"; shift ;;
+        --force-trader) MODE="app-with-trader"; shift ;;
+        --force-back) MODE="app-with-backtest"; shift ;;
         --force)      MODE="all"; shift ;;
         --clean)      CLEAN=1; shift ;;
         --compiler)   COMPILER="${2:-}"; shift 2 ;;
         --metrics-off) HOTPATH_METRICS_DEFAULT="OFF"; shift ;;
+        p|parallel|--parallel) FULL_PARALLEL=1; JOBS="$(nproc 2>/dev/null || echo 4)"; shift ;;
         clang|gcc)    COMPILER="$1"; shift ;;
         -j)           JOBS="${2:-}"; shift 2 ;;
         -h|--help)    usage; exit 0 ;;
@@ -113,7 +124,7 @@ _reset_build_dir_for_explicit_compiler() {
     resolved="$parent/$base"
 
     case "$resolved" in
-        "$COMPRESSOR/build"|"$CXETCPP/build"|"$APP/build") ;;
+        "$COMPRESSOR/build"|"$TRADER/build"|"$BACKTEST/build"|"$CXETCPP/build"|"$APP/build") ;;
         *)
             echo "ERROR: refusing to remove unexpected build directory: $resolved" >&2
             exit 2
@@ -155,8 +166,54 @@ _build_compressor() {
     else
         (cd "$COMPRESSOR" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh)
     fi
+    RECORDER_DEPS_REFRESHED=1
 }
 
+_require_trader_tree() {
+    if [ ! -x "$TRADER/compile.sh" ]; then
+        echo "ERROR: hft-trader compile script not found: $TRADER/compile.sh" >&2
+        exit 2
+    fi
+}
+
+_require_backtest_tree() {
+    if [ ! -x "$BACKTEST/compile.sh" ]; then
+        echo "ERROR: hft-backtest compile script not found: $BACKTEST/compile.sh" >&2
+        exit 2
+    fi
+}
+
+_build_trader() {
+    _require_trader_tree
+    _reset_build_dir_for_explicit_compiler "$TRADER/build" "hft-trader"
+    echo ">>> Building hft-trader shared runtime"
+    local trader_args=()
+    if [ "$CXET_REFRESHED" = "1" ]; then
+        trader_args+=(--force)
+    fi
+    if [ "$FULL_PARALLEL" = "1" ]; then
+        trader_args+=(p)
+    fi
+    if [ "$COMPILER" = "default" ]; then
+        (cd "$TRADER" && ./compile.sh "${trader_args[@]}")
+    else
+        (cd "$TRADER" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh "${trader_args[@]}")
+    fi
+    RECORDER_DEPS_REFRESHED=1
+}
+
+_build_backtest() {
+    _require_backtest_tree
+    _reset_build_dir_for_explicit_compiler "$BACKTEST/build" "hft-backtest"
+    _resolve_trader_lib >/dev/null
+    echo ">>> Building hft-backtest library"
+    if [ "$COMPILER" = "default" ]; then
+        (cd "$BACKTEST" && ./compile.sh)
+    else
+        (cd "$BACKTEST" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh)
+    fi
+    RECORDER_DEPS_REFRESHED=1
+}
 _resolve_compressor_lib() {
     local candidate
     for candidate in \
@@ -169,10 +226,40 @@ _resolve_compressor_lib() {
             return 0
         fi
     done
-    echo "ERROR: hft-compressor library is missing. Run: ./compile.sh or ./compile.sh --force" >&2
+    echo "ERROR: hft-compressor library is missing. Run: ./compile.sh --force-compr" >&2
     exit 2
 }
 
+_resolve_trader_lib() {
+    local candidate
+    for candidate in \
+        "$TRADER/build/libhft_trader_runtime.so" \
+        "$TRADER/build/lib/libhft_trader_runtime.so" \
+        "$INSTALL_DIR/lib/libhft_trader_runtime.so"
+    do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    echo "ERROR: hft-trader shared runtime is missing. Run: ./compile.sh --force-trader or ./compile.sh --force" >&2
+    exit 2
+}
+_resolve_backtest_lib() {
+    local candidate
+    for candidate in \
+        "$BACKTEST/build/libhft_backtest_core.so" \
+        "$BACKTEST/build/lib/libhft_backtest_core.so" \
+        "$INSTALL_DIR/lib/libhft_backtest_core.so"
+    do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    echo "ERROR: hft-backtest library is missing. Run: ./compile.sh --force-back or ./compile.sh --force" >&2
+    exit 2
+}
 _copy_runtime_glob() {
     local pattern="$1"
     local copied=0
@@ -234,6 +321,9 @@ _install_compressor_runtime() {
 
 _write_start_launcher() {
     local compressor_lib_dir="$1"
+    local backtest_lib_dir="$2"
+    local trader_lib_dir="$3"
+    local trader_cxet_lib_dir="$4"
     local build_compiler="$COMPILER"
     local build_cxx="$CXX_COMPILER"
     if [ "$build_compiler" = "default" ]; then
@@ -252,7 +342,10 @@ set -euo pipefail
 APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
 INSTALL_DIR="\${HOME}/.local/cxet"
 COMPRESSOR_LIB_DIR="$compressor_lib_dir"
-export LD_LIBRARY_PATH="\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
+BACKTEST_LIB_DIR="$backtest_lib_dir"
+TRADER_LIB_DIR="$trader_lib_dir"
+TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir"
+export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 export HFTREC_METRICS_PORT="\${HFTREC_METRICS_PORT:-8080}"
 export HFTREC_METRICS_MODE="\${HFTREC_METRICS_MODE:-$default_metrics_mode}"
 export HFTREC_BUILD_COMPILER="\${HFTREC_BUILD_COMPILER:-$build_compiler}"
@@ -337,6 +430,7 @@ EOF
 
 _build_recorder_app() {
     local compressor_lib="$1"
+    local backtest_lib="$2"
     _resolve_cxet_paths
 
     cd "$APP"
@@ -346,7 +440,7 @@ _build_recorder_app() {
     fi
     _reset_build_dir_for_explicit_compiler "$APP/build" "hft-recorder"
 
-    if [ ! -f build/CMakeCache.txt ] || [ "$CLEAN" = "1" ] || [ "$COMPILER" != "default" ] || [ "$CXET_REFRESHED" = "1" ]; then
+    if [ ! -f build/CMakeCache.txt ] || [ "$CLEAN" = "1" ] || [ "$COMPILER" != "default" ] || [ "$CXET_REFRESHED" = "1" ] || [ "$RECORDER_DEPS_REFRESHED" = "1" ]; then
         echo ">>> Configuring hft-recorder app"
         cmake -B build \
               -DCMAKE_BUILD_TYPE=Release \
@@ -356,7 +450,9 @@ _build_recorder_app() {
               -DCXET_REPLAY_SHARED_LIB="$CXET_REPLAY_LIB" \
               -DHFTREC_HOTPATH_METRICS_DEFAULT="$HOTPATH_METRICS_DEFAULT" \
               -DHFT_COMPRESSOR_PUBLIC_INCLUDE_DIR="$COMPRESSOR/include" \
-              -DHFT_COMPRESSOR_SHARED_LIB="$compressor_lib"
+              -DHFT_COMPRESSOR_SHARED_LIB="$compressor_lib" \
+              -DHFT_BACKTEST_PUBLIC_INCLUDE_DIR="$BACKTEST/include" \
+              -DHFT_BACKTEST_SHARED_LIB="$backtest_lib"
     else
         echo ">>> Using existing hft-recorder/build CMake cache"
     fi
@@ -364,9 +460,13 @@ _build_recorder_app() {
     echo ">>> Building hft-recorder app (jobs=$JOBS)"
     cmake --build build --target hft-recorder hft-recorder-gui -j"$JOBS"
 
-    local compressor_lib_dir
+    local compressor_lib_dir backtest_lib_dir trader_lib trader_lib_dir trader_cxet_lib_dir
+    trader_lib="$(_resolve_trader_lib)"
     compressor_lib_dir="$(cd "$(dirname "$compressor_lib")" && pwd)"
-    _write_start_launcher "$compressor_lib_dir"
+    backtest_lib_dir="$(cd "$(dirname "$backtest_lib")" && pwd)"
+    trader_lib_dir="$(cd "$(dirname "$trader_lib")" && pwd)"
+    trader_cxet_lib_dir="$(cd "$TRADER/build/cxetcpp/lib" 2>/dev/null && pwd || printf '%s\n' "$INSTALL_DIR/lib")"
+    _write_start_launcher "$compressor_lib_dir" "$backtest_lib_dir" "$trader_lib_dir" "$trader_cxet_lib_dir"
 
     echo ""
     echo ">>> Done."
@@ -384,32 +484,58 @@ fi
 case "$MODE" in
     app)
         COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        BACKTEST_LIB="$(_resolve_backtest_lib)"
         INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
-        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB"
+        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB" "$BACKTEST_LIB"
         ;;
     app-with-compressor)
         _build_compressor
         COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        BACKTEST_LIB="$(_resolve_backtest_lib)"
         INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
-        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB"
+        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB" "$BACKTEST_LIB"
         ;;
     compressor-only)
         _build_compressor
         COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        BACKTEST_LIB="$(_resolve_backtest_lib)"
+        TRADER_LIB="$(_resolve_trader_lib)"
         compressor_lib_dir="$(cd "$(dirname "$COMPRESSOR_LIB")" && pwd)"
-        _write_start_launcher "$compressor_lib_dir"
+        backtest_lib_dir="$(cd "$(dirname "$BACKTEST_LIB")" && pwd)"
+        trader_lib_dir="$(cd "$(dirname "$TRADER_LIB")" && pwd)"
+        trader_cxet_lib_dir="$(cd "$TRADER/build/cxetcpp/lib" 2>/dev/null && pwd || printf '%s\n' "$INSTALL_DIR/lib")"
+        _write_start_launcher "$compressor_lib_dir" "$backtest_lib_dir" "$trader_lib_dir" "$trader_cxet_lib_dir"
         ;;
     app-with-cxet)
         _install_cxet_force
         COMPRESSOR_LIB="$(_resolve_compressor_lib)"
-        _build_recorder_app "$COMPRESSOR_LIB"
+        BACKTEST_LIB="$(_resolve_backtest_lib)"
+        INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
+        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB" "$BACKTEST_LIB"
+        ;;
+    app-with-trader)
+        _build_trader
+        _build_backtest
+        COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        BACKTEST_LIB="$(_resolve_backtest_lib)"
+        INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
+        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB" "$BACKTEST_LIB"
+        ;;
+    app-with-backtest)
+        _build_backtest
+        COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        BACKTEST_LIB="$(_resolve_backtest_lib)"
+        INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
+        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB" "$BACKTEST_LIB"
         ;;
     all)
-        _build_compressor
-        COMPRESSOR_LIB="$(_resolve_compressor_lib)"
-        INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
         _install_cxet_force
-        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB"
+        _build_trader
+        _build_backtest
+        COMPRESSOR_LIB="$(_resolve_compressor_lib)"
+        BACKTEST_LIB="$(_resolve_backtest_lib)"
+        INSTALLED_COMPRESSOR_LIB="$(_install_compressor_runtime "$COMPRESSOR_LIB")"
+        _build_recorder_app "$INSTALLED_COMPRESSOR_LIB" "$BACKTEST_LIB"
         ;;
     *)
         echo "ERROR: internal unknown mode: $MODE" >&2

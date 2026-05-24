@@ -140,6 +140,8 @@ std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation)
 
 std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation,
                                       const std::vector<std::string>& aliases) {
+    if (aliases.empty()) return renderLiquidationJsonLine(liquidation);
+
     std::string out;
     out.reserve(256);
     out.push_back('[');

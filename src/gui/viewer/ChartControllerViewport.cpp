@@ -703,6 +703,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     snap.overlayOnly = in.overlayOnly;
     snap.exactTradeRendering = in.exactTradeRendering;
     snap.tradeAmountScale = in.tradeAmountScale;
+    snap.candleWidthPx = in.candleWidthPx;
     snap.bookOpacityGain = in.bookOpacityGain;
     snap.bookRenderDetail = in.bookRenderDetail;
     snap.bookDepthWindowPct = std::clamp<qreal>(in.bookDepthWindowPct, 1.0, 25.0);
@@ -885,13 +886,12 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             if (row.highE8 < snap.vp.pMin || row.lowE8 > snap.vp.pMax) continue;
 
             const qreal x = snap.vp.toX(row.tsNs);
-            const qreal durationPx = std::abs(snap.vp.toX(row.tsNs + durationNs) - x);
-            const qreal w = std::clamp(durationPx * 0.72, 2.0, row.tier == 3 ? 26.0 : (row.tier == 2 ? 18.0 : 10.0));
+            const qreal w = std::clamp(snap.candleWidthPx, 1.0, 80.0);
             const qreal yHigh = snap.vp.toY(row.highE8);
             const qreal yLow = snap.vp.toY(row.lowE8);
             qreal y = std::min(yHigh, yLow);
             qreal h = std::max<qreal>(2.0, std::abs(yLow - yHigh));
-            if ((x + w * 0.5) < 0.0 || (x - w * 0.5) > snap.vp.w || (y + h) < 0.0 || y > snap.vp.h) continue;
+            if ((x + w) < 0.0 || x > snap.vp.w || (y + h) < 0.0 || y > snap.vp.h) continue;
             snap.candleRects.push_back(CandleRect{row.tier, row.tsNs, row.highE8, row.lowE8, row.quoteAmountE8, x, y, w, h, up});
         }
     }

@@ -136,6 +136,28 @@ if(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR AND HFT_COMPRESSOR_SHARED_LIB
 else()
     message(FATAL_ERROR "hft-recorder GUI/bench compression features require prebuilt hft-compressor. Configure with HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR and HFT_COMPRESSOR_SHARED_LIB.")
 endif()
+
+set(HFT_BACKTEST_PUBLIC_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../hft-backtest/include CACHE PATH [[Path to hft-backtest public headers]])
+set(HFT_BACKTEST_SHARED_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../hft-backtest/build/libhft_backtest_core.so CACHE FILEPATH [[Path to prebuilt hft-backtest shared library]])
+
+if(HFT_BACKTEST_PUBLIC_INCLUDE_DIR AND HFT_BACKTEST_SHARED_LIB
+        AND EXISTS ${HFT_BACKTEST_PUBLIC_INCLUDE_DIR}/hft_backtest/backtest.hpp
+        AND EXISTS ${HFT_BACKTEST_SHARED_LIB})
+    get_filename_component(_hft_backtest_lib_dir "${HFT_BACKTEST_SHARED_LIB}" DIRECTORY)
+    set(_hft_trader_runtime_dir "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build")
+    set(_hft_trader_cxet_runtime_dir "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/lib")
+    add_library(hft_backtest_core UNKNOWN IMPORTED GLOBAL)
+    set_target_properties(hft_backtest_core PROPERTIES
+        IMPORTED_LOCATION ${HFT_BACKTEST_SHARED_LIB}
+        INTERFACE_INCLUDE_DIRECTORIES ${HFT_BACKTEST_PUBLIC_INCLUDE_DIR}
+        INTERFACE_COMPILE_DEFINITIONS HFT_BACKTEST_SHARED
+        INTERFACE_LINK_DIRECTORIES "${_hft_backtest_lib_dir};${_hft_trader_runtime_dir};${_hft_trader_cxet_runtime_dir}"
+        INTERFACE_LINK_OPTIONS "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_backtest_lib_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_trader_runtime_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_trader_cxet_runtime_dir}>"
+    )
+    message(STATUS [[hft-recorder: hft-backtest prebuilt dependency enabled]])
+else()
+    message(FATAL_ERROR [[hft-recorder GUI backtest features require prebuilt hft-backtest. Configure HFT_BACKTEST_PUBLIC_INCLUDE_DIR and HFT_BACKTEST_SHARED_LIB.]])
+endif()
 endif()
 
 include(FetchContent)

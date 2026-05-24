@@ -98,6 +98,16 @@ void ChartItem::setTradeAmountScale(qreal value) {
     update();
 }
 
+void ChartItem::setCandleWidthPx(qreal value) {
+    value = std::clamp<qreal>(value, 1.0, 80.0);
+    if (qFuzzyCompare(candleWidthPx_ + 1.0, value + 1.0)) return;
+    candleWidthPx_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit candleWidthPxChanged();
+    update();
+}
+
 void ChartItem::setBookOpacityGain(qreal value) {
     value = std::clamp<qreal>(value, 1000.0, 1000000.0);
     if (qFuzzyCompare(bookOpacityGain_ + 1.0, value + 1.0)) return;
@@ -180,6 +190,7 @@ SnapshotInputs collectInputs(const ChartItem& item) {
         item.overlayOnly(),
         false,
         item.tradeAmountScale(),
+        item.candleWidthPx(),
         item.bookOpacityGain(),
         item.bookRenderDetail(),
         item.bookDepthWindowPct(),

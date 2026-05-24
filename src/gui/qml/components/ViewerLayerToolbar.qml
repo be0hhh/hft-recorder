@@ -328,6 +328,54 @@ Rectangle {
         Label { text: "%"; color: bar.mutedTextColor; font.pixelSize: 12 }
 
         Label {
+            text: bar.compact ? "Candle" : "Candle Width"
+            color: bar.mutedTextColor
+            font.pixelSize: 12
+        }
+
+        Slider {
+            Layout.fillWidth: true
+            Layout.minimumWidth: bar.sliderMinWidth
+            Layout.preferredWidth: bar.sliderPreferredWidth
+            from: 1
+            to: 80
+            stepSize: 1
+            snapMode: Slider.SnapAlways
+            value: bar.appVm.candleWidthPx
+            onMoved: bar.appVm.candleWidthPx = value
+        }
+
+        TextField {
+            id: candleWidthInput
+            Layout.preferredWidth: 42
+            text: ""
+            color: bar.textColor
+            selectionColor: bar.accentBuyColor
+            selectedTextColor: "#101012"
+            font.pixelSize: 12
+            horizontalAlignment: Text.AlignRight
+            validator: IntValidator { bottom: 1; top: 80 }
+            background: Rectangle {
+                color: bar.panelColor
+                border.color: candleWidthInput.activeFocus ? bar.accentBuyColor : bar.borderColor
+                radius: 4
+            }
+            Binding {
+                target: candleWidthInput
+                property: "text"
+                value: Math.round(bar.appVm.candleWidthPx)
+                when: !candleWidthInput.activeFocus
+            }
+            onEditingFinished: {
+                const px = bar.clamp(Number(text), 1, 80);
+                bar.appVm.candleWidthPx = px
+                text = Math.round(bar.appVm.candleWidthPx)
+            }
+        }
+
+        Label { text: "px"; color: bar.mutedTextColor; font.pixelSize: 12 }
+
+        Label {
             text: bar.compact ? "Bright @" : "Full Bright @"
             color: bar.mutedTextColor
             font.pixelSize: 12

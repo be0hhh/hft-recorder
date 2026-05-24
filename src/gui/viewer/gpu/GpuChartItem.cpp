@@ -41,6 +41,7 @@ SnapshotInputs collectInputs(const GpuChartItem& item) {
         item.overlayOnly(),
         false,
         item.tradeAmountScale(),
+        item.candleWidthPx(),
         item.bookOpacityGain(),
         item.bookRenderDetail(),
         item.bookDepthWindowPct(),
@@ -305,6 +306,16 @@ void GpuChartItem::setTradeAmountScale(qreal value) {
     invalidateSnapshotCache_();
     ensureSnapshot_();
     emit tradeAmountScaleChanged();
+    update();
+}
+
+void GpuChartItem::setCandleWidthPx(qreal value) {
+    value = std::clamp<qreal>(value, 1.0, 80.0);
+    if (qFuzzyCompare(candleWidthPx_ + 1.0, value + 1.0)) return;
+    candleWidthPx_ = value;
+    invalidateSnapshotCache_();
+    ensureSnapshot_();
+    emit candleWidthPxChanged();
     update();
 }
 

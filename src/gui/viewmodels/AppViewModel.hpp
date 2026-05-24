@@ -15,6 +15,7 @@ class AppViewModel : public QObject {
     Q_PROPERTY(QString activeChartRenderer READ activeChartRenderer WRITE setActiveChartRenderer NOTIFY renderDiagnosticsChanged)
     Q_PROPERTY(QString renderDiagnosticsText READ renderDiagnosticsText NOTIFY renderDiagnosticsChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
+    Q_PROPERTY(qreal candleWidthPx READ candleWidthPx WRITE setCandleWidthPx NOTIFY candleWidthPxChanged)
     Q_PROPERTY(qreal bookBrightnessUsdRef READ bookBrightnessUsdRef WRITE setBookBrightnessUsdRef NOTIFY bookBrightnessUsdRefChanged)
     Q_PROPERTY(qreal bookMinVisibleUsd READ bookMinVisibleUsd WRITE setBookMinVisibleUsd NOTIFY bookMinVisibleUsdChanged)
     Q_PROPERTY(qreal bookDepthWindowPct READ bookDepthWindowPct WRITE setBookDepthWindowPct NOTIFY bookDepthWindowPctChanged)
@@ -31,6 +32,7 @@ class AppViewModel : public QObject {
     QString activeChartRenderer() const { return activeChartRenderer_; }
     QString renderDiagnosticsText() const { return renderDiagnosticsText_; }
     qreal tradeAmountScale() const noexcept { return tradeAmountScale_; }
+    qreal candleWidthPx() const noexcept { return candleWidthPx_; }
     qreal bookBrightnessUsdRef() const noexcept { return bookBrightnessUsdRef_; }
     qreal bookMinVisibleUsd() const noexcept { return bookMinVisibleUsd_; }
     qreal bookDepthWindowPct() const noexcept { return bookDepthWindowPct_; }
@@ -39,6 +41,7 @@ class AppViewModel : public QObject {
     int renderWindowSeconds() const noexcept { return renderWindowSeconds_; }
 
     void setTradeAmountScale(qreal value);
+    void setCandleWidthPx(qreal value);
     void setBookBrightnessUsdRef(qreal value);
     void setBookMinVisibleUsd(qreal value);
     void setBookDepthWindowPct(qreal value);
@@ -51,6 +54,7 @@ class AppViewModel : public QObject {
     void statusTextChanged();
     void renderDiagnosticsChanged();
     void tradeAmountScaleChanged();
+    void candleWidthPxChanged();
     void bookBrightnessUsdRefChanged();
     void bookMinVisibleUsdChanged();
     void bookDepthWindowPctChanged();
@@ -69,6 +73,7 @@ class AppViewModel : public QObject {
     QString activeChartRenderer_{"cpu-chart"};
     QString renderDiagnosticsText_{"CPU requested | backend unknown | cpu-chart"};
     qreal tradeAmountScale_{0.45};
+    qreal candleWidthPx_{10.0};
     qreal bookBrightnessUsdRef_{15000.0};
     qreal bookMinVisibleUsd_{5000.0};
     qreal bookDepthWindowPct_{5.0};
