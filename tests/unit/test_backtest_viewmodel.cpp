@@ -51,6 +51,13 @@ bool hasParamKey(const QVariantList& rows, const QString& key) {
     return false;
 }
 
+bool hasChoiceId(const QVariantList& rows, const QString& id) {
+    for (const QVariant& row : rows) {
+        if (row.toMap().value(QStringLiteral("id")).toString() == id) return true;
+    }
+    return false;
+}
+
 QString metricValue(const QVariantList& rows, const QString& key) {
     for (const QVariant& row : rows) {
         const QVariantMap map = row.toMap();
@@ -283,6 +290,44 @@ TEST(BacktestViewModel, ConfigModeFiltersFixedAndNatrParameterKeys) {
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_bps")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_natr_pct")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("natr_ema_period_seconds")));
+}
+
+TEST(BacktestViewModel, ExposesBacktestProbeWithoutStrategyParams) {
+    isolateSettings(QStringLiteral("backtest_probe"));
+
+    hftrec::gui::BacktestViewModel vm;
+
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("backtest_probe")));
+    vm.setSelectedStrategy(QStringLiteral("backtest_probe"));
+    EXPECT_TRUE(vm.strategyParameters().empty());
+    EXPECT_EQ(vm.configModeChoices().size(), 1);
+}
+
+TEST(BacktestViewModel, DiscoversStrategyChoicesFromTraderStrategyHeaders) {
+    isolateSettings(QStringLiteral("strategy_discovery"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QVariantList choices = vm.strategyChoices();
+
+    EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("spread_maker1and2")));
+    EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("backtest_probe")));
+    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("strategyMD")));
+    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("horizontal_levels")));
+    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("iceberg_detector")));
+    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("liquidity_wall_breakout")));
+    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("liquidity_wall_rebound")));
+    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("liquidity_volume_maker")));
+}
+
+TEST(BacktestViewModel, IgnoresPersistedDeletedStrategy) {
+    isolateSettings(QStringLiteral("deleted_strategy_setting"));
+    QSettings settings;
+    settings.setValue(QStringLiteral("backtests/selected_strategy"), QStringLiteral("liquidity_volume_maker"));
+    settings.sync();
+
+    hftrec::gui::BacktestViewModel vm;
+
+    EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("spread_maker1and2"));
 }
 
 TEST(BacktestViewModel, PersistsConfigButNotSession) {

@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QMetaObject>
+#include <QRegularExpression>
 #include <QTextStream>
 #include <QVariantMap>
 
@@ -52,43 +53,11 @@ constexpr StrategyParamSpec kParamSpecs[] = {
     {"spread_maker1and2", "refresh_ms", "Refresh ms", "Minimum delay between quote refreshes."},
     {"spread_maker1and2", "close_delay_us", "Close delay us", "Strategy close-order delay from ini."},
     {"spread_maker1and2", "amount_qty", "Quote amount", "Order size in quote currency."},
-    {"liquidity_volume_maker", "max_quote_distance_bps", "Max distance bps", "Maximum quote distance from BBO."},
-    {"liquidity_volume_maker", "max_quote_distance_natr_pct", "Max distance NATR %", "Maximum quote distance as percent of trade range EMA."},
-    {"liquidity_volume_maker", "price_move_bps", "Move trigger bps", "Price move needed before requote."},
-    {"liquidity_volume_maker", "price_move_natr_pct", "Move trigger NATR %", "Price move threshold as percent of trade range EMA."},
-    {"liquidity_volume_maker", "natr_ema_period_seconds", "NATR EMA seconds", "Trade range EMA window."},
-    {"liquidity_volume_maker", "refresh_ms", "Refresh ms", "Minimum delay between quote refreshes."},
-    {"liquidity_volume_maker", "close_delay_us", "Close delay us", "Strategy close-order delay from ini."},
-    {"liquidity_volume_maker", "amount_qty", "Quote amount", "Order size in quote currency."},
-    {"liquidity_wall_breakout", "scan_distance_bps", "Scan distance bps", "Scan distance from BBO."},
-    {"liquidity_wall_breakout", "scan_distance_natr_pct", "Scan distance NATR %", "Scan distance as percent of trade range EMA."},
-    {"liquidity_wall_breakout", "natr_ema_period_seconds", "NATR EMA seconds", "Trade range EMA window."},
-    {"liquidity_wall_breakout", "min_wall_notional", "Min wall notional", "Minimum wall size in quote currency."},
-    {"liquidity_wall_breakout", "wall_vs_rolling_pct", "Wall vs volume %", "Dynamic wall threshold versus rolling volume."},
-    {"liquidity_wall_breakout", "hold_seconds", "Hold seconds", "How long wall must stay before action."},
-    {"liquidity_wall_breakout", "close_delay_us", "Close delay us", "Strategy close-order delay from ini."},
-    {"liquidity_wall_breakout", "amount_qty", "Quote amount", "Order size in quote currency."},
-    {"liquidity_wall_rebound", "detect_distance_bps", "Detect distance bps", "Distance where wall can be detected."},
-    {"liquidity_wall_rebound", "detect_distance_natr_pct", "Detect distance NATR %", "Detect distance as percent of trade range EMA."},
-    {"liquidity_wall_rebound", "action_distance_bps", "Action distance bps", "Distance where strategy can act."},
-    {"liquidity_wall_rebound", "action_distance_natr_pct", "Action distance NATR %", "Action distance as percent of trade range EMA."},
-    {"liquidity_wall_rebound", "natr_ema_period_seconds", "NATR EMA seconds", "Trade range EMA window."},
-    {"liquidity_wall_rebound", "hold_seconds", "Hold seconds", "How long wall must stay before action."},
-    {"liquidity_wall_rebound", "order_qty", "Base order qty", "Order size in base currency."},
-    {"iceberg_detector", "book_observe_max_distance_bps", "Observe distance bps", "How far from BBO detector watches book levels."},
-    {"iceberg_detector", "classic_min_traded_notional", "Classic min traded", "Minimum traded notional for classic signal."},
-    {"iceberg_detector", "smart_min_traded_notional", "Smart min traded", "Minimum traded notional for smart signal."},
-    {"iceberg_detector", "amount_qty", "Readiness amount", "Dry-run order amount used by runtime readiness."},
 };
 
 constexpr NatrParamPair kNatrPairs[] = {
     {"spread_maker1and2", "distance_bps", "distance_natr_pct"},
     {"spread_maker1and2", "trigger_bps", "trigger_natr_pct"},
-    {"liquidity_volume_maker", "max_quote_distance_bps", "max_quote_distance_natr_pct"},
-    {"liquidity_volume_maker", "price_move_bps", "price_move_natr_pct"},
-    {"liquidity_wall_breakout", "scan_distance_bps", "scan_distance_natr_pct"},
-    {"liquidity_wall_rebound", "detect_distance_bps", "detect_distance_natr_pct"},
-    {"liquidity_wall_rebound", "action_distance_bps", "action_distance_natr_pct"},
 };
 
 QString jsonValueString(const QJsonObject& object, const QString& key) {
@@ -381,12 +350,33 @@ QString configFileForStrategy(const QString& strategy) {
     const QString root = QStringLiteral(HFT_BACKTEST_TRADER_SOURCE_DIR);
     const QString id = strategy.trimmed();
     QString file = QStringLiteral("1and2.ini");
-    if (id == QStringLiteral("horizontal_levels")) file = QStringLiteral("hor.ini");
-    else if (id == QStringLiteral("iceberg_detector")) file = QStringLiteral("iceberg.ini");
-    else if (id == QStringLiteral("liquidity_wall_breakout")) file = QStringLiteral("wall.ini");
-    else if (id == QStringLiteral("liquidity_wall_rebound")) file = QStringLiteral("rebound.ini");
-    else if (id == QStringLiteral("liquidity_volume_maker")) file = QStringLiteral("liq.ini");
+    if (id == QStringLiteral("backtest_probe")) file = QStringLiteral("probe.ini");
     return QDir(root).absoluteFilePath(file);
+}
+
+QStringList discoverStrategyIds() {
+    QStringList out;
+    const QDir strategyRoot(QDir(QStringLiteral(HFT_BACKTEST_TRADER_SOURCE_DIR)).absoluteFilePath(QStringLiteral("strategy")));
+    const QStringList dirs = strategyRoot.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QString& dirName : dirs) {
+        const QString headerPath = strategyRoot.absoluteFilePath(QStringLiteral("%1/Strategy.hpp").arg(dirName));
+        QFile header(headerPath);
+        if (!header.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+        const QString text = QString::fromUtf8(header.readAll());
+        const QRegularExpression descriptorPattern(QStringLiteral("\\b%1StrategyDescriptor\\s*\\(")
+                                                        .arg(QRegularExpression::escape(dirName)));
+        if (text.contains(descriptorPattern)) out.push_back(dirName);
+    }
+    return out;
+}
+
+bool isDiscoveredStrategy(const QString& strategy) {
+    return discoverStrategyIds().contains(strategy.trimmed());
+}
+
+QString firstDiscoveredStrategy() {
+    const QStringList ids = discoverStrategyIds();
+    return ids.empty() ? QString{} : ids.front();
 }
 
 QString readTextFile(const QString& path) {
@@ -553,16 +543,6 @@ QString fallbackValueForKey(const QString& strategy, const QString& key) {
     if (strategy == QStringLiteral("spread_maker1and2") && key == QStringLiteral("distance_natr_pct")) return QStringLiteral("200");
     if (strategy == QStringLiteral("spread_maker1and2") && key == QStringLiteral("trigger_bps")) return QStringLiteral("2");
     if (strategy == QStringLiteral("spread_maker1and2") && key == QStringLiteral("trigger_natr_pct")) return QStringLiteral("100");
-    if (strategy == QStringLiteral("liquidity_volume_maker") && key == QStringLiteral("max_quote_distance_bps")) return QStringLiteral("300");
-    if (strategy == QStringLiteral("liquidity_volume_maker") && key == QStringLiteral("max_quote_distance_natr_pct")) return QStringLiteral("800");
-    if (strategy == QStringLiteral("liquidity_volume_maker") && key == QStringLiteral("price_move_bps")) return QStringLiteral("10");
-    if (strategy == QStringLiteral("liquidity_volume_maker") && key == QStringLiteral("price_move_natr_pct")) return QStringLiteral("100");
-    if (strategy == QStringLiteral("liquidity_wall_breakout") && key == QStringLiteral("scan_distance_bps")) return QStringLiteral("120");
-    if (strategy == QStringLiteral("liquidity_wall_breakout") && key == QStringLiteral("scan_distance_natr_pct")) return QStringLiteral("600");
-    if (strategy == QStringLiteral("liquidity_wall_rebound") && key == QStringLiteral("detect_distance_bps")) return QStringLiteral("300");
-    if (strategy == QStringLiteral("liquidity_wall_rebound") && key == QStringLiteral("detect_distance_natr_pct")) return QStringLiteral("100");
-    if (strategy == QStringLiteral("liquidity_wall_rebound") && key == QStringLiteral("action_distance_bps")) return QStringLiteral("200");
-    if (strategy == QStringLiteral("liquidity_wall_rebound") && key == QStringLiteral("action_distance_natr_pct")) return QStringLiteral("100");
     for (const NatrParamPair& pair : kNatrPairs) {
         if (strategy != QString::fromUtf8(pair.strategy)) continue;
         const QString fixedKey = QString::fromUtf8(pair.fixedKey);
@@ -667,19 +647,11 @@ QString BacktestViewModel::backtestsDirectory() const {
 }
 
 QVariantList BacktestViewModel::strategyChoices() const {
-    static constexpr const char* kStrategies[] = {
-        "spread_maker1and2",
-        "horizontal_levels",
-        "iceberg_detector",
-        "liquidity_wall_breakout",
-        "liquidity_wall_rebound",
-        "liquidity_volume_maker",
-    };
     QVariantList out;
-    for (const char* strategy : kStrategies) {
+    for (const QString& strategy : discoverStrategyIds()) {
         QVariantMap row;
-        row.insert(QStringLiteral("id"), QString::fromUtf8(strategy));
-        row.insert(QStringLiteral("label"), QString::fromUtf8(strategy));
+        row.insert(QStringLiteral("id"), strategy);
+        row.insert(QStringLiteral("label"), strategy);
         out.push_back(row);
     }
     return out;
@@ -826,6 +798,7 @@ void BacktestViewModel::setSelectedSymbol(const QString& symbol) {
 void BacktestViewModel::setSelectedStrategy(const QString& strategy) {
     const QString next = strategy.trimmed();
     if (selectedStrategy_ == next || next.isEmpty()) return;
+    if (!isDiscoveredStrategy(next)) return;
     savePersistentConfig_();
     selectedStrategy_ = next;
     if (!strategyHasNatrMode(selectedStrategy_)) configMode_ = QStringLiteral("fixed");
@@ -1227,8 +1200,13 @@ void BacktestViewModel::loadStrategyDefaults_() {
 }
 
 void BacktestViewModel::loadPersistentConfig_() {
+    const QString defaultStrategy = selectedStrategy_;
     const QString strategy = settings_.value(QStringLiteral("backtests/selected_strategy"), selectedStrategy_).toString().trimmed();
     if (!strategy.isEmpty()) selectedStrategy_ = strategy;
+    if (!isDiscoveredStrategy(selectedStrategy_)) {
+        const QString fallback = isDiscoveredStrategy(defaultStrategy) ? defaultStrategy : firstDiscoveredStrategy();
+        if (!fallback.isEmpty()) selectedStrategy_ = fallback;
+    }
     configMode_ = normalizeConfigMode(settings_.value(QStringLiteral("backtests/config_mode/%1").arg(selectedStrategy_), configMode_).toString());
     if (!strategyHasNatrMode(selectedStrategy_)) configMode_ = QStringLiteral("fixed");
     pingLatencyUs_ = settings_.value(QStringLiteral("backtests/ping_latency_us"), pingLatencyUs_).toString().trimmed();
