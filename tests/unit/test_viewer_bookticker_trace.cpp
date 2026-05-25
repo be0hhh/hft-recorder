@@ -114,9 +114,27 @@ TEST(ViewerBookTickerTrace, BuildsSampleTickerTraceWithoutBookSegments) {
 
     const auto snap = chart.buildSnapshot(200.0, 300.0, bookTickerInputs());
     EXPECT_TRUE(snap.bookSegments.empty());
-    EXPECT_TRUE(snap.bookTickerTrace.bidLines.empty());
-    EXPECT_TRUE(snap.bookTickerTrace.askLines.empty());
-    ASSERT_EQ(snap.bookTickerTrace.samples.size(), 2u);
+    ASSERT_FALSE(snap.bookTickerTrace.bidLines.empty());
+    ASSERT_FALSE(snap.bookTickerTrace.askLines.empty());
+    ASSERT_GE(snap.bookTickerTrace.samples.size(), 2u);
+
+    const qreal secondX = std::round(snap.vp.toX(2000));
+    const qreal oldBidY = std::round(snap.vp.toY(e8(10000)));
+    const qreal newBidY = std::round(snap.vp.toY(e8(10050)));
+    bool hasBidHorizontal = false;
+    bool hasBidVertical = false;
+    for (const auto& line : snap.bookTickerTrace.bidLines) {
+        EXPECT_TRUE(line.x0 == line.x1 || line.y0 == line.y1);
+        EXPECT_LE(line.x1, secondX + 1.0);
+        if (line.y0 == oldBidY && line.y1 == oldBidY && line.x0 == 0.0 && line.x1 == secondX) {
+            hasBidHorizontal = true;
+        }
+        if (line.x0 == secondX && line.x1 == secondX && line.y0 == oldBidY && line.y1 == newBidY) {
+            hasBidVertical = true;
+        }
+    }
+    EXPECT_TRUE(hasBidHorizontal);
+    EXPECT_TRUE(hasBidVertical);
 
     HoverInfo hover{};
     hftrec::gui::viewer::hit_test::computeHover(
@@ -141,7 +159,7 @@ TEST(ViewerBookTickerTrace, BuildsSampleTickerTraceWithoutBookSegments) {
     fs::remove_all(dir, ec);
 }
 
-TEST(ViewerBookTickerTrace, DoesNotMaterializeSamplesAcrossSparseUpdateGap) {
+TEST(ViewerBookTickerTrace, MaterializesSamplesAcrossSparseHoldButStopsAtLastTicker) {
     const auto dir = makeTmpDir();
     writeFile(
         dir / "bookticker.jsonl",
@@ -155,7 +173,12 @@ TEST(ViewerBookTickerTrace, DoesNotMaterializeSamplesAcrossSparseUpdateGap) {
     chart.setViewport(0, 10'000'000'000ll, e8(9900), e8(10200));
 
     const auto snap = chart.buildSnapshot(200.0, 300.0, bookTickerInputs());
-    ASSERT_EQ(snap.bookTickerTrace.samples.size(), 2u);
+    ASSERT_GT(snap.bookTickerTrace.samples.size(), 2u);
+
+    for (const auto& line : snap.bookTickerTrace.bidLines) {
+        EXPECT_TRUE(line.x0 == line.x1 || line.y0 == line.y1);
+        EXPECT_LE(line.x1, std::round(snap.vp.toX(8'500'000'000ll)) + 1.0);
+    }
 
     HoverInfo hover{};
     hftrec::gui::viewer::hit_test::computeHover(
@@ -163,7 +186,37 @@ TEST(ViewerBookTickerTrace, DoesNotMaterializeSamplesAcrossSparseUpdateGap) {
         QPointF{100.0, snap.vp.toY(e8(10000))},
         true,
         hover);
-    EXPECT_EQ(hover.bookKind, 0);
+    EXPECT_EQ(hover.bookKind, 1);
+    EXPECT_EQ(hover.bookPriceE8, e8(10000));
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(ViewerBookTickerTrace, KeepsStepContinuityWhenUpdatesShareRoundedPixel) {
+    const auto dir = makeTmpDir();
+    writeFile(
+        dir / "bookticker.jsonl",
+        bookTickerLine(1000, 1, e8(10000), e8(10100))
+            + bookTickerLine(1001, 2, e8(10010), e8(10110))
+            + bookTickerLine(1002, 3, e8(10020), e8(10120))
+            + bookTickerLine(2000, 4, e8(10030), e8(10130)));
+
+    ChartController chart;
+    EXPECT_TRUE(chart.addBookTickerFile(QString::fromStdString((dir / "bookticker.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
+    chart.setViewport(1000, 3000, e8(9900), e8(10200));
+
+    const auto snap = chart.buildSnapshot(200.0, 300.0, bookTickerInputs());
+    ASSERT_FALSE(snap.bookTickerTrace.bidLines.empty());
+
+    for (std::size_t i = 1; i < snap.bookTickerTrace.bidLines.size(); ++i) {
+        const auto& prev = snap.bookTickerTrace.bidLines[i - 1u];
+        const auto& cur = snap.bookTickerTrace.bidLines[i];
+        EXPECT_EQ(prev.x1, cur.x0) << "line " << i;
+        EXPECT_TRUE(prev.y1 == cur.y0 || cur.x0 == cur.x1) << "line " << i;
+    }
 
     std::error_code ec;
     fs::remove_all(dir, ec);

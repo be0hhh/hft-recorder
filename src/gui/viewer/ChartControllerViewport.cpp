@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "gui/viewer/ColorScheme.hpp"
+#include "gui/viewer/detail/BookTickerTraceBuild.hpp"
 #include "gui/viewer/detail/BookMath.hpp"
 #include "gui/viewer/detail/Formatters.hpp"
 #include "gui/viewer/detail/TradeGrouping.hpp"
@@ -393,7 +394,7 @@ void buildBookTickerTrace(RenderSnapshot& snap,
                           std::int64_t renderMinTs,
                           std::int64_t renderMaxTs) {
     snap.bookTickerTrace = BookTickerTrace{};
-    if (!snap.bookTickerVisible || tickers.empty() || snap.vp.w <= 0.0) return;
+    if (!snap.bookTickerVisible || tickers.empty() || snap.vp.w <= 0.0 || snap.vp.h <= 0.0) return;
     renderMinTs = std::max<std::int64_t>(renderMinTs, snap.vp.tMin);
     renderMaxTs = std::min<std::int64_t>(renderMaxTs, snap.vp.tMax);
     if (renderMaxTs < renderMinTs) return;
@@ -408,19 +409,37 @@ void buildBookTickerTrace(RenderSnapshot& snap,
 
     std::size_t index = static_cast<std::size_t>(std::distance(tickers.begin(), firstInRange));
     auto& trace = snap.bookTickerTrace;
-    trace.samples.reserve(static_cast<std::size_t>(std::distance(firstInRange, tickers.end())));
+    trace.samples.reserve(std::max<std::size_t>(static_cast<std::size_t>(snap.vp.w / 4.0) + 2u,
+                                                static_cast<std::size_t>(std::distance(firstInRange, tickers.end()))));
+    trace.bidLines.reserve((static_cast<std::size_t>(std::distance(firstInRange, tickers.end())) + 1u) * 2u);
+    trace.askLines.reserve(trace.bidLines.capacity());
+
+    detail::BookTickerTraceBuildState state{};
+    if (firstInRange != tickers.begin()) {
+        const auto& carry = *std::prev(firstInRange);
+        if (carry.bidPriceE8 > 0 || carry.askPriceE8 > 0) {
+            const std::int64_t endTs = index < tickers.size()
+                ? std::min<std::int64_t>(tickers[index].tsNs, renderMaxTs)
+                : renderMaxTs;
+            detail::appendBookTickerTraceSegment(trace, state, snap.vp, carry, renderMinTs, endTs, true, false);
+        }
+    }
 
     while (index < tickers.size()) {
         const auto& ticker = tickers[index];
         if (ticker.tsNs > renderMaxTs) break;
-        trace.samples.push_back(BookTickerSample{
-            0,
-            ticker.tsNs,
-            ticker.bidPriceE8,
-            ticker.bidQtyE8,
-            ticker.askPriceE8,
-            ticker.askQtyE8,
-        });
+        const std::int64_t endTs = (index + 1u < tickers.size())
+            ? std::min<std::int64_t>(tickers[index + 1u].tsNs, renderMaxTs)
+            : renderMaxTs;
+        const bool hasNextAtEnd = index + 1u < tickers.size() && tickers[index + 1u].tsNs <= renderMaxTs;
+        detail::appendBookTickerTraceSegment(trace,
+                                             state,
+                                             snap.vp,
+                                             ticker,
+                                             std::max<std::int64_t>(ticker.tsNs, renderMinTs),
+                                             endTs,
+                                             true,
+                                             !hasNextAtEnd);
         ++index;
     }
 }
@@ -441,14 +460,15 @@ void buildLatestBookTickerTrace(RenderSnapshot& snap,
     const auto& ticker = *std::prev(it);
     if (ticker.tsNs < snap.vp.tMin || ticker.tsNs > snap.vp.tMax) return;
 
-    snap.bookTickerTrace.samples.push_back(BookTickerSample{
-        0,
-        ticker.tsNs,
-        ticker.bidPriceE8,
-        ticker.bidQtyE8,
-        ticker.askPriceE8,
-        ticker.askQtyE8,
-    });
+    detail::BookTickerTraceBuildState state{};
+    detail::appendBookTickerTraceSegment(snap.bookTickerTrace,
+                                         state,
+                                         snap.vp,
+                                         ticker,
+                                         ticker.tsNs,
+                                         ticker.tsNs,
+                                         true,
+                                         true);
 }
 
 }  // namespace

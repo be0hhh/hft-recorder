@@ -40,7 +40,7 @@ void renderStrategyOverlay(const RenderContext& ctx) {
 
     ctx.p->setRenderHint(QPainter::Antialiasing, true);
     QPen markerOutline(QColor(0x08, 0x08, 0x08, 0xE0));
-    markerOutline.setWidth(1);
+    markerOutline.setWidth(2);
     markerOutline.setCosmetic(true);
     ctx.p->setPen(markerOutline);
     for (const auto& marker : ctx.s.strategyFillMarkers) {
@@ -48,7 +48,7 @@ void renderStrategyOverlay(const RenderContext& ctx) {
         const qreal y = vp.toY(marker.priceE8);
         if (x < -12.0 || x > vp.w + 12.0 || y < -12.0 || y > vp.h + 12.0) continue;
 
-        QColor fill = marker.sideBuy ? QColor(0xFF, 0xD8, 0x4D) : QColor(0xFF, 0x1A, 0xC8);
+        QColor fill = marker.sideBuy ? QColor(0xFF, 0xE6, 0x6D) : QColor(0xC8, 0x5A, 0x12);
         fill.setAlpha(255);
         ctx.p->setBrush(fill);
         QPolygonF triangle;

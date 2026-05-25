@@ -34,11 +34,11 @@ Pane {
     property bool userHasExplicitCompareSelection: false
     property bool compareMode: selectedCompareSourceA !== "" && selectedCompareSourceB !== "" && selectedCompareSourceA !== selectedCompareSourceB
     property bool comparePickerActive: compareMode && chart.selectedBacktestResult === ""
-    property bool showTradesLayer: true
+    property bool showTradesLayer: false
     property bool showLiquidationsLayer: false
     property bool showCandlesLayer: false
     property bool showOrderbookLayer: false
-    property bool showBookTickerLayer: false
+    property bool showBookTickerLayer: true
     property bool effectiveBookTickerLayer: showBookTickerLayer
     property bool userHasExplicitLayerSelection: false
     property bool userDisabledTradesLayer: false
@@ -157,11 +157,19 @@ Pane {
             return
 
         if (!root.compareMode && root.selectedSourceId !== "") {
+            if (chart.hasBookTicker && !root.userDisabledBookTickerLayer) {
+                root.showTradesLayer = false
+                root.showLiquidationsLayer = false
+                root.showCandlesLayer = false
+                root.showOrderbookLayer = false
+                root.showBookTickerLayer = true
+                return
+            }
             root.showTradesLayer = chart.hasTrades && !root.userDisabledTradesLayer
             root.showLiquidationsLayer = chart.hasLiquidations && !chart.hasTrades && !root.userDisabledLiquidationsLayer
             root.showCandlesLayer = chart.hasCandles && !root.userDisabledCandlesLayer
             root.showOrderbookLayer = chart.hasOrderbook && !root.userDisabledOrderbookLayer
-            root.showBookTickerLayer = chart.hasBookTicker && !root.userDisabledBookTickerLayer
+            root.showBookTickerLayer = false
             if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer)
                 root.showTradesLayer = !root.userDisabledTradesLayer
             return

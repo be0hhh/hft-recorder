@@ -24,6 +24,8 @@ This repository is a standalone application over `CXETCPP`.
 
 ## Build and test restraint
 
+- Do not compile, build, or run tests/checks without the user's explicit consent
+  in the current message.
 - Do not build or run tests automatically after every code edit.
 - Build or test only when it is genuinely needed to validate a risky change,
   diagnose a concrete failure, or when the user explicitly asks for it.

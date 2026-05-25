@@ -17,38 +17,44 @@ namespace hftrec::gui::viewer::renderers {
 
 namespace {
 
-void drawSampleSide(QPainter* painter,
-                    const BookTickerTrace& trace,
-                    const ViewportMap& vp,
-                    const QPen& pen,
-                    bool bidSide) {
-    if (trace.samples.empty()) return;
-    painter->setPen(pen);
+bool sampleSidePoint(const RenderContext& ctx,
+                     const BookTickerSample& sample,
+                     bool bidSide,
+                     QPointF& out) noexcept {
+    const auto price = bidSide ? sample.bidPriceE8 : sample.askPriceE8;
+    if (price <= 0 || price < ctx.s.vp.pMin || price > ctx.s.vp.pMax) return false;
 
-    bool prevVisible = false;
-    QPointF prevPoint{};
-    for (const auto& sample : trace.samples) {
-        const std::int64_t priceE8 = bidSide ? sample.bidPriceE8 : sample.askPriceE8;
-        if (priceE8 <= 0 || priceE8 < vp.pMin || priceE8 > vp.pMax
-            || sample.tsNs < vp.tMin || sample.tsNs > vp.tMax) {
-            prevVisible = false;
+    const qreal x = static_cast<qreal>(std::round(ctx.s.vp.toX(sample.tsNs)));
+    const qreal y = static_cast<qreal>(std::round(ctx.s.vp.toY(price)));
+    if (x < 0.0 || x > ctx.s.vp.w || y < 0.0 || y > ctx.s.vp.h) return false;
+
+    out = QPointF{x, y};
+    return true;
+}
+
+void drawSampleSide(const RenderContext& ctx,
+                    const std::vector<BookTickerSample>& samples,
+                    bool bidSide,
+                    const QPen& pen) {
+    QPointF prev{};
+    bool hasPrev = false;
+
+    ctx.p->setPen(pen);
+    for (const auto& sample : samples) {
+        QPointF point{};
+        if (!sampleSidePoint(ctx, sample, bidSide, point)) {
+            hasPrev = false;
             continue;
         }
 
-        const qreal x = vp.toX(sample.tsNs);
-        const qreal y = vp.toY(priceE8);
-        if (x < 0.0 || x > vp.w || y < 0.0 || y > vp.h) {
-            prevVisible = false;
-            continue;
+        if (hasPrev) {
+            const QPointF corner{point.x(), prev.y()};
+            if (corner != prev) ctx.p->drawLine(prev, corner);
+            if (point != corner) ctx.p->drawLine(corner, point);
         }
 
-        const int xPx = static_cast<int>(std::round(x));
-        const int yPx = static_cast<int>(std::round(y));
-        const QPointF point{static_cast<qreal>(xPx), static_cast<qreal>(yPx)};
-        if (prevVisible) painter->drawLine(prevPoint, point);
-        else painter->drawLine(point, QPointF{static_cast<qreal>(xPx + 1), static_cast<qreal>(yPx)});
-        prevPoint = point;
-        prevVisible = true;
+        prev = point;
+        hasPrev = true;
     }
 }
 
@@ -74,8 +80,8 @@ void renderBookTicker(const RenderContext& ctx) {
     ctx.p->save();
     ctx.p->setRenderHint(QPainter::Antialiasing, false);
     ctx.p->setBrush(Qt::NoBrush);
-    drawSampleSide(ctx.p, ctx.s.bookTickerTrace, ctx.s.vp, bidPen, true);
-    drawSampleSide(ctx.p, ctx.s.bookTickerTrace, ctx.s.vp, askPen, false);
+    drawSampleSide(ctx, ctx.s.bookTickerTrace.samples, true, bidPen);
+    drawSampleSide(ctx, ctx.s.bookTickerTrace.samples, false, askPen);
     ctx.p->restore();
 }
 

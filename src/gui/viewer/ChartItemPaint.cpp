@@ -24,6 +24,7 @@
 #include "gui/viewer/ColorScheme.hpp"
 #include "gui/viewer/RenderContext.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
+#include "gui/viewer/detail/BookTickerTraceBuild.hpp"
 #include "gui/viewer/detail/TradeGrouping.hpp"
 #include "gui/viewer/renderers/BookRenderer.hpp"
 #include "gui/viewer/renderers/BookTickerRenderer.hpp"
@@ -476,21 +477,47 @@ void buildLiveBookTickerTrace(BookTickerTrace& trace,
                               const ViewportMap& vp,
                               const std::vector<const hftrec::replay::BookTickerRow*>& rows) {
     trace = BookTickerTrace{};
-    if (rows.empty() || vp.w <= 0.0) return;
-    trace.samples.reserve(rows.size());
+    if (rows.empty() || vp.w <= 0.0 || vp.h <= 0.0) return;
+    trace.samples.reserve(std::max<std::size_t>(static_cast<std::size_t>(vp.w / 4.0) + 2u, rows.size()));
+    trace.bidLines.reserve((rows.size() + 1u) * 2u);
+    trace.askLines.reserve(trace.bidLines.capacity());
 
+    detail::BookTickerTraceBuildState state{};
+    const hftrec::replay::BookTickerRow* carry = nullptr;
+    std::size_t firstIndex = rows.size();
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const auto& row = *rows[i];
         if (row.tsNs > vp.tMax) break;
-        if (row.tsNs < vp.tMin) continue;
-        trace.samples.push_back(BookTickerSample{
-            0,
-            row.tsNs,
-            row.bidPriceE8,
-            row.bidQtyE8,
-            row.askPriceE8,
-            row.askQtyE8,
-        });
+        if (row.tsNs < vp.tMin) {
+            if (row.bidPriceE8 > 0 || row.askPriceE8 > 0) carry = &row;
+            continue;
+        }
+        firstIndex = i;
+        break;
+    }
+
+    if (carry != nullptr) {
+        const std::int64_t endTs = firstIndex < rows.size()
+            ? std::min<std::int64_t>(rows[firstIndex]->tsNs, vp.tMax)
+            : vp.tMax;
+        detail::appendBookTickerTraceSegment(trace, state, vp, *carry, vp.tMin, endTs, true, false);
+    }
+
+    for (std::size_t i = firstIndex; i < rows.size(); ++i) {
+        const auto& row = *rows[i];
+        if (row.tsNs > vp.tMax) break;
+        const std::int64_t endTs = (i + 1u < rows.size())
+            ? std::min<std::int64_t>(rows[i + 1u]->tsNs, vp.tMax)
+            : vp.tMax;
+        const bool hasNextAtEnd = i + 1u < rows.size() && rows[i + 1u]->tsNs <= vp.tMax;
+        detail::appendBookTickerTraceSegment(trace,
+                                             state,
+                                             vp,
+                                             row,
+                                             std::max<std::int64_t>(row.tsNs, vp.tMin),
+                                             endTs,
+                                             true,
+                                             !hasNextAtEnd);
     }
 }
 

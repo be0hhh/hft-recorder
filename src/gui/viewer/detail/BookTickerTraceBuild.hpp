@@ -45,8 +45,12 @@ inline void appendBookTickerTraceLine(std::vector<BookTickerLine>& lines,
                                       qreal x0,
                                       qreal x1,
                                       qreal y) {
+    if (state.active && x0 < state.x) x0 = state.x;
     if (x1 <= x0) x1 = x0 + 1.0;
-    if (state.active && state.x == x0 && state.y != y) {
+    if (state.active && state.x < x0) {
+        lines.push_back(BookTickerLine{state.x, state.y, x0, state.y});
+    }
+    if (state.active && state.y != y) {
         lines.push_back(BookTickerLine{x0, state.y, x0, y});
     }
     lines.push_back(BookTickerLine{x0, y, x1, y});
