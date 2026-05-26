@@ -39,7 +39,7 @@ struct SessionManifest {
     bool orderbookEnabled{false};
     bool candlesEnabled{false};
     bool tradesRequiredWhenEnabled{true};
-    bool liquidationsRequiredWhenEnabled{true};
+    bool liquidationsRequiredWhenEnabled{false};
     bool bookTickerRequiredWhenEnabled{true};
     bool orderbookRequiredWhenEnabled{true};
     bool candlesRequiredWhenEnabled{false};

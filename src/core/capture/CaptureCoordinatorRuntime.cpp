@@ -968,6 +968,7 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
         manifest_.liquidationsEnabled = true;
+        manifest_.liquidationsRequiredWhenEnabled = false;
         if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.liquidationsPath)
             == manifest_.canonicalArtifacts.end()) {
             manifest_.canonicalArtifacts.push_back(manifest_.liquidationsPath);

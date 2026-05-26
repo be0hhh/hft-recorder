@@ -487,7 +487,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     }
 
     const bool requireTrades = report.manifestPresent ? (out.manifest.tradesEnabled && out.manifest.tradesRequiredWhenEnabled) : false;
-    const bool requireLiquidations = report.manifestPresent ? (out.manifest.liquidationsEnabled && out.manifest.liquidationsRequiredWhenEnabled) : false;
+    const bool requireLiquidations = false;
     const bool requireBookTicker = report.manifestPresent ? (out.manifest.bookTickerEnabled && out.manifest.bookTickerRequiredWhenEnabled) : false;
     const bool requireCandles = report.manifestPresent ? (out.manifest.candlesEnabled && out.manifest.candlesRequiredWhenEnabled) : false;
     const bool requireDepth = report.manifestPresent ? (out.manifest.orderbookEnabled && out.manifest.orderbookRequiredWhenEnabled) : false;
