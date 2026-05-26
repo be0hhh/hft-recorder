@@ -211,6 +211,14 @@ Pane {
                         onEdited: function(value) { root.backtestVm.takerFeeBps = value }
                     }
                     CompactField {
+                        id: extraSessionsField
+                        caption: "Extra sessions"
+                        Layout.fillWidth: true
+                        fieldWidth: 220
+                        text: root.backtestVm.extraSessionIds
+                        onEdited: function(value) { root.backtestVm.extraSessionIds = value }
+                    }
+                    CompactField {
                         caption: "Sweep budget"
                         fieldWidth: 106
                         text: root.backtestVm.sweepBudget
@@ -222,7 +230,6 @@ Pane {
                         text: root.backtestVm.sweepSeed
                         onEdited: function(value) { root.backtestVm.sweepSeed = value }
                     }
-                    Item { Layout.fillWidth: true }
                     ActionButton { text: "Refresh"; onClicked: { root.backtestVm.reloadSessions(); root.backtestVm.refreshResults() } }
                     ActionButton { text: root.backtestVm.running ? "Running" : "Start"; enabledValue: root.backtestVm.canRun; accent: root.goodColor; onClicked: root.backtestVm.startBacktest() }
                     ActionButton { text: "Start sweep"; enabledValue: root.backtestVm.canRun; accent: root.accentColor; onClicked: root.backtestVm.startSweep() }

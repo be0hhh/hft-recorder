@@ -110,6 +110,7 @@ class SessionReplay {
         bool liquidationsEnabled{true};
         bool bookTickerEnabled{true};
         bool orderbookEnabled{true};
+        std::int64_t endedAtNs{0};
     };
 
     void rewindToSnapshot_();
@@ -121,6 +122,7 @@ class SessionReplay {
     void rebuildBuckets_() noexcept;
     void resetIntegrity_() noexcept;
     void finalizeChannelStates_() noexcept;
+    void markStaleLiveChannels_() noexcept;
     void refreshHealthSummary_() noexcept;
     void noteIncident_(const IntegrityIncident& incident) noexcept;
     ChannelIntegritySummary& summaryFor_(IntegrityChannel channel) noexcept;

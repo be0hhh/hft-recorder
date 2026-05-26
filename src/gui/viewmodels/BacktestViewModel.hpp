@@ -21,6 +21,9 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedSessionId READ selectedSessionId WRITE setSelectedSessionId NOTIFY selectedSessionChanged)
     Q_PROPERTY(QString selectedSessionPath READ selectedSessionPath NOTIFY selectedSessionChanged)
     Q_PROPERTY(QString sessionPath READ sessionPath WRITE setSessionPath NOTIFY selectedSessionChanged)
+    Q_PROPERTY(QString extraSessionIds READ extraSessionIds WRITE setExtraSessionIds NOTIFY multiSessionChanged)
+    Q_PROPERTY(QVariantList selectedSessionLegs READ selectedSessionLegs NOTIFY multiSessionChanged)
+    Q_PROPERTY(int selectedSessionCount READ selectedSessionCount NOTIFY multiSessionChanged)
     Q_PROPERTY(QString selectedSymbol READ selectedSymbol WRITE setSelectedSymbol NOTIFY symbolChanged)
     Q_PROPERTY(QString backtestsDirectory READ backtestsDirectory NOTIFY selectedSessionChanged)
     Q_PROPERTY(QVariantList strategyChoices READ strategyChoices CONSTANT)
@@ -80,6 +83,9 @@ class BacktestViewModel : public QObject {
     QString selectedSessionId() const { return selectedSessionId_; }
     QString selectedSessionPath() const;
     QString sessionPath() const { return selectedSessionPath(); }
+    QString extraSessionIds() const { return extraSessionIds_; }
+    QVariantList selectedSessionLegs() const;
+    int selectedSessionCount() const;
     QString selectedSymbol() const;
     QString backtestsDirectory() const;
     QVariantList strategyChoices() const;
@@ -133,6 +139,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void reloadSessions();
     Q_INVOKABLE void setSelectedSessionId(const QString& sessionId);
     Q_INVOKABLE void setSessionPath(const QString& sessionPath);
+    Q_INVOKABLE void setExtraSessionIds(const QString& sessionIds);
     Q_INVOKABLE void setSelectedSymbol(const QString& symbol);
     Q_INVOKABLE void setSelectedStrategy(const QString& strategy);
     Q_INVOKABLE void setConfigMode(const QString& mode);
@@ -179,6 +186,7 @@ class BacktestViewModel : public QObject {
   signals:
     void sessionsChanged();
     void selectedSessionChanged();
+    void multiSessionChanged();
     void symbolChanged();
     void selectedStrategyChanged();
     void configChanged();
@@ -241,6 +249,8 @@ class BacktestViewModel : public QObject {
     void savePersistentConfig_();
     QString profilePath_() const;
     QString writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides = {}, bool fixedOnly = false);
+    QStringList selectedSessionPaths_() const;
+    bool strategySupportsSelectedSessionCount_() const;
     qint64 decimalE8Value_(const QString& value, qint64 fallback) const noexcept;
     quint64 latencyValue_(const QString& value, quint64 fallback) const noexcept;
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
@@ -249,6 +259,7 @@ class BacktestViewModel : public QObject {
     QSettings settings_{};
     QString selectedSessionId_{};
     QString manualSessionPath_{};
+    QString extraSessionIds_{};
     QString symbolOverride_{};
     QString selectedRunId_{};
     QString selectedStrategy_{QStringLiteral("spread_maker1and2")};

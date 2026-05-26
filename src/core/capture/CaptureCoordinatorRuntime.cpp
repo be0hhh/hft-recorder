@@ -1083,6 +1083,7 @@ const char* directRouteConnectStatusName(DirectRouteConnectStatus status) noexce
 
 DirectRouteConnectStatus connectMarketDataRouteNoTradingSync(cxet::api::market::PublicMarketDataRoute& route) noexcept {
     if (!route.prepared || !route.route.config) return DirectRouteConnectStatus::BadConfig;
+    if (!cxet::api::market::rebuildPublicMarketDataRoute(route)) return DirectRouteConnectStatus::BadConfig;
     const auto status = cxet::api::connectWsEndpointByRoutePlanDetailed(
         route.client,
         route.route,

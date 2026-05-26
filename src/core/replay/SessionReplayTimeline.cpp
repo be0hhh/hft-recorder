@@ -48,6 +48,7 @@ void SessionReplay::refreshLiveTimeline() noexcept {
     rebuildBuckets_();
     const bool depthValid = validateDepthStream_();
     const bool sequenceMetadataValid = validateSequenceMetadata_();
+    markStaleLiveChannels_();
     refreshHealthSummary_();
     if (!depthValid || !sequenceMetadataValid || integritySummary_.sessionHealth == SessionHealth::Corrupt) {
         status_ = Status::CorruptData;
@@ -65,6 +66,7 @@ void SessionReplay::finalize() noexcept {
     rebuildBuckets_();
     const bool depthValid = validateDepthStream_();
     const bool sequenceMetadataValid = validateSequenceMetadata_();
+    markStaleLiveChannels_();
     refreshHealthSummary_();
     if (!depthValid || !sequenceMetadataValid || integritySummary_.sessionHealth == SessionHealth::Corrupt) {
         status_ = Status::CorruptData;

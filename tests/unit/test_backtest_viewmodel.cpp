@@ -399,6 +399,35 @@ TEST(BacktestViewModel, IgnoresPersistedDeletedStrategy) {
     EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("spread_maker1and2"));
 }
 
+TEST(BacktestViewModel, SessionRowsExposeBacktestCountAsRightText) {
+    isolateSettings(QStringLiteral("session_counter"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString sessionId = QStringLiteral("hftrec_session_counter_%1_%2")
+                                  .arg(QCoreApplication::applicationPid())
+                                  .arg(std::rand());
+    const QString session = QDir(vm.recordingsRoot()).absoluteFilePath(sessionId);
+    QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-a")));
+    QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-without-manifest")));
+    QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-a")));
+    writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-a/manifest.json")), QByteArrayLiteral("{}"));
+    writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-a/manifest.json")), QByteArrayLiteral("{}"));
+
+    QVariantMap sessionRow;
+    for (const QVariant& row : vm.sessions()) {
+        const QVariantMap map = row.toMap();
+        if (map.value(QStringLiteral("id")).toString() == sessionId) {
+            sessionRow = map;
+            break;
+        }
+    }
+    QDir(session).removeRecursively();
+
+    ASSERT_FALSE(sessionRow.isEmpty());
+    EXPECT_EQ(sessionRow.value(QStringLiteral("backtestCount")).toInt(), 2);
+    EXPECT_EQ(sessionRow.value(QStringLiteral("rightText")).toString(), QStringLiteral("2"));
+}
+
 TEST(BacktestViewModel, PersistsConfigButNotSession) {
     isolateSettings(QStringLiteral("persist"));
     const QString session = makeTempSessionDir();

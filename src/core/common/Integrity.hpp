@@ -36,6 +36,7 @@ enum class IntegrityIncidentKind : std::uint8_t {
     DepthNonMonotonic,
     SnapshotMissingForDepth,
     ExactnessUnprovable,
+    StreamStale,
     CaptureAborted,
     UnknownIntegrity,
 };
@@ -86,6 +87,7 @@ inline constexpr std::string_view toString(IntegrityIncidentKind kind) noexcept 
         case IntegrityIncidentKind::DepthNonMonotonic:       return "depth_non_monotonic";
         case IntegrityIncidentKind::SnapshotMissingForDepth: return "snapshot_missing_for_depth";
         case IntegrityIncidentKind::ExactnessUnprovable:     return "exactness_unprovable";
+        case IntegrityIncidentKind::StreamStale:             return "stream_stale";
         case IntegrityIncidentKind::CaptureAborted:          return "capture_aborted";
         case IntegrityIncidentKind::UnknownIntegrity:        return "unknown_integrity";
     }

@@ -468,6 +468,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         manifestHints_.liquidationsEnabled = corpus.manifest.liquidationsEnabled;
         manifestHints_.bookTickerEnabled = corpus.manifest.bookTickerEnabled;
         manifestHints_.orderbookEnabled = corpus.manifest.orderbookEnabled;
+        manifestHints_.endedAtNs = corpus.manifest.endedAtNs;
     } else {
         (void)loadManifestHints_(sessionDir);
     }
@@ -663,7 +664,36 @@ bool SessionReplay::loadManifestHints_(const std::filesystem::path& sessionDir) 
     manifestHints_.liquidationsEnabled = manifest.liquidationsEnabled;
     manifestHints_.bookTickerEnabled = manifest.bookTickerEnabled;
     manifestHints_.orderbookEnabled = manifest.orderbookEnabled;
+    manifestHints_.endedAtNs = manifest.endedAtNs;
     return true;
+}
+
+void SessionReplay::markStaleLiveChannels_() noexcept {
+    constexpr std::int64_t kLiveStreamStaleGraceNs = 30000000000LL;
+    if (manifestHints_.endedAtNs <= 0) return;
+    const auto mark = [&](IntegrityChannel channel, std::int64_t lastTsNs) noexcept {
+        if (lastTsNs <= 0 || manifestHints_.endedAtNs <= lastTsNs) return;
+        const std::int64_t gapNs = manifestHints_.endedAtNs - lastTsNs;
+        if (gapNs <= kLiveStreamStaleGraceNs) return;
+        noteIncident_(IntegrityIncident{
+            channel,
+            IntegrityIncidentKind::StreamStale,
+            IntegritySeverity::Warning,
+            "stream_stale",
+            "enabled live stream stopped before session end",
+            manifestHints_.endedAtNs,
+            0,
+            std::to_string(manifestHints_.endedAtNs),
+            std::to_string(lastTsNs),
+            true
+        });
+    };
+    if (manifestHints_.bookTickerEnabled && !bookTickers_.empty()) {
+        mark(IntegrityChannel::BookTicker, bookTickers_.back().tsNs);
+    }
+    if (manifestHints_.orderbookEnabled && !depths_.empty()) {
+        mark(IntegrityChannel::Depth, depths_.back().tsNs);
+    }
 }
 
 void SessionReplay::finalizeChannelStates_() noexcept {
@@ -760,6 +790,9 @@ void SessionReplay::finalizeChannelStates_() noexcept {
         depthSummary.exactReplayEligible = false;
         if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "ok";
         if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth rows loaded";
+    } else {
+        depthSummary.state = ChannelHealthState::Degraded;
+        depthSummary.exactReplayEligible = false;
     }
 }
 

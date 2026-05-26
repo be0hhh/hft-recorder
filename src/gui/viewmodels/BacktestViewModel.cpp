@@ -10,6 +10,8 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QMetaObject>
+#include <QRegularExpression>
+#include <QSet>
 #include <QTextStream>
 #include <QVariantMap>
 
@@ -434,6 +436,32 @@ QString venueSectionFor(const QString& exchange, const QString& market) {
     return QStringLiteral("binance_futures");
 }
 
+QString venueSectionForSession(const QString& sessionPath) {
+    return venueSectionFor(manifestValue(sessionPath, QStringLiteral("exchange")),
+                           manifestValue(sessionPath, QStringLiteral("market")));
+}
+
+QString symbolForSessionPath(const QString& sessionPath) {
+    const QString fromManifest = manifestValue(sessionPath, QStringLiteral("symbols")).trimmed().toUpper();
+    if (!fromManifest.isEmpty()) return fromManifest;
+    return symbolFromSessionId(QFileInfo(sessionPath).fileName()).toUpper();
+}
+
+QString sessionPathFromToken(const QString& recordingsRoot, const QString& token) {
+    const QString trimmed = token.trimmed();
+    if (trimmed.isEmpty()) return {};
+    const QFileInfo info(trimmed);
+    if (info.isAbsolute()) return QDir::cleanPath(info.absoluteFilePath());
+    return QDir(recordingsRoot).absoluteFilePath(trimmed);
+}
+
+QString normalizedFeeMarket(QString market) {
+    market = market.trimmed().toLower();
+    if (market == QStringLiteral("usdt") || market == QStringLiteral("linear")) return QStringLiteral("futures_usdt");
+    if (market == QStringLiteral("usdc")) return QStringLiteral("futures_usdc");
+    return market;
+}
+
 QString cleanProfileName(QString name) {
     name = name.trimmed();
     if (name.isEmpty()) name = QStringLiteral("default");
@@ -672,7 +700,8 @@ QString filteredBaseConfig(const QString& base) {
         probe = probe.trimmed();
         if (probe.startsWith(QLatin1Char('[')) && probe.endsWith(QLatin1Char(']'))) {
             section = probe.mid(1, probe.size() - 2).trimmed().toLower();
-            skipSection = section == QStringLiteral("strategy") || section.startsWith(QStringLiteral("venue."));
+            skipSection = section == QStringLiteral("strategy") || section.startsWith(QStringLiteral("venue.")) ||
+                          section.startsWith(QStringLiteral("portfolio."));
             if (skipSection) continue;
             stream << line << "\n";
             continue;
@@ -733,7 +762,8 @@ QVariantList BacktestViewModel::sessions() const {
         row.insert(QStringLiteral("hasManifest"), QFileInfo::exists(QDir(path).absoluteFilePath(QStringLiteral("manifest.json"))));
         row.insert(QStringLiteral("hasBacktests"), backtestsDir.exists());
         row.insert(QStringLiteral("backtestCount"), backtestCount);
-        row.insert(QStringLiteral("rightText"), backtestCount > 0 ? QString::number(backtestCount) : QString{});
+        QString rightText = QString::number(backtestCount);
+        row.insert(QStringLiteral("rightText"), rightText);
         out.push_back(row);
     }
     return out;
@@ -743,6 +773,44 @@ QString BacktestViewModel::selectedSessionPath() const {
     if (!manualSessionPath_.trimmed().isEmpty()) return manualSessionPath_;
     if (selectedSessionId_.trimmed().isEmpty()) return {};
     return QDir(recordingsRoot()).absoluteFilePath(selectedSessionId_);
+}
+
+QStringList BacktestViewModel::selectedSessionPaths_() const {
+    QStringList out;
+    const QString primary = selectedSessionPath();
+    if (!primary.trimmed().isEmpty()) out.push_back(primary);
+    const QStringList tokens = extraSessionIds_.split(QRegularExpression(QStringLiteral("[,;\\n]+")), Qt::SkipEmptyParts);
+    const QString root = recordingsRoot();
+    for (const QString& token : tokens) {
+        const QString path = sessionPathFromToken(root, token);
+        if (path.isEmpty() || out.contains(path)) continue;
+        out.push_back(path);
+        if (out.size() >= 8) break;
+    }
+    return out;
+}
+
+QVariantList BacktestViewModel::selectedSessionLegs() const {
+    QVariantList out;
+    const QStringList paths = selectedSessionPaths_();
+    for (int i = 0; i < paths.size(); ++i) {
+        QVariantMap row;
+        const QString path = paths.at(i);
+        row.insert(QStringLiteral("index"), i);
+        row.insert(QStringLiteral("path"), path);
+        row.insert(QStringLiteral("id"), sessionIdFromPath_(path));
+        row.insert(QStringLiteral("symbol"), symbolForSessionPath(path));
+        row.insert(QStringLiteral("venue"), venueSectionForSession(path));
+        row.insert(QStringLiteral("label"), QStringLiteral("%1: %2 %3")
+            .arg(i + 1)
+            .arg(venueSectionForSession(path), symbolForSessionPath(path)));
+        out.push_back(row);
+    }
+    return out;
+}
+
+int BacktestViewModel::selectedSessionCount() const {
+    return selectedSessionPaths_().size();
 }
 
 QString BacktestViewModel::selectedSymbol() const {
@@ -772,6 +840,14 @@ QVariantMap indicatorChoice(const hft_backtest::StrategyIndicatorMetadata& indic
     row.insert(QStringLiteral("label"), label.isEmpty() ? id : label);
     return row;
 }
+
+QString strategySessionRangeText(const hft_backtest::StrategyMetadata& metadata) {
+    const int minCount = metadata.minSessionCount == 0u ? 1 : static_cast<int>(metadata.minSessionCount);
+    const int maxCount = metadata.maxSessionCount == 0u ? 1 : static_cast<int>(metadata.maxSessionCount);
+    if (minCount == maxCount) return QStringLiteral("%1 session%2").arg(maxCount).arg(maxCount == 1 ? QString{} : QStringLiteral("s"));
+    return QStringLiteral("%1-%2 sessions").arg(minCount).arg(maxCount);
+}
+
 bool indicatorProfileAllowedForStrategy(const QString& strategy, const QString& profile) {
     if (profile.trimmed().isEmpty()) return true;
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
@@ -793,6 +869,11 @@ QVariantList BacktestViewModel::strategyChoices() const {
         const QString id = qString(metadata->id);
         row.insert(QStringLiteral("id"), id);
         row.insert(QStringLiteral("label"), id);
+        const int minCount = metadata->minSessionCount == 0u ? 1 : static_cast<int>(metadata->minSessionCount);
+        const int maxCount = metadata->maxSessionCount == 0u ? 1 : static_cast<int>(metadata->maxSessionCount);
+        row.insert(QStringLiteral("minSessions"), minCount);
+        row.insert(QStringLiteral("maxSessions"), maxCount);
+        row.insert(QStringLiteral("rightText"), strategySessionRangeText(*metadata));
         out.push_back(row);
     }
     return out;
@@ -964,11 +1045,12 @@ qint64 BacktestViewModel::selectedPnlMaxE8() const {
 }
 
 bool BacktestViewModel::canRun() const {
-    return !running_ && !selectedSessionPath().trimmed().isEmpty() && !selectedStrategy_.trimmed().isEmpty();
+    return !running_ && !selectedSessionPath().trimmed().isEmpty() && !selectedStrategy_.trimmed().isEmpty() && strategySupportsSelectedSessionCount_();
 }
 
 void BacktestViewModel::reloadSessions() {
     emit sessionsChanged();
+    emit multiSessionChanged();
     emit canRunChanged();
 }
 
@@ -980,6 +1062,7 @@ void BacktestViewModel::setSelectedSessionId(const QString& sessionId) {
     symbolOverride_.clear();
     selectedRunId_.clear();
     emit selectedSessionChanged();
+    emit multiSessionChanged();
     emit symbolChanged();
     emit canRunChanged();
     refresh();
@@ -993,9 +1076,23 @@ void BacktestViewModel::setSessionPath(const QString& sessionPath) {
     symbolOverride_.clear();
     selectedRunId_.clear();
     emit selectedSessionChanged();
+    emit multiSessionChanged();
     emit symbolChanged();
     emit canRunChanged();
     refresh();
+}
+
+void BacktestViewModel::setExtraSessionIds(const QString& sessionIds) {
+    const QString next = sessionIds.trimmed();
+    if (extraSessionIds_ == next) return;
+    extraSessionIds_ = next;
+    savePersistentConfig_();
+    emit multiSessionChanged();
+    emit canRunChanged();
+    if (!strategySupportsSelectedSessionCount_()) {
+        const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+        if (metadata != nullptr) setStatusText_(QStringLiteral("Selected strategy supports %1").arg(strategySessionRangeText(*metadata)));
+    }
 }
 
 void BacktestViewModel::setSelectedSymbol(const QString& symbol) {
@@ -1032,6 +1129,7 @@ void BacktestViewModel::setSelectedIndicatorProfile(const QString& profile) {
     selectedIndicatorProfile_ = next;
     savePersistentConfig_();
     emit indicatorProfileChanged();
+    emit canRunChanged();
 }
 
 void BacktestViewModel::setConfigMode(const QString& mode) {
@@ -1418,6 +1516,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     setStatusText_(QStringLiteral("Backtest running"));
 
     const QString sessionPath = selectedSessionPath();
+    const QStringList sessionPaths = selectedSessionPaths_();
     const QString strategy = selectedStrategy_;
     QString runId = runId_();
     if (!suffix.trimmed().isEmpty()) runId += QStringLiteral("-") + cleanRunSlugPart(suffix);
@@ -1442,9 +1541,19 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
     const QString indicatorProfile = selectedIndicatorProfile_;
-    worker_ = std::thread([this, sessionPath, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee] {
+    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee] {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPath.toStdString();
+        if (sessionPaths.size() > 1) {
+            request.sessions.reserve(static_cast<std::size_t>(sessionPaths.size()));
+            for (const QString& path : sessionPaths) {
+                hft_backtest::BacktestSessionRequest leg{};
+                leg.path = path.toStdString();
+                leg.venue = venueSectionForSession(path).toStdString();
+                leg.symbol = symbolForSessionPath(path).toStdString();
+                request.sessions.push_back(std::move(leg));
+            }
+        }
         request.configPath = configPath.toStdString();
         request.strategy = strategy.toStdString();
         request.indicatorProfile = indicatorProfile.toStdString();
@@ -1463,6 +1572,22 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.initialBalanceE8 = initialBalance;
         request.makerFeeBpsE8 = makerFee;
         request.takerFeeBpsE8 = takerFee;
+        if (sessionPaths.size() > 1) {
+            QSet<QString> emittedFees;
+            for (const QString& path : sessionPaths) {
+                const QString exchange = manifestValue(path, QStringLiteral("exchange")).trimmed().toLower();
+                const QString market = normalizedFeeMarket(manifestValue(path, QStringLiteral("market")));
+                const QString key = exchange + QLatin1Char('|') + market;
+                if (exchange.isEmpty() || market.isEmpty() || emittedFees.contains(key)) continue;
+                emittedFees.insert(key);
+                hft_backtest::BacktestFeeSchedule fee{};
+                fee.exchange = exchange.toStdString();
+                fee.market = market.toStdString();
+                fee.makerFeeBpsE8 = makerFee;
+                fee.takerFeeBpsE8 = takerFee;
+                request.feeSchedules.push_back(std::move(fee));
+            }
+        }
         request.outputPath = (QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();
 
         const auto result = hft_backtest::runBacktest(request, progressCallback, this);
@@ -1517,6 +1642,7 @@ void BacktestViewModel::startSweep() {
     setStatusText_(QStringLiteral("Sweep running"));
 
     const QString sessionPath = selectedSessionPath();
+    const QStringList sessionPaths = selectedSessionPaths_();
     const QString strategy = selectedStrategy_;
     const QString runId = QStringLiteral("sweep-") + runId_();
     const QString configPath = writeRunConfig_(QStringLiteral("sweeps/%1").arg(runId), {}, true);
@@ -1540,9 +1666,19 @@ void BacktestViewModel::startSweep() {
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
     const QString indicatorProfile = selectedIndicatorProfile_;
 
-    worker_ = std::thread([this, sessionPath, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, initialBalance, makerFee, takerFee, ranges = std::move(ranges)] {
+    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, initialBalance, makerFee, takerFee, ranges = std::move(ranges)] {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPath.toStdString();
+        if (sessionPaths.size() > 1) {
+            request.baseRun.sessions.reserve(static_cast<std::size_t>(sessionPaths.size()));
+            for (const QString& path : sessionPaths) {
+                hft_backtest::BacktestSessionRequest leg{};
+                leg.path = path.toStdString();
+                leg.venue = venueSectionForSession(path).toStdString();
+                leg.symbol = symbolForSessionPath(path).toStdString();
+                request.baseRun.sessions.push_back(std::move(leg));
+            }
+        }
         request.baseRun.configPath = configPath.toStdString();
         request.baseRun.strategy = strategy.toStdString();
         request.baseRun.indicatorProfile = indicatorProfile.toStdString();
@@ -1559,6 +1695,22 @@ void BacktestViewModel::startSweep() {
         request.baseRun.initialBalanceE8 = initialBalance;
         request.baseRun.makerFeeBpsE8 = makerFee;
         request.baseRun.takerFeeBpsE8 = takerFee;
+        if (sessionPaths.size() > 1) {
+            QSet<QString> emittedFees;
+            for (const QString& path : sessionPaths) {
+                const QString exchange = manifestValue(path, QStringLiteral("exchange")).trimmed().toLower();
+                const QString market = normalizedFeeMarket(manifestValue(path, QStringLiteral("market")));
+                const QString key = exchange + QLatin1Char('|') + market;
+                if (exchange.isEmpty() || market.isEmpty() || emittedFees.contains(key)) continue;
+                emittedFees.insert(key);
+                hft_backtest::BacktestFeeSchedule fee{};
+                fee.exchange = exchange.toStdString();
+                fee.market = market.toStdString();
+                fee.makerFeeBpsE8 = makerFee;
+                fee.takerFeeBpsE8 = takerFee;
+                request.baseRun.feeSchedules.push_back(std::move(fee));
+            }
+        }
         request.baseRun.writeArtifacts = false;
         request.sweepId = runId.toStdString();
         request.runBudget = runBudget;
@@ -1853,6 +2005,7 @@ void BacktestViewModel::loadPersistentConfig_() {
         const QString fallback = isDiscoveredStrategy(defaultStrategy) ? defaultStrategy : firstDiscoveredStrategy();
         if (!fallback.isEmpty()) selectedStrategy_ = fallback;
     }
+    extraSessionIds_ = settings_.value(QStringLiteral("backtests/extra_session_ids"), extraSessionIds_).toString().trimmed();
     configMode_ = normalizeConfigMode(settings_.value(QStringLiteral("backtests/config_mode/%1").arg(selectedStrategy_), configMode_).toString());
     configMode_ = QStringLiteral("fixed");
     selectedIndicatorProfile_ = settings_.value(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), defaultIndicatorProfileForStrategy(selectedStrategy_)).toString().trimmed();
@@ -1916,6 +2069,7 @@ void BacktestViewModel::loadSavedParameterValues_() {
 
 void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/selected_strategy"), selectedStrategy_);
+    settings_.setValue(QStringLiteral("backtests/extra_session_ids"), extraSessionIds_);
     settings_.setValue(QStringLiteral("backtests/config_mode/%1").arg(selectedStrategy_), configMode_);
     settings_.setValue(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), selectedIndicatorProfile_);
     settings_.setValue(QStringLiteral("backtests/ping_latency_us"), pingLatencyUs_);
@@ -1948,17 +2102,41 @@ QString BacktestViewModel::profilePath_() const {
     return QDir(recordingsRoot()).absoluteFilePath(QStringLiteral("backtest_profiles/%1/%2.ini").arg(selectedStrategy_, cleanProfileName(profileName_)));
 }
 
+bool BacktestViewModel::strategySupportsSelectedSessionCount_() const {
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+    if (metadata == nullptr) return false;
+    const int count = selectedSessionCount();
+    if (count <= 0) return false;
+    const int minCount = metadata->minSessionCount == 0u ? 1 : static_cast<int>(metadata->minSessionCount);
+    const int maxCount = metadata->maxSessionCount == 0u ? 1 : static_cast<int>(metadata->maxSessionCount);
+    return count >= minCount && count <= maxCount;
+}
+
 QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides, bool fixedOnly) {
     const QString templatePath = configTemplatePathForStrategy(selectedStrategy_);
     const QString base = templatePath.isEmpty() ? QString{} : readTextFile(templatePath);
     if (!templatePath.isEmpty() && base.isEmpty()) return {};
     const QString session = selectedSessionPath();
-    const QString exchange = manifestValue(session, QStringLiteral("exchange"));
-    const QString market = manifestValue(session, QStringLiteral("market"));
-    const QString symbol = selectedSymbol();
-    const QString venue = venueSectionFor(exchange, market);
-    QString apiSlot = iniValue(base, QStringLiteral("venue.%1").arg(venue), QStringLiteral("api_slot"));
-    if (apiSlot.isEmpty()) apiSlot = QStringLiteral("1");
+    const QStringList sessionPaths = selectedSessionPaths_();
+    if (sessionPaths.empty()) return {};
+    QStringList legRefs;
+    QStringList venueOrder;
+    QHash<QString, QStringList> venueSymbols;
+    QHash<QString, QString> venueApiSlots;
+    for (int i = 0; i < sessionPaths.size(); ++i) {
+        const QString path = sessionPaths.at(i);
+        const QString venue = venueSectionForSession(path);
+        const QString symbol = i == 0 ? selectedSymbol() : symbolForSessionPath(path);
+        if (venue.isEmpty() || symbol.isEmpty()) return {};
+        legRefs.push_back(QStringLiteral("%1:%2").arg(venue, symbol));
+        if (!venueSymbols.contains(venue)) venueOrder.push_back(venue);
+        QStringList symbols = venueSymbols.value(venue);
+        if (!symbols.contains(symbol)) symbols.push_back(symbol);
+        venueSymbols.insert(venue, symbols);
+        QString apiSlot = iniValue(base, QStringLiteral("venue.%1").arg(venue), QStringLiteral("api_slot"));
+        if (apiSlot.isEmpty()) apiSlot = QStringLiteral("1");
+        if (!venueApiSlots.contains(venue)) venueApiSlots.insert(venue, apiSlot);
+    }
     QDir outDir(QDir(session).absoluteFilePath(QStringLiteral("backtests")));
     outDir.mkpath(runId);
     const QString path = QDir(outDir.absoluteFilePath(runId)).absoluteFilePath(QStringLiteral("config.ini"));
@@ -1981,9 +2159,19 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         const QString value = overrides.value(key, paramValues_.value(key)).trimmed();
         if (!value.isEmpty()) out << key << "=" << value << "\n";
     }
-    out << "\n[venue." << venue << "]\n";
-    out << "api_slot=" << apiSlot << "\n";
-    if (!symbol.isEmpty()) out << "symbols=" << symbol << "\n";
+    for (const QString& venue : venueOrder) {
+        out << "\n[venue." << venue << "]\n";
+        out << "api_slot=" << venueApiSlots.value(venue, QStringLiteral("1")) << "\n";
+        out << "symbols=" << venueSymbols.value(venue).join(QLatin1Char(',')) << "\n";
+        out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\n";
+        out << "maker_fee_bps=" << makerFeeBps_ << "\n";
+        out << "taker_fee_bps=" << takerFeeBps_ << "\n";
+    }
+    if (legRefs.size() > 1) {
+        out << "\n[portfolio.recorder]\n";
+        out << "legs=" << legRefs.join(QLatin1Char(',')) << "\n";
+        out << "primary=" << legRefs.front() << "\n";
+    }
     return path;
 }
 
