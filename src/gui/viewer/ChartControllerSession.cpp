@@ -1,6 +1,9 @@
 #include "gui/viewer/ChartController.hpp"
 
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QStringList>
 #include <QVariantMap>
 #include <algorithm>
@@ -45,6 +48,21 @@ QString recordedSourceIdFromPath(const QString& dir) {
     return sessionName.isEmpty() ? QStringLiteral("recorded") : QStringLiteral("recorded:%1").arg(sessionName);
 }
 
+QString shortPnlText(const std::filesystem::path& manifestPath) {
+    QFile file(QString::fromStdString(manifestPath.string()));
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) return {};
+    const QJsonObject summary = doc.object().value(QStringLiteral("summary")).toObject();
+    const qint64 initial = summary.value(QStringLiteral("initial_balance_e8")).toInteger();
+    const qint64 pnl = summary.value(QStringLiteral("total_pnl_e8")).toInteger();
+    if (initial <= 0) return {};
+    const qint64 bps = (pnl * 10000) / initial;
+    const QString sign = bps > 0 ? QStringLiteral("+") : (bps < 0 ? QStringLiteral("-") : QString{});
+    const qint64 absBps = bps < 0 ? -bps : bps;
+    return QStringLiteral("%1%2.%3%").arg(sign, QString::number(absBps / 100), QString::number(absBps % 100).rightJustified(2, QLatin1Char('0')));
+}
+
 void appendBacktestResultRows(const QString& sessionPath, QStringView prefix, QVariantList& rows) {
     if (sessionPath.trimmed().isEmpty()) return;
     const std::filesystem::path dir = std::filesystem::path(stripFileUrl(sessionPath)) / "backtests";
@@ -61,6 +79,7 @@ void appendBacktestResultRows(const QString& sessionPath, QStringView prefix, QV
         row.insert(QStringLiteral("sessionPath"), sessionPath);
         row.insert(QStringLiteral("path"), QString::fromStdString(path.string()));
         row.insert(QStringLiteral("label"), prefix.toString() + QStringLiteral(" ") + QString::fromStdString(path.filename().string()));
+        row.insert(QStringLiteral("pnlText"), shortPnlText(path / "manifest.json"));
         rows.push_back(row);
     }
 }

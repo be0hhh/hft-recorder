@@ -249,9 +249,10 @@ Pane {
             var id = sourcesModel.sourceIdAt(i)
             if (id !== "") {
                 var label = sourcesModel.labelAt(i)
+                var backtests = sourcesModel.backtestCount(id)
                 if (sourcesModel.groupAt(i) === "live")
                     label += " | L1 " + sourcesModel.bookTickerCount(id)
-                rows.push({ id: id, label: label })
+                rows.push({ id: id, label: label, rightText: backtests > 0 ? String(backtests) : "" })
             }
         }
         root.compareSourceRows = rows
@@ -309,6 +310,28 @@ Pane {
         model: root.compareSourceRows
         textRole: "label"
         valueRole: "id"
+        property string searchText: ""
+        property var filteredRows: []
+        function rebuildFilter() {
+            var needle = combo.searchText.trim().toLowerCase()
+            var rows = []
+            for (var i = 0; i < root.compareSourceRows.length; ++i) {
+                var row = root.compareSourceRows[i]
+                var haystack = (row.label + " " + row.id).toLowerCase()
+                if (needle.length === 0 || haystack.indexOf(needle) !== -1)
+                    rows.push({ "index": i, "label": row.label, "id": row.id, "rightText": row.rightText || "" })
+            }
+            combo.filteredRows = rows
+        }
+        function selectFilteredRow(row) {
+            if (!row || row.index < 0)
+                return
+            combo.currentIndex = row.index
+            combo.popup.close()
+            combo.activated(row.index)
+        }
+        onSearchTextChanged: rebuildFilter()
+        onModelChanged: rebuildFilter()
         contentItem: Text {
             text: combo.currentIndex <= 0 ? "Select session" : combo.displayText
             color: combo.currentIndex <= 0 ? root.mutedTextColor : root.textColor
@@ -328,27 +351,108 @@ Pane {
                 width: combo.width
                 text: modelData.label
                 highlighted: combo.highlightedIndex === index
-                contentItem: Text {
-                    text: modelData.label
-                    color: index === 0 ? root.mutedTextColor : root.textColor
-                    elide: Text.ElideRight
-                    verticalAlignment: Text.AlignVCenter
+                contentItem: RowLayout {
+                    spacing: 8
+                    Text {
+                        Layout.fillWidth: true
+                        text: modelData.label
+                        color: modelData.index === 0 ? root.mutedTextColor : root.textColor
+                        elide: Text.ElideRight
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    Text {
+                        Layout.preferredWidth: visible ? 32 : 0
+                        text: modelData.rightText || ""
+                        visible: text.length > 0
+                        color: root.mutedTextColor
+                        font.pixelSize: 12
+                        font.bold: true
+                        horizontalAlignment: Text.AlignRight
+                        verticalAlignment: Text.AlignVCenter
+                    }
                 }
                 background: Rectangle {
                     color: highlighted ? root.panelAltColor : root.panelColor
                 }
+                onClicked: combo.selectFilteredRow(modelData)
             }
         }
         popup: Popup {
             y: combo.height + 2
             width: combo.width
-            implicitHeight: Math.min(contentItem.implicitHeight, 360)
+            implicitHeight: Math.min(contentItem.implicitHeight, 400)
             padding: 1
-            contentItem: ListView {
-                clip: true
-                implicitHeight: contentHeight
-                model: combo.popup.visible ? combo.delegateModel : null
-                currentIndex: combo.highlightedIndex
+            onOpened: {
+                combo.searchText = ""
+                combo.rebuildFilter()
+                sourceSearchField.forceActiveFocus()
+            }
+            contentItem: Column {
+                width: combo.popup.width
+                spacing: 4
+
+                Rectangle {
+                    width: parent.width - 8
+                    x: 4
+                    height: 30
+                    radius: 5
+                    color: root.panelDeepColor
+                    border.color: sourceSearchField.activeFocus ? root.accentBuyColor : root.borderColor
+                    border.width: 1
+
+                    Text { anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; text: "Search"; visible: sourceSearchField.text.length === 0; color: root.mutedTextColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                    TextInput {
+                        id: sourceSearchField
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        text: combo.searchText
+                        color: root.textColor
+                        selectionColor: root.accentBuyColor
+                        selectedTextColor: root.panelDeepColor
+                        font.pixelSize: 12
+                        selectByMouse: true
+                        clip: true
+                        verticalAlignment: TextInput.AlignVCenter
+                        onTextChanged: combo.searchText = text
+                        Keys.onPressed: function(event) {
+                            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && combo.filteredRows.length > 0) {
+                                combo.selectFilteredRow(combo.filteredRows[0])
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Escape) {
+                                if (combo.searchText.length > 0) {
+                                    combo.searchText = ""
+                                    sourceSearchField.text = ""
+                                } else {
+                                    combo.popup.close()
+                                }
+                                event.accepted = true
+                            }
+                        }
+                    }
+                }
+
+                ListView {
+                    id: sourceResultList
+                    width: parent.width
+                    height: Math.min(contentHeight, 330)
+                    clip: true
+                    model: combo.popup.visible ? combo.filteredRows : []
+                    currentIndex: 0
+                    delegate: combo.delegate
+                }
+
+                Text {
+                    id: sourceEmptyText
+                    width: parent.width
+                    height: 30
+                    visible: combo.filteredRows.length === 0
+                    text: "No matches"
+                    color: root.mutedTextColor
+                    font.pixelSize: 12
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
             background: Rectangle {
                 color: root.panelColor
@@ -565,6 +669,28 @@ Pane {
                     model: root.backtestRows
                     textRole: "label"
                     valueRole: "path"
+                    property string searchText: ""
+                    property var filteredRows: []
+                    function rebuildFilter() {
+                        var needle = backtestCombo.searchText.trim().toLowerCase()
+                        var rows = []
+                        for (var i = 0; i < root.backtestRows.length; ++i) {
+                            var row = root.backtestRows[i]
+                            var haystack = (row.label + " " + row.path).toLowerCase()
+                            if (needle.length === 0 || haystack.indexOf(needle) !== -1)
+                                rows.push({ "index": i, "label": row.label, "path": row.path, "pnlText": row.pnlText || "" })
+                        }
+                        backtestCombo.filteredRows = rows
+                    }
+                    function selectFilteredRow(row) {
+                        if (!row || row.index < 0)
+                            return
+                        backtestCombo.currentIndex = row.index
+                        backtestCombo.popup.close()
+                        backtestCombo.activated(row.index)
+                    }
+                    onSearchTextChanged: rebuildFilter()
+                    onModelChanged: rebuildFilter()
                     onActivated: function(index) { root.chooseBacktestRow(index) }
                     contentItem: Text {
                         text: backtestCombo.displayText === "" ? "Backtest" : backtestCombo.displayText
@@ -582,28 +708,110 @@ Pane {
                     }
                     delegate: Component {
                         ItemDelegate {
-                            width: backtestCombo.width
+                            width: backtestCombo.popup.width
                             text: modelData.label
                             highlighted: backtestCombo.highlightedIndex === index
-                            contentItem: Text {
-                                text: modelData.label
-                                color: index === 0 ? root.mutedTextColor : root.textColor
-                                elide: Text.ElideRight
-                                verticalAlignment: Text.AlignVCenter
+                            contentItem: RowLayout {
+                                spacing: 8
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    color: modelData.index === 0 ? root.mutedTextColor : root.textColor
+                                    elide: Text.ElideRight
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                Text {
+                                    Layout.preferredWidth: visible ? 64 : 0
+                                    text: modelData.pnlText || ""
+                                    visible: text.length > 0
+                                    color: text.charAt(0) === "-" ? "#ef6f6c" : root.accentBuyColor
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    horizontalAlignment: Text.AlignRight
+                                    verticalAlignment: Text.AlignVCenter
+                                }
                             }
                             background: Rectangle { color: highlighted ? root.panelAltColor : root.panelColor }
+                            onClicked: backtestCombo.selectFilteredRow(modelData)
                         }
                     }
                     popup: Popup {
                         y: backtestCombo.height + 2
-                        width: backtestCombo.width
-                        implicitHeight: Math.min(contentItem.implicitHeight, 320)
+                        x: Math.min(0, backtestCombo.width - width)
+                        width: Math.min(root.width - 32, Math.max(backtestCombo.width, 420))
+                        implicitHeight: Math.min(contentItem.implicitHeight, 360)
                         padding: 1
-                        contentItem: ListView {
-                            clip: true
-                            implicitHeight: contentHeight
-                            model: backtestCombo.popup.visible ? backtestCombo.delegateModel : null
-                            currentIndex: backtestCombo.highlightedIndex
+                        onOpened: {
+                            backtestCombo.searchText = ""
+                            backtestCombo.rebuildFilter()
+                            backtestSearchField.forceActiveFocus()
+                        }
+                        contentItem: Column {
+                            width: backtestCombo.popup.width
+                            spacing: 4
+
+                            Rectangle {
+                                width: parent.width - 8
+                                x: 4
+                                height: 30
+                                radius: 5
+                                color: root.panelDeepColor
+                                border.color: backtestSearchField.activeFocus ? root.accentBuyColor : root.borderColor
+                                border.width: 1
+
+                                Text { anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; text: "Search"; visible: backtestSearchField.text.length === 0; color: root.mutedTextColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                                TextInput {
+                                    id: backtestSearchField
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    text: backtestCombo.searchText
+                                    color: root.textColor
+                                    selectionColor: root.accentBuyColor
+                                    selectedTextColor: root.panelDeepColor
+                                    font.pixelSize: 12
+                                    selectByMouse: true
+                                    clip: true
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    onTextChanged: backtestCombo.searchText = text
+                                    Keys.onPressed: function(event) {
+                                        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && backtestCombo.filteredRows.length > 0) {
+                                            backtestCombo.selectFilteredRow(backtestCombo.filteredRows[0])
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_Escape) {
+                                            if (backtestCombo.searchText.length > 0) {
+                                                backtestCombo.searchText = ""
+                                                backtestSearchField.text = ""
+                                            } else {
+                                                backtestCombo.popup.close()
+                                            }
+                                            event.accepted = true
+                                        }
+                                    }
+                                }
+                            }
+
+                            ListView {
+                                id: backtestResultList
+                                width: parent.width
+                                height: Math.min(contentHeight, 290)
+                                clip: true
+                                model: backtestCombo.popup.visible ? backtestCombo.filteredRows : []
+                                currentIndex: 0
+                                delegate: backtestCombo.delegate
+                            }
+
+                            Text {
+                                id: backtestEmptyText
+                                width: parent.width
+                                height: 30
+                                visible: backtestCombo.filteredRows.length === 0
+                                text: "No matches"
+                                color: root.mutedTextColor
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                         background: Rectangle {
                             color: root.panelColor

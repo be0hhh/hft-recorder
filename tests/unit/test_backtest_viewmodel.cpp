@@ -98,6 +98,38 @@ TEST(BacktestViewModel, LoadsValidResultAndSummary) {
     EXPECT_TRUE(vm.selectedErrorText().isEmpty());
 }
 
+TEST(BacktestViewModel, DeletesSelectedRunDirectoryAndKeepsOtherRuns) {
+    isolateSettings(QStringLiteral("delete_selected"));
+    const QString session = makeTempSessionDir();
+    const QString runA = makeRunDir(session, QStringLiteral("run-a"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-a",
+      "status":"complete",
+      "strategy":"spread_maker1and2",
+      "summary":{},
+      "errors":[]
+    })json");
+    const QString runB = makeRunDir(session, QStringLiteral("run-b"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-b",
+      "status":"complete",
+      "strategy":"spread_maker1and2",
+      "summary":{},
+      "errors":[]
+    })json");
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSessionPath(session);
+    vm.selectRun(QStringLiteral("run-a"));
+
+    ASSERT_TRUE(vm.deleteSelectedRun());
+
+    EXPECT_FALSE(QDir(runA).exists());
+    EXPECT_TRUE(QDir(runB).exists());
+    ASSERT_EQ(vm.runCount(), 1);
+    EXPECT_EQ(vm.selectedRunId(), QStringLiteral("run-b"));
+}
+
 TEST(BacktestViewModel, FormatsSummaryE8FieldsForDisplayOnly) {
     isolateSettings(QStringLiteral("human_summary"));
     const QString session = makeTempSessionDir();

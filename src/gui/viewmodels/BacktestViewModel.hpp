@@ -118,6 +118,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void refreshResults() { refresh(); }
     Q_INVOKABLE void selectRun(const QString& runId);
+    Q_INVOKABLE bool deleteSelectedRun();
     Q_INVOKABLE void startBacktest();
     Q_INVOKABLE void cancelBacktest();
 
@@ -153,9 +154,11 @@ class BacktestViewModel : public QObject {
         QString rawJson{};
         QString summaryJson{};
         QString errorText{};
+        QString pnlText{};
         QVariantList equityPoints{};
         QVariantList resultMetrics{};
         qint64 initialBalanceE8{0};
+        qint64 totalPnlE8{0};
         qint64 pnlMinE8{0};
         qint64 pnlMaxE8{0};
         qint64 modifiedMs{0};

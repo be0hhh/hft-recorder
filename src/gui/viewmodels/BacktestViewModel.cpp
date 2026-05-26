@@ -184,6 +184,14 @@ QVariantList resultMetrics(const QJsonObject& summary) {
     return out;
 }
 
+QString pnlPercentText(qint64 pnlE8, qint64 initialBalanceE8) {
+    if (initialBalanceE8 <= 0) return {};
+    const qint64 bps = (pnlE8 * 10000) / initialBalanceE8;
+    const QString sign = bps > 0 ? QStringLiteral("+") : (bps < 0 ? QStringLiteral("-") : QString{});
+    const qint64 absBps = bps < 0 ? -bps : bps;
+    return QStringLiteral("%1%2.%3%").arg(sign, QString::number(absBps / 100), QString::number(absBps % 100).rightJustified(2, QLatin1Char('0')));
+}
+
 QVariantList equityPoints(const QJsonArray& points, const QJsonObject& summary, qint64& minPnl, qint64& maxPnl) {
     QVariantList out;
     bool hasPoint = false;
@@ -616,12 +624,22 @@ QVariantList BacktestViewModel::sessions() const {
     for (const auto& entry : entries) {
         if (entry == QStringLiteral("backtest_profiles")) continue;
         const QString path = recordingsDir.absoluteFilePath(entry);
+        const QDir backtestsDir(QDir(path).absoluteFilePath(QStringLiteral("backtests")));
+        int backtestCount = 0;
+        if (backtestsDir.exists()) {
+            const QFileInfoList runDirs = backtestsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+            for (const QFileInfo& runDir : runDirs) {
+                if (QFileInfo::exists(QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++backtestCount;
+            }
+        }
         QVariantMap row;
         row.insert(QStringLiteral("id"), entry);
         row.insert(QStringLiteral("label"), entry);
         row.insert(QStringLiteral("path"), path);
         row.insert(QStringLiteral("hasManifest"), QFileInfo::exists(QDir(path).absoluteFilePath(QStringLiteral("manifest.json"))));
-        row.insert(QStringLiteral("hasBacktests"), QDir(QDir(path).absoluteFilePath(QStringLiteral("backtests"))).exists());
+        row.insert(QStringLiteral("hasBacktests"), backtestsDir.exists());
+        row.insert(QStringLiteral("backtestCount"), backtestCount);
+        row.insert(QStringLiteral("rightText"), backtestCount > 0 ? QString::number(backtestCount) : QString{});
         out.push_back(row);
     }
     return out;
@@ -697,6 +715,10 @@ QVariantList BacktestViewModel::runs() const {
         row.insert(QStringLiteral("configText"), record.configText);
         row.insert(QStringLiteral("status"), record.status);
         row.insert(QStringLiteral("strategy"), record.strategy);
+        row.insert(QStringLiteral("pnlText"), record.pnlText);
+        row.insert(QStringLiteral("pnlPositive"), record.totalPnlE8 > 0);
+        row.insert(QStringLiteral("pnlNegative"), record.totalPnlE8 < 0);
+        row.insert(QStringLiteral("rightText"), record.pnlText);
         row.insert(QStringLiteral("filePath"), record.filePath);
         row.insert(QStringLiteral("fileName"), record.fileName);
         row.insert(QStringLiteral("modifiedText"), QDateTime::fromMSecsSinceEpoch(record.modifiedMs).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
@@ -974,6 +996,31 @@ void BacktestViewModel::selectRun(const QString& runId) {
     emit selectionChanged();
 }
 
+bool BacktestViewModel::deleteSelectedRun() {
+    const RunRecord* record = selectedRecord_();
+    if (record == nullptr || running_) return false;
+
+    const QDir backtestsDir(backtestsDirectory());
+    const QString backtestsPath = QDir::cleanPath(backtestsDir.absolutePath());
+    const QString runPath = QDir::cleanPath(QFileInfo(record->filePath).absoluteFilePath());
+    const QString backtestsPrefix = backtestsPath.endsWith(QLatin1Char('/')) ? backtestsPath : backtestsPath + QLatin1Char('/');
+    if (backtestsPath.isEmpty() || runPath == backtestsPath || !runPath.startsWith(backtestsPrefix)) {
+        setStatusText_(QStringLiteral("Refusing to delete backtest outside selected session"));
+        return false;
+    }
+
+    const QString deletedRunId = selectedRunId_;
+    if (!QDir(runPath).removeRecursively()) {
+        setStatusText_(QStringLiteral("Failed to delete backtest %1").arg(deletedRunId));
+        return false;
+    }
+
+    selectedRunId_.clear();
+    refresh();
+    setStatusText_(QStringLiteral("Deleted backtest %1").arg(deletedRunId));
+    return true;
+}
+
 void BacktestViewModel::startBacktest() {
     if (!canRun()) return;
     stopWorker_();
@@ -1081,6 +1128,8 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     if (record.configText.isEmpty()) record.configText = jsonValueString(object, QStringLiteral("config_summary"));
     const QJsonObject summary = object.value(QStringLiteral("summary")).toObject();
     record.initialBalanceE8 = summary.value(QStringLiteral("initial_balance_e8")).toInteger();
+    record.totalPnlE8 = summary.value(QStringLiteral("total_pnl_e8")).toInteger();
+    record.pnlText = pnlPercentText(record.totalPnlE8, record.initialBalanceE8);
     record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
     record.resultMetrics = resultMetrics(summary);
     const QJsonObject streams = object.value(QStringLiteral("streams")).toObject();

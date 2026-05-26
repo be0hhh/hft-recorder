@@ -70,6 +70,17 @@ RecordedIdentity readRecordedIdentity(const QString& sessionPath) {
     return out;
 }
 
+int countBacktestResults(const QString& sessionPath) {
+    const QDir backtestsDir(QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests")));
+    if (!backtestsDir.exists()) return 0;
+    int count = 0;
+    const QFileInfoList runDirs = backtestsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QFileInfo& runDir : runDirs) {
+        if (QFileInfo::exists(QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++count;
+    }
+    return count;
+}
+
 }  // namespace
 
 ViewerSourceListModel::ViewerSourceListModel(QObject* parent)
@@ -149,6 +160,13 @@ int ViewerSourceListModel::bookTickerCount(const QString& sourceId) const {
     return 0;
 }
 
+int ViewerSourceListModel::backtestCount(const QString& sourceId) const {
+    for (const auto& entry : entries_) {
+        if (entry.id == sourceId) return entry.backtestCount;
+    }
+    return 0;
+}
+
 QString ViewerSourceListModel::recordingsRoot() const {
     return resolveRecordingsRoot();
 }
@@ -186,6 +204,7 @@ QVariant ViewerSourceListModel::data(const QModelIndex& index, int role) const {
         case MarketRole: return entry.market;
         case LiveAvailableRole: return entry.liveAvailable;
         case BookTickerCountRole: return entry.bookTickerCount;
+        case BacktestCountRole: return entry.backtestCount;
         default: return {};
     }
 }
@@ -203,6 +222,7 @@ QHash<int, QByteArray> ViewerSourceListModel::roleNames() const {
         {MarketRole, "market"},
         {LiveAvailableRole, "liveAvailable"},
         {BookTickerCountRole, "bookTickerCount"},
+        {BacktestCountRole, "backtestCount"},
     };
 }
 
@@ -252,6 +272,7 @@ void ViewerSourceListModel::rebuildEntries_() {
             entry.groupTitle = QStringLiteral("Recorded");
             entry.sourceKind = QStringLiteral("recorded");
             entry.sessionPath = recordingsDir.absoluteFilePath(recordedId);
+            entry.backtestCount = countBacktestResults(entry.sessionPath);
             const auto identity = readRecordedIdentity(entry.sessionPath);
             entry.exchange = identity.exchange;
             entry.market = identity.market;

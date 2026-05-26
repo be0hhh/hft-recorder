@@ -273,6 +273,16 @@ Pane {
                                 Label { text: modelData.status + " / " + modelData.modifiedText; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
                                 Label { text: modelData.configText || modelData.runId; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
                             }
+                            Label {
+                                Layout.preferredWidth: 58
+                                text: modelData.pnlText || ""
+                                visible: text.length > 0
+                                color: modelData.pnlNegative ? root.badColor : root.accentColor
+                                font.pixelSize: 12
+                                font.bold: true
+                                horizontalAlignment: Text.AlignRight
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                         MouseArea { anchors.fill: parent; onClicked: root.backtestVm.selectRun(modelData.runId) }
                     }
@@ -292,6 +302,7 @@ Pane {
                     RowLayout {
                         Layout.fillWidth: true
                         Label { text: "Summary"; color: root.textColor; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
+                        ActionButton { text: "Delete"; visible: root.backtestVm.hasSelection; enabledValue: root.backtestVm.hasSelection && !root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.deleteSelectedRun() }
                         Label { text: root.backtestVm.selectedErrorText; visible: text !== ""; color: root.badColor; font.pixelSize: 11; elide: Text.ElideRight; Layout.maximumWidth: 420 }
                     }
                     TextArea {

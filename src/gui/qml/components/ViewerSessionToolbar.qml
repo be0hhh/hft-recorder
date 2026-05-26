@@ -44,6 +44,37 @@ Rectangle {
             model: bar.sourcesModel
             textRole: "label"
             valueRole: "id"
+            property string searchText: ""
+            property var filteredRows: []
+
+            function rebuildFilter() {
+                var needle = sourcePicker.searchText.trim().toLowerCase()
+                var rows = []
+                for (var i = 0; i < sourcePicker.count; ++i) {
+                    var label = bar.sourcesModel.labelAt(i)
+                    var id = bar.sourcesModel.sourceIdAt(i)
+                    var group = bar.sourcesModel.groupAt(i)
+                    var backtests = bar.sourcesModel.backtestCount(id)
+                    var haystack = (label + " " + id + " " + group).toLowerCase()
+                    if (needle.length === 0 || haystack.indexOf(needle) !== -1)
+                        rows.push({ "index": i, "label": label, "id": id, "group": group, "groupTitle": group, "rightText": backtests > 0 ? String(backtests) : "" })
+                }
+                sourcePicker.filteredRows = rows
+            }
+
+            function selectFilteredRow(row) {
+                if (!row || row.index < 0)
+                    return
+                sourcePicker.currentIndex = row.index
+                sourcePicker.popup.close()
+                sourcePicker.activated(row.index)
+            }
+
+            onSearchTextChanged: rebuildFilter()
+            onCountChanged: {
+                rebuildFilter()
+                bar.sourceCountChanged()
+            }
 
             background: Rectangle { radius: 7; color: bar.panelColor; border.color: bar.borderColor; border.width: 1 }
 
@@ -110,17 +141,31 @@ Rectangle {
                         }
                     }
 
-                    Text {
+                    RowLayout {
                         width: parent.width
-                        leftPadding: 12
-                        rightPadding: 12
-                        topPadding: 8
-                        bottomPadding: 8
-                        text: delegateControl.label
-                        color: bar.textColor
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-                        font.pixelSize: 13
+                        spacing: 8
+                        Text {
+                            Layout.fillWidth: true
+                            leftPadding: 12
+                            topPadding: 8
+                            bottomPadding: 8
+                            text: delegateControl.label
+                            color: bar.textColor
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                            font.pixelSize: 13
+                        }
+                        Text {
+                            Layout.preferredWidth: visible ? 32 : 0
+                            rightPadding: 12
+                            text: bar.sourcesModel.backtestCount(bar.sourcesModel.sourceIdAt(delegateControl.index)) > 0 ? String(bar.sourcesModel.backtestCount(bar.sourcesModel.sourceIdAt(delegateControl.index))) : ""
+                            visible: text.length > 0
+                            color: bar.mutedTextColor
+                            font.pixelSize: 13
+                            font.bold: true
+                            horizontalAlignment: Text.AlignRight
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
                 }
             }
@@ -129,12 +174,140 @@ Rectangle {
                 y: sourcePicker.height + 4
                 width: sourcePicker.width
                 padding: 4
+                onOpened: {
+                    sourcePicker.searchText = ""
+                    sourcePicker.rebuildFilter()
+                    sourceSearchField.forceActiveFocus()
+                }
                 background: Rectangle { radius: 7; color: bar.panelColor; border.color: bar.borderColor; border.width: 1 }
-                contentItem: ListView {
-                    clip: true
-                    implicitHeight: Math.min(contentHeight, 360)
-                    model: sourcePicker.popup.visible ? sourcePicker.delegateModel : null
-                    currentIndex: sourcePicker.highlightedIndex
+                contentItem: Column {
+                    width: sourcePicker.popup.width
+                    spacing: 4
+
+                    Component {
+                        id: filteredSourceDelegate
+                        ItemDelegate {
+                            required property var modelData
+                            width: sourcePicker.width
+                            highlighted: sourcePicker.highlightedIndex === modelData.index
+                            padding: 0
+                            background: Rectangle { color: highlighted ? bar.panelAltColor : bar.panelColor }
+                            onClicked: sourcePicker.selectFilteredRow(modelData)
+
+                            contentItem: Column {
+                                width: parent.width
+                                spacing: 0
+
+                                Rectangle {
+                                    width: parent.width
+                                    height: groupLabel.visible ? 22 : 0
+                                    color: bar.chromeColor
+                                    visible: modelData.index === 0 || modelData.group !== bar.sourcesModel.groupAt(modelData.index - 1)
+
+                                    Label {
+                                        id: groupLabel
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 12
+                                        text: modelData.groupTitle
+                                        color: bar.mutedTextColor
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        visible: parent.visible
+                                    }
+                                }
+
+                                RowLayout {
+                                    width: parent.width
+                                    spacing: 8
+                                    Text {
+                                        Layout.fillWidth: true
+                                        leftPadding: 12
+                                        topPadding: 8
+                                        bottomPadding: 8
+                                        text: modelData.label
+                                        color: bar.textColor
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                        font.pixelSize: 13
+                                    }
+                                    Text {
+                                        Layout.preferredWidth: visible ? 32 : 0
+                                        rightPadding: 12
+                                        text: modelData.rightText || ""
+                                        visible: text.length > 0
+                                        color: bar.mutedTextColor
+                                        font.pixelSize: 13
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignRight
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 30
+                        radius: 5
+                        color: bar.panelAltColor
+                        border.color: sourceSearchField.activeFocus ? bar.borderColor : bar.panelColor
+                        border.width: 1
+
+                        Text { anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; text: "Search"; visible: sourceSearchField.text.length === 0; color: bar.mutedTextColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                        TextInput {
+                            id: sourceSearchField
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            text: sourcePicker.searchText
+                            color: bar.textColor
+                            selectionColor: bar.borderColor
+                            selectedTextColor: bar.textColor
+                            font.pixelSize: 12
+                            selectByMouse: true
+                            clip: true
+                            verticalAlignment: TextInput.AlignVCenter
+                            onTextChanged: sourcePicker.searchText = text
+                            Keys.onPressed: function(event) {
+                                if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && sourcePicker.filteredRows.length > 0) {
+                                    sourcePicker.selectFilteredRow(sourcePicker.filteredRows[0])
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Escape) {
+                                    if (sourcePicker.searchText.length > 0) {
+                                        sourcePicker.searchText = ""
+                                        sourceSearchField.text = ""
+                                    } else {
+                                        sourcePicker.popup.close()
+                                    }
+                                    event.accepted = true
+                                }
+                            }
+                        }
+                    }
+
+                    ListView {
+                        id: sourceResultList
+                        width: parent.width
+                        height: Math.min(contentHeight, 360)
+                        clip: true
+                        model: sourcePicker.popup.visible ? sourcePicker.filteredRows : []
+                        currentIndex: 0
+                        delegate: filteredSourceDelegate
+                    }
+
+                    Text {
+                        id: sourceEmptyText
+                        width: parent.width
+                        height: 30
+                        visible: sourcePicker.filteredRows.length === 0
+                        text: "No matches"
+                        color: bar.mutedTextColor
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
                 }
             }
 
@@ -143,7 +316,6 @@ Rectangle {
                 bar.sourceActivated(currentValue)
             }
 
-            onCountChanged: bar.sourceCountChanged()
         }
 
         ViewerChromeButton {
@@ -156,4 +328,3 @@ Rectangle {
         }
     }
 }
-

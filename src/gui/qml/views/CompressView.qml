@@ -257,6 +257,8 @@ Pane {
         property string caption: ""
         property bool requireEncodedArtifact: false
         property bool respectAvailability: false
+        property string searchText: ""
+        property var filteredRows: []
         function rowAvailable(row) { return !combo.respectAvailability || row.available !== false }
         function rowSuffix(row) {
             if (!combo.rowAvailable(row)) return "  - " + (row.availabilityReason || row.availability || "unavailable")
@@ -264,6 +266,38 @@ Pane {
             if (combo.requireEncodedArtifact) return "  - no artifact"
             return ""
         }
+        function rebuildFilter() {
+            var needle = combo.searchText.trim().toLowerCase()
+            var rows = []
+            for (var i = 0; i < combo.count; ++i) {
+                var label = combo.textAt(i)
+                var value = combo.valueAt(i)
+                var sourceRow = combo.model[i]
+                var row = {
+                    "index": i,
+                    "label": sourceRow && sourceRow.label ? sourceRow.label : label,
+                    "id": sourceRow && sourceRow.id ? sourceRow.id : value,
+                    "available": sourceRow && sourceRow.available !== undefined ? sourceRow.available : true,
+                    "availability": sourceRow && sourceRow.availability ? sourceRow.availability : "",
+                    "availabilityReason": sourceRow && sourceRow.availabilityReason ? sourceRow.availabilityReason : ""
+                }
+                var suffix = combo.rowSuffix(row)
+                var haystack = (label + " " + value + " " + suffix).toLowerCase()
+                if (needle.length === 0 || haystack.indexOf(needle) !== -1)
+                    rows.push(row)
+            }
+            combo.filteredRows = rows
+        }
+        function selectFilteredRow(row) {
+            if (!row || row.index < 0 || !combo.rowAvailable(row) || (combo.requireEncodedArtifact && !root.compressionVm.hasEncodedArtifact(row.id)))
+                return
+            combo.currentIndex = row.index
+            combo.popup.close()
+            combo.activated(row.index)
+        }
+        onSearchTextChanged: rebuildFilter()
+        onCountChanged: rebuildFilter()
+        onModelChanged: rebuildFilter()
         Layout.fillWidth: true
         Layout.preferredHeight: 42
         spacing: 0
@@ -282,14 +316,80 @@ Pane {
             y: combo.height + 4
             x: Math.max(16 - combo.mapToItem(root, 0, 0).x, Math.min(0, root.width - combo.mapToItem(root, 0, 0).x - width - 16))
             width: Math.min(root.width - 32, Math.max(combo.width, 760))
-            implicitHeight: Math.min(contentItem.implicitHeight, 360)
+            implicitHeight: Math.min(contentItem.implicitHeight, 400)
             padding: 1
+            onOpened: {
+                combo.searchText = ""
+                combo.rebuildFilter()
+                searchField.forceActiveFocus()
+            }
             background: Rectangle { color: root.panelColor; border.color: root.borderColor; radius: 7 }
-            contentItem: ListView {
-                clip: true
-                implicitHeight: contentHeight
-                model: combo.popup.visible ? combo.delegateModel : null
-                currentIndex: combo.highlightedIndex
+            contentItem: Column {
+                width: combo.popup.width
+                spacing: 4
+
+                Rectangle {
+                    width: parent.width - 8
+                    x: 4
+                    height: 30
+                    radius: 5
+                    color: root.panelDeepColor
+                    border.color: searchField.activeFocus ? root.accentColor : root.borderColor
+                    border.width: 1
+
+                    Text { anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; text: "Search"; visible: searchField.text.length === 0; color: root.mutedTextColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                    TextInput {
+                        id: searchField
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        text: combo.searchText
+                        color: root.textColor
+                        selectionColor: root.accentColor
+                        selectedTextColor: root.panelDeepColor
+                        font.pixelSize: 12
+                        selectByMouse: true
+                        clip: true
+                        verticalAlignment: TextInput.AlignVCenter
+                        onTextChanged: combo.searchText = text
+                        Keys.onPressed: function(event) {
+                            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && combo.filteredRows.length > 0) {
+                                combo.selectFilteredRow(combo.filteredRows[0])
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Escape) {
+                                if (combo.searchText.length > 0) {
+                                    combo.searchText = ""
+                                    searchField.text = ""
+                                } else {
+                                    combo.popup.close()
+                                }
+                                event.accepted = true
+                            }
+                        }
+                    }
+                }
+
+                ListView {
+                    id: resultList
+                    width: parent.width
+                    height: Math.min(contentHeight, 330)
+                    clip: true
+                    model: combo.popup.visible ? combo.filteredRows : []
+                    currentIndex: 0
+                    delegate: combo.delegate
+                }
+
+                Text {
+                    id: emptyText
+                    width: parent.width
+                    height: 30
+                    visible: combo.filteredRows.length === 0
+                    text: "No matches"
+                    color: root.mutedTextColor
+                    font.pixelSize: 12
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
         }
         delegate: ItemDelegate {
@@ -299,6 +399,7 @@ Pane {
             enabled: combo.rowAvailable(modelData) && (!combo.requireEncodedArtifact || root.compressionVm.hasEncodedArtifact(modelData.id))
             contentItem: Text { leftPadding: 10; rightPadding: 10; text: modelData.label + combo.rowSuffix(modelData); color: parent.enabled ? root.textColor : root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
             background: Rectangle { color: highlighted ? Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.16) : root.panelColor }
+            onClicked: combo.selectFilteredRow(modelData)
         }
     }
 
