@@ -409,6 +409,13 @@ TEST(BacktestViewModel, PersistsConfigButNotSession) {
         vm.setSelectedStrategy(QStringLiteral("spread_maker1and2"));
         vm.setConfigMode(QStringLiteral("natr"));
         vm.setPingLatencyUs(QStringLiteral("2500"));
+        vm.setLatencySeed(QStringLiteral("42"));
+        vm.setMarketDataLatencyUs(QStringLiteral("250"));
+        vm.setMarketDataJitterUs(QStringLiteral("100"));
+        vm.setMarketOrderLatencyUs(QStringLiteral("2500"));
+        vm.setMarketOrderJitterUs(QStringLiteral("1000"));
+        vm.setLimitOrderLatencyUs(QStringLiteral("1800"));
+        vm.setLimitOrderJitterUs(QStringLiteral("700"));
         vm.setInitialBalanceUsdt(QStringLiteral("750.25"));
         vm.setMakerFeeBps(QStringLiteral("0.2"));
         vm.setTakerFeeBps(QStringLiteral("0.5"));
@@ -419,6 +426,13 @@ TEST(BacktestViewModel, PersistsConfigButNotSession) {
     EXPECT_EQ(restored.selectedStrategy(), QStringLiteral("spread_maker1and2"));
     EXPECT_EQ(restored.configMode(), QStringLiteral("fixed"));
     EXPECT_EQ(restored.pingLatencyUs(), QStringLiteral("2500"));
+    EXPECT_EQ(restored.latencySeed(), QStringLiteral("42"));
+    EXPECT_EQ(restored.marketDataLatencyUs(), QStringLiteral("250"));
+    EXPECT_EQ(restored.marketDataJitterUs(), QStringLiteral("100"));
+    EXPECT_EQ(restored.marketOrderLatencyUs(), QStringLiteral("2500"));
+    EXPECT_EQ(restored.marketOrderJitterUs(), QStringLiteral("1000"));
+    EXPECT_EQ(restored.limitOrderLatencyUs(), QStringLiteral("1800"));
+    EXPECT_EQ(restored.limitOrderJitterUs(), QStringLiteral("700"));
     EXPECT_EQ(restored.initialBalanceUsdt(), QStringLiteral("750.25"));
     EXPECT_EQ(restored.makerFeeBps(), QStringLiteral("0.2"));
     EXPECT_EQ(restored.takerFeeBps(), QStringLiteral("0.5"));

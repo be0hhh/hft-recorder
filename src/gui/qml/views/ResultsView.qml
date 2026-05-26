@@ -162,6 +162,9 @@ Pane {
                     valueRole: "runId"
                     model: root.backtestVm.runs
                     popupWidth: 420
+                    popupMaxWidth: root.width - 32
+                    popupAlignRight: true
+                    colorizeRightText: true
                     onActivated: root.backtestVm.selectRun(currentValue)
                     Component.onCompleted: root.syncSelections()
                 }

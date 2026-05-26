@@ -155,6 +155,10 @@ bool isEffectiveCommandStatus(std::uint8_t status) noexcept {
     return status == 2u || status == 3u || status == 4u;
 }
 
+bool isOpenCommandStatus(std::uint8_t status) noexcept {
+    return status == 2u;
+}
+
 const FillRow* findFill(const std::vector<FillRow>& fills, std::uint64_t orderId) noexcept {
     const FillRow* best = nullptr;
     for (const FillRow& fill : fills) {
@@ -204,7 +208,7 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
             if (endTs <= order.activeTsNs) {
                 if (fill != nullptr) {
                     endTs = order.activeTsNs;
-                } else {
+                } else if (isOpenCommandStatus(order.status)) {
                     endTs = fallbackRunEndNs;
                     openEnded = true;
                 }

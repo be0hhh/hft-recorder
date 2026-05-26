@@ -32,12 +32,23 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QVariantList strategyParameters READ strategyParameters NOTIFY strategyParametersChanged)
     Q_PROPERTY(QString profileName READ profileName WRITE setProfileName NOTIFY profileChanged)
     Q_PROPERTY(QString pingLatencyUs READ pingLatencyUs WRITE setPingLatencyUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString latencySeed READ latencySeed WRITE setLatencySeed NOTIFY latencyChanged)
+    Q_PROPERTY(QString marketDataLatencyUs READ marketDataLatencyUs WRITE setMarketDataLatencyUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString marketDataJitterUs READ marketDataJitterUs WRITE setMarketDataJitterUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString marketOrderLatencyUs READ marketOrderLatencyUs WRITE setMarketOrderLatencyUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString marketOrderJitterUs READ marketOrderJitterUs WRITE setMarketOrderJitterUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString limitOrderLatencyUs READ limitOrderLatencyUs WRITE setLimitOrderLatencyUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString limitOrderJitterUs READ limitOrderJitterUs WRITE setLimitOrderJitterUs NOTIFY latencyChanged)
     Q_PROPERTY(QString initialBalanceUsdt READ initialBalanceUsdt WRITE setInitialBalanceUsdt NOTIFY accountingChanged)
     Q_PROPERTY(QString makerFeeBps READ makerFeeBps WRITE setMakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString takerFeeBps READ takerFeeBps WRITE setTakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString orderLatencyUs READ orderLatencyUs WRITE setOrderLatencyUs NOTIFY latencyChanged)
     Q_PROPERTY(QString amendLatencyUs READ amendLatencyUs WRITE setAmendLatencyUs NOTIFY latencyChanged)
     Q_PROPERTY(QString cancelLatencyUs READ cancelLatencyUs WRITE setCancelLatencyUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString sweepBudget READ sweepBudget WRITE setSweepBudget NOTIFY sweepConfigChanged)
+    Q_PROPERTY(QString sweepSeed READ sweepSeed WRITE setSweepSeed NOTIFY sweepConfigChanged)
+    Q_PROPERTY(QVariantList sweepCurveLimitChoices READ sweepCurveLimitChoices CONSTANT)
+    Q_PROPERTY(QString selectedSweepCurveLimit READ selectedSweepCurveLimit WRITE setSelectedSweepCurveLimit NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList runs READ runs NOTIFY runsChanged)
     Q_PROPERTY(int runCount READ runCount NOTIFY runsChanged)
     Q_PROPERTY(QString selectedRunId READ selectedRunId NOTIFY selectionChanged)
@@ -46,6 +57,9 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedErrorText READ selectedErrorText NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedEquityPoints READ selectedEquityPoints NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedResultMetrics READ selectedResultMetrics NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedSweepRows READ selectedSweepRows NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedSweepCurves READ selectedSweepCurves NOTIFY selectionChanged)
+    Q_PROPERTY(bool selectedIsSweep READ selectedIsSweep NOTIFY selectionChanged)
     Q_PROPERTY(bool hasEquityPoints READ hasEquityPoints NOTIFY selectionChanged)
     Q_PROPERTY(qint64 selectedInitialBalanceE8 READ selectedInitialBalanceE8 NOTIFY selectionChanged)
     Q_PROPERTY(qint64 selectedPnlMinE8 READ selectedPnlMinE8 NOTIFY selectionChanged)
@@ -77,12 +91,23 @@ class BacktestViewModel : public QObject {
     QVariantList strategyParameters() const;
     QString profileName() const { return profileName_; }
     QString pingLatencyUs() const { return pingLatencyUs_; }
+    QString latencySeed() const { return latencySeed_; }
+    QString marketDataLatencyUs() const { return marketDataLatencyUs_; }
+    QString marketDataJitterUs() const { return marketDataJitterUs_; }
+    QString marketOrderLatencyUs() const { return marketOrderLatencyUs_; }
+    QString marketOrderJitterUs() const { return marketOrderJitterUs_; }
+    QString limitOrderLatencyUs() const { return limitOrderLatencyUs_; }
+    QString limitOrderJitterUs() const { return limitOrderJitterUs_; }
     QString initialBalanceUsdt() const { return initialBalanceUsdt_; }
     QString makerFeeBps() const { return makerFeeBps_; }
     QString takerFeeBps() const { return takerFeeBps_; }
-    QString orderLatencyUs() const { return pingLatencyUs_; }
-    QString amendLatencyUs() const { return pingLatencyUs_; }
-    QString cancelLatencyUs() const { return pingLatencyUs_; }
+    QString orderLatencyUs() const { return marketOrderLatencyUs_; }
+    QString amendLatencyUs() const { return limitOrderLatencyUs_; }
+    QString cancelLatencyUs() const { return limitOrderLatencyUs_; }
+    QString sweepBudget() const { return sweepBudget_; }
+    QString sweepSeed() const { return sweepSeed_; }
+    QVariantList sweepCurveLimitChoices() const;
+    QString selectedSweepCurveLimit() const { return selectedSweepCurveLimit_; }
     QVariantList runs() const;
     int runCount() const noexcept { return static_cast<int>(records_.size()); }
     QString selectedRunId() const { return selectedRunId_; }
@@ -91,6 +116,9 @@ class BacktestViewModel : public QObject {
     QString selectedErrorText() const;
     QVariantList selectedEquityPoints() const;
     QVariantList selectedResultMetrics() const;
+    QVariantList selectedSweepRows() const;
+    QVariantList selectedSweepCurves() const;
+    bool selectedIsSweep() const;
     bool hasEquityPoints() const;
     qint64 selectedInitialBalanceE8() const;
     qint64 selectedPnlMinE8() const;
@@ -113,12 +141,24 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setStrategyParameterGroup(int group, const QString& key);
     Q_INVOKABLE void setProfileName(const QString& profileName);
     Q_INVOKABLE void setPingLatencyUs(const QString& value);
+    Q_INVOKABLE void setLatencySeed(const QString& value);
+    Q_INVOKABLE void setMarketDataLatencyUs(const QString& value);
+    Q_INVOKABLE void setMarketDataJitterUs(const QString& value);
+    Q_INVOKABLE void setMarketOrderLatencyUs(const QString& value);
+    Q_INVOKABLE void setMarketOrderJitterUs(const QString& value);
+    Q_INVOKABLE void setLimitOrderLatencyUs(const QString& value);
+    Q_INVOKABLE void setLimitOrderJitterUs(const QString& value);
     Q_INVOKABLE void setInitialBalanceUsdt(const QString& value);
     Q_INVOKABLE void setMakerFeeBps(const QString& value);
     Q_INVOKABLE void setTakerFeeBps(const QString& value);
     Q_INVOKABLE void setOrderLatencyUs(const QString& value);
     Q_INVOKABLE void setAmendLatencyUs(const QString& value);
     Q_INVOKABLE void setCancelLatencyUs(const QString& value);
+    Q_INVOKABLE void setSweepBudget(const QString& value);
+    Q_INVOKABLE void setSweepSeed(const QString& value);
+    Q_INVOKABLE void setSelectedSweepCurveLimit(const QString& limit);
+    Q_INVOKABLE void setStrategyParameterMode(const QString& key, const QString& mode);
+    Q_INVOKABLE void setStrategyParameterRange(const QString& key, const QString& minValue, const QString& maxValue, const QString& stepValue);
     Q_INVOKABLE void saveProfile();
     Q_INVOKABLE void loadProfile();
     Q_INVOKABLE void refresh();
@@ -126,6 +166,11 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void selectRun(const QString& runId);
     Q_INVOKABLE bool deleteSelectedRun();
     Q_INVOKABLE void startBacktest();
+    Q_INVOKABLE void startSweep();
+    Q_INVOKABLE void applySweepPoint(int rowIndex);
+    Q_INVOKABLE void applySweepPointById(int pointId);
+    Q_INVOKABLE void startDetailedRunFromSweepPoint(int rowIndex);
+    Q_INVOKABLE void startDetailedRunFromSweepPointById(int pointId);
     Q_INVOKABLE void cancelBacktest();
 
     void applyWorkerProgress(int percent, const QString& text);
@@ -142,6 +187,7 @@ class BacktestViewModel : public QObject {
     void strategyParametersChanged();
     void profileChanged();
     void latencyChanged();
+    void sweepConfigChanged();
     void runsChanged();
     void selectionChanged();
     void statusTextChanged();
@@ -164,6 +210,8 @@ class BacktestViewModel : public QObject {
         QString pnlText{};
         QVariantList equityPoints{};
         QVariantList resultMetrics{};
+        QVariantList sweepRows{};
+        QVariantList sweepCurves{};
         qint64 initialBalanceE8{0};
         qint64 totalPnlE8{0};
         qint64 pnlMinE8{0};
@@ -171,6 +219,7 @@ class BacktestViewModel : public QObject {
         qint64 modifiedMs{0};
         int errorCount{0};
         bool valid{false};
+        bool sweep{false};
     };
 
     static RunRecord loadRecord_(const QString& filePath);
@@ -191,9 +240,10 @@ class BacktestViewModel : public QObject {
     void loadSavedParameterValues_();
     void savePersistentConfig_();
     QString profilePath_() const;
-    QString writeRunConfig_(const QString& runId);
+    QString writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides = {}, bool fixedOnly = false);
     qint64 decimalE8Value_(const QString& value, qint64 fallback) const noexcept;
     quint64 latencyValue_(const QString& value, quint64 fallback) const noexcept;
+    void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
 
     QFileSystemWatcher watcher_{};
     QSettings settings_{};
@@ -206,9 +256,19 @@ class BacktestViewModel : public QObject {
     QString selectedIndicatorProfile_{};
     QString profileName_{QStringLiteral("default")};
     QString pingLatencyUs_{QStringLiteral("1000")};
+    QString latencySeed_{QStringLiteral("0")};
+    QString marketDataLatencyUs_{QStringLiteral("250")};
+    QString marketDataJitterUs_{QStringLiteral("100")};
+    QString marketOrderLatencyUs_{QStringLiteral("2500")};
+    QString marketOrderJitterUs_{QStringLiteral("1000")};
+    QString limitOrderLatencyUs_{QStringLiteral("1800")};
+    QString limitOrderJitterUs_{QStringLiteral("700")};
     QString initialBalanceUsdt_{QStringLiteral("1000")};
     QString makerFeeBps_{QStringLiteral("0")};
     QString takerFeeBps_{QStringLiteral("0")};
+    QString sweepBudget_{QStringLiteral("64")};
+    QString sweepSeed_{QStringLiteral("0")};
+    QString selectedSweepCurveLimit_{QStringLiteral("32")};
     QString statusText_{QStringLiteral("Select a session and strategy")};
     QString progressText_{QStringLiteral("Idle")};
     int progressPercent_{0};
@@ -217,6 +277,10 @@ class BacktestViewModel : public QObject {
     std::thread worker_{};
     std::vector<RunRecord> records_{};
     QHash<QString, QString> paramValues_{};
+    QHash<QString, QString> paramModes_{};
+    QHash<QString, QString> paramMinValues_{};
+    QHash<QString, QString> paramMaxValues_{};
+    QHash<QString, QString> paramStepValues_{};
     QHash<int, QString> activeParamByGroup_{};
     QStringList paramOrder_{};
 };

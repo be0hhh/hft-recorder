@@ -144,6 +144,23 @@ TEST(StrategyOverlay, DoesNotTreatFilledLimitWithoutFillRowAsOpenEnded) {
     fs::remove_all(dir, ec);
 }
 
+TEST(StrategyOverlay, DoesNotTreatCancelledLimitWithoutEndAsOpenEnded) {
+    const auto dir = makeTmpDir();
+    const auto resultPath = makeRunResult(dir, "run-cancelled-without-end",
+        "[21,0,900,1000,1000,1,0,1,4,10500000000,200000000,0]\n",
+        "");
+
+    hftrec::gui::viewer::StrategyOverlayData overlay;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
+
+    EXPECT_TRUE(overlay.orderSegments.empty());
+    EXPECT_TRUE(overlay.fillMarkers.empty());
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(StrategyOverlay, DoesNotStretchSameTimestampReplaceToRunEnd) {
     const auto dir = makeTmpDir();
     const auto resultPath = makeRunResult(dir, "run-same-timestamp-replace",

@@ -13,9 +13,14 @@ ComboBox {
     property color textColor: "#f1f4f8"
     property color mutedTextColor: "#a8afbd"
     property color accentColor: "#24c2cb"
+    property color badColor: "#ef6f6c"
     property int popupWidth: width
+    property int popupMaxWidth: 0
+    property bool popupAlignRight: false
+    property bool colorizeRightText: false
     property string searchText: ""
     property var filteredRows: []
+    readonly property bool compactDisplay: caption.length === 0 || height < 36
 
     function rebuildFilter() {
         var needle = searchText.trim().toLowerCase()
@@ -49,21 +54,36 @@ ComboBox {
     onCountChanged: rebuildFilter()
     onModelChanged: rebuildFilter()
 
-    contentItem: Column {
-        leftPadding: 10
-        rightPadding: 28
-        topPadding: 5
-        spacing: 2
-        Text { text: combo.caption; color: combo.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; width: combo.width - 40 }
-        Text { text: combo.displayText.length > 0 ? combo.displayText : "not selected"; color: combo.textColor; font.pixelSize: 12; font.bold: true; elide: Text.ElideRight; width: combo.width - 40 }
+    contentItem: Item {
+        Text {
+            visible: !combo.compactDisplay
+            x: 10
+            y: 5
+            width: combo.width - 40
+            text: combo.caption
+            color: combo.mutedTextColor
+            font.pixelSize: 10
+            elide: Text.ElideRight
+        }
+        Text {
+            x: 10
+            y: combo.compactDisplay ? Math.round((combo.height - implicitHeight) / 2) : 21
+            width: combo.width - 40
+            text: combo.displayText.length > 0 ? combo.displayText : "not selected"
+            color: combo.textColor
+            font.pixelSize: 12
+            font.bold: true
+            elide: Text.ElideRight
+        }
     }
 
-    indicator: Text { x: combo.width - 22; y: 15; text: "v"; color: combo.mutedTextColor; font.pixelSize: 12 }
+    indicator: Text { x: combo.width - 22; y: Math.round((combo.height - implicitHeight) / 2); text: "v"; color: combo.mutedTextColor; font.pixelSize: 12 }
     background: Rectangle { radius: 7; color: combo.panelDeepColor; border.color: combo.hovered ? combo.accentColor : combo.borderColor; border.width: 1 }
 
     popup: Popup {
+        x: combo.popupAlignRight ? Math.min(0, combo.width - width) : 0
         y: combo.height + 4
-        width: Math.max(combo.width, combo.popupWidth)
+        width: combo.popupMaxWidth > 0 ? Math.min(combo.popupMaxWidth, Math.max(combo.width, combo.popupWidth)) : Math.max(combo.width, combo.popupWidth)
         implicitHeight: Math.min(contentItem.implicitHeight, 400)
         padding: 1
         onOpened: {
@@ -157,11 +177,11 @@ ComboBox {
                 verticalAlignment: Text.AlignVCenter
             }
             Text {
-                Layout.preferredWidth: visible ? Math.max(24, implicitWidth + 10) : 0
+                Layout.preferredWidth: visible ? Math.max(64, implicitWidth + 10) : 0
                 rightPadding: 10
                 text: modelData.rightText || ""
                 visible: text.length > 0
-                color: combo.mutedTextColor
+                color: combo.colorizeRightText ? (text.charAt(0) === "-" ? combo.badColor : combo.accentColor) : combo.mutedTextColor
                 font.pixelSize: 12
                 font.bold: true
                 horizontalAlignment: Text.AlignRight

@@ -17,8 +17,10 @@
 #include <array>
 #include <limits>
 #include <string>
+#include <utility>
 
 #include "hft_backtest/backtest.hpp"
+#include "hft_backtest/backtest_sweep.hpp"
 #include "core/common/Status.hpp"
 
 namespace hftrec::gui {
@@ -313,6 +315,12 @@ QString statusTextFor(hft_backtest::Status status) {
     return QStringLiteral("Backtest failed: %1").arg(QString::fromUtf8(hft_backtest::statusToString(status).data(), static_cast<qsizetype>(hft_backtest::statusToString(status).size())));
 }
 
+QString sweepStatusTextFor(hft_backtest::Status status) {
+    if (status == hft_backtest::Status::Ok) return QStringLiteral("Sweep complete");
+    if (status == hft_backtest::Status::Cancelled) return QStringLiteral("Sweep cancelled");
+    return QStringLiteral("Sweep failed: %1").arg(QString::fromUtf8(hft_backtest::statusToString(status).data(), static_cast<qsizetype>(hft_backtest::statusToString(status).size())));
+}
+
 bool progressCallback(const hft_backtest::BacktestProgress& progress, void* userData) noexcept {
     auto* vm = static_cast<BacktestViewModel*>(userData);
     if (vm == nullptr) return false;
@@ -472,6 +480,135 @@ QString groupSettingKey(int group) {
     return QStringLiteral("__group_%1").arg(group);
 }
 
+QString normalizedParamMode(QString mode) {
+    mode = mode.trimmed().toLower();
+    if (mode == QStringLiteral("sweep") || mode == QStringLiteral("random")) return QStringLiteral("sweep");
+    return QStringLiteral("fixed");
+}
+
+bool isSweepKey(const QString& key) {
+    return key == QStringLiteral("distance_bps") || key == QStringLiteral("trigger_bps") || key == QStringLiteral("close_delay_us");
+}
+
+QString defaultRangeMin(const QString& key, const QString& value) {
+    if (key == QStringLiteral("distance_bps")) return QStringLiteral("10");
+    if (key == QStringLiteral("trigger_bps")) return QStringLiteral("1");
+    if (key == QStringLiteral("close_delay_us")) return QStringLiteral("0");
+    return value;
+}
+
+QString defaultRangeMax(const QString& key, const QString& value) {
+    if (key == QStringLiteral("distance_bps")) return QStringLiteral("1000");
+    if (key == QStringLiteral("trigger_bps")) return QStringLiteral("100");
+    if (key == QStringLiteral("close_delay_us")) return QStringLiteral("10000000");
+    return value;
+}
+
+QString defaultRangeStep(const QString& key) {
+    if (key == QStringLiteral("distance_bps")) return QStringLiteral("10");
+    if (key == QStringLiteral("trigger_bps")) return QStringLiteral("1");
+    if (key == QStringLiteral("close_delay_us")) return QStringLiteral("500000");
+    return QStringLiteral("1");
+}
+
+QVariantList sweepParamModeChoices() {
+    QVariantList out;
+    for (const QString& id : {QStringLiteral("fixed"), QStringLiteral("sweep")}) {
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), id);
+        row.insert(QStringLiteral("label"), id.at(0).toUpper() + id.mid(1));
+        out.push_back(row);
+    }
+    return out;
+}
+
+QVariantList sweepCurveLimitChoiceRows() {
+    QVariantList out;
+    for (const QString& id : {QStringLiteral("16"), QStringLiteral("32"), QStringLiteral("64"), QStringLiteral("all")}) {
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), id);
+        row.insert(QStringLiteral("label"), id == QStringLiteral("all") ? QStringLiteral("All") : QStringLiteral("Top %1").arg(id));
+        out.push_back(row);
+    }
+    return out;
+}
+
+qint64 jsonIntValue(const QJsonObject& object, const QString& key) {
+    return object.value(key).toInteger();
+}
+
+QVariantMap sweepRowMap(const QJsonObject& row, const QString& metricKey) {
+    QVariantMap out;
+    const QJsonObject params = row.value(QStringLiteral("params")).toObject();
+    QStringList parts;
+    for (auto it = params.constBegin(); it != params.constEnd(); ++it) parts.push_back(QStringLiteral("%1=%2").arg(it.key(), QString::number(it.value().toInteger())));
+    out.insert(QStringLiteral("pointId"), jsonIntValue(row, QStringLiteral("point_id")));
+    out.insert(QStringLiteral("label"), parts.join(QStringLiteral(", ")));
+    out.insert(QStringLiteral("params"), params.toVariantMap());
+    out.insert(QStringLiteral("metricKey"), metricKey);
+    out.insert(QStringLiteral("metricRaw"), jsonIntValue(row, metricKey));
+    out.insert(QStringLiteral("metricText"), isE8Key(metricKey) ? e8DisplayString(jsonIntValue(row, metricKey)) : QString::number(jsonIntValue(row, metricKey)));
+    out.insert(QStringLiteral("totalPnlE8"), jsonIntValue(row, QStringLiteral("total_pnl_e8")));
+    out.insert(QStringLiteral("status"), row.value(QStringLiteral("status")).toString());
+    return out;
+}
+
+QVariantMap sweepCurveMap(const QJsonObject& row) {
+    QVariantMap out;
+    const QJsonObject params = row.value(QStringLiteral("params")).toObject();
+    QStringList parts;
+    for (auto it = params.constBegin(); it != params.constEnd(); ++it) parts.push_back(QStringLiteral("%1=%2").arg(it.key(), QString::number(it.value().toInteger())));
+    QVariantList curve;
+    const QJsonArray values = row.value(QStringLiteral("curve_e8")).toArray();
+    for (const QJsonValue& value : values) curve.push_back(value.toInteger());
+    if (curve.empty()) curve.push_back(row.value(QStringLiteral("total_pnl_e8")).toInteger());
+    out.insert(QStringLiteral("pointId"), jsonIntValue(row, QStringLiteral("point_id")));
+    out.insert(QStringLiteral("label"), parts.join(QStringLiteral(", ")));
+    out.insert(QStringLiteral("params"), params.toVariantMap());
+    out.insert(QStringLiteral("status"), row.value(QStringLiteral("status")).toString());
+    out.insert(QStringLiteral("initialBalanceE8"), jsonIntValue(row, QStringLiteral("initial_balance_e8")));
+    out.insert(QStringLiteral("totalPnlE8"), jsonIntValue(row, QStringLiteral("total_pnl_e8")));
+    out.insert(QStringLiteral("totalPnlText"), e8DisplayString(jsonIntValue(row, QStringLiteral("total_pnl_e8"))));
+    out.insert(QStringLiteral("curve"), curve);
+    return out;
+}
+
+QVariantList sweepCurvesFromJsonl(const QString& path) {
+    QVariantList out;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return out;
+    while (!file.atEnd()) {
+        const QByteArray line = file.readLine().trimmed();
+        if (line.isEmpty()) continue;
+        QJsonParseError error{};
+        const QJsonDocument doc = QJsonDocument::fromJson(line, &error);
+        if (error.error != QJsonParseError::NoError || !doc.isObject()) continue;
+        out.push_back(sweepCurveMap(doc.object()));
+    }
+    std::sort(out.begin(), out.end(), [](const QVariant& lhs, const QVariant& rhs) {
+        return lhs.toMap().value(QStringLiteral("totalPnlE8")).toLongLong() > rhs.toMap().value(QStringLiteral("totalPnlE8")).toLongLong();
+    });
+    return out;
+}
+
+QVariantList sweepRowsFromJsonl(const QString& path, const QString& metricKey) {
+    QVariantList out;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return out;
+    while (!file.atEnd()) {
+        const QByteArray line = file.readLine().trimmed();
+        if (line.isEmpty()) continue;
+        QJsonParseError error{};
+        const QJsonDocument doc = QJsonDocument::fromJson(line, &error);
+        if (error.error != QJsonParseError::NoError || !doc.isObject()) continue;
+        out.push_back(sweepRowMap(doc.object(), metricKey));
+    }
+    std::sort(out.begin(), out.end(), [](const QVariant& lhs, const QVariant& rhs) {
+        return lhs.toMap().value(QStringLiteral("metricRaw")).toLongLong() > rhs.toMap().value(QStringLiteral("metricRaw")).toLongLong();
+    });
+    return out;
+}
+
 QString paramGroupKey(const hft_backtest::StrategyMetadata& metadata, std::uint8_t group) {
     for (std::size_t i = 0; i < metadata.paramGroupCount && i < hft_backtest::kStrategyMetadataMaxParamGroups; ++i) {
         const hft_backtest::StrategyParamGroupMetadata& paramGroup = metadata.paramGroups[i];
@@ -580,7 +717,13 @@ QVariantList BacktestViewModel::sessions() const {
         if (backtestsDir.exists()) {
             const QFileInfoList runDirs = backtestsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
             for (const QFileInfo& runDir : runDirs) {
+                if (runDir.fileName() == QStringLiteral("sweeps")) continue;
                 if (QFileInfo::exists(QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++backtestCount;
+            }
+            const QDir sweepsDir(backtestsDir.absoluteFilePath(QStringLiteral("sweeps")));
+            const QFileInfoList sweepDirs = sweepsDir.exists() ? sweepsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot) : QFileInfoList{};
+            for (const QFileInfo& sweepDir : sweepDirs) {
+                if (QFileInfo::exists(QDir(sweepDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++backtestCount;
             }
         }
         QVariantMap row;
@@ -676,6 +819,10 @@ QVariantList BacktestViewModel::configModeChoices() const {
     return out;
 }
 
+QVariantList BacktestViewModel::sweepCurveLimitChoices() const {
+    return sweepCurveLimitChoiceRows();
+}
+
 QVariantList BacktestViewModel::strategyParameters() const {
     QVariantList out;
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
@@ -704,6 +851,11 @@ QVariantList BacktestViewModel::strategyParameters() const {
         row.insert(QStringLiteral("label"), key);
         row.insert(QStringLiteral("description"), QStringLiteral("Strategy runtime parameter."));
         row.insert(QStringLiteral("value"), paramValues_.value(key));
+        row.insert(QStringLiteral("mode"), paramModes_.value(key, QStringLiteral("fixed")));
+        row.insert(QStringLiteral("min"), paramMinValues_.value(key));
+        row.insert(QStringLiteral("max"), paramMaxValues_.value(key));
+        row.insert(QStringLiteral("step"), paramStepValues_.value(key));
+        row.insert(QStringLiteral("modeChoices"), sweepParamModeChoices());
         row.insert(QStringLiteral("isChoice"), false);
         out.push_back(row);
     }
@@ -728,6 +880,7 @@ QVariantList BacktestViewModel::runs() const {
         row.insert(QStringLiteral("modifiedText"), QDateTime::fromMSecsSinceEpoch(record.modifiedMs).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
         row.insert(QStringLiteral("errorCount"), record.errorCount);
         row.insert(QStringLiteral("valid"), record.valid);
+        row.insert(QStringLiteral("sweep"), record.sweep);
         out.push_back(row);
     }
     return out;
@@ -756,6 +909,38 @@ QVariantList BacktestViewModel::selectedEquityPoints() const {
 QVariantList BacktestViewModel::selectedResultMetrics() const {
     const auto* record = selectedRecord_();
     return record == nullptr ? QVariantList{} : record->resultMetrics;
+}
+
+QVariantList BacktestViewModel::selectedSweepRows() const {
+    const auto* record = selectedRecord_();
+    if (record == nullptr || !record->sweep) return {};
+    QVariantList out;
+    for (const QVariant& value : record->sweepRows) {
+        QVariantMap row = value.toMap();
+        const qint64 raw = row.value(QStringLiteral("totalPnlE8")).toLongLong();
+        row.insert(QStringLiteral("metricKey"), QStringLiteral("total_pnl_e8"));
+        row.insert(QStringLiteral("metricRaw"), raw);
+        row.insert(QStringLiteral("metricText"), e8DisplayString(raw));
+        out.push_back(row);
+    }
+    std::sort(out.begin(), out.end(), [](const QVariant& lhs, const QVariant& rhs) {
+        return lhs.toMap().value(QStringLiteral("metricRaw")).toLongLong() > rhs.toMap().value(QStringLiteral("metricRaw")).toLongLong();
+    });
+    return out;
+}
+
+QVariantList BacktestViewModel::selectedSweepCurves() const {
+    const auto* record = selectedRecord_();
+    if (record == nullptr || !record->sweep) return {};
+    const int limit = selectedSweepCurveLimit_ == QStringLiteral("all") ? record->sweepCurves.size() : selectedSweepCurveLimit_.toInt();
+    QVariantList out;
+    for (int i = 0; i < record->sweepCurves.size() && i < limit; ++i) out.push_back(record->sweepCurves.at(i));
+    return out;
+}
+
+bool BacktestViewModel::selectedIsSweep() const {
+    const auto* record = selectedRecord_();
+    return record != nullptr && record->sweep;
 }
 
 bool BacktestViewModel::hasEquityPoints() const {
@@ -890,13 +1075,69 @@ void BacktestViewModel::setProfileName(const QString& profileName) {
 }
 
 void BacktestViewModel::setOrderLatencyUs(const QString& value) {
-    setPingLatencyUs(value);
+    setMarketOrderLatencyUs(value);
 }
 
 void BacktestViewModel::setPingLatencyUs(const QString& value) {
     const QString next = value.trimmed();
     if (pingLatencyUs_ == next) return;
     pingLatencyUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setLatencySeed(const QString& value) {
+    const QString next = value.trimmed();
+    if (latencySeed_ == next) return;
+    latencySeed_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setMarketDataLatencyUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (marketDataLatencyUs_ == next) return;
+    marketDataLatencyUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setMarketDataJitterUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (marketDataJitterUs_ == next) return;
+    marketDataJitterUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setMarketOrderLatencyUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (marketOrderLatencyUs_ == next) return;
+    marketOrderLatencyUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setMarketOrderJitterUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (marketOrderJitterUs_ == next) return;
+    marketOrderJitterUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setLimitOrderLatencyUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (limitOrderLatencyUs_ == next) return;
+    limitOrderLatencyUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setLimitOrderJitterUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (limitOrderJitterUs_ == next) return;
+    limitOrderJitterUs_ = next;
     savePersistentConfig_();
     emit latencyChanged();
 }
@@ -926,13 +1167,60 @@ void BacktestViewModel::setTakerFeeBps(const QString& value) {
 }
 
 void BacktestViewModel::setAmendLatencyUs(const QString& value) {
-    setPingLatencyUs(value);
+    setLimitOrderLatencyUs(value);
 }
 
 void BacktestViewModel::setCancelLatencyUs(const QString& value) {
-    setPingLatencyUs(value);
+    setLimitOrderLatencyUs(value);
 }
 
+void BacktestViewModel::setSweepBudget(const QString& value) {
+    const QString next = value.trimmed();
+    if (sweepBudget_ == next) return;
+    sweepBudget_ = next;
+    savePersistentConfig_();
+    emit sweepConfigChanged();
+}
+
+void BacktestViewModel::setSweepSeed(const QString& value) {
+    const QString next = value.trimmed();
+    if (sweepSeed_ == next) return;
+    sweepSeed_ = next;
+    savePersistentConfig_();
+    emit sweepConfigChanged();
+}
+
+void BacktestViewModel::setSelectedSweepCurveLimit(const QString& limit) {
+    QString next = limit.trimmed().toLower();
+    if (next != QStringLiteral("16") && next != QStringLiteral("32") && next != QStringLiteral("64") && next != QStringLiteral("all")) next = QStringLiteral("32");
+    if (selectedSweepCurveLimit_ == next) return;
+    selectedSweepCurveLimit_ = next;
+    emit selectionChanged();
+}
+
+void BacktestViewModel::setStrategyParameterMode(const QString& key, const QString& mode) {
+    const QString normalizedKey = key.trimmed().toLower();
+    if (normalizedKey.isEmpty() || !paramOrder_.contains(normalizedKey)) return;
+    const QString next = normalizedParamMode(mode);
+    if (paramModes_.value(normalizedKey, QStringLiteral("fixed")) == next) return;
+    paramModes_.insert(normalizedKey, next);
+    savePersistentConfig_();
+    emit strategyParametersChanged();
+}
+
+void BacktestViewModel::setStrategyParameterRange(const QString& key, const QString& minValue, const QString& maxValue, const QString& stepValue) {
+    const QString normalizedKey = key.trimmed().toLower();
+    if (normalizedKey.isEmpty() || !paramOrder_.contains(normalizedKey)) return;
+    const QString nextMin = minValue.trimmed();
+    const QString nextMax = maxValue.trimmed();
+    const QString nextStep = stepValue.trimmed();
+    if (paramMinValues_.value(normalizedKey) == nextMin && paramMaxValues_.value(normalizedKey) == nextMax && paramStepValues_.value(normalizedKey) == nextStep) return;
+    paramMinValues_.insert(normalizedKey, nextMin);
+    paramMaxValues_.insert(normalizedKey, nextMax);
+    paramStepValues_.insert(normalizedKey, nextStep);
+    savePersistentConfig_();
+    emit strategyParametersChanged();
+}
 void BacktestViewModel::saveProfile() {
     const QString path = profilePath_();
     QDir().mkpath(QFileInfo(path).absolutePath());
@@ -942,20 +1230,36 @@ void BacktestViewModel::saveProfile() {
         return;
     }
     QTextStream out(&file);
-    out << "[backtest]\\n";
-    out << "order_latency_us=" << pingLatencyUs_ << "\\n";
-    out << "amend_latency_us=" << pingLatencyUs_ << "\\n";
-    out << "cancel_latency_us=" << pingLatencyUs_ << "\\n";
-    out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\\n";
-    out << "maker_fee_bps=" << makerFeeBps_ << "\\n";
-    out << "taker_fee_bps=" << takerFeeBps_ << "\\n";
-    out << "config_mode=" << configMode_ << "\\n\\n";
-    out << "[strategy]\\n";
-    for (auto it = activeParamByGroup_.constBegin(); it != activeParamByGroup_.constEnd(); ++it) out << groupSettingKey(it.key()) << "=" << it.value() << "\\n";
+    out << "[backtest]\n";
+    out << "latency_seed=" << latencySeed_ << "\n";
+    out << "market_data_latency_us=" << marketDataLatencyUs_ << "\n";
+    out << "market_data_jitter_us=" << marketDataJitterUs_ << "\n";
+    out << "market_order_latency_us=" << marketOrderLatencyUs_ << "\n";
+    out << "market_order_jitter_us=" << marketOrderJitterUs_ << "\n";
+    out << "limit_order_latency_us=" << limitOrderLatencyUs_ << "\n";
+    out << "limit_order_jitter_us=" << limitOrderJitterUs_ << "\n";
+    out << "order_latency_us=" << marketOrderLatencyUs_ << "\n";
+    out << "amend_latency_us=" << limitOrderLatencyUs_ << "\n";
+    out << "cancel_latency_us=" << limitOrderLatencyUs_ << "\n";
+    out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\n";
+    out << "maker_fee_bps=" << makerFeeBps_ << "\n";
+    out << "taker_fee_bps=" << takerFeeBps_ << "\n";
+    out << "sweep_budget=" << sweepBudget_ << "\n";
+    out << "sweep_seed=" << sweepSeed_ << "\n";
+    out << "config_mode=" << configMode_ << "\n\n";
+    out << "[strategy]\n";
+    for (auto it = activeParamByGroup_.constBegin(); it != activeParamByGroup_.constEnd(); ++it) out << groupSettingKey(it.key()) << "=" << it.value() << "\n";
     for (const QString& key : paramOrder_) {
         const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
         if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
-        out << key << "=" << paramValues_.value(key) << "\\n";
+        out << key << "=" << paramValues_.value(key) << "\n";
+    }
+    out << "\n[sweep]\n";
+    for (const QString& key : paramOrder_) {
+        out << key << ".mode=" << paramModes_.value(key, QStringLiteral("fixed")) << "\n";
+        out << key << ".min=" << paramMinValues_.value(key) << "\n";
+        out << key << ".max=" << paramMaxValues_.value(key) << "\n";
+        out << key << ".step=" << paramStepValues_.value(key) << "\n";
     }
     setStatusText_(QStringLiteral("Profile saved"));
 }
@@ -964,14 +1268,34 @@ void BacktestViewModel::loadProfile() {
     const QString text = readTextFile(profilePath_());
     if (text.isEmpty()) return;
     const QString orderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("order_latency_us"));
+    const QString latencySeed = iniValue(text, QStringLiteral("backtest"), QStringLiteral("latency_seed"));
+    const QString marketDataLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_data_latency_us"));
+    const QString marketDataJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_data_jitter_us"));
+    const QString marketOrderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_order_latency_us"));
+    const QString marketOrderJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_order_jitter_us"));
+    const QString limitOrderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("limit_order_latency_us"));
+    const QString limitOrderJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("limit_order_jitter_us"));
     const QString initialBalance = iniValue(text, QStringLiteral("backtest"), QStringLiteral("initial_balance_usdt"));
     const QString makerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("maker_fee_bps"));
     const QString takerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("taker_fee_bps"));
+    const QString sweepBudget = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_budget"));
+    const QString sweepSeed = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_seed"));
     const QString mode = iniValue(text, QStringLiteral("backtest"), QStringLiteral("config_mode"));
     if (!orderLatency.isEmpty()) pingLatencyUs_ = orderLatency;
+    if (!latencySeed.isEmpty()) latencySeed_ = latencySeed;
+    if (!marketDataLatency.isEmpty()) marketDataLatencyUs_ = marketDataLatency;
+    if (!marketDataJitter.isEmpty()) marketDataJitterUs_ = marketDataJitter;
+    if (!marketOrderLatency.isEmpty()) marketOrderLatencyUs_ = marketOrderLatency;
+    else if (!orderLatency.isEmpty()) marketOrderLatencyUs_ = orderLatency;
+    if (!marketOrderJitter.isEmpty()) marketOrderJitterUs_ = marketOrderJitter;
+    if (!limitOrderLatency.isEmpty()) limitOrderLatencyUs_ = limitOrderLatency;
+    else if (!orderLatency.isEmpty()) limitOrderLatencyUs_ = orderLatency;
+    if (!limitOrderJitter.isEmpty()) limitOrderJitterUs_ = limitOrderJitter;
     if (!initialBalance.isEmpty()) initialBalanceUsdt_ = initialBalance;
     if (!makerFee.isEmpty()) makerFeeBps_ = makerFee;
     if (!takerFee.isEmpty()) takerFeeBps_ = takerFee;
+    if (!sweepBudget.isEmpty()) sweepBudget_ = sweepBudget;
+    if (!sweepSeed.isEmpty()) sweepSeed_ = sweepSeed;
     if (!mode.isEmpty()) configMode_ = normalizeConfigMode(mode);
     for (const IniKeyValue& row : iniSectionValues(text, QStringLiteral("strategy"))) {
         const QString key = row.key;
@@ -985,8 +1309,22 @@ void BacktestViewModel::loadProfile() {
         if (!paramOrder_.contains(key)) continue;
         if (!value.isEmpty()) paramValues_.insert(key, value);
     }
+    for (const IniKeyValue& row : iniSectionValues(text, QStringLiteral("sweep"))) {
+        const QString key = row.key;
+        const QString value = row.value.trimmed();
+        const qsizetype dot = key.lastIndexOf(QLatin1Char('.'));
+        if (dot <= 0 || value.isEmpty()) continue;
+        const QString paramKey = key.left(dot);
+        const QString field = key.mid(dot + 1);
+        if (!paramOrder_.contains(paramKey)) continue;
+        if (field == QStringLiteral("mode")) paramModes_.insert(paramKey, normalizedParamMode(value));
+        else if (field == QStringLiteral("min")) paramMinValues_.insert(paramKey, value);
+        else if (field == QStringLiteral("max")) paramMaxValues_.insert(paramKey, value);
+        else if (field == QStringLiteral("step")) paramStepValues_.insert(paramKey, value);
+    }
     emit latencyChanged();
     emit accountingChanged();
+    emit sweepConfigChanged();
     emit configChanged();
     emit strategyParametersChanged();
 }
@@ -997,16 +1335,25 @@ void BacktestViewModel::refresh() {
     const QString dirPath = backtestsDirectory();
     QStringList filesToWatch;
     if (!dirPath.isEmpty()) {
+        auto addRunDir = [&](const QFileInfo& runDir) {
+            const QDir candidateDir(runDir.absoluteFilePath());
+            const QString manifestPath = candidateDir.absoluteFilePath(QStringLiteral("manifest.json"));
+            if (!QFileInfo::exists(manifestPath)) return;
+            filesToWatch.push_back(manifestPath);
+            filesToWatch.push_back(candidateDir.absoluteFilePath(QStringLiteral("equity.jsonl")));
+            filesToWatch.push_back(candidateDir.absoluteFilePath(QStringLiteral("sweep_results.jsonl")));
+            next.push_back(loadRecord_(runDir.absoluteFilePath()));
+        };
         QDir dir(dirPath);
         const QFileInfoList dirs = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Name);
-        next.reserve(static_cast<std::size_t>(dirs.size()));
+        const QDir sweepsDir(dir.absoluteFilePath(QStringLiteral("sweeps")));
+        const QFileInfoList sweepDirs = sweepsDir.exists() ? sweepsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Name) : QFileInfoList{};
+        next.reserve(static_cast<std::size_t>(dirs.size() + sweepDirs.size()));
         for (const QFileInfo& runDir : dirs) {
-            const QString manifestPath = QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json"));
-            if (!QFileInfo::exists(manifestPath)) continue;
-            filesToWatch.push_back(manifestPath);
-            filesToWatch.push_back(QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("equity.jsonl")));
-            next.push_back(loadRecord_(runDir.absoluteFilePath()));
+            if (runDir.fileName() == QStringLiteral("sweeps")) continue;
+            addRunDir(runDir);
         }
+        for (const QFileInfo& sweepDir : sweepDirs) addRunDir(sweepDir);
     }
 
     std::sort(next.begin(), next.end(), [](const RunRecord& lhs, const RunRecord& rhs) {
@@ -1059,6 +1406,10 @@ bool BacktestViewModel::deleteSelectedRun() {
 }
 
 void BacktestViewModel::startBacktest() {
+    startBacktestWithOverrides_({}, QString{});
+}
+
+void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix) {
     if (!canRun()) return;
     stopWorker_();
     cancelRequested_.store(false, std::memory_order_release);
@@ -1068,22 +1419,30 @@ void BacktestViewModel::startBacktest() {
 
     const QString sessionPath = selectedSessionPath();
     const QString strategy = selectedStrategy_;
-    const QString runId = runId_();
-    const QString configPath = writeRunConfig_(runId);
+    QString runId = runId_();
+    if (!suffix.trimmed().isEmpty()) runId += QStringLiteral("-") + cleanRunSlugPart(suffix);
+    const QString configPath = writeRunConfig_(runId, overrides, false);
     if (configPath.isEmpty()) {
         setRunning_(false);
         setStatusText_(QStringLiteral("Failed to write backtest config"));
         return;
     }
     const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
-    const quint64 orderLatency = pingLatency;
-    const quint64 amendLatency = pingLatency;
-    const quint64 cancelLatency = pingLatency;
+    const quint64 latencySeed = latencyValue_(latencySeed_, 0);
+    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 250);
+    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 100);
+    const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
+    const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
+    const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
+    const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
+    const quint64 orderLatency = marketOrderLatency;
+    const quint64 amendLatency = limitOrderLatency;
+    const quint64 cancelLatency = limitOrderLatency;
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
     const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
     const QString indicatorProfile = selectedIndicatorProfile_;
-    worker_ = std::thread([this, sessionPath, strategy, runId, configPath, indicatorProfile, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee] {
+    worker_ = std::thread([this, sessionPath, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee] {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPath.toStdString();
         request.configPath = configPath.toStdString();
@@ -1091,6 +1450,13 @@ void BacktestViewModel::startBacktest() {
         request.indicatorProfile = indicatorProfile.toStdString();
         request.runId = runId.toStdString();
         request.requestId = runId.toStdString();
+        request.latencySeed = latencySeed;
+        request.marketDataLatency.baseUs = marketDataLatency;
+        request.marketDataLatency.jitterUs = marketDataJitter;
+        request.marketOrderLatency.baseUs = marketOrderLatency;
+        request.marketOrderLatency.jitterUs = marketOrderJitter;
+        request.limitOrderLatency.baseUs = limitOrderLatency;
+        request.limitOrderLatency.jitterUs = limitOrderJitter;
         request.orderLatencyUs = orderLatency;
         request.amendLatencyUs = amendLatency;
         request.cancelLatencyUs = cancelLatency;
@@ -1112,6 +1478,162 @@ void BacktestViewModel::startBacktest() {
     });
 }
 
+void BacktestViewModel::startSweep() {
+    if (!canRun()) return;
+
+    std::vector<hft_backtest::BacktestSweepParamRange> ranges;
+    for (const QString& key : paramOrder_) {
+        const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
+        if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
+        const QString mode = normalizedParamMode(paramModes_.value(key, QStringLiteral("fixed")));
+        if (mode == QStringLiteral("fixed")) continue;
+        bool minOk = false;
+        bool maxOk = false;
+        bool stepOk = false;
+        const qint64 minRaw = paramMinValues_.value(key).trimmed().toLongLong(&minOk);
+        const qint64 maxRaw = paramMaxValues_.value(key).trimmed().toLongLong(&maxOk);
+        const qint64 stepRaw = paramStepValues_.value(key).trimmed().toLongLong(&stepOk);
+        if (!minOk || !maxOk || !stepOk || stepRaw <= 0 || maxRaw < minRaw) {
+            setStatusText_(QStringLiteral("Invalid sweep range for %1").arg(key));
+            return;
+        }
+        hft_backtest::BacktestSweepParamRange range{};
+        range.key = key.toStdString();
+        range.minRaw = minRaw;
+        range.maxRaw = maxRaw;
+        range.stepRaw = stepRaw;
+        range.mode = hft_backtest::BacktestSweepParamMode::Grid;
+        ranges.push_back(std::move(range));
+    }
+    if (ranges.empty()) {
+        setStatusText_(QStringLiteral("Choose at least one Sweep parameter"));
+        return;
+    }
+
+    stopWorker_();
+    cancelRequested_.store(false, std::memory_order_release);
+    setRunning_(true);
+    setProgress_(0, QStringLiteral("Starting sweep"));
+    setStatusText_(QStringLiteral("Sweep running"));
+
+    const QString sessionPath = selectedSessionPath();
+    const QString strategy = selectedStrategy_;
+    const QString runId = QStringLiteral("sweep-") + runId_();
+    const QString configPath = writeRunConfig_(QStringLiteral("sweeps/%1").arg(runId), {}, true);
+    if (configPath.isEmpty()) {
+        setRunning_(false);
+        setStatusText_(QStringLiteral("Failed to write sweep config"));
+        return;
+    }
+    const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
+    const quint64 latencySeed = latencyValue_(latencySeed_, 0);
+    const quint64 searchSeed = latencyValue_(sweepSeed_, 0);
+    const quint64 runBudget = latencyValue_(sweepBudget_, 64);
+    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 250);
+    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 100);
+    const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
+    const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
+    const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
+    const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
+    const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
+    const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
+    const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
+    const QString indicatorProfile = selectedIndicatorProfile_;
+
+    worker_ = std::thread([this, sessionPath, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, initialBalance, makerFee, takerFee, ranges = std::move(ranges)] {
+        hft_backtest::BacktestSweepRequest request{};
+        request.baseRun.sessionPath = sessionPath.toStdString();
+        request.baseRun.configPath = configPath.toStdString();
+        request.baseRun.strategy = strategy.toStdString();
+        request.baseRun.indicatorProfile = indicatorProfile.toStdString();
+        request.baseRun.latencySeed = latencySeed;
+        request.baseRun.marketDataLatency.baseUs = marketDataLatency;
+        request.baseRun.marketDataLatency.jitterUs = marketDataJitter;
+        request.baseRun.marketOrderLatency.baseUs = marketOrderLatency;
+        request.baseRun.marketOrderLatency.jitterUs = marketOrderJitter;
+        request.baseRun.limitOrderLatency.baseUs = limitOrderLatency;
+        request.baseRun.limitOrderLatency.jitterUs = limitOrderJitter;
+        request.baseRun.orderLatencyUs = marketOrderLatency;
+        request.baseRun.amendLatencyUs = limitOrderLatency;
+        request.baseRun.cancelLatencyUs = limitOrderLatency;
+        request.baseRun.initialBalanceE8 = initialBalance;
+        request.baseRun.makerFeeBpsE8 = makerFee;
+        request.baseRun.takerFeeBpsE8 = takerFee;
+        request.baseRun.writeArtifacts = false;
+        request.sweepId = runId.toStdString();
+        request.runBudget = runBudget;
+        request.searchSeed = searchSeed;
+        request.outputPath = (QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests/sweeps/%1").arg(runId))).toStdString();
+        request.ranges = ranges;
+
+        const auto result = hft_backtest::runBacktestSweep(request, progressCallback, this);
+        const QString status = sweepStatusTextFor(result.status);
+        const QString selected = QString::fromStdString(result.sweepId);
+        QMetaObject::invokeMethod(this, [this, status, selected] {
+            setRunning_(false);
+            setProgress_(100, status);
+            setStatusText_(status);
+            refresh();
+            if (!selected.isEmpty()) selectRun(selected);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void BacktestViewModel::applySweepPoint(int rowIndex) {
+    const QVariantList rows = selectedSweepRows();
+    if (rowIndex < 0 || rowIndex >= rows.size()) return;
+    const QVariantMap params = rows.at(rowIndex).toMap().value(QStringLiteral("params")).toMap();
+    for (auto it = params.constBegin(); it != params.constEnd(); ++it) {
+        const QString key = it.key().trimmed().toLower();
+        if (!paramOrder_.contains(key)) continue;
+        paramValues_.insert(key, QString::number(it.value().toLongLong()));
+        paramModes_.insert(key, QStringLiteral("fixed"));
+    }
+    savePersistentConfig_();
+    emit strategyParametersChanged();
+}
+
+void BacktestViewModel::applySweepPointById(int pointId) {
+    const auto* record = selectedRecord_();
+    if (record == nullptr || !record->sweep) return;
+    for (const QVariant& value : record->sweepCurves) {
+        const QVariantMap curve = value.toMap();
+        if (curve.value(QStringLiteral("pointId")).toInt() != pointId) continue;
+        const QVariantMap params = curve.value(QStringLiteral("params")).toMap();
+        for (auto it = params.constBegin(); it != params.constEnd(); ++it) {
+            const QString key = it.key().trimmed().toLower();
+            if (!paramOrder_.contains(key)) continue;
+            paramValues_.insert(key, QString::number(it.value().toLongLong()));
+            paramModes_.insert(key, QStringLiteral("fixed"));
+        }
+        savePersistentConfig_();
+        emit strategyParametersChanged();
+        return;
+    }
+}
+
+void BacktestViewModel::startDetailedRunFromSweepPoint(int rowIndex) {
+    const QVariantList rows = selectedSweepRows();
+    if (rowIndex < 0 || rowIndex >= rows.size()) return;
+    const QVariantMap params = rows.at(rowIndex).toMap().value(QStringLiteral("params")).toMap();
+    QHash<QString, QString> overrides;
+    for (auto it = params.constBegin(); it != params.constEnd(); ++it) overrides.insert(it.key().trimmed().toLower(), QString::number(it.value().toLongLong()));
+    startBacktestWithOverrides_(overrides, QStringLiteral("detail"));
+}
+
+void BacktestViewModel::startDetailedRunFromSweepPointById(int pointId) {
+    const auto* record = selectedRecord_();
+    if (record == nullptr || !record->sweep) return;
+    for (const QVariant& value : record->sweepCurves) {
+        const QVariantMap curve = value.toMap();
+        if (curve.value(QStringLiteral("pointId")).toInt() != pointId) continue;
+        const QVariantMap params = curve.value(QStringLiteral("params")).toMap();
+        QHash<QString, QString> overrides;
+        for (auto it = params.constBegin(); it != params.constEnd(); ++it) overrides.insert(it.key().trimmed().toLower(), QString::number(it.value().toLongLong()));
+        startBacktestWithOverrides_(overrides, QStringLiteral("detail"));
+        return;
+    }
+}
 void BacktestViewModel::cancelBacktest() {
     cancelRequested_.store(true, std::memory_order_release);
     if (running_) setStatusText_(QStringLiteral("Cancelling backtest"));
@@ -1150,6 +1672,38 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
 
     const QJsonObject object = doc.object();
     record.valid = true;
+    if (jsonValueString(object, QStringLiteral("type")) == QStringLiteral("sweep.result.v1")) {
+        const QString sweepId = jsonValueString(object, QStringLiteral("sweep_id"));
+        if (!sweepId.trimmed().isEmpty()) record.runId = sweepId.trimmed();
+        record.sweep = true;
+        record.status = errorCount(object.value(QStringLiteral("errors"))) == 0 ? QStringLiteral("complete") : QStringLiteral("error");
+        record.strategy = jsonValueString(object, QStringLiteral("strategy"));
+        record.displayName = QStringLiteral("Sweep %1").arg(record.strategy).trimmed();
+        record.configText = QStringLiteral("budget=%1 seed=%2 points=%3")
+            .arg(jsonValueString(object, QStringLiteral("budget")),
+                 jsonValueString(object, QStringLiteral("search_seed")),
+                 jsonValueString(object, QStringLiteral("points_evaluated")));
+        const QJsonObject rowsObject = object.value(QStringLiteral("rows")).toObject();
+        QString rowsPath = rowsObject.value(QStringLiteral("path")).toString(QStringLiteral("sweep_results.jsonl"));
+        const QFileInfo rowsInfo(rowsPath);
+        if (rowsInfo.isRelative()) rowsPath = runDir.absoluteFilePath(rowsPath);
+        record.sweepRows = sweepRowsFromJsonl(rowsPath, QStringLiteral("total_pnl_e8"));
+        const QJsonObject curvesObject = object.value(QStringLiteral("curves")).toObject();
+        QString curvesPath = curvesObject.value(QStringLiteral("path")).toString(QStringLiteral("sweep_curves.jsonl"));
+        const QFileInfo curvesInfo(curvesPath);
+        if (curvesInfo.isRelative()) curvesPath = runDir.absoluteFilePath(curvesPath);
+        record.sweepCurves = sweepCurvesFromJsonl(curvesPath);
+        if (!record.sweepRows.empty()) record.totalPnlE8 = record.sweepRows.front().toMap().value(QStringLiteral("totalPnlE8")).toLongLong();
+        if (!record.sweepCurves.empty()) {
+            const QVariantMap first = record.sweepCurves.front().toMap();
+            record.initialBalanceE8 = first.value(QStringLiteral("initialBalanceE8")).toLongLong();
+            record.totalPnlE8 = first.value(QStringLiteral("totalPnlE8")).toLongLong();
+        }
+        record.errorCount = errorCount(object.value(QStringLiteral("errors")));
+        record.summaryJson = humanSummaryJson(object);
+        record.rawJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
+        return record;
+    }
     const QString runId = jsonValueString(object, QStringLiteral("run_id"));
     if (!runId.trimmed().isEmpty()) record.runId = runId.trimmed();
     record.status = jsonValueString(object, QStringLiteral("status"));
@@ -1265,6 +1819,10 @@ QString BacktestViewModel::configSummary_() const {
 
 void BacktestViewModel::loadStrategyDefaults_() {
     paramValues_.clear();
+    paramModes_.clear();
+    paramMinValues_.clear();
+    paramMaxValues_.clear();
+    paramStepValues_.clear();
     activeParamByGroup_.clear();
     paramOrder_.clear();
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
@@ -1274,8 +1832,13 @@ void BacktestViewModel::loadStrategyDefaults_() {
         if (param.key == nullptr || param.key[0] == '\0') continue;
         const QString key = qString(param.key).trimmed().toLower();
         if (key.isEmpty() || paramOrder_.contains(key)) continue;
+        const QString value = qString(param.defaultValue);
         paramOrder_.push_back(key);
-        paramValues_.insert(key, qString(param.defaultValue));
+        paramValues_.insert(key, value);
+        paramModes_.insert(key, isSweepKey(key) ? QStringLiteral("sweep") : QStringLiteral("fixed"));
+        paramMinValues_.insert(key, defaultRangeMin(key, value));
+        paramMaxValues_.insert(key, defaultRangeMax(key, value));
+        paramStepValues_.insert(key, defaultRangeStep(key));
         if (param.exclusiveGroup != 0u && (param.defaultActive || !activeParamByGroup_.contains(static_cast<int>(param.exclusiveGroup)))) {
             activeParamByGroup_.insert(static_cast<int>(param.exclusiveGroup), key);
         }
@@ -1294,14 +1857,35 @@ void BacktestViewModel::loadPersistentConfig_() {
     configMode_ = QStringLiteral("fixed");
     selectedIndicatorProfile_ = settings_.value(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), defaultIndicatorProfileForStrategy(selectedStrategy_)).toString().trimmed();
     if (!indicatorProfileAllowedForStrategy(selectedStrategy_, selectedIndicatorProfile_)) selectedIndicatorProfile_ = defaultIndicatorProfileForStrategy(selectedStrategy_);
+    const bool hasLegacyPingLatency = settings_.contains(QStringLiteral("backtests/ping_latency_us"));
     pingLatencyUs_ = settings_.value(QStringLiteral("backtests/ping_latency_us"), pingLatencyUs_).toString().trimmed();
     if (pingLatencyUs_.isEmpty()) pingLatencyUs_ = QStringLiteral("1000");
+    latencySeed_ = settings_.value(QStringLiteral("backtests/latency_seed"), latencySeed_).toString().trimmed();
+    if (latencySeed_.isEmpty()) latencySeed_ = QStringLiteral("0");
+    marketDataLatencyUs_ = settings_.value(QStringLiteral("backtests/market_data_latency_us"), marketDataLatencyUs_).toString().trimmed();
+    if (marketDataLatencyUs_.isEmpty()) marketDataLatencyUs_ = QStringLiteral("250");
+    marketDataJitterUs_ = settings_.value(QStringLiteral("backtests/market_data_jitter_us"), marketDataJitterUs_).toString().trimmed();
+    if (marketDataJitterUs_.isEmpty()) marketDataJitterUs_ = QStringLiteral("100");
+    if (settings_.contains(QStringLiteral("backtests/market_order_latency_us"))) marketOrderLatencyUs_ = settings_.value(QStringLiteral("backtests/market_order_latency_us"), marketOrderLatencyUs_).toString().trimmed();
+    else if (hasLegacyPingLatency) marketOrderLatencyUs_ = pingLatencyUs_;
+    if (marketOrderLatencyUs_.isEmpty()) marketOrderLatencyUs_ = QStringLiteral("2500");
+    marketOrderJitterUs_ = settings_.value(QStringLiteral("backtests/market_order_jitter_us"), marketOrderJitterUs_).toString().trimmed();
+    if (marketOrderJitterUs_.isEmpty()) marketOrderJitterUs_ = QStringLiteral("1000");
+    if (settings_.contains(QStringLiteral("backtests/limit_order_latency_us"))) limitOrderLatencyUs_ = settings_.value(QStringLiteral("backtests/limit_order_latency_us"), limitOrderLatencyUs_).toString().trimmed();
+    else if (hasLegacyPingLatency) limitOrderLatencyUs_ = pingLatencyUs_;
+    if (limitOrderLatencyUs_.isEmpty()) limitOrderLatencyUs_ = QStringLiteral("1800");
+    limitOrderJitterUs_ = settings_.value(QStringLiteral("backtests/limit_order_jitter_us"), limitOrderJitterUs_).toString().trimmed();
+    if (limitOrderJitterUs_.isEmpty()) limitOrderJitterUs_ = QStringLiteral("700");
     initialBalanceUsdt_ = settings_.value(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_).toString().trimmed();
     if (initialBalanceUsdt_.isEmpty()) initialBalanceUsdt_ = QStringLiteral("1000");
     makerFeeBps_ = settings_.value(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_).toString().trimmed();
     if (makerFeeBps_.isEmpty()) makerFeeBps_ = QStringLiteral("0");
     takerFeeBps_ = settings_.value(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_).toString().trimmed();
     if (takerFeeBps_.isEmpty()) takerFeeBps_ = QStringLiteral("0");
+    sweepBudget_ = settings_.value(QStringLiteral("backtests/sweep_budget"), sweepBudget_).toString().trimmed();
+    if (sweepBudget_.isEmpty()) sweepBudget_ = QStringLiteral("64");
+    sweepSeed_ = settings_.value(QStringLiteral("backtests/sweep_seed"), sweepSeed_).toString().trimmed();
+    if (sweepSeed_.isEmpty()) sweepSeed_ = QStringLiteral("0");
     loadStrategyDefaults_();
     loadSavedParameterValues_();
 }
@@ -1311,6 +1895,13 @@ void BacktestViewModel::loadSavedParameterValues_() {
     for (const QString& key : paramOrder_) {
         const QString value = settings_.value(key, paramValues_.value(key)).toString().trimmed();
         if (!value.isEmpty()) paramValues_.insert(key, value);
+        paramModes_.insert(key, normalizedParamMode(settings_.value(QStringLiteral("%1.mode").arg(key), paramModes_.value(key, QStringLiteral("fixed"))).toString()));
+        const QString minValue = settings_.value(QStringLiteral("%1.min").arg(key), paramMinValues_.value(key)).toString().trimmed();
+        const QString maxValue = settings_.value(QStringLiteral("%1.max").arg(key), paramMaxValues_.value(key)).toString().trimmed();
+        const QString stepValue = settings_.value(QStringLiteral("%1.step").arg(key), paramStepValues_.value(key)).toString().trimmed();
+        if (!minValue.isEmpty()) paramMinValues_.insert(key, minValue);
+        if (!maxValue.isEmpty()) paramMaxValues_.insert(key, maxValue);
+        if (!stepValue.isEmpty()) paramStepValues_.insert(key, stepValue);
     }
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata != nullptr) {
@@ -1328,11 +1919,26 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/config_mode/%1").arg(selectedStrategy_), configMode_);
     settings_.setValue(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), selectedIndicatorProfile_);
     settings_.setValue(QStringLiteral("backtests/ping_latency_us"), pingLatencyUs_);
+    settings_.setValue(QStringLiteral("backtests/latency_seed"), latencySeed_);
+    settings_.setValue(QStringLiteral("backtests/market_data_latency_us"), marketDataLatencyUs_);
+    settings_.setValue(QStringLiteral("backtests/market_data_jitter_us"), marketDataJitterUs_);
+    settings_.setValue(QStringLiteral("backtests/market_order_latency_us"), marketOrderLatencyUs_);
+    settings_.setValue(QStringLiteral("backtests/market_order_jitter_us"), marketOrderJitterUs_);
+    settings_.setValue(QStringLiteral("backtests/limit_order_latency_us"), limitOrderLatencyUs_);
+    settings_.setValue(QStringLiteral("backtests/limit_order_jitter_us"), limitOrderJitterUs_);
     settings_.setValue(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_);
     settings_.setValue(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_);
+    settings_.setValue(QStringLiteral("backtests/sweep_budget"), sweepBudget_);
+    settings_.setValue(QStringLiteral("backtests/sweep_seed"), sweepSeed_);
     settings_.beginGroup(QStringLiteral("backtests/params/%1").arg(selectedStrategy_));
-    for (const QString& key : paramOrder_) settings_.setValue(key, paramValues_.value(key));
+    for (const QString& key : paramOrder_) {
+        settings_.setValue(key, paramValues_.value(key));
+        settings_.setValue(QStringLiteral("%1.mode").arg(key), paramModes_.value(key, QStringLiteral("fixed")));
+        settings_.setValue(QStringLiteral("%1.min").arg(key), paramMinValues_.value(key));
+        settings_.setValue(QStringLiteral("%1.max").arg(key), paramMaxValues_.value(key));
+        settings_.setValue(QStringLiteral("%1.step").arg(key), paramStepValues_.value(key));
+    }
     for (auto it = activeParamByGroup_.constBegin(); it != activeParamByGroup_.constEnd(); ++it) settings_.setValue(groupSettingKey(it.key()), it.value());
     settings_.endGroup();
     settings_.sync();
@@ -1342,7 +1948,7 @@ QString BacktestViewModel::profilePath_() const {
     return QDir(recordingsRoot()).absoluteFilePath(QStringLiteral("backtest_profiles/%1/%2.ini").arg(selectedStrategy_, cleanProfileName(profileName_)));
 }
 
-QString BacktestViewModel::writeRunConfig_(const QString& runId) {
+QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides, bool fixedOnly) {
     const QString templatePath = configTemplatePathForStrategy(selectedStrategy_);
     const QString base = templatePath.isEmpty() ? QString{} : readTextFile(templatePath);
     if (!templatePath.isEmpty() && base.isEmpty()) return {};
@@ -1371,7 +1977,8 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId) {
     for (const QString& key : paramOrder_) {
         const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
         if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
-        const QString value = paramValues_.value(key).trimmed();
+        if (fixedOnly && paramModes_.value(key, QStringLiteral("fixed")) != QStringLiteral("fixed")) continue;
+        const QString value = overrides.value(key, paramValues_.value(key)).trimmed();
         if (!value.isEmpty()) out << key << "=" << value << "\n";
     }
     out << "\n[venue." << venue << "]\n";
