@@ -58,6 +58,14 @@ bool hasChoiceId(const QVariantList& rows, const QString& id) {
     return false;
 }
 
+QString choiceLabel(const QVariantList& rows, const QString& id) {
+    for (const QVariant& row : rows) {
+        const QVariantMap map = row.toMap();
+        if (map.value(QStringLiteral("id")).toString() == id) return map.value(QStringLiteral("label")).toString();
+    }
+    return {};
+}
+
 QString metricValue(const QVariantList& rows, const QString& key) {
     for (const QVariant& row : rows) {
         const QVariantMap map = row.toMap();
@@ -307,21 +315,43 @@ TEST(BacktestViewModel, ReadsSymbolFromNestedManifestAndAllowsOverride) {
     EXPECT_EQ(vm.selectedSymbol(), QStringLiteral("BTCUSDT"));
 }
 
-TEST(BacktestViewModel, ConfigModeFiltersFixedAndNatrParameterKeys) {
-    isolateSettings(QStringLiteral("natr_filter"));
+TEST(BacktestViewModel, ExposesOnlyMetadataParameterKeys) {
+    isolateSettings(QStringLiteral("metadata_params"));
 
     hftrec::gui::BacktestViewModel vm;
     vm.setSelectedStrategy(QStringLiteral("spread_maker1and2"));
 
-    vm.setConfigMode(QStringLiteral("fixed"));
+    EXPECT_EQ(vm.configMode(), QStringLiteral("fixed"));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_bps")));
+    EXPECT_EQ(metricLabelValue(vm.strategyParameters(), QStringLiteral("distance_bps")), QStringLiteral("distance_bps"));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("trigger_bps")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("refresh_ms")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("close_delay_us")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("start_ms")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("sizing_mode")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("amount_qty")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("order_qty")));
+    vm.setStrategyParameterGroup(1, QStringLiteral("order_qty"));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("amount_qty")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("order_qty")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_natr_pct")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("natr_ema_period_seconds")));
 
     vm.setConfigMode(QStringLiteral("natr"));
-    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_bps")));
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_natr_pct")));
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("natr_ema_period_seconds")));
+    EXPECT_EQ(vm.configMode(), QStringLiteral("fixed"));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_natr_pct")));
+}
+
+TEST(BacktestViewModel, HidesUndeclaredIndicatorProfiles) {
+    isolateSettings(QStringLiteral("indicator_metadata"));
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSelectedStrategy(QStringLiteral("spread_maker1and2"));
+
+    EXPECT_TRUE(vm.indicatorProfileChoices().empty());
+    EXPECT_TRUE(vm.selectedIndicatorProfile().isEmpty());
+    vm.setSelectedIndicatorProfile(QStringLiteral("trade_range"));
+    EXPECT_TRUE(vm.selectedIndicatorProfile().isEmpty());
 }
 
 TEST(BacktestViewModel, ExposesBacktestProbeWithoutStrategyParams) {
@@ -333,16 +363,23 @@ TEST(BacktestViewModel, ExposesBacktestProbeWithoutStrategyParams) {
     vm.setSelectedStrategy(QStringLiteral("backtest_probe"));
     EXPECT_TRUE(vm.strategyParameters().empty());
     EXPECT_EQ(vm.configModeChoices().size(), 1);
+    const QVariantList indicators = vm.indicatorProfileChoices();
+    ASSERT_EQ(indicators.size(), 2);
+    EXPECT_EQ(choiceLabel(indicators, QStringLiteral("trade_range")), QStringLiteral("Trade range"));
+    EXPECT_EQ(choiceLabel(indicators, QStringLiteral("rolling_volume")), QStringLiteral("Rolling volume"));
+    EXPECT_EQ(vm.selectedIndicatorProfile(), QStringLiteral("trade_range"));
 }
 
-TEST(BacktestViewModel, DiscoversStrategyChoicesFromTraderStrategyHeaders) {
+TEST(BacktestViewModel, ExposesStrategyChoicesFromBacktestMetadata) {
     isolateSettings(QStringLiteral("strategy_discovery"));
 
     hftrec::gui::BacktestViewModel vm;
     const QVariantList choices = vm.strategyChoices();
 
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("spread_maker1and2")));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("spread_maker1and2")), QStringLiteral("spread_maker1and2"));
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("backtest_probe")));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("backtest_probe")), QStringLiteral("backtest_probe"));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("strategyMD")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("horizontal_levels")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("iceberg_detector")));
@@ -375,17 +412,17 @@ TEST(BacktestViewModel, PersistsConfigButNotSession) {
         vm.setInitialBalanceUsdt(QStringLiteral("750.25"));
         vm.setMakerFeeBps(QStringLiteral("0.2"));
         vm.setTakerFeeBps(QStringLiteral("0.5"));
-        vm.setStrategyParameter(QStringLiteral("distance_natr_pct"), QStringLiteral("700"));
+        vm.setStrategyParameter(QStringLiteral("distance_bps"), QStringLiteral("700"));
     }
 
     hftrec::gui::BacktestViewModel restored;
     EXPECT_EQ(restored.selectedStrategy(), QStringLiteral("spread_maker1and2"));
-    EXPECT_EQ(restored.configMode(), QStringLiteral("natr"));
+    EXPECT_EQ(restored.configMode(), QStringLiteral("fixed"));
     EXPECT_EQ(restored.pingLatencyUs(), QStringLiteral("2500"));
     EXPECT_EQ(restored.initialBalanceUsdt(), QStringLiteral("750.25"));
     EXPECT_EQ(restored.makerFeeBps(), QStringLiteral("0.2"));
     EXPECT_EQ(restored.takerFeeBps(), QStringLiteral("0.5"));
-    EXPECT_TRUE(hasParamKey(restored.strategyParameters(), QStringLiteral("distance_natr_pct")));
+    EXPECT_TRUE(hasParamKey(restored.strategyParameters(), QStringLiteral("distance_bps")));
     EXPECT_NE(restored.sessionPath(), session);
 }
 

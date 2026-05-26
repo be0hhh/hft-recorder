@@ -36,12 +36,14 @@ if(Qt6_FOUND)
             test_backtest_viewmodel.cpp
             test_recorded_render_once.cpp
             test_strategy_overlay.cpp
+            test_strategy_indicator.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerSession.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerSelection.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/LiveDataProvider.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/StrategyOverlay.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/StrategyIndicator.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.hpp

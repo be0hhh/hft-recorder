@@ -14,6 +14,7 @@
 #include "core/replay/SessionReplay.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
+#include "gui/viewer/StrategyIndicator.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -48,6 +49,7 @@ class ChartController : public QObject {
     Q_PROPERTY(int renderWindowSeconds READ renderWindowSeconds WRITE setRenderWindowSeconds NOTIFY renderWindowChanged)
     Q_PROPERTY(QVariantList backtestResults READ backtestResults NOTIFY backtestResultsChanged)
     Q_PROPERTY(QString selectedBacktestResult READ selectedBacktestResult NOTIFY backtestResultChanged)
+    Q_PROPERTY(bool hasStrategyIndicator READ hasStrategyIndicator NOTIFY backtestResultChanged)
 
   public:
     explicit ChartController(QObject* parent = nullptr);
@@ -106,6 +108,7 @@ class ChartController : public QObject {
     bool renderWindowActive() const noexcept { return renderWindowSeconds_ != 0; }
     QVariantList backtestResults() const { return backtestResults_; }
     QString selectedBacktestResult() const { return selectedBacktestResult_; }
+    bool hasStrategyIndicator() const noexcept { return !strategyIndicator_.empty(); }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
     Q_INVOKABLE void setActive(bool active);
@@ -161,6 +164,8 @@ class ChartController : public QObject {
     void refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsMax);
 
     RenderSnapshot buildSnapshot(qreal widthPx, qreal heightPx, const SnapshotInputs& in);
+
+    const StrategyIndicatorData& strategyIndicator() const noexcept { return strategyIndicator_; }
 
     hftrec::replay::SessionReplay& replay() noexcept { return replay_; }
     const hftrec::replay::SessionReplay& replay() const noexcept { return replay_; }
@@ -288,6 +293,7 @@ class ChartController : public QObject {
     QVariantList backtestResults_{};
     QString selectedBacktestResult_{};
     StrategyOverlayData strategyOverlay_{};
+    StrategyIndicatorData strategyIndicator_{};
     int renderWindowSeconds_{0};
     bool tradeLodAggregated_{false};
 };

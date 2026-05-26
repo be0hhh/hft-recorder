@@ -1006,6 +1006,7 @@ Pane {
                 anchors.top: parent.top
                 anchors.right: priceScale.left
                 anchors.bottom: timeScale.top
+                anchors.bottomMargin: chart.hasStrategyIndicator ? strategyIndicatorFrame.height : 0
                 clip: true
                 Component {
                     id: cpuChartComponent
@@ -1180,6 +1181,20 @@ Pane {
                     }
                 }
                 ViewerSelectionOverlay { interaction: interaction; chart: chart; plotWidth: plotFrame.width; plotHeight: plotFrame.height; accentBuyColor: root.accentBuyColor; borderColor: root.borderColor; textColor: root.textColor }
+            }
+            Item {
+                id: strategyIndicatorFrame
+                visible: !root.comparePickerActive && chart.hasStrategyIndicator
+                anchors.left: parent.left
+                anchors.right: priceScale.left
+                anchors.bottom: timeScale.top
+                height: visible ? Math.min(170, Math.max(120, parent.height * 0.24)) : 0
+                clip: true
+                StrategyIndicatorItem {
+                    anchors.fill: parent
+                    controller: chart
+                }
+                Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; height: 1; color: root.borderColor }
             }
             ViewerPriceScale {
                 id: priceScale

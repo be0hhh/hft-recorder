@@ -10,13 +10,13 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QMetaObject>
-#include <QRegularExpression>
 #include <QTextStream>
 #include <QVariantMap>
 
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <string>
 
 #include "hft_backtest/backtest.hpp"
 #include "core/common/Status.hpp"
@@ -26,39 +26,11 @@ namespace {
 
 constexpr qsizetype kMaxDisplayEquityPoints = 4096;
 
-struct StrategyParamSpec {
-    const char* strategy;
-    const char* key;
-    const char* label;
-    const char* description;
-};
-
 struct IniKeyValue {
     QString key;
     QString value;
 };
 
-struct NatrParamPair {
-    const char* strategy;
-    const char* fixedKey;
-    const char* natrKey;
-};
-
-constexpr StrategyParamSpec kParamSpecs[] = {
-    {"spread_maker1and2", "distance_bps", "Distance bps", "Limit quote distance from BBO. 100 bps = 1%."},
-    {"spread_maker1and2", "distance_natr_pct", "Distance NATR %", "Limit quote distance as percent of trade range EMA."},
-    {"spread_maker1and2", "trigger_bps", "Requote trigger bps", "Price move needed before strategy replaces quote."},
-    {"spread_maker1and2", "trigger_natr_pct", "Requote trigger NATR %", "Price move threshold as percent of trade range EMA."},
-    {"spread_maker1and2", "natr_ema_period_seconds", "NATR EMA seconds", "Trade range EMA window."},
-    {"spread_maker1and2", "refresh_ms", "Refresh ms", "Minimum delay between quote refreshes."},
-    {"spread_maker1and2", "close_delay_us", "Close delay us", "Strategy close-order delay from ini."},
-    {"spread_maker1and2", "amount_qty", "Quote amount", "Order size in quote currency."},
-};
-
-constexpr NatrParamPair kNatrPairs[] = {
-    {"spread_maker1and2", "distance_bps", "distance_natr_pct"},
-    {"spread_maker1and2", "trigger_bps", "trigger_natr_pct"},
-};
 
 QString jsonValueString(const QJsonObject& object, const QString& key) {
     const QJsonValue value = object.value(key);
@@ -354,37 +326,28 @@ bool progressCallback(const hft_backtest::BacktestProgress& progress, void* user
     return !vm->workerCancelRequested();
 }
 
-QString configFileForStrategy(const QString& strategy) {
-    const QString root = QStringLiteral(HFT_BACKTEST_TRADER_SOURCE_DIR);
-    const QString id = strategy.trimmed();
-    QString file = QStringLiteral("1and2.ini");
-    if (id == QStringLiteral("backtest_probe")) file = QStringLiteral("probe.ini");
-    return QDir(root).absoluteFilePath(file);
+QString qString(const char* text) {
+    return text == nullptr ? QString{} : QString::fromUtf8(text);
 }
 
-QStringList discoverStrategyIds() {
-    QStringList out;
-    const QDir strategyRoot(QDir(QStringLiteral(HFT_BACKTEST_TRADER_SOURCE_DIR)).absoluteFilePath(QStringLiteral("strategy")));
-    const QStringList dirs = strategyRoot.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
-    for (const QString& dirName : dirs) {
-        const QString headerPath = strategyRoot.absoluteFilePath(QStringLiteral("%1/Strategy.hpp").arg(dirName));
-        QFile header(headerPath);
-        if (!header.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
-        const QString text = QString::fromUtf8(header.readAll());
-        const QRegularExpression descriptorPattern(QStringLiteral("\\b%1StrategyDescriptor\\s*\\(")
-                                                        .arg(QRegularExpression::escape(dirName)));
-        if (text.contains(descriptorPattern)) out.push_back(dirName);
-    }
-    return out;
+const hft_backtest::StrategyMetadata* metadataForStrategy(const QString& strategy) {
+    const std::string id = strategy.trimmed().toStdString();
+    return hft_backtest::findStrategyMetadata(id);
 }
 
 bool isDiscoveredStrategy(const QString& strategy) {
-    return discoverStrategyIds().contains(strategy.trimmed());
+    return metadataForStrategy(strategy) != nullptr;
 }
 
 QString firstDiscoveredStrategy() {
-    const QStringList ids = discoverStrategyIds();
-    return ids.empty() ? QString{} : ids.front();
+    const hft_backtest::StrategyMetadata* metadata = hft_backtest::strategyMetadataAt(0u);
+    return metadata == nullptr ? QString{} : qString(metadata->id);
+}
+
+QString configTemplatePathForStrategy(const QString& strategy) {
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
+    if (metadata == nullptr || metadata->configTemplateFile == nullptr || metadata->configTemplateFile[0] == '\0') return {};
+    return QDir(QStringLiteral(HFT_BACKTEST_TRADER_SOURCE_DIR)).absoluteFilePath(qString(metadata->configTemplateFile));
 }
 
 QString readTextFile(const QString& path) {
@@ -437,19 +400,8 @@ std::vector<IniKeyValue> iniSectionValues(const QString& text, const QString& se
     return out;
 }
 
-const StrategyParamSpec* paramSpecFor(const QString& strategy, const QString& key) {
-    for (const StrategyParamSpec& spec : kParamSpecs) {
-        if (strategy == QString::fromUtf8(spec.strategy) && key == QString::fromUtf8(spec.key)) return &spec;
-    }
-    return nullptr;
-}
 
-QString labelForParamKey(const QString& key) {
-    QString out = key;
-    out.replace(QLatin1Char('_'), QLatin1Char(' '));
-    if (!out.isEmpty()) out[0] = out[0].toUpper();
-    return out;
-}
+
 
 QString manifestValue(const QString& sessionPath, const QString& key) {
     QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
@@ -512,60 +464,64 @@ QString metadataCommentValue(const QString& text, const QString& key) {
     return {};
 }
 
-QString normalizeConfigMode(QString mode) {
-    mode = mode.trimmed().toLower();
-    if (mode == QStringLiteral("natr") || mode == QStringLiteral("natr_pct") || mode == QStringLiteral("natr%")) return QStringLiteral("natr");
+QString normalizeConfigMode(QString) {
     return QStringLiteral("fixed");
 }
 
-bool strategyHasNatrMode(const QString& strategy) noexcept {
-    for (const NatrParamPair& pair : kNatrPairs) {
-        if (strategy == QString::fromUtf8(pair.strategy)) return true;
+QString groupSettingKey(int group) {
+    return QStringLiteral("__group_%1").arg(group);
+}
+
+QString paramGroupKey(const hft_backtest::StrategyMetadata& metadata, std::uint8_t group) {
+    for (std::size_t i = 0; i < metadata.paramGroupCount && i < hft_backtest::kStrategyMetadataMaxParamGroups; ++i) {
+        const hft_backtest::StrategyParamGroupMetadata& paramGroup = metadata.paramGroups[i];
+        if (paramGroup.id == group && paramGroup.key != nullptr && paramGroup.key[0] != '\0') return qString(paramGroup.key);
+    }
+    return groupSettingKey(group);
+}
+
+QVariantList paramGroupChoices(const hft_backtest::StrategyMetadata& metadata, std::uint8_t group) {
+    QVariantList choices;
+    for (std::size_t i = 0; i < metadata.paramCount && i < hft_backtest::kStrategyMetadataMaxParams; ++i) {
+        const hft_backtest::StrategyParamMetadata& param = metadata.params[i];
+        if (param.exclusiveGroup != group || param.key == nullptr || param.key[0] == '\0') continue;
+        const QString key = qString(param.key);
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), key);
+        row.insert(QStringLiteral("label"), key);
+        choices.push_back(row);
+    }
+    return choices;
+}
+
+bool paramExistsInExclusiveGroup(const hft_backtest::StrategyMetadata& metadata, std::uint8_t group, const QString& key) {
+    const std::string needle = key.trimmed().toLower().toStdString();
+    for (std::size_t i = 0; i < metadata.paramCount && i < hft_backtest::kStrategyMetadataMaxParams; ++i) {
+        const hft_backtest::StrategyParamMetadata& param = metadata.params[i];
+        if (param.exclusiveGroup == group && param.key != nullptr && needle == param.key) return true;
+    }
+    return false;
+}
+bool metadataHasParam(const hft_backtest::StrategyMetadata& metadata, const QString& key) {
+    const std::string needle = key.trimmed().toLower().toStdString();
+    for (std::size_t i = 0; i < metadata.paramCount && i < hft_backtest::kStrategyMetadataMaxParams; ++i) {
+        if (metadata.params[i].key != nullptr && needle == metadata.params[i].key) return true;
     }
     return false;
 }
 
-bool natrControlledKey(const QString& strategy, const QString& key) noexcept {
-    if (key == QStringLiteral("natr_ema_period_seconds") && strategyHasNatrMode(strategy)) return true;
-    for (const NatrParamPair& pair : kNatrPairs) {
-        if (strategy != QString::fromUtf8(pair.strategy)) continue;
-        if (key == QString::fromUtf8(pair.fixedKey) || key == QString::fromUtf8(pair.natrKey)) return true;
+const hft_backtest::StrategyParamMetadata* paramMetadataFor(const QString& strategy, const QString& key) {
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
+    if (metadata == nullptr) return nullptr;
+    const std::string needle = key.trimmed().toLower().toStdString();
+    for (std::size_t i = 0; i < metadata->paramCount && i < hft_backtest::kStrategyMetadataMaxParams; ++i) {
+        const hft_backtest::StrategyParamMetadata& param = metadata->params[i];
+        if (param.key != nullptr && needle == param.key) return &param;
     }
-    return false;
+    return nullptr;
 }
 
-bool keyVisibleForConfigMode(const QString& strategy, const QString& key, const QString& mode) noexcept {
-    if (!strategyHasNatrMode(strategy)) return true;
-    if (key == QStringLiteral("natr_ema_period_seconds")) return mode == QStringLiteral("natr");
-    for (const NatrParamPair& pair : kNatrPairs) {
-        if (strategy != QString::fromUtf8(pair.strategy)) continue;
-        if (key == QString::fromUtf8(pair.fixedKey)) return mode == QStringLiteral("fixed");
-        if (key == QString::fromUtf8(pair.natrKey)) return mode == QStringLiteral("natr");
-    }
-    return true;
-}
-
-QString fallbackValueForKey(const QString& strategy, const QString& key) {
-    if (key == QStringLiteral("natr_ema_period_seconds")) return QStringLiteral("60");
-    if (strategy == QStringLiteral("spread_maker1and2") && key == QStringLiteral("distance_bps")) return QStringLiteral("20");
-    if (strategy == QStringLiteral("spread_maker1and2") && key == QStringLiteral("distance_natr_pct")) return QStringLiteral("200");
-    if (strategy == QStringLiteral("spread_maker1and2") && key == QStringLiteral("trigger_bps")) return QStringLiteral("2");
-    if (strategy == QStringLiteral("spread_maker1and2") && key == QStringLiteral("trigger_natr_pct")) return QStringLiteral("100");
-    for (const NatrParamPair& pair : kNatrPairs) {
-        if (strategy != QString::fromUtf8(pair.strategy)) continue;
-        const QString fixedKey = QString::fromUtf8(pair.fixedKey);
-        const QString natrKey = QString::fromUtf8(pair.natrKey);
-        if (key == natrKey) {
-            if (fixedKey.contains(QStringLiteral("trigger")) || fixedKey.contains(QStringLiteral("move")) || fixedKey.contains(QStringLiteral("action"))) {
-                return QStringLiteral("100");
-            }
-            return QStringLiteral("600");
-        }
-    }
-    return {};
-}
-
-QString filteredBaseConfig(const QString& base, const QString& strategy) {
+QString filteredBaseConfig(const QString& base) {
     QString out;
     QTextStream stream(&out);
     QString section;
@@ -579,17 +535,12 @@ QString filteredBaseConfig(const QString& base, const QString& strategy) {
         probe = probe.trimmed();
         if (probe.startsWith(QLatin1Char('[')) && probe.endsWith(QLatin1Char(']'))) {
             section = probe.mid(1, probe.size() - 2).trimmed().toLower();
-            skipSection = section.startsWith(QStringLiteral("venue."));
+            skipSection = section == QStringLiteral("strategy") || section.startsWith(QStringLiteral("venue."));
             if (skipSection) continue;
             stream << line << "\n";
             continue;
         }
         if (skipSection) continue;
-        const qsizetype eq = probe.indexOf(QLatin1Char('='));
-        if (section == QStringLiteral("strategy") && eq > 0) {
-            const QString key = probe.left(eq).trimmed().toLower();
-            if (natrControlledKey(strategy, key)) continue;
-        }
         stream << line << "\n";
     }
     return out;
@@ -664,47 +615,100 @@ QString BacktestViewModel::backtestsDirectory() const {
     return path.isEmpty() ? QString{} : QDir(path).absoluteFilePath(QStringLiteral("backtests"));
 }
 
+QString defaultIndicatorProfileForStrategy(const QString& strategy) {
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
+    if (metadata == nullptr || metadata->indicatorCount == 0u || metadata->indicators[0].id == nullptr) return {};
+    return qString(metadata->indicators[0].id);
+}
+
+QVariantMap indicatorChoice(const hft_backtest::StrategyIndicatorMetadata& indicator) {
+    QVariantMap row;
+    const QString id = qString(indicator.id);
+    const QString label = qString(indicator.labelRu);
+    row.insert(QStringLiteral("id"), id);
+    row.insert(QStringLiteral("label"), label.isEmpty() ? id : label);
+    return row;
+}
+bool indicatorProfileAllowedForStrategy(const QString& strategy, const QString& profile) {
+    if (profile.trimmed().isEmpty()) return true;
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
+    if (metadata == nullptr) return false;
+    const std::string needle = profile.trimmed().toStdString();
+    for (std::size_t i = 0; i < metadata->indicatorCount && i < hft_backtest::kStrategyMetadataMaxIndicators; ++i) {
+        const hft_backtest::StrategyIndicatorMetadata& indicator = metadata->indicators[i];
+        if (indicator.id != nullptr && needle == indicator.id) return true;
+    }
+    return false;
+}
 QVariantList BacktestViewModel::strategyChoices() const {
     QVariantList out;
-    for (const QString& strategy : discoverStrategyIds()) {
+    const std::size_t count = hft_backtest::strategyMetadataCount();
+    for (std::size_t i = 0; i < count; ++i) {
+        const hft_backtest::StrategyMetadata* metadata = hft_backtest::strategyMetadataAt(i);
+        if (metadata == nullptr || metadata->id == nullptr) continue;
         QVariantMap row;
-        row.insert(QStringLiteral("id"), strategy);
-        row.insert(QStringLiteral("label"), strategy);
+        const QString id = qString(metadata->id);
+        row.insert(QStringLiteral("id"), id);
+        row.insert(QStringLiteral("label"), id);
         out.push_back(row);
     }
     return out;
 }
 
+
+QVariantList BacktestViewModel::indicatorProfileChoices() const {
+    QVariantList out;
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+    if (metadata == nullptr) return out;
+    for (std::size_t i = 0; i < metadata->indicatorCount && i < hft_backtest::kStrategyMetadataMaxIndicators; ++i) {
+        const hft_backtest::StrategyIndicatorMetadata& indicator = metadata->indicators[i];
+        if (indicator.id == nullptr || indicator.id[0] == '\0') continue;
+        out.push_back(indicatorChoice(indicator));
+    }
+    return out;
+}
 QVariantList BacktestViewModel::configModeChoices() const {
     QVariantList out;
     QVariantMap fixed;
     fixed.insert(QStringLiteral("id"), QStringLiteral("fixed"));
     fixed.insert(QStringLiteral("label"), QStringLiteral("Fixed bps"));
     out.push_back(fixed);
-    if (strategyHasNatrMode(selectedStrategy_)) {
-        QVariantMap natr;
-        natr.insert(QStringLiteral("id"), QStringLiteral("natr"));
-        natr.insert(QStringLiteral("label"), QStringLiteral("NATR %"));
-        out.push_back(natr);
-    }
     return out;
 }
 
 QVariantList BacktestViewModel::strategyParameters() const {
     QVariantList out;
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+    if (metadata == nullptr) return out;
+    std::vector<std::uint8_t> emittedGroups;
     for (const QString& key : paramOrder_) {
-        if (!keyVisibleForConfigMode(selectedStrategy_, key, configMode_)) continue;
-        const StrategyParamSpec* spec = paramSpecFor(selectedStrategy_, key);
+        const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
+        if (param == nullptr) continue;
+        const std::uint8_t group = param->exclusiveGroup;
+        if (group != 0u) {
+            if (std::find(emittedGroups.begin(), emittedGroups.end(), group) == emittedGroups.end()) {
+                emittedGroups.push_back(group);
+                QVariantMap choiceRow;
+                choiceRow.insert(QStringLiteral("key"), paramGroupKey(*metadata, group));
+                choiceRow.insert(QStringLiteral("label"), paramGroupKey(*metadata, group));
+                choiceRow.insert(QStringLiteral("value"), activeParamByGroup_.value(static_cast<int>(group)));
+                choiceRow.insert(QStringLiteral("isChoice"), true);
+                choiceRow.insert(QStringLiteral("group"), static_cast<int>(group));
+                choiceRow.insert(QStringLiteral("choices"), paramGroupChoices(*metadata, group));
+                out.push_back(choiceRow);
+            }
+            if (activeParamByGroup_.value(static_cast<int>(group)) != key) continue;
+        }
         QVariantMap row;
         row.insert(QStringLiteral("key"), key);
-        row.insert(QStringLiteral("label"), spec ? QString::fromUtf8(spec->label) : labelForParamKey(key));
-        row.insert(QStringLiteral("description"), spec ? QString::fromUtf8(spec->description) : QStringLiteral("Runtime config parameter from trader ini."));
+        row.insert(QStringLiteral("label"), key);
+        row.insert(QStringLiteral("description"), QStringLiteral("Strategy runtime parameter."));
         row.insert(QStringLiteral("value"), paramValues_.value(key));
+        row.insert(QStringLiteral("isChoice"), false);
         out.push_back(row);
     }
     return out;
 }
-
 QVariantList BacktestViewModel::runs() const {
     QVariantList out;
     for (const auto& record : records_) {
@@ -823,19 +827,30 @@ void BacktestViewModel::setSelectedStrategy(const QString& strategy) {
     if (!isDiscoveredStrategy(next)) return;
     savePersistentConfig_();
     selectedStrategy_ = next;
-    if (!strategyHasNatrMode(selectedStrategy_)) configMode_ = QStringLiteral("fixed");
+    configMode_ = QStringLiteral("fixed");
     loadStrategyDefaults_();
     loadSavedParameterValues_();
+    selectedIndicatorProfile_ = settings_.value(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), defaultIndicatorProfileForStrategy(selectedStrategy_)).toString().trimmed();
+    if (!indicatorProfileAllowedForStrategy(selectedStrategy_, selectedIndicatorProfile_)) selectedIndicatorProfile_ = defaultIndicatorProfileForStrategy(selectedStrategy_);
     savePersistentConfig_();
     emit selectedStrategyChanged();
+    emit indicatorProfileChanged();
     emit configChanged();
     emit strategyParametersChanged();
     emit canRunChanged();
 }
 
+void BacktestViewModel::setSelectedIndicatorProfile(const QString& profile) {
+    QString next = profile.trimmed();
+    if (!indicatorProfileAllowedForStrategy(selectedStrategy_, next)) next = defaultIndicatorProfileForStrategy(selectedStrategy_);
+    if (selectedIndicatorProfile_ == next) return;
+    selectedIndicatorProfile_ = next;
+    savePersistentConfig_();
+    emit indicatorProfileChanged();
+}
+
 void BacktestViewModel::setConfigMode(const QString& mode) {
-    QString next = normalizeConfigMode(mode);
-    if (!strategyHasNatrMode(selectedStrategy_)) next = QStringLiteral("fixed");
+    const QString next = normalizeConfigMode(mode);
     if (configMode_ == next) return;
     configMode_ = next;
     savePersistentConfig_();
@@ -846,6 +861,8 @@ void BacktestViewModel::setConfigMode(const QString& mode) {
 void BacktestViewModel::setStrategyParameter(const QString& key, const QString& value) {
     const QString normalizedKey = key.trimmed().toLower();
     if (normalizedKey.isEmpty()) return;
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+    if (metadata == nullptr || !metadataHasParam(*metadata, normalizedKey)) return;
     const QString normalizedValue = value.trimmed();
     if (paramValues_.value(normalizedKey) == normalizedValue) return;
     if (!paramOrder_.contains(normalizedKey)) paramOrder_.push_back(normalizedKey);
@@ -854,6 +871,17 @@ void BacktestViewModel::setStrategyParameter(const QString& key, const QString& 
     emit strategyParametersChanged();
 }
 
+void BacktestViewModel::setStrategyParameterGroup(int group, const QString& key) {
+    if (group <= 0) return;
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+    if (metadata == nullptr) return;
+    const QString normalizedKey = key.trimmed().toLower();
+    if (!paramExistsInExclusiveGroup(*metadata, static_cast<std::uint8_t>(group), normalizedKey)) return;
+    if (activeParamByGroup_.value(group) == normalizedKey) return;
+    activeParamByGroup_.insert(group, normalizedKey);
+    savePersistentConfig_();
+    emit strategyParametersChanged();
+}
 void BacktestViewModel::setProfileName(const QString& profileName) {
     const QString next = cleanProfileName(profileName);
     if (profileName_ == next) return;
@@ -923,7 +951,10 @@ void BacktestViewModel::saveProfile() {
     out << "taker_fee_bps=" << takerFeeBps_ << "\\n";
     out << "config_mode=" << configMode_ << "\\n\\n";
     out << "[strategy]\\n";
+    for (auto it = activeParamByGroup_.constBegin(); it != activeParamByGroup_.constEnd(); ++it) out << groupSettingKey(it.key()) << "=" << it.value() << "\\n";
     for (const QString& key : paramOrder_) {
+        const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
+        if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
         out << key << "=" << paramValues_.value(key) << "\\n";
     }
     setStatusText_(QStringLiteral("Profile saved"));
@@ -941,11 +972,17 @@ void BacktestViewModel::loadProfile() {
     if (!initialBalance.isEmpty()) initialBalanceUsdt_ = initialBalance;
     if (!makerFee.isEmpty()) makerFeeBps_ = makerFee;
     if (!takerFee.isEmpty()) takerFeeBps_ = takerFee;
-    if (!mode.isEmpty()) configMode_ = strategyHasNatrMode(selectedStrategy_) ? normalizeConfigMode(mode) : QStringLiteral("fixed");
+    if (!mode.isEmpty()) configMode_ = normalizeConfigMode(mode);
     for (const IniKeyValue& row : iniSectionValues(text, QStringLiteral("strategy"))) {
         const QString key = row.key;
-        if (!paramOrder_.contains(key)) continue;
         const QString value = row.value;
+        if (key.startsWith(QStringLiteral("__group_"))) {
+            const int group = key.mid(QStringLiteral("__group_").size()).toInt();
+            const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+            if (metadata != nullptr && paramExistsInExclusiveGroup(*metadata, static_cast<std::uint8_t>(group), value)) activeParamByGroup_.insert(group, value.trimmed().toLower());
+            continue;
+        }
+        if (!paramOrder_.contains(key)) continue;
         if (!value.isEmpty()) paramValues_.insert(key, value);
     }
     emit latencyChanged();
@@ -1045,11 +1082,13 @@ void BacktestViewModel::startBacktest() {
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
     const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
-    worker_ = std::thread([this, sessionPath, strategy, runId, configPath, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee] {
+    const QString indicatorProfile = selectedIndicatorProfile_;
+    worker_ = std::thread([this, sessionPath, strategy, runId, configPath, indicatorProfile, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee] {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPath.toStdString();
         request.configPath = configPath.toStdString();
         request.strategy = strategy.toStdString();
+        request.indicatorProfile = indicatorProfile.toStdString();
         request.runId = runId.toStdString();
         request.requestId = runId.toStdString();
         request.orderLatencyUs = orderLatency;
@@ -1212,39 +1251,34 @@ QString BacktestViewModel::displayName_() const {
 QString BacktestViewModel::configSummary_() const {
     QStringList parts;
     for (const QString& key : paramOrder_) {
-        if (!keyVisibleForConfigMode(selectedStrategy_, key, configMode_)) continue;
+        const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
+        if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
         const QString value = paramValues_.value(key).trimmed();
         if (!value.isEmpty()) parts.push_back(QStringLiteral("%1=%2").arg(key, value));
         if (parts.size() >= 3) break;
     }
     QString summary = configMode_.trimmed();
     if (!parts.empty()) summary += QStringLiteral(": ") + parts.join(QStringLiteral(", "));
+    if (!selectedIndicatorProfile_.isEmpty()) summary += QStringLiteral(" | indicator=%1").arg(selectedIndicatorProfile_);
     return summary;
 }
 
 void BacktestViewModel::loadStrategyDefaults_() {
     paramValues_.clear();
+    activeParamByGroup_.clear();
     paramOrder_.clear();
-    const QString text = readTextFile(configFileForStrategy(selectedStrategy_));
-    for (const IniKeyValue& row : iniSectionValues(text, QStringLiteral("strategy"))) {
-        if (row.key == QStringLiteral("type") || row.key == QStringLiteral("enabled") || row.key == QStringLiteral("inputs")) continue;
-        paramOrder_.push_back(row.key);
-        paramValues_.insert(row.key, row.value);
-    }
-    for (const NatrParamPair& pair : kNatrPairs) {
-        if (selectedStrategy_ != QString::fromUtf8(pair.strategy)) continue;
-        const QString fixedKey = QString::fromUtf8(pair.fixedKey);
-        const QString natrKey = QString::fromUtf8(pair.natrKey);
-        if (!paramOrder_.contains(fixedKey)) paramOrder_.push_back(fixedKey);
-        if (!paramOrder_.contains(natrKey)) paramOrder_.push_back(natrKey);
-        if (!paramValues_.contains(fixedKey)) paramValues_.insert(fixedKey, fallbackValueForKey(selectedStrategy_, fixedKey));
-        if (!paramValues_.contains(natrKey)) paramValues_.insert(natrKey, fallbackValueForKey(selectedStrategy_, natrKey));
-    }
-    if (strategyHasNatrMode(selectedStrategy_) && !paramOrder_.contains(QStringLiteral("natr_ema_period_seconds"))) {
-        paramOrder_.push_back(QStringLiteral("natr_ema_period_seconds"));
-    }
-    if (strategyHasNatrMode(selectedStrategy_) && !paramValues_.contains(QStringLiteral("natr_ema_period_seconds"))) {
-        paramValues_.insert(QStringLiteral("natr_ema_period_seconds"), fallbackValueForKey(selectedStrategy_, QStringLiteral("natr_ema_period_seconds")));
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+    if (metadata == nullptr) return;
+    for (std::size_t i = 0; i < metadata->paramCount && i < hft_backtest::kStrategyMetadataMaxParams; ++i) {
+        const hft_backtest::StrategyParamMetadata& param = metadata->params[i];
+        if (param.key == nullptr || param.key[0] == '\0') continue;
+        const QString key = qString(param.key).trimmed().toLower();
+        if (key.isEmpty() || paramOrder_.contains(key)) continue;
+        paramOrder_.push_back(key);
+        paramValues_.insert(key, qString(param.defaultValue));
+        if (param.exclusiveGroup != 0u && (param.defaultActive || !activeParamByGroup_.contains(static_cast<int>(param.exclusiveGroup)))) {
+            activeParamByGroup_.insert(static_cast<int>(param.exclusiveGroup), key);
+        }
     }
 }
 
@@ -1257,7 +1291,9 @@ void BacktestViewModel::loadPersistentConfig_() {
         if (!fallback.isEmpty()) selectedStrategy_ = fallback;
     }
     configMode_ = normalizeConfigMode(settings_.value(QStringLiteral("backtests/config_mode/%1").arg(selectedStrategy_), configMode_).toString());
-    if (!strategyHasNatrMode(selectedStrategy_)) configMode_ = QStringLiteral("fixed");
+    configMode_ = QStringLiteral("fixed");
+    selectedIndicatorProfile_ = settings_.value(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), defaultIndicatorProfileForStrategy(selectedStrategy_)).toString().trimmed();
+    if (!indicatorProfileAllowedForStrategy(selectedStrategy_, selectedIndicatorProfile_)) selectedIndicatorProfile_ = defaultIndicatorProfileForStrategy(selectedStrategy_);
     pingLatencyUs_ = settings_.value(QStringLiteral("backtests/ping_latency_us"), pingLatencyUs_).toString().trimmed();
     if (pingLatencyUs_.isEmpty()) pingLatencyUs_ = QStringLiteral("1000");
     initialBalanceUsdt_ = settings_.value(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_).toString().trimmed();
@@ -1276,18 +1312,28 @@ void BacktestViewModel::loadSavedParameterValues_() {
         const QString value = settings_.value(key, paramValues_.value(key)).toString().trimmed();
         if (!value.isEmpty()) paramValues_.insert(key, value);
     }
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+    if (metadata != nullptr) {
+        for (std::size_t i = 0; i < metadata->paramGroupCount && i < hft_backtest::kStrategyMetadataMaxParamGroups; ++i) {
+            const int group = static_cast<int>(metadata->paramGroups[i].id);
+            const QString key = settings_.value(groupSettingKey(group), activeParamByGroup_.value(group)).toString().trimmed().toLower();
+            if (paramExistsInExclusiveGroup(*metadata, static_cast<std::uint8_t>(group), key)) activeParamByGroup_.insert(group, key);
+        }
+    }
     settings_.endGroup();
 }
 
 void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/selected_strategy"), selectedStrategy_);
     settings_.setValue(QStringLiteral("backtests/config_mode/%1").arg(selectedStrategy_), configMode_);
+    settings_.setValue(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), selectedIndicatorProfile_);
     settings_.setValue(QStringLiteral("backtests/ping_latency_us"), pingLatencyUs_);
     settings_.setValue(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_);
     settings_.setValue(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_);
     settings_.beginGroup(QStringLiteral("backtests/params/%1").arg(selectedStrategy_));
     for (const QString& key : paramOrder_) settings_.setValue(key, paramValues_.value(key));
+    for (auto it = activeParamByGroup_.constBegin(); it != activeParamByGroup_.constEnd(); ++it) settings_.setValue(groupSettingKey(it.key()), it.value());
     settings_.endGroup();
     settings_.sync();
 }
@@ -1297,8 +1343,9 @@ QString BacktestViewModel::profilePath_() const {
 }
 
 QString BacktestViewModel::writeRunConfig_(const QString& runId) {
-    const QString base = readTextFile(configFileForStrategy(selectedStrategy_));
-    if (base.isEmpty()) return {};
+    const QString templatePath = configTemplatePathForStrategy(selectedStrategy_);
+    const QString base = templatePath.isEmpty() ? QString{} : readTextFile(templatePath);
+    if (!templatePath.isEmpty() && base.isEmpty()) return {};
     const QString session = selectedSessionPath();
     const QString exchange = manifestValue(session, QStringLiteral("exchange"));
     const QString market = manifestValue(session, QStringLiteral("market"));
@@ -1315,14 +1362,15 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId) {
     out << "# recorder backtest metadata\n";
     out << "# display_name=" << displayName_() << "\n";
     out << "# config_summary=" << configSummary_() << "\n\n";
-    const QString filteredBase = filteredBaseConfig(base, selectedStrategy_);
+    const QString filteredBase = filteredBaseConfig(base);
     out << filteredBase;
     if (!filteredBase.endsWith(QLatin1Char('\n'))) out << "\n";
     out << "\n# recorder backtest overrides\n";
     out << "[strategy]\n";
     out << "type=" << selectedStrategy_ << "\n";
     for (const QString& key : paramOrder_) {
-        if (!keyVisibleForConfigMode(selectedStrategy_, key, configMode_)) continue;
+        const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
+        if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
         const QString value = paramValues_.value(key).trimmed();
         if (!value.isEmpty()) out << key << "=" << value << "\n";
     }

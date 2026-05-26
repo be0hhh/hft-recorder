@@ -26,6 +26,8 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QVariantList strategyChoices READ strategyChoices CONSTANT)
     Q_PROPERTY(QString selectedStrategy READ selectedStrategy WRITE setSelectedStrategy NOTIFY selectedStrategyChanged)
     Q_PROPERTY(QString configMode READ configMode WRITE setConfigMode NOTIFY configChanged)
+    Q_PROPERTY(QVariantList indicatorProfileChoices READ indicatorProfileChoices NOTIFY selectedStrategyChanged)
+    Q_PROPERTY(QString selectedIndicatorProfile READ selectedIndicatorProfile WRITE setSelectedIndicatorProfile NOTIFY indicatorProfileChanged)
     Q_PROPERTY(QVariantList configModeChoices READ configModeChoices NOTIFY selectedStrategyChanged)
     Q_PROPERTY(QVariantList strategyParameters READ strategyParameters NOTIFY strategyParametersChanged)
     Q_PROPERTY(QString profileName READ profileName WRITE setProfileName NOTIFY profileChanged)
@@ -69,6 +71,8 @@ class BacktestViewModel : public QObject {
     QVariantList strategyChoices() const;
     QString selectedStrategy() const { return selectedStrategy_; }
     QString configMode() const { return configMode_; }
+    QVariantList indicatorProfileChoices() const;
+    QString selectedIndicatorProfile() const { return selectedIndicatorProfile_; }
     QVariantList configModeChoices() const;
     QVariantList strategyParameters() const;
     QString profileName() const { return profileName_; }
@@ -104,7 +108,9 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setSelectedSymbol(const QString& symbol);
     Q_INVOKABLE void setSelectedStrategy(const QString& strategy);
     Q_INVOKABLE void setConfigMode(const QString& mode);
+    Q_INVOKABLE void setSelectedIndicatorProfile(const QString& profile);
     Q_INVOKABLE void setStrategyParameter(const QString& key, const QString& value);
+    Q_INVOKABLE void setStrategyParameterGroup(int group, const QString& key);
     Q_INVOKABLE void setProfileName(const QString& profileName);
     Q_INVOKABLE void setPingLatencyUs(const QString& value);
     Q_INVOKABLE void setInitialBalanceUsdt(const QString& value);
@@ -131,6 +137,7 @@ class BacktestViewModel : public QObject {
     void symbolChanged();
     void selectedStrategyChanged();
     void configChanged();
+    void indicatorProfileChanged();
     void accountingChanged();
     void strategyParametersChanged();
     void profileChanged();
@@ -196,6 +203,7 @@ class BacktestViewModel : public QObject {
     QString selectedRunId_{};
     QString selectedStrategy_{QStringLiteral("spread_maker1and2")};
     QString configMode_{QStringLiteral("fixed")};
+    QString selectedIndicatorProfile_{};
     QString profileName_{QStringLiteral("default")};
     QString pingLatencyUs_{QStringLiteral("1000")};
     QString initialBalanceUsdt_{QStringLiteral("1000")};
@@ -209,6 +217,7 @@ class BacktestViewModel : public QObject {
     std::thread worker_{};
     std::vector<RunRecord> records_{};
     QHash<QString, QString> paramValues_{};
+    QHash<int, QString> activeParamByGroup_{};
     QStringList paramOrder_{};
 };
 

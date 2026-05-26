@@ -26,6 +26,7 @@ Pane {
         sessionBox.currentIndex = sessionBox.indexOfValue(root.backtestVm.selectedSessionId)
         strategyBox.currentIndex = strategyBox.indexOfValue(root.backtestVm.selectedStrategy)
         configModeBox.currentIndex = configModeBox.indexOfValue(root.backtestVm.configMode)
+        indicatorBox.currentIndex = indicatorBox.indexOfValue(root.backtestVm.selectedIndicatorProfile)
     }
 
     background: Rectangle { color: root.windowColor }
@@ -37,6 +38,7 @@ Pane {
         function onSymbolChanged() { symbolField.text = root.backtestVm.selectedSymbol }
         function onSelectedStrategyChanged() { root.syncSelections() }
         function onConfigChanged() { root.syncSelections() }
+        function onIndicatorProfileChanged() { root.syncSelections() }
     }
 
     component ActionButton: Rectangle {
@@ -148,6 +150,19 @@ Pane {
                         onActivated: root.backtestVm.setConfigMode(currentValue)
                         Component.onCompleted: root.syncSelections()
                     }
+                    RecorderComboBox {
+                        id: indicatorBox
+                        Layout.preferredWidth: 170
+                        caption: "Indicator"
+                        textRole: "label"
+                        valueRole: "id"
+                        model: root.backtestVm.indicatorProfileChoices
+                        popupWidth: 190
+                        visible: count > 0
+                        enabled: count > 0
+                        onActivated: root.backtestVm.setSelectedIndicatorProfile(currentValue)
+                        Component.onCompleted: root.syncSelections()
+                    }
                 }
 
                 RowLayout {
@@ -219,7 +234,20 @@ Pane {
                         anchors.rightMargin: 10
                         spacing: 6
                         Label { text: modelData.label; color: root.textColor; font.pixelSize: 11; elide: Text.ElideRight; Layout.preferredWidth: 112 }
+                        RecorderComboBox {
+                            visible: modelData.isChoice === true
+                            Layout.preferredWidth: 116
+                            Layout.preferredHeight: 30
+                            caption: ""
+                            textRole: "label"
+                            valueRole: "id"
+                            model: modelData.choices || []
+                            popupWidth: 150
+                            Component.onCompleted: currentIndex = indexOfValue(modelData.value)
+                            onActivated: root.backtestVm.setStrategyParameterGroup(modelData.group, currentValue)
+                        }
                         TextField {
+                            visible: modelData.isChoice !== true
                             Layout.preferredWidth: 88
                             Layout.preferredHeight: 26
                             text: modelData.value

@@ -102,9 +102,10 @@ void ChartController::clearLiveDataCache_() noexcept {
 }
 
 void ChartController::clearStrategyOverlay_() noexcept {
-    const bool changed = !selectedBacktestResult_.isEmpty() || !strategyOverlay_.empty();
+    const bool changed = !selectedBacktestResult_.isEmpty() || !strategyOverlay_.empty() || !strategyIndicator_.empty();
     selectedBacktestResult_.clear();
     strategyOverlay_ = StrategyOverlayData{};
+    strategyIndicator_ = StrategyIndicatorData{};
     if (!changed) return;
     emit backtestResultChanged();
     emit markersChanged();
@@ -145,16 +146,24 @@ bool ChartController::selectBacktestResult(const QString& resultPath) {
         return true;
     }
 
+    const std::filesystem::path resultDir(stripFileUrl(pathText));
     StrategyOverlayData next{};
+    StrategyIndicatorData nextIndicator{};
     std::string error;
-    if (!loadStrategyOverlayFromResult(std::filesystem::path(stripFileUrl(pathText)), latestRenderableTsNs_(), next, error)) {
+    if (!loadStrategyOverlayFromResult(resultDir, latestRenderableTsNs_(), next, error)) {
         statusText_ = QStringLiteral("Backtest load failed: ") + QString::fromStdString(error);
+        emit statusChanged();
+        return false;
+    }
+    if (!loadStrategyIndicatorFromResult(resultDir, nextIndicator, error)) {
+        statusText_ = QStringLiteral("Backtest indicator load failed: ") + QString::fromStdString(error);
         emit statusChanged();
         return false;
     }
 
     selectedBacktestResult_ = pathText;
     strategyOverlay_ = std::move(next);
+    strategyIndicator_ = std::move(nextIndicator);
     emit backtestResultChanged();
     emit markersChanged();
     emit viewportChanged();
