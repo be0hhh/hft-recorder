@@ -50,13 +50,19 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
 
 ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "binance")) return canon::kExchangeIdBinance;
+    if (textEqualsAscii(exchange, "bybit")) return canon::kExchangeIdBybit;
     if (textEqualsAscii(exchange, "kucoin")) return canon::kExchangeIdKucoin;
     if (textEqualsAscii(exchange, "gate")) return canon::kExchangeIdGate;
     if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
+    if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
+    if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
     return canon::kExchangeIdUnknown;
 }
 
 canon::MarketType marketTypeFromConfig(std::string_view market) noexcept {
+    if (textEqualsAscii(market, "spot")) return canon::kMarketTypeSpot;
+    if (textEqualsAscii(market, "margin")) return canon::kMarketTypeMargin;
+    if (textEqualsAscii(market, "inverse")) return canon::kMarketTypeInverse;
     if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
     return canon::kMarketTypeFutures;
 }
@@ -168,11 +174,13 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
         return Status::InvalidArgument;
     }
     if (exchangeIdFromConfig(config.exchange).raw == canon::kExchangeIdUnknown.raw) {
-        lastError = "capture exchange must be one of: binance, kucoin, gate, bitget";
+        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, okx";
         return Status::InvalidArgument;
     }
-    if (!textEqualsAscii(config.market, "futures_usd") && !textEqualsAscii(config.market, "swap")) {
-        lastError = "capture market must be futures_usd or swap";
+    if (!textEqualsAscii(config.market, "futures") && !textEqualsAscii(config.market, "futures_usd") &&
+        !textEqualsAscii(config.market, "spot") && !textEqualsAscii(config.market, "margin") &&
+        !textEqualsAscii(config.market, "inverse") && !textEqualsAscii(config.market, "swap")) {
+        lastError = "capture market must be futures, spot, margin, inverse or swap";
         return Status::InvalidArgument;
     }
     if (config.outputDir.empty()) {

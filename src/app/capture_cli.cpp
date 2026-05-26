@@ -15,23 +15,27 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook|candles> [seconds] [output_dir] [exchange] [symbol] [trades_warmup_sec]");
+    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook|candles> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
     std::puts("  hft-recorder capture bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
     std::puts("Examples:");
     std::puts("  hft-recorder capture bookticker all 60 ./recordings");
     std::puts("  hft-recorder capture bookticker 10 ./recordings binance BTCUSDT");
+    std::puts("  hft-recorder capture bookticker 10 ./recordings bybit BTCUSDT futures");
     std::puts("  hft-recorder capture bookticker 10 ./recordings kucoin BTCUSDTM");
     std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT");
-    std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT 300");
+    std::puts("  hft-recorder capture bookticker 10 ./recordings aster ASTERUSDT spot");
+    std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT margin");
+    std::puts("  hft-recorder capture bookticker 10 ./recordings okx BTC-USDT-SWAP futures");
+    std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT futures 300");
     std::puts("  hft-recorder capture candles 1 ./recordings binance BSBUSDT");
 }
 
 capture::CaptureConfig makeDefaultConfig() {
     capture::CaptureConfig config{};
     config.exchange = "binance";
-    config.market = "futures_usd";
+    config.market = "futures";
     config.symbols = {"ETHUSDT"};
     config.outputDir = "./recordings";
     config.durationSec = 10;
@@ -41,14 +45,19 @@ capture::CaptureConfig makeDefaultConfig() {
 
 struct VenueDefault {
     const char* exchange;
+    const char* market;
     const char* symbol;
 };
 
 constexpr VenueDefault kBookTickerVenueDefaults[] = {
-    {"binance", "BTCUSDT"},
-    {"kucoin", "BTCUSDTM"},
-    {"gate", "BTC_USDT"},
-    {"bitget", "BTCUSDT"},
+    {"binance", "futures", "BTCUSDT"},
+    {"bybit", "futures", "BTCUSDT"},
+    {"kucoin", "futures", "BTCUSDTM"},
+    {"gate", "futures", "BTC_USDT"},
+    {"bitget", "futures", "BTCUSDT"},
+    {"aster", "futures", "BTCUSDT"},
+    {"aster", "spot", "ASTERUSDT"},
+    {"okx", "futures", "BTC-USDT-SWAP"},
 };
 
 Status startChannel(capture::CaptureCoordinator& coordinator,
@@ -66,6 +75,16 @@ Status startChannel(capture::CaptureCoordinator& coordinator,
     return Status::InvalidArgument;
 }
 
+bool isMarketText(const std::string& text) noexcept {
+    return text == "futures" || text == "futures_usd" || text == "spot" || text == "margin" || text == "inverse" || text == "swap";
+}
+
+void applyTradesWarmupArg(capture::CaptureConfig& config, const char* text) noexcept {
+    config.tradesHistoryWarmupSec = std::strtoll(text, nullptr, 10);
+    if (config.tradesHistoryWarmupSec < 0) config.tradesHistoryWarmupSec = 0;
+    if (config.tradesHistoryWarmupSec > 86400) config.tradesHistoryWarmupSec = 86400;
+}
+
 bool applyOptionalSingleVenueArgs(capture::CaptureConfig& config, int argc, char** argv) {
     if (argc >= 5) {
         config.exchange = argv[4];
@@ -74,9 +93,13 @@ bool applyOptionalSingleVenueArgs(capture::CaptureConfig& config, int argc, char
         config.symbols = {argv[5]};
     }
     if (argc >= 7) {
-        config.tradesHistoryWarmupSec = std::strtoll(argv[6], nullptr, 10);
-        if (config.tradesHistoryWarmupSec < 0) config.tradesHistoryWarmupSec = 0;
-        if (config.tradesHistoryWarmupSec > 86400) config.tradesHistoryWarmupSec = 86400;
+        const std::string marketOrWarmup = argv[6];
+        if (isMarketText(marketOrWarmup)) {
+            config.market = marketOrWarmup;
+            if (argc >= 8) applyTradesWarmupArg(config, argv[7]);
+        } else {
+            applyTradesWarmupArg(config, argv[6]);
+        }
     }
     return true;
 }
@@ -113,7 +136,7 @@ int runCapture(int argc, char** argv) {
         for (const auto& venue : kBookTickerVenueDefaults) {
             auto venueConfig = config;
             venueConfig.exchange = venue.exchange;
-            venueConfig.market = "futures_usd";
+            venueConfig.market = venue.market;
             venueConfig.symbols = {venue.symbol};
 
             auto coordinator = std::make_unique<capture::CaptureCoordinator>();
@@ -121,15 +144,17 @@ int runCapture(int argc, char** argv) {
             if (!isOk(startStatus)) {
                 const auto error = coordinator->lastError();
                 std::fprintf(stderr,
-                             "capture start failed: exchange=%s symbol=%s %s\n",
+                             "capture start failed: exchange=%s market=%s symbol=%s %s\n",
                              venue.exchange,
+                             venue.market,
                              venue.symbol,
                              !error.empty() ? error.c_str() : statusToString(startStatus).data());
                 for (auto& running : coordinators) (void)running->finalizeSession();
                 return 1;
             }
-            std::printf("capture started: channel=bookticker exchange=%s market=futures_usd symbol=%s duration=%llds dir=%s\n",
+            std::printf("capture started: channel=bookticker exchange=%s market=%s symbol=%s duration=%llds dir=%s\n",
                         venue.exchange,
+                        venue.market,
                         venue.symbol,
                         static_cast<long long>(venueConfig.durationSec),
                         venueConfig.outputDir.string().c_str());

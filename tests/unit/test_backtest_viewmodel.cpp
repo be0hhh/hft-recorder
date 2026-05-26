@@ -428,6 +428,63 @@ TEST(BacktestViewModel, SessionRowsExposeBacktestCountAsRightText) {
     EXPECT_EQ(sessionRow.value(QStringLiteral("rightText")).toString(), QStringLiteral("2"));
 }
 
+TEST(BacktestViewModel, ExposesSweepDistributionBarsGroupedBySelectedParameter) {
+    isolateSettings(QStringLiteral("sweep_distribution"));
+    const QString session = makeTempSessionDir();
+    const QString sweepDir = QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-dist"));
+    QDir().mkpath(sweepDir);
+    writeFile(QDir(sweepDir).absoluteFilePath(QStringLiteral("manifest.json")), R"json({
+      "type":"sweep.result.v1",
+      "sweep_id":"sweep-dist",
+      "strategy":"spread_maker1and2",
+      "budget":4,
+      "search_seed":0,
+      "points_evaluated":4,
+      "rows":{"path":"sweep_results.jsonl","row_schema":"object.v1"},
+      "curves":{"path":"sweep_curves.jsonl","row_schema":"object.v1"},
+      "ranges":[
+        {"key":"close_delay_us","mode":"grid","min_raw":100,"max_raw":200,"step_raw":100},
+        {"key":"distance_bps","mode":"grid","min_raw":10,"max_raw":20,"step_raw":10}
+      ],
+      "errors":[]
+    })json");
+    writeFile(QDir(sweepDir).absoluteFilePath(QStringLiteral("sweep_results.jsonl")), QByteArrayLiteral(
+        "{\"point_id\":1,\"params\":{\"close_delay_us\":100,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":-100000000}\n"
+        "{\"point_id\":2,\"params\":{\"close_delay_us\":100,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":300000000}\n"
+        "{\"point_id\":3,\"params\":{\"close_delay_us\":200,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":200000000}\n"
+        "{\"point_id\":4,\"params\":{\"close_delay_us\":200,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":-50000000}\n"));
+    writeFile(QDir(sweepDir).absoluteFilePath(QStringLiteral("sweep_curves.jsonl")), QByteArray{});
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSessionPath(session);
+    vm.selectRun(QStringLiteral("sweep-dist"));
+
+    EXPECT_TRUE(hasChoiceId(vm.sweepViewChoices(), QStringLiteral("distribution")));
+    EXPECT_EQ(vm.selectedSweepMetric(), QStringLiteral("total_pnl_e8"));
+    ASSERT_EQ(vm.selectedSweepDistributionParamChoices().size(), 2);
+    EXPECT_EQ(vm.selectedSweepDistributionParamChoices().at(0).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("close_delay_us"));
+    EXPECT_EQ(vm.selectedSweepDistributionParam(), QStringLiteral("close_delay_us"));
+
+    const QVariantList bars = vm.selectedSweepDistributionBars();
+    ASSERT_EQ(bars.size(), 4);
+    EXPECT_EQ(bars.at(0).toMap().value(QStringLiteral("pointId")).toInt(), 2);
+    EXPECT_EQ(bars.at(0).toMap().value(QStringLiteral("paramRaw")).toLongLong(), 100);
+    EXPECT_EQ(bars.at(0).toMap().value(QStringLiteral("metricRaw")).toLongLong(), 300000000ll);
+    EXPECT_EQ(bars.at(1).toMap().value(QStringLiteral("pointId")).toInt(), 1);
+    EXPECT_EQ(bars.at(1).toMap().value(QStringLiteral("paramRaw")).toLongLong(), 100);
+    EXPECT_EQ(bars.at(2).toMap().value(QStringLiteral("pointId")).toInt(), 3);
+    EXPECT_EQ(bars.at(2).toMap().value(QStringLiteral("paramRaw")).toLongLong(), 200);
+    EXPECT_EQ(bars.at(3).toMap().value(QStringLiteral("pointId")).toInt(), 4);
+    EXPECT_EQ(bars.at(3).toMap().value(QStringLiteral("metricText")).toString(), QStringLiteral("-0.5"));
+
+    vm.setSelectedSweepDistributionParam(QStringLiteral("distance_bps"));
+    const QVariantList distanceBars = vm.selectedSweepDistributionBars();
+    ASSERT_EQ(distanceBars.size(), 4);
+    EXPECT_EQ(distanceBars.at(0).toMap().value(QStringLiteral("paramRaw")).toLongLong(), 10);
+    EXPECT_EQ(distanceBars.at(1).toMap().value(QStringLiteral("paramRaw")).toLongLong(), 10);
+    EXPECT_EQ(distanceBars.at(2).toMap().value(QStringLiteral("paramRaw")).toLongLong(), 20);
+}
+
 TEST(BacktestViewModel, PersistsConfigButNotSession) {
     isolateSettings(QStringLiteral("persist"));
     const QString session = makeTempSessionDir();

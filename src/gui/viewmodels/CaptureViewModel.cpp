@@ -1,4 +1,4 @@
-#include "gui/viewmodels/CaptureViewModel.hpp"
+﻿#include "gui/viewmodels/CaptureViewModel.hpp"
 
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
@@ -16,9 +16,31 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
     orderbookAvailableAliases_ = detail::loadAliasesForChannel("orderbook");
     venueSymbolsTexts_ = {
         QStringLiteral("BTCUSDT"),
-        QStringLiteral("XBTUSDTM"),
-        QStringLiteral("BTC_USDT"),
         QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTCUSD_PERP"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTCUSD"),
+        QStringLiteral("XBTUSDTM"),
+        QStringLiteral("BTC-USDT"),
+        QStringLiteral("BTC-USDT"),
+        QStringLiteral("BTC_USDT"),
+        QStringLiteral("BTC_USDT"),
+        QStringLiteral("BTC_USDT"),
+        QStringLiteral("BTC_USD"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTCUSD"),
+        QStringLiteral("BTCUSDC"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("ASTERUSDT"),
+        QStringLiteral("ASTERUSDT"),
+        QStringLiteral("BTC-USDT-SWAP"),
+        QStringLiteral("BTC-USDT"),
+        QStringLiteral("BTC-USDT"),
     };
 
     refreshTimer_.setInterval(250);

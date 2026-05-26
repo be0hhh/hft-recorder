@@ -52,6 +52,12 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString sweepSeed READ sweepSeed WRITE setSweepSeed NOTIFY sweepConfigChanged)
     Q_PROPERTY(QVariantList sweepCurveLimitChoices READ sweepCurveLimitChoices CONSTANT)
     Q_PROPERTY(QString selectedSweepCurveLimit READ selectedSweepCurveLimit WRITE setSelectedSweepCurveLimit NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList sweepViewChoices READ sweepViewChoices CONSTANT)
+    Q_PROPERTY(QString selectedSweepView READ selectedSweepView WRITE setSelectedSweepView NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList sweepMetricChoices READ sweepMetricChoices CONSTANT)
+    Q_PROPERTY(QString selectedSweepMetric READ selectedSweepMetric WRITE setSelectedSweepMetric NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedSweepDistributionParamChoices READ selectedSweepDistributionParamChoices NOTIFY selectionChanged)
+    Q_PROPERTY(QString selectedSweepDistributionParam READ selectedSweepDistributionParam WRITE setSelectedSweepDistributionParam NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList runs READ runs NOTIFY runsChanged)
     Q_PROPERTY(int runCount READ runCount NOTIFY runsChanged)
     Q_PROPERTY(QString selectedRunId READ selectedRunId NOTIFY selectionChanged)
@@ -62,6 +68,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QVariantList selectedResultMetrics READ selectedResultMetrics NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedSweepRows READ selectedSweepRows NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedSweepCurves READ selectedSweepCurves NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedSweepDistributionBars READ selectedSweepDistributionBars NOTIFY selectionChanged)
     Q_PROPERTY(bool selectedIsSweep READ selectedIsSweep NOTIFY selectionChanged)
     Q_PROPERTY(bool hasEquityPoints READ hasEquityPoints NOTIFY selectionChanged)
     Q_PROPERTY(qint64 selectedInitialBalanceE8 READ selectedInitialBalanceE8 NOTIFY selectionChanged)
@@ -114,6 +121,12 @@ class BacktestViewModel : public QObject {
     QString sweepSeed() const { return sweepSeed_; }
     QVariantList sweepCurveLimitChoices() const;
     QString selectedSweepCurveLimit() const { return selectedSweepCurveLimit_; }
+    QVariantList sweepViewChoices() const;
+    QString selectedSweepView() const { return selectedSweepView_; }
+    QVariantList sweepMetricChoices() const;
+    QString selectedSweepMetric() const { return selectedSweepMetric_; }
+    QVariantList selectedSweepDistributionParamChoices() const;
+    QString selectedSweepDistributionParam() const;
     QVariantList runs() const;
     int runCount() const noexcept { return static_cast<int>(records_.size()); }
     QString selectedRunId() const { return selectedRunId_; }
@@ -124,6 +137,7 @@ class BacktestViewModel : public QObject {
     QVariantList selectedResultMetrics() const;
     QVariantList selectedSweepRows() const;
     QVariantList selectedSweepCurves() const;
+    QVariantList selectedSweepDistributionBars() const;
     bool selectedIsSweep() const;
     bool hasEquityPoints() const;
     qint64 selectedInitialBalanceE8() const;
@@ -164,6 +178,9 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setSweepBudget(const QString& value);
     Q_INVOKABLE void setSweepSeed(const QString& value);
     Q_INVOKABLE void setSelectedSweepCurveLimit(const QString& limit);
+    Q_INVOKABLE void setSelectedSweepView(const QString& view);
+    Q_INVOKABLE void setSelectedSweepMetric(const QString& metric);
+    Q_INVOKABLE void setSelectedSweepDistributionParam(const QString& key);
     Q_INVOKABLE void setStrategyParameterMode(const QString& key, const QString& mode);
     Q_INVOKABLE void setStrategyParameterRange(const QString& key, const QString& minValue, const QString& maxValue, const QString& stepValue);
     Q_INVOKABLE void saveProfile();
@@ -220,6 +237,7 @@ class BacktestViewModel : public QObject {
         QVariantList resultMetrics{};
         QVariantList sweepRows{};
         QVariantList sweepCurves{};
+        QStringList sweepParamKeys{};
         qint64 initialBalanceE8{0};
         qint64 totalPnlE8{0};
         qint64 pnlMinE8{0};
@@ -280,6 +298,9 @@ class BacktestViewModel : public QObject {
     QString sweepBudget_{QStringLiteral("64")};
     QString sweepSeed_{QStringLiteral("0")};
     QString selectedSweepCurveLimit_{QStringLiteral("32")};
+    QString selectedSweepView_{QStringLiteral("curves")};
+    QString selectedSweepMetric_{QStringLiteral("total_pnl_e8")};
+    QString selectedSweepDistributionParam_{};
     QString statusText_{QStringLiteral("Select a session and strategy")};
     QString progressText_{QStringLiteral("Idle")};
     int progressPercent_{0};

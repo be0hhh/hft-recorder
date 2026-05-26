@@ -401,15 +401,41 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
 
 ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "binance")) return canon::kExchangeIdBinance;
+    if (textEqualsAscii(exchange, "bybit")) return canon::kExchangeIdBybit;
     if (textEqualsAscii(exchange, "kucoin")) return canon::kExchangeIdKucoin;
     if (textEqualsAscii(exchange, "gate")) return canon::kExchangeIdGate;
     if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
+    if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
+    if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
     return canon::kExchangeIdUnknown;
 }
 
 canon::MarketType marketTypeFromConfig(std::string_view market) noexcept {
+    if (textEqualsAscii(market, "spot")) return canon::kMarketTypeSpot;
+    if (textEqualsAscii(market, "margin")) return canon::kMarketTypeMargin;
+    if (textEqualsAscii(market, "inverse")) return canon::kMarketTypeInverse;
     if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
     return canon::kMarketTypeFutures;
+}
+
+const char* marketDataStreamName(cxet::api::market::PublicMarketDataStream stream) noexcept {
+    switch (stream) {
+        case cxet::api::market::PublicMarketDataStream::BookTicker: return "bookticker";
+        case cxet::api::market::PublicMarketDataStream::Trades: return "trades";
+        case cxet::api::market::PublicMarketDataStream::Orderbook: return "orderbook";
+        case cxet::api::market::PublicMarketDataStream::Liquidations: return "liquidations";
+    }
+    return "unknown";
+}
+
+std::string routePrepareErrorText(const CaptureConfig& config,
+                                  cxet::api::market::PublicMarketDataStream stream) {
+    const std::string symbol = config.symbols.empty() ? std::string{} : config.symbols.front();
+    return std::string{"unsupported recorder market-data route"}
+        + " stream=" + marketDataStreamName(stream)
+        + " exchange=" + config.exchange
+        + " market=" + config.market
+        + " symbol=" + symbol;
 }
 
 const char* marketDataStatusName(cxet::api::market::PublicMarketDataStatus status) noexcept {
@@ -430,9 +456,12 @@ const char* marketDataStatusName(cxet::api::market::PublicMarketDataStatus statu
 }
 
 cxet::api::market::PublicMarketDataWirePreference wirePreferenceForConfig(const CaptureConfig& config) noexcept {
-    const bool sbeFutures = config.market == "futures_usd"
-        && (config.exchange == "gate" || config.exchange == "bitget");
-    return sbeFutures
+    const bool futures = textEqualsAscii(config.market, "futures") || textEqualsAscii(config.market, "futures_usd");
+    const bool bitgetSbe = textEqualsAscii(config.exchange, "bitget") &&
+        (futures || textEqualsAscii(config.market, "spot") || textEqualsAscii(config.market, "inverse") ||
+         textEqualsAscii(config.market, "swap"));
+    const bool gateSbe = textEqualsAscii(config.exchange, "gate") && futures;
+    return bitgetSbe || gateSbe
         ? cxet::api::market::PublicMarketDataWirePreference::Sbe
         : cxet::api::market::PublicMarketDataWirePreference::Auto;
 }
@@ -468,6 +497,7 @@ std::string candleFetchDiagnosticsText(const CandleFetchDiagnostics& diagnostics
 
 const char* exchangeNameForDiagnostics(ExchangeId exchange) noexcept {
     if (exchange.raw == canon::kExchangeIdBinance.raw) return "binance";
+    if (exchange.raw == canon::kExchangeIdBybit.raw) return "bybit";
     if (exchange.raw == canon::kExchangeIdKucoin.raw) return "kucoin";
     if (exchange.raw == canon::kExchangeIdGate.raw) return "gate";
     if (exchange.raw == canon::kExchangeIdBitget.raw) return "bitget";
@@ -958,6 +988,10 @@ Status CaptureCoordinator::stopTrades() noexcept {
 }
 
 Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexcept {
+    if (textEqualsAscii(config.market, "spot") || textEqualsAscii(config.market, "margin")) {
+        lastError_ = "liquidations are unsupported for spot or margin capture";
+        return Status::InvalidArgument;
+    }
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
 
@@ -1204,7 +1238,7 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
                                           kRecorderQuietStreamKeepaliveMs,
                                           cxet::metrics::latencyEnabled())) {
         std::lock_guard<std::mutex> lock(stateMutex_);
-        lastError_ = "bookticker direct route prepare failed";
+        lastError_ = routePrepareErrorText(config, cxet::api::market::PublicMarketDataStream::BookTicker);
         bookTickerRunning_.store(false, std::memory_order_release);
         marketDataRunning_.store(false, std::memory_order_release);
         return;
@@ -1343,7 +1377,7 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
                                           kRecorderQuietStreamKeepaliveMs,
                                           cxet::metrics::latencyEnabled())) {
         std::lock_guard<std::mutex> lock(stateMutex_);
-        lastError_ = "liquidations route prepare failed";
+        lastError_ = routePrepareErrorText(config, cxet::api::market::PublicMarketDataStream::Liquidations);
         liquidationsRunning_.store(false, std::memory_order_release);
         return;
     }
@@ -1477,7 +1511,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                                                   pingIntervalMs,
                                                   cxet::metrics::latencyEnabled())) {
                 std::lock_guard<std::mutex> lock(stateMutex_);
-                lastError_ = "recorder market-data route prepare failed";
+                lastError_ = routePrepareErrorText(config, stream);
                 return false;
             }
             if (connectRecorderMarketDataRoute(channel.route) != cxet::api::market::PublicMarketDataStatus::Ok) {

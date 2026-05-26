@@ -1,4 +1,4 @@
-#include "gui/viewmodels/CaptureViewModelInternal.hpp"
+﻿#include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
 #include <QRegularExpression>
 #include <QVariantMap>
@@ -21,10 +21,32 @@ struct VenueSpec {
 };
 
 constexpr VenueSpec kVenues[] = {
-    {"binance_futures", "Binance Futures", "binance", "futures_usd"},
-    {"kucoin_futures", "KuCoin Futures", "kucoin", "futures_usd"},
-    {"gate_usdt", "Gate USDT", "gate", "futures_usd"},
-    {"bitget_futures", "Bitget Futures", "bitget", "futures_usd"},
+    {"binance_futures", "Binance Futures", "binance", "futures"},
+    {"binance_spot", "Binance Spot", "binance", "spot"},
+    {"binance_margin", "Binance Margin", "binance", "margin"},
+    {"binance_inverse", "Binance Inverse", "binance", "inverse"},
+    {"bybit_futures", "Bybit Futures", "bybit", "futures"},
+    {"bybit_spot", "Bybit Spot", "bybit", "spot"},
+    {"bybit_margin", "Bybit Margin", "bybit", "margin"},
+    {"bybit_inverse", "Bybit Inverse", "bybit", "inverse"},
+    {"kucoin_futures", "KuCoin Futures", "kucoin", "futures"},
+    {"kucoin_spot", "KuCoin Spot", "kucoin", "spot"},
+    {"kucoin_margin", "KuCoin Margin", "kucoin", "margin"},
+    {"gate_futures", "Gate Futures", "gate", "futures"},
+    {"gate_spot", "Gate Spot", "gate", "spot"},
+    {"gate_margin", "Gate Margin", "gate", "margin"},
+    {"gate_inverse", "Gate Inverse", "gate", "inverse"},
+    {"bitget_futures", "Bitget Futures", "bitget", "futures"},
+    {"bitget_spot", "Bitget Spot", "bitget", "spot"},
+    {"bitget_margin", "Bitget Margin", "bitget", "margin"},
+    {"bitget_inverse", "Bitget Inverse", "bitget", "inverse"},
+    {"bitget_swap", "Bitget Swap", "bitget", "swap"},
+    {"aster_futures", "Aster Futures", "aster", "futures"},
+    {"aster_spot", "Aster Spot", "aster", "spot"},
+    {"aster_margin", "Aster Margin", "aster", "margin"},
+    {"okx_futures", "OKX Futures", "okx", "futures"},
+    {"okx_spot", "OKX Spot", "okx", "spot"},
+    {"okx_margin", "OKX Margin", "okx", "margin"},
 };
 
 std::vector<VenueSpec> selectedVenues(const QStringList& venueKeys) {
@@ -62,7 +84,12 @@ QString symbolsTextForVenue(const VenueSpec& venue,
 }
 
 QString marketDsl(const VenueSpec& venue) {
-    return QString::fromLatin1(venue.market) == QStringLiteral("swap") ? QStringLiteral("swap") : QStringLiteral("futures");
+    const QString market = QString::fromLatin1(venue.market);
+    if (market == QStringLiteral("spot")) return QStringLiteral("spot");
+    if (market == QStringLiteral("margin")) return QStringLiteral("margin");
+    if (market == QStringLiteral("inverse")) return QStringLiteral("inverse");
+    if (market == QStringLiteral("swap")) return QStringLiteral("swap");
+    return QStringLiteral("futures");
 }
 
 QString toDslSymbol(const std::string& symbol) {

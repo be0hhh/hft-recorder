@@ -153,8 +153,9 @@ class CaptureViewModel : public QObject {
     QString outputDirectory_{"./recordings"};
     QStringList selectedVenueKeys_{
         QStringLiteral("binance_futures"),
+        QStringLiteral("bybit_futures"),
         QStringLiteral("kucoin_futures"),
-        QStringLiteral("gate_usdt"),
+        QStringLiteral("gate_futures"),
         QStringLiteral("bitget_futures"),
     };
     QStringList venueSymbolsTexts_{};

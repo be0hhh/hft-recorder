@@ -32,7 +32,7 @@ Pane {
             spacing: 16
 
             Label { text: "Live Capture"; font.pixelSize: 26; font.bold: true; color: root.textColor }
-            Label { text: root.captureVm.captureAvailable ? "Multi-venue futures / canonical normalized JSON corpus" : root.captureVm.captureUnavailableReason; color: root.captureVm.captureAvailable ? root.mutedTextColor : root.accentSellColor; wrapMode: Text.WordWrap }
+            Label { text: root.captureVm.captureAvailable ? "Multi-venue spot / futures / margin / canonical normalized JSON corpus" : root.captureVm.captureUnavailableReason; color: root.captureVm.captureAvailable ? root.mutedTextColor : root.accentSellColor; wrapMode: Text.WordWrap }
 
             CaptureSessionSummaryCard {
                 captureVm: root.captureVm
@@ -66,7 +66,7 @@ Pane {
                         spacing: 8
 
                         Label {
-                            text: "Venues"
+                            text: "Venues and markets"
                             color: root.mutedTextColor
                         }
 

@@ -448,8 +448,13 @@ QString venueSectionFor(const QString& exchange, const QString& market) {
     if (exchange == QStringLiteral("bybit")) return QStringLiteral("bybit_linear");
     if (exchange == QStringLiteral("kucoin")) return QStringLiteral("kucoin_futures");
     if (exchange == QStringLiteral("gate")) return QStringLiteral("gate_futures");
+    if (exchange == QStringLiteral("bitget") && market == QStringLiteral("spot")) return QStringLiteral("bitget_spot");
+    if (exchange == QStringLiteral("bitget") && market == QStringLiteral("inverse")) return QStringLiteral("bitget_inverse");
+    if (exchange == QStringLiteral("bitget") && market == QStringLiteral("swap")) return QStringLiteral("bitget_swap");
     if (exchange == QStringLiteral("bitget")) return QStringLiteral("bitget_futures");
-    if (exchange == QStringLiteral("okx")) return QStringLiteral("okx_swap");
+    if (exchange == QStringLiteral("aster") && market == QStringLiteral("spot")) return QStringLiteral("aster_spot");
+    if (exchange == QStringLiteral("aster")) return QStringLiteral("aster_futures");
+    if (exchange == QStringLiteral("okx")) return QStringLiteral("okx_futures");
     return QStringLiteral("binance_futures");
 }
 
@@ -578,6 +583,27 @@ QVariantList sweepCurveLimitChoiceRows() {
     return out;
 }
 
+QVariantList sweepViewChoiceRows() {
+    QVariantList out;
+    for (const auto& pair : {std::pair{QStringLiteral("curves"), QStringLiteral("PnL ranking")},
+                             std::pair{QStringLiteral("distribution"), QStringLiteral("Distribution")}}) {
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), pair.first);
+        row.insert(QStringLiteral("label"), pair.second);
+        out.push_back(row);
+    }
+    return out;
+}
+
+QVariantList sweepMetricChoiceRows() {
+    QVariantList out;
+    QVariantMap row;
+    row.insert(QStringLiteral("id"), QStringLiteral("total_pnl_e8"));
+    row.insert(QStringLiteral("label"), QStringLiteral("PnL"));
+    out.push_back(row);
+    return out;
+}
+
 qint64 jsonIntValue(const QJsonObject& object, const QString& key) {
     return object.value(key).toInteger();
 }
@@ -596,6 +622,25 @@ QVariantMap sweepRowMap(const QJsonObject& row, const QString& metricKey) {
     out.insert(QStringLiteral("totalPnlE8"), jsonIntValue(row, QStringLiteral("total_pnl_e8")));
     out.insert(QStringLiteral("status"), row.value(QStringLiteral("status")).toString());
     return out;
+}
+
+QStringList sweepParamKeysFromManifest(const QJsonObject& object) {
+    QStringList out;
+    const QJsonArray ranges = object.value(QStringLiteral("ranges")).toArray();
+    for (const QJsonValue& value : ranges) {
+        const QString key = value.toObject().value(QStringLiteral("key")).toString().trimmed();
+        if (!key.isEmpty() && !out.contains(key)) out.push_back(key);
+    }
+    return out;
+}
+
+void appendSweepParamKeysFromRows(const QVariantList& rows, QStringList& keys) {
+    for (const QVariant& value : rows) {
+        const QVariantMap params = value.toMap().value(QStringLiteral("params")).toMap();
+        for (auto it = params.constBegin(); it != params.constEnd(); ++it) {
+            if (!keys.contains(it.key())) keys.push_back(it.key());
+        }
+    }
 }
 
 QVariantMap sweepCurveMap(const QJsonObject& row) {
@@ -921,6 +966,14 @@ QVariantList BacktestViewModel::sweepCurveLimitChoices() const {
     return sweepCurveLimitChoiceRows();
 }
 
+QVariantList BacktestViewModel::sweepViewChoices() const {
+    return sweepViewChoiceRows();
+}
+
+QVariantList BacktestViewModel::sweepMetricChoices() const {
+    return sweepMetricChoiceRows();
+}
+
 QVariantList BacktestViewModel::strategyParameters() const {
     QVariantList out;
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
@@ -1027,12 +1080,72 @@ QVariantList BacktestViewModel::selectedSweepRows() const {
     return out;
 }
 
+QVariantList BacktestViewModel::selectedSweepDistributionParamChoices() const {
+    const auto* record = selectedRecord_();
+    if (record == nullptr || !record->sweep) return {};
+    QStringList keys = record->sweepParamKeys;
+    appendSweepParamKeysFromRows(record->sweepRows, keys);
+    QVariantList out;
+    for (const QString& key : keys) {
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), key);
+        row.insert(QStringLiteral("label"), key);
+        out.push_back(row);
+    }
+    return out;
+}
+
+QString BacktestViewModel::selectedSweepDistributionParam() const {
+    const QVariantList choices = selectedSweepDistributionParamChoices();
+    for (const QVariant& value : choices) {
+        const QString id = value.toMap().value(QStringLiteral("id")).toString();
+        if (id == selectedSweepDistributionParam_) return id;
+    }
+    return choices.empty() ? QString{} : choices.front().toMap().value(QStringLiteral("id")).toString();
+}
+
 QVariantList BacktestViewModel::selectedSweepCurves() const {
     const auto* record = selectedRecord_();
     if (record == nullptr || !record->sweep) return {};
     const int limit = selectedSweepCurveLimit_ == QStringLiteral("all") ? record->sweepCurves.size() : selectedSweepCurveLimit_.toInt();
     QVariantList out;
     for (int i = 0; i < record->sweepCurves.size() && i < limit; ++i) out.push_back(record->sweepCurves.at(i));
+    return out;
+}
+
+QVariantList BacktestViewModel::selectedSweepDistributionBars() const {
+    const auto* record = selectedRecord_();
+    if (record == nullptr || !record->sweep) return {};
+    const QString paramKey = selectedSweepDistributionParam();
+    if (paramKey.isEmpty()) return {};
+    const QString metricKey = selectedSweepMetric_.isEmpty() ? QStringLiteral("total_pnl_e8") : selectedSweepMetric_;
+    QVariantList out;
+    for (const QVariant& value : record->sweepRows) {
+        const QVariantMap row = value.toMap();
+        const QVariantMap params = row.value(QStringLiteral("params")).toMap();
+        if (!params.contains(paramKey)) continue;
+        QVariantMap bar = row;
+        const qint64 metricRaw = row.value(metricKey == QStringLiteral("total_pnl_e8") ? QStringLiteral("totalPnlE8") : QStringLiteral("metricRaw")).toLongLong();
+        const qint64 paramRaw = params.value(paramKey).toLongLong();
+        bar.insert(QStringLiteral("paramKey"), paramKey);
+        bar.insert(QStringLiteral("paramRaw"), paramRaw);
+        bar.insert(QStringLiteral("paramText"), QString::number(paramRaw));
+        bar.insert(QStringLiteral("metricKey"), metricKey);
+        bar.insert(QStringLiteral("metricRaw"), metricRaw);
+        bar.insert(QStringLiteral("metricText"), isE8Key(metricKey) ? e8DisplayString(metricRaw) : QString::number(metricRaw));
+        out.push_back(bar);
+    }
+    std::sort(out.begin(), out.end(), [](const QVariant& lhs, const QVariant& rhs) {
+        const QVariantMap left = lhs.toMap();
+        const QVariantMap right = rhs.toMap();
+        const qint64 leftParam = left.value(QStringLiteral("paramRaw")).toLongLong();
+        const qint64 rightParam = right.value(QStringLiteral("paramRaw")).toLongLong();
+        if (leftParam != rightParam) return leftParam < rightParam;
+        const qint64 leftMetric = left.value(QStringLiteral("metricRaw")).toLongLong();
+        const qint64 rightMetric = right.value(QStringLiteral("metricRaw")).toLongLong();
+        if (leftMetric != rightMetric) return leftMetric > rightMetric;
+        return left.value(QStringLiteral("pointId")).toLongLong() < right.value(QStringLiteral("pointId")).toLongLong();
+    });
     return out;
 }
 
@@ -1310,6 +1423,27 @@ void BacktestViewModel::setSelectedSweepCurveLimit(const QString& limit) {
     if (next != QStringLiteral("16") && next != QStringLiteral("32") && next != QStringLiteral("64") && next != QStringLiteral("all")) next = QStringLiteral("32");
     if (selectedSweepCurveLimit_ == next) return;
     selectedSweepCurveLimit_ = next;
+    emit selectionChanged();
+}
+
+void BacktestViewModel::setSelectedSweepView(const QString& view) {
+    const QString next = view == QStringLiteral("distribution") ? QStringLiteral("distribution") : QStringLiteral("curves");
+    if (selectedSweepView_ == next) return;
+    selectedSweepView_ = next;
+    emit selectionChanged();
+}
+
+void BacktestViewModel::setSelectedSweepMetric(const QString& metric) {
+    const QString next = metric == QStringLiteral("total_pnl_e8") ? metric : QStringLiteral("total_pnl_e8");
+    if (selectedSweepMetric_ == next) return;
+    selectedSweepMetric_ = next;
+    emit selectionChanged();
+}
+
+void BacktestViewModel::setSelectedSweepDistributionParam(const QString& key) {
+    const QString next = key.trimmed();
+    if (selectedSweepDistributionParam_ == next) return;
+    selectedSweepDistributionParam_ = next;
     emit selectionChanged();
 }
 
@@ -1852,11 +1986,13 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
             .arg(jsonValueString(object, QStringLiteral("budget")),
                  jsonValueString(object, QStringLiteral("search_seed")),
                  jsonValueString(object, QStringLiteral("points_evaluated")));
+        record.sweepParamKeys = sweepParamKeysFromManifest(object);
         const QJsonObject rowsObject = object.value(QStringLiteral("rows")).toObject();
         QString rowsPath = rowsObject.value(QStringLiteral("path")).toString(QStringLiteral("sweep_results.jsonl"));
         const QFileInfo rowsInfo(rowsPath);
         if (rowsInfo.isRelative()) rowsPath = runDir.absoluteFilePath(rowsPath);
         record.sweepRows = sweepRowsFromJsonl(rowsPath, QStringLiteral("total_pnl_e8"));
+        appendSweepParamKeysFromRows(record.sweepRows, record.sweepParamKeys);
         const QJsonObject curvesObject = object.value(QStringLiteral("curves")).toObject();
         QString curvesPath = curvesObject.value(QStringLiteral("path")).toString(QStringLiteral("sweep_curves.jsonl"));
         const QFileInfo curvesInfo(curvesPath);

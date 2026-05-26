@@ -27,7 +27,7 @@ namespace hftrec::capture {
 
 struct CaptureConfig {
     std::string exchange{"binance"};
-    std::string market{"futures_usd"};
+    std::string market{"futures"};
     std::vector<std::string> symbols{};
     std::filesystem::path outputDir{"./recordings"};
     std::int64_t durationSec{0};

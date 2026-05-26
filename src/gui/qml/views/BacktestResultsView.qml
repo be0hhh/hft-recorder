@@ -504,6 +504,17 @@ Pane {
                         Label { text: root.backtestVm.selectedIsSweep ? "Sweep" : "Summary"; color: root.textColor; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
                         RecorderComboBox {
                             visible: root.backtestVm.selectedIsSweep
+                            Layout.preferredWidth: 158
+                            caption: "View"
+                            textRole: "label"
+                            valueRole: "id"
+                            model: root.backtestVm.sweepViewChoices
+                            popupWidth: 180
+                            Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedSweepView)
+                            onActivated: root.backtestVm.setSelectedSweepView(currentValue)
+                        }
+                        RecorderComboBox {
+                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedSweepView === "curves"
                             Layout.preferredWidth: 132
                             caption: "Curves"
                             textRole: "label"
@@ -513,7 +524,29 @@ Pane {
                             Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedSweepCurveLimit)
                             onActivated: root.backtestVm.setSelectedSweepCurveLimit(currentValue)
                         }
-                        ActionButton { text: root.sweepPercentMode ? "PnL %" : "PnL $"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.sweepPercentMode = !root.sweepPercentMode; sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint() } }
+                        RecorderComboBox {
+                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedSweepView === "distribution"
+                            Layout.preferredWidth: 116
+                            caption: "Metric"
+                            textRole: "label"
+                            valueRole: "id"
+                            model: root.backtestVm.sweepMetricChoices
+                            popupWidth: 140
+                            Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedSweepMetric)
+                            onActivated: root.backtestVm.setSelectedSweepMetric(currentValue)
+                        }
+                        RecorderComboBox {
+                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedSweepView === "distribution"
+                            Layout.preferredWidth: 180
+                            caption: "Parameter"
+                            textRole: "label"
+                            valueRole: "id"
+                            model: root.backtestVm.selectedSweepDistributionParamChoices
+                            popupWidth: 220
+                            Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedSweepDistributionParam)
+                            onActivated: root.backtestVm.setSelectedSweepDistributionParam(currentValue)
+                        }
+                        ActionButton { text: root.sweepPercentMode ? "PnL %" : "PnL $"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.sweepPercentMode = !root.sweepPercentMode; sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint(); distributionCanvas.requestPaint(); distributionHoverCanvas.requestPaint() } }
                         ActionButton { text: "Apply"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.selectedSweepPointId >= 0 && !root.backtestVm.running; onClicked: root.backtestVm.applySweepPointById(root.selectedSweepPointId) }
                         ActionButton { text: "Detailed run"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.selectedSweepPointId >= 0 && !root.backtestVm.running; accent: root.goodColor; onClicked: root.backtestVm.startDetailedRunFromSweepPointById(root.selectedSweepPointId) }
                         ActionButton { text: "Delete"; visible: root.backtestVm.hasSelection; enabledValue: root.backtestVm.hasSelection && !root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.deleteSelectedRun() }
@@ -556,6 +589,7 @@ Pane {
 
                             Canvas {
                                 id: sweepCanvas
+                                visible: root.backtestVm.selectedSweepView === "curves"
                                 anchors.fill: parent
                                 anchors.margins: 12
                                 property int hoverPointId: -1
@@ -796,6 +830,7 @@ Pane {
 
                             Canvas {
                                 id: sweepHoverCanvas
+                                visible: root.backtestVm.selectedSweepView === "curves"
                                 anchors.fill: sweepCanvas
                                 onWidthChanged: requestPaint()
                                 onHeightChanged: requestPaint()
@@ -829,6 +864,7 @@ Pane {
 
                             MouseArea {
                                 id: sweepMouse
+                                visible: root.backtestVm.selectedSweepView === "curves"
                                 anchors.fill: sweepHoverCanvas
                                 hoverEnabled: true
                                 acceptedButtons: Qt.LeftButton
@@ -858,10 +894,259 @@ Pane {
                                 }
                             }
 
+                            Canvas {
+                                id: distributionCanvas
+                                visible: root.backtestVm.selectedSweepView === "distribution"
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                property int hoverPointId: -1
+                                property int hoverIndex: -1
+                                property real hoverX: 0
+                                property real hoverY: 0
+                                property var bars: root.backtestVm.selectedSweepDistributionBars
+                                property string stateKey: ""
+                                property var bounds: ({ "min": 0, "max": 1 })
+                                property var layoutRows: []
+
+                                Connections {
+                                    target: root.backtestVm
+                                    function onSelectionChanged() { distributionCanvas.clearState(); distributionCanvas.clearHover(); distributionCanvas.requestPaint(); distributionHoverCanvas.requestPaint() }
+                                }
+                                onWidthChanged: requestPaint()
+                                onHeightChanged: requestPaint()
+
+                                function barValue(bar) { return root.sweepValue(bar.metricRaw, root.backtestVm.selectedInitialBalanceE8) }
+
+                                function stateCacheKey(rows) {
+                                    var key = root.backtestVm.selectedRunId + ":" + root.backtestVm.selectedSweepMetric + ":" + root.backtestVm.selectedSweepDistributionParam + ":" + root.sweepPercentMode + ":" + rows.length
+                                    if (rows.length > 0) key += ":" + rows[0].pointId + ":" + rows[rows.length - 1].pointId
+                                    return key
+                                }
+
+                                function ensureState(rows, plotX, plotY, plotW, plotH) {
+                                    var key = stateCacheKey(rows) + ":" + Math.round(plotW) + ":" + Math.round(plotH)
+                                    if (stateKey === key) return
+                                    var minValue = 0
+                                    var maxValue = 0
+                                    var has = false
+                                    for (var i = 0; i < rows.length; ++i) {
+                                        var value = barValue(rows[i])
+                                        if (!has) { minValue = value; maxValue = value; has = true }
+                                        minValue = Math.min(minValue, value)
+                                        maxValue = Math.max(maxValue, value)
+                                    }
+                                    minValue = Math.min(minValue, 0)
+                                    maxValue = Math.max(maxValue, 0)
+                                    var span = maxValue - minValue
+                                    if (span <= 0) span = root.sweepPercentMode ? 2.0 : 200000000
+                                    var pad = Math.max(root.sweepPercentMode ? 0.01 : 1000000, span * 0.08)
+                                    bounds = { min: minValue - pad, max: maxValue + pad }
+                                    layoutRows = []
+                                    var groupCount = 0
+                                    var lastParam = null
+                                    for (var g = 0; g < rows.length; ++g) {
+                                        if (lastParam === null || rows[g].paramRaw !== lastParam) { ++groupCount; lastParam = rows[g].paramRaw }
+                                    }
+                                    var groupGap = Math.min(14, Math.max(4, plotW * 0.01))
+                                    var totalGap = Math.max(0, groupCount - 1) * groupGap
+                                    var slotW = rows.length > 0 ? Math.max(2, (plotW - totalGap) / rows.length) : 2
+                                    var barW = Math.max(4, Math.min(30, slotW * 0.92))
+                                    var x = plotX
+                                    lastParam = null
+                                    for (var b = 0; b < rows.length; ++b) {
+                                        if (lastParam !== null && rows[b].paramRaw !== lastParam) x += groupGap
+                                        var centerX = x + slotW / 2
+                                        layoutRows.push({ x: centerX - barW / 2, centerX: centerX, width: barW, bar: rows[b] })
+                                        x += slotW
+                                        lastParam = rows[b].paramRaw
+                                    }
+                                    stateKey = key
+                                }
+
+                                function clearState() { stateKey = "" }
+
+                                function yFor(value, minValue, maxValue, plotY, plotH) {
+                                    return plotY + plotH - ((value - minValue) / (maxValue - minValue)) * plotH
+                                }
+
+                                function drawScale(ctx, currentBounds, plotX, plotY, plotW, plotH) {
+                                    ctx.font = "11px sans-serif"
+                                    ctx.textAlign = "right"
+                                    ctx.textBaseline = "middle"
+                                    for (var i = 0; i <= 4; ++i) {
+                                        var value = currentBounds.max - ((currentBounds.max - currentBounds.min) * i / 4)
+                                        var y = plotY + (plotH * i / 4)
+                                        ctx.strokeStyle = "#2f333d"
+                                        ctx.lineWidth = 1
+                                        ctx.beginPath()
+                                        ctx.moveTo(plotX, y)
+                                        ctx.lineTo(plotX + plotW, y)
+                                        ctx.stroke()
+                                        ctx.fillStyle = root.mutedTextColor
+                                        ctx.fillText(root.sweepPercentMode ? value.toFixed(2) + "%" : root.e8Text(value), plotX - 8, y)
+                                    }
+                                    var zeroY = yFor(0, currentBounds.min, currentBounds.max, plotY, plotH)
+                                    ctx.strokeStyle = "#8a92a0"
+                                    ctx.beginPath()
+                                    ctx.moveTo(plotX, zeroY)
+                                    ctx.lineTo(plotX + plotW, zeroY)
+                                    ctx.stroke()
+                                }
+
+                                function drawBars(ctx, rows, currentBounds, plotX, plotY, plotW, plotH) {
+                                    var zeroY = yFor(0, currentBounds.min, currentBounds.max, plotY, plotH)
+                                    var lastLabel = ""
+                                    var lastLabelX = -100000
+                                    for (var i = 0; i < layoutRows.length; ++i) {
+                                        var item = layoutRows[i]
+                                        var bar = item.bar
+                                        var value = barValue(bar)
+                                        var y = yFor(value, currentBounds.min, currentBounds.max, plotY, plotH)
+                                        var top = Math.min(y, zeroY)
+                                        var h = Math.max(1, Math.abs(zeroY - y))
+                                        ctx.globalAlpha = root.selectedSweepPointId < 0 || root.selectedSweepPointId === bar.pointId ? 0.95 : 0.45
+                                        ctx.fillStyle = value < 0 ? root.badColor : root.goodColor
+                                        ctx.fillRect(item.x, top, item.width, h)
+                                        ctx.globalAlpha = 1.0
+                                        if (bar.paramText !== lastLabel) {
+                                            if (item.centerX - lastLabelX >= 46) {
+                                                ctx.fillStyle = root.mutedTextColor
+                                                ctx.font = "11px sans-serif"
+                                                ctx.textAlign = "center"
+                                                ctx.textBaseline = "top"
+                                                ctx.fillText(bar.paramText, item.centerX, plotY + plotH + 8)
+                                                lastLabelX = item.centerX
+                                            }
+                                            lastLabel = bar.paramText
+                                        }
+                                    }
+                                }
+
+                                function updateHover(mx, my) {
+                                    var rows = bars
+                                    if (rows.length === 0) { clearHover(); return }
+                                    var plotX = 66
+                                    var plotY = 8
+                                    var plotW = Math.max(20, width - plotX - 10)
+                                    var plotH = Math.max(20, height - plotY - 50)
+                                    ensureState(rows, plotX, plotY, plotW, plotH)
+                                    var zeroY = yFor(0, bounds.min, bounds.max, plotY, plotH)
+                                    var best = -1
+                                    for (var i = 0; i < layoutRows.length; ++i) {
+                                        var item = layoutRows[i]
+                                        if (mx < item.x - 2 || mx > item.x + item.width + 2) continue
+                                        var y = yFor(barValue(item.bar), bounds.min, bounds.max, plotY, plotH)
+                                        var top = Math.min(y, zeroY)
+                                        var bottom = Math.max(y, zeroY)
+                                        if (my >= top - 3 && my <= bottom + 3) { best = i; break }
+                                    }
+                                    if (best < 0) { clearHover(); return }
+                                    hoverIndex = best
+                                    hoverPointId = layoutRows[best].bar.pointId
+                                    hoverX = layoutRows[best].centerX
+                                    hoverY = yFor(barValue(layoutRows[best].bar), bounds.min, bounds.max, plotY, plotH)
+                                    distributionHoverCanvas.requestPaint()
+                                }
+
+                                function clearHover() {
+                                    if (hoverPointId < 0) return
+                                    hoverPointId = -1
+                                    hoverIndex = -1
+                                    distributionHoverCanvas.requestPaint()
+                                }
+
+                                function selectHover() {
+                                    if (hoverPointId < 0) return
+                                    root.selectedSweepPointId = hoverPointId
+                                    requestPaint()
+                                    distributionHoverCanvas.requestPaint()
+                                }
+
+                                function drawHover(ctx, plotX, plotY, plotW, plotH) {
+                                    if (hoverIndex < 0 || hoverIndex >= layoutRows.length) return
+                                    var bar = layoutRows[hoverIndex].bar
+                                    var value = barValue(bar)
+                                    ctx.strokeStyle = "rgba(245,245,245,0.42)"
+                                    ctx.lineWidth = 1
+                                    ctx.beginPath()
+                                    ctx.moveTo(hoverX, plotY)
+                                    ctx.lineTo(hoverX, plotY + plotH)
+                                    ctx.moveTo(plotX, hoverY)
+                                    ctx.lineTo(plotX + plotW, hoverY)
+                                    ctx.stroke()
+                                    var cardW = 280
+                                    var cardH = 88
+                                    var cardX = Math.min(plotX + plotW - cardW - 8, hoverX + 12)
+                                    if (cardX < plotX + 8) cardX = plotX + 8
+                                    var cardY = Math.max(plotY + 8, hoverY - cardH - 12)
+                                    ctx.fillStyle = "rgba(16, 17, 21, 0.94)"
+                                    ctx.fillRect(cardX, cardY, cardW, cardH)
+                                    ctx.strokeStyle = "rgba(138, 146, 160, 0.85)"
+                                    ctx.strokeRect(cardX, cardY, cardW, cardH)
+                                    ctx.font = "11px sans-serif"
+                                    ctx.textAlign = "left"
+                                    ctx.textBaseline = "top"
+                                    ctx.fillStyle = root.textColor
+                                    ctx.fillText("#" + bar.pointId + "  " + bar.paramKey + "=" + bar.paramText, cardX + 10, cardY + 8)
+                                    ctx.fillStyle = Number(bar.metricRaw) < 0 ? root.badColor : root.goodColor
+                                    ctx.fillText("PnL " + root.sweepText(value, root.backtestVm.selectedInitialBalanceE8), cardX + 10, cardY + 28)
+                                    ctx.fillStyle = root.mutedTextColor
+                                    ctx.fillText(bar.label || "", cardX + 10, cardY + 50)
+                                }
+
+                                onPaint: {
+                                    var ctx = getContext("2d")
+                                    ctx.clearRect(0, 0, width, height)
+                                    var rows = bars
+                                    var plotX = 66
+                                    var plotY = 8
+                                    var plotW = Math.max(20, width - plotX - 10)
+                                    var plotH = Math.max(20, height - plotY - 50)
+                                    ensureState(rows, plotX, plotY, plotW, plotH)
+                                    drawScale(ctx, bounds, plotX, plotY, plotW, plotH)
+                                    drawBars(ctx, rows, bounds, plotX, plotY, plotW, plotH)
+                                    ctx.fillStyle = root.mutedTextColor
+                                    ctx.font = "11px sans-serif"
+                                    ctx.textAlign = "center"
+                                    ctx.fillText(root.backtestVm.selectedSweepDistributionParam, plotX + plotW / 2, plotY + plotH + 42)
+                                }
+                            }
+
+                            Canvas {
+                                id: distributionHoverCanvas
+                                visible: root.backtestVm.selectedSweepView === "distribution"
+                                anchors.fill: distributionCanvas
+                                onWidthChanged: requestPaint()
+                                onHeightChanged: requestPaint()
+                                onPaint: {
+                                    var ctx = getContext("2d")
+                                    ctx.clearRect(0, 0, width, height)
+                                    if (distributionCanvas.bars.length === 0) return
+                                    var plotX = 66
+                                    var plotY = 8
+                                    var plotW = Math.max(20, width - plotX - 10)
+                                    var plotH = Math.max(20, height - plotY - 50)
+                                    distributionCanvas.ensureState(distributionCanvas.bars, plotX, plotY, plotW, plotH)
+                                    distributionCanvas.drawHover(ctx, plotX, plotY, plotW, plotH)
+                                }
+                            }
+
+                            MouseArea {
+                                id: distributionMouse
+                                visible: root.backtestVm.selectedSweepView === "distribution"
+                                anchors.fill: distributionHoverCanvas
+                                hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton
+                                onPositionChanged: function(mouse) { distributionCanvas.updateHover(mouse.x, mouse.y) }
+                                onClicked: distributionCanvas.selectHover()
+                                onExited: distributionCanvas.clearHover()
+                            }
+
                             Label {
                                 anchors.centerIn: parent
-                                visible: sweepCanvas.sweepCurves.length === 0
-                                text: "No sweep curves"
+                                visible: (root.backtestVm.selectedSweepView === "curves" && sweepCanvas.sweepCurves.length === 0) ||
+                                         (root.backtestVm.selectedSweepView === "distribution" && distributionCanvas.bars.length === 0)
+                                text: root.backtestVm.selectedSweepView === "distribution" ? "No sweep distribution" : "No sweep curves"
                                 color: root.mutedTextColor
                                 font.pixelSize: 14
                             }

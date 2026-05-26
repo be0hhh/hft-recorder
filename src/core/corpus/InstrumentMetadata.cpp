@@ -30,8 +30,10 @@ std::optional<std::string> inferBaseAsset(std::string_view symbol,
 }
 
 std::string inferInstrumentType(std::string_view market) {
-    if (market == "futures_usd") return "perpetual_linear_future";
+    if (market == "futures" || market == "futures_usd" || market == "swap") return "perpetual_linear_future";
+    if (market == "inverse") return "perpetual_inverse_future";
     if (market == "spot") return "spot";
+    if (market == "margin") return "margin";
     return "unknown";
 }
 
@@ -106,7 +108,7 @@ InstrumentMetadata makeInstrumentMetadata(std::string_view exchange,
     metadata.quoteAssetSource = quote.has_value() ? "symbol_inference" : "unknown";
     metadata.baseAsset = base;
     metadata.baseAssetSource = base.has_value() ? "symbol_inference" : "unknown";
-    if (market == "futures_usd" && quote.has_value()) {
+    if ((market == "futures" || market == "futures_usd" || market == "swap" || market == "inverse") && quote.has_value()) {
         metadata.settlementAsset = quote;
         metadata.settlementAssetSource = "market_inference";
     }

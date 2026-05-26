@@ -100,12 +100,7 @@ void CaptureViewModel::refreshState() {
 
     if (sessionChanged) emit sessionStateChanged();
     if (channelChanged) {
-        const bool desiredChannelStopped =
-            (desiredTradesRunning_ && !snapshot.tradesRunning) ||
-            (desiredLiquidationsRunning_ && !snapshot.liquidationsRunning) ||
-            (desiredBookTickerRunning_ && !snapshot.bookTickerRunning) ||
-            (desiredOrderbookRunning_ && !snapshot.orderbookRunning);
-        if (snapshot.errorText.isEmpty() || desiredChannelStopped) reconcileActiveChannels_();
+        if (snapshot.errorText.isEmpty()) reconcileActiveChannels_();
         registerLiveSources_();
         emit channelStateChanged();
     }
