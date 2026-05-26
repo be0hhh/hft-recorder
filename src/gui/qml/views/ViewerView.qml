@@ -88,12 +88,14 @@ Pane {
     function chooseBacktestRow(index) {
         if (index <= 0 || index >= root.backtestRows.length) {
             chart.clearBacktestResult()
+            root.syncBacktestComboIndex()
             return
         }
         var row = root.backtestRows[index]
         if (row.sessionPath !== "" && chart.sessionDir !== row.sessionPath)
             chart.loadSession(row.sessionPath)
-        chart.selectBacktestResult(row.path)
+        if (!chart.selectBacktestResult(row.path))
+            root.syncBacktestComboIndex()
     }
 
     function applySourceSelection(sourceId) {
@@ -685,7 +687,6 @@ Pane {
                     function selectFilteredRow(row) {
                         if (!row || row.index < 0)
                             return
-                        backtestCombo.currentIndex = row.index
                         backtestCombo.popup.close()
                         backtestCombo.activated(row.index)
                     }

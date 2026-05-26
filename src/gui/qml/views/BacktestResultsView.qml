@@ -556,10 +556,14 @@ Pane {
                                 property int hoverStep: -1
                                 property real hoverX: 0
                                 property real hoverY: 0
+                                property var sweepCurves: root.backtestVm.selectedSweepCurves
+                                property string sweepStateKey: ""
+                                property int sweepSteps: 1
+                                property var sweepBounds: ({ "min": 0, "max": 1 })
 
                                 Connections {
                                     target: root.backtestVm
-                                    function onSelectionChanged() { sweepCanvas.clearHover(); sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint() }
+                                    function onSelectionChanged() { sweepCanvas.clearSweepState(); sweepCanvas.clearHover(); sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint() }
                                 }
                                 onWidthChanged: requestPaint()
                                 onHeightChanged: requestPaint()
@@ -594,6 +598,28 @@ Pane {
                                     if (span <= 0) span = root.sweepPercentMode ? 2.0 : 200000000
                                     var pad = Math.max(root.sweepPercentMode ? 0.01 : 1000000, span * 0.08)
                                     return { min: minPnl - pad, max: maxPnl + pad }
+                                }
+
+                                function sweepStateCacheKey(curves) {
+                                    var key = root.backtestVm.selectedRunId + ":" + root.backtestVm.selectedSweepCurveLimit + ":" + root.sweepPercentMode + ":" + curves.length
+                                    if (curves.length > 0) {
+                                        var first = curves[0]
+                                        var last = curves[curves.length - 1]
+                                        key += ":" + first.pointId + ":" + first.curve.length + ":" + last.pointId + ":" + last.curve.length
+                                    }
+                                    return key
+                                }
+
+                                function ensureSweepState(curves) {
+                                    var key = sweepStateCacheKey(curves)
+                                    if (sweepStateKey === key) return
+                                    sweepSteps = maxSteps(curves)
+                                    sweepBounds = paddedBounds(curves, sweepSteps)
+                                    sweepStateKey = key
+                                }
+
+                                function clearSweepState() {
+                                    sweepStateKey = ""
                                 }
 
                                 function yFor(value, minPnl, maxPnl, plotY, plotH) {
@@ -651,20 +677,24 @@ Pane {
                                 }
 
                                 function updateHover(mx, my) {
-                                    var curves = root.backtestVm.selectedSweepCurves
+                                    var curves = sweepCurves
                                     if (curves.length === 0) { clearHover(); return }
                                     var plotX = 66
                                     var plotY = 8
                                     var plotW = Math.max(20, width - plotX - 10)
                                     var plotH = Math.max(20, height - plotY - 22)
                                     if (mx < plotX || mx > plotX + plotW || my < plotY || my > plotY + plotH) { clearHover(); return }
-                                    var steps = maxSteps(curves)
-                                    var bounds = paddedBounds(curves, steps)
+                                    ensureSweepState(curves)
+                                    var steps = sweepSteps
+                                    var bounds = sweepBounds
                                     var bestCurve = -1
                                     var bestStep = -1
                                     var bestDistance = 999999
+                                    var centerStep = steps <= 1 ? 0 : Math.round(((mx - plotX) / plotW) * (steps - 1))
+                                    var firstStep = Math.max(0, centerStep - 1)
+                                    var lastStep = Math.min(steps - 1, centerStep + 1)
                                     for (var c = 0; c < curves.length; ++c) {
-                                        for (var s = 0; s < steps; ++s) {
+                                        for (var s = firstStep; s <= lastStep; ++s) {
                                             var x = xFor(s, steps, plotX, plotW)
                                             var y = yFor(curveValue(curves[c], s), bounds.min, bounds.max, plotY, plotH)
                                             var dx = x - mx
@@ -740,13 +770,14 @@ Pane {
                                 onPaint: {
                                     var ctx = getContext("2d")
                                     ctx.clearRect(0, 0, width, height)
-                                    var curves = root.backtestVm.selectedSweepCurves
+                                    var curves = sweepCurves
                                     var plotX = 66
                                     var plotY = 8
                                     var plotW = Math.max(20, width - plotX - 10)
                                     var plotH = Math.max(20, height - plotY - 22)
-                                    var steps = maxSteps(curves)
-                                    var bounds = paddedBounds(curves, steps)
+                                    ensureSweepState(curves)
+                                    var steps = sweepSteps
+                                    var bounds = sweepBounds
                                     drawScale(ctx, bounds, plotX, plotY, plotW, plotH)
                                     for (var i = curves.length - 1; i >= 0; --i) drawCurve(ctx, curves[i], i, steps, bounds, plotX, plotY, plotW, plotH)
                                     ctx.fillStyle = root.mutedTextColor
@@ -764,14 +795,15 @@ Pane {
                                 onPaint: {
                                     var ctx = getContext("2d")
                                     ctx.clearRect(0, 0, width, height)
-                                    var curves = root.backtestVm.selectedSweepCurves
+                                    var curves = sweepCanvas.sweepCurves
                                     if (curves.length === 0) return
                                     var plotX = 66
                                     var plotY = 8
                                     var plotW = Math.max(20, width - plotX - 10)
                                     var plotH = Math.max(20, height - plotY - 22)
-                                    var steps = sweepCanvas.maxSteps(curves)
-                                    var bounds = sweepCanvas.paddedBounds(curves, steps)
+                                    sweepCanvas.ensureSweepState(curves)
+                                    var steps = sweepCanvas.sweepSteps
+                                    var bounds = sweepCanvas.sweepBounds
                                     sweepCanvas.drawHover(ctx, curves, steps, bounds, plotX, plotY, plotW, plotH)
                                 }
                             }
@@ -796,7 +828,14 @@ Pane {
                                 property bool hoverPending: false
                                 property real pendingX: 0
                                 property real pendingY: 0
+                                property real lastHoverX: -1000000
+                                property real lastHoverY: -1000000
                                 onPositionChanged: function(mouse) {
+                                    var dx = mouse.x - lastHoverX
+                                    var dy = mouse.y - lastHoverY
+                                    if (dx * dx + dy * dy < 0.25) return
+                                    lastHoverX = mouse.x
+                                    lastHoverY = mouse.y
                                     pendingX = mouse.x
                                     pendingY = mouse.y
                                     hoverPending = true
@@ -805,6 +844,8 @@ Pane {
                                 onClicked: sweepCanvas.selectHover()
                                 onExited: {
                                     hoverPending = false
+                                    lastHoverX = -1000000
+                                    lastHoverY = -1000000
                                     sweepHoverTimer.stop()
                                     sweepCanvas.clearHover()
                                 }
@@ -812,7 +853,7 @@ Pane {
 
                             Label {
                                 anchors.centerIn: parent
-                                visible: root.backtestVm.selectedSweepCurves.length === 0
+                                visible: sweepCanvas.sweepCurves.length === 0
                                 text: "No sweep curves"
                                 color: root.mutedTextColor
                                 font.pixelSize: 14
