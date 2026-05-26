@@ -251,10 +251,8 @@ Pane {
             var id = sourcesModel.sourceIdAt(i)
             if (id !== "") {
                 var label = sourcesModel.labelAt(i)
-                var backtests = sourcesModel.backtestCount(id)
-                if (sourcesModel.groupAt(i) === "live")
-                    label += " | L1 " + sourcesModel.bookTickerCount(id)
-                rows.push({ id: id, label: label, rightText: backtests > 0 ? String(backtests) : "" })
+                var summary = sourcesModel.sourceSummary(id)
+                rows.push({ id: id, label: label, rightText: summary })
             }
         }
         root.compareSourceRows = rows
@@ -308,18 +306,19 @@ Pane {
 
     component DarkSourceCombo: ComboBox {
         id: combo
-        Layout.preferredWidth: 420
+        Layout.preferredWidth: 520
         model: root.compareSourceRows
         textRole: "label"
         valueRole: "id"
         property string searchText: ""
         property var filteredRows: []
+        signal sourcePicked(string sourceId)
         function rebuildFilter() {
             var needle = combo.searchText.trim().toLowerCase()
             var rows = []
             for (var i = 0; i < root.compareSourceRows.length; ++i) {
                 var row = root.compareSourceRows[i]
-                var haystack = (row.label + " " + row.id).toLowerCase()
+                var haystack = (row.label + " " + row.id + " " + (row.rightText || "")).toLowerCase()
                 if (needle.length === 0 || haystack.indexOf(needle) !== -1)
                     rows.push({ "index": i, "label": row.label, "id": row.id, "rightText": row.rightText || "" })
             }
@@ -330,17 +329,31 @@ Pane {
                 return
             combo.currentIndex = row.index
             combo.popup.close()
-            combo.activated(row.index)
+            combo.sourcePicked(row.id || "")
         }
         onSearchTextChanged: rebuildFilter()
         onModelChanged: rebuildFilter()
-        contentItem: Text {
-            text: combo.currentIndex <= 0 ? "Select session" : combo.displayText
-            color: combo.currentIndex <= 0 ? root.mutedTextColor : root.textColor
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-            leftPadding: 10
-            rightPadding: 28
+        contentItem: RowLayout {
+            spacing: 8
+            Text {
+                Layout.fillWidth: true
+                text: combo.currentIndex <= 0 ? "Select session" : combo.displayText
+                color: combo.currentIndex <= 0 ? root.mutedTextColor : root.textColor
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                leftPadding: 10
+            }
+            Text {
+                Layout.preferredWidth: visible ? Math.max(210, implicitWidth + 8) : 0
+                rightPadding: 28
+                text: combo.currentIndex > 0 && root.compareSourceRows[combo.currentIndex] ? (root.compareSourceRows[combo.currentIndex].rightText || "") : ""
+                visible: text.length > 0
+                color: root.mutedTextColor
+                font.pixelSize: 12
+                font.bold: true
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+            }
         }
         background: Rectangle {
             radius: 7
@@ -350,7 +363,7 @@ Pane {
         }
         delegate: Component {
             ItemDelegate {
-                width: combo.width
+                width: combo.popup.width
                 text: modelData.label
                 highlighted: combo.highlightedIndex === index
                 contentItem: RowLayout {
@@ -363,7 +376,7 @@ Pane {
                         verticalAlignment: Text.AlignVCenter
                     }
                     Text {
-                        Layout.preferredWidth: visible ? 32 : 0
+                        Layout.preferredWidth: visible ? Math.max(210, implicitWidth + 8) : 0
                         text: modelData.rightText || ""
                         visible: text.length > 0
                         color: root.mutedTextColor
@@ -381,7 +394,7 @@ Pane {
         }
         popup: Popup {
             y: combo.height + 2
-            width: combo.width
+            width: Math.max(combo.width, 760)
             implicitHeight: Math.min(contentItem.implicitHeight, 400)
             padding: 1
             onOpened: {
@@ -613,13 +626,17 @@ Pane {
                 DarkSourceCombo {
                     id: compareComboA
                     currentIndex: root.selectedCompareIndexA
-                    onActivated: function(index) {
+                    onSourcePicked: function(sourceId) {
                         root.userHasExplicitCompareSelection = true
-                        root.selectedCompareSourceA = index <= 0 ? "" : root.compareSourceRows[index].id
+                        root.selectedCompareSourceA = sourceId
                         if (root.selectedCompareSourceB === root.selectedCompareSourceA)
                             root.selectedCompareSourceB = ""
                         root.syncCompareIndexesFromIds()
                         root.applyCompareSelection()
+                    }
+                    onActivated: function(index) {
+                        var sourceId = index <= 0 || index >= root.compareSourceRows.length ? "" : root.compareSourceRows[index].id
+                        compareComboA.sourcePicked(sourceId)
                     }
                 }
 
@@ -636,13 +653,17 @@ Pane {
                 DarkSourceCombo {
                     id: compareComboB
                     currentIndex: root.selectedCompareIndexB
-                    onActivated: function(index) {
+                    onSourcePicked: function(sourceId) {
                         root.userHasExplicitCompareSelection = true
-                        root.selectedCompareSourceB = index <= 0 ? "" : root.compareSourceRows[index].id
+                        root.selectedCompareSourceB = sourceId
                         if (root.selectedCompareSourceB === root.selectedCompareSourceA)
                             root.selectedCompareSourceB = ""
                         root.syncCompareIndexesFromIds()
                         root.applyCompareSelection()
+                    }
+                    onActivated: function(index) {
+                        var sourceId = index <= 0 || index >= root.compareSourceRows.length ? "" : root.compareSourceRows[index].id
+                        compareComboB.sourcePicked(sourceId)
                     }
                 }
 

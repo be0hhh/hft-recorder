@@ -46,6 +46,12 @@ ComboBox {
         combo.activated(row.index)
     }
 
+    function currentRightText() {
+        if (combo.currentIndex < 0 || !combo.model || !combo.model[combo.currentIndex])
+            return ""
+        return combo.model[combo.currentIndex].rightText || ""
+    }
+
     Layout.fillWidth: true
     Layout.preferredHeight: 42
     font.pixelSize: 12
@@ -68,11 +74,24 @@ ComboBox {
         Text {
             x: 10
             y: combo.compactDisplay ? Math.round((combo.height - implicitHeight) / 2) : 21
-            width: combo.width - 40
+            width: combo.width - 40 - (selectedRightText.visible ? selectedRightText.width : 0)
             text: combo.displayText.length > 0 ? combo.displayText : "not selected"
             color: combo.textColor
             font.pixelSize: 12
             font.bold: true
+            elide: Text.ElideRight
+        }
+        Text {
+            id: selectedRightText
+            x: combo.width - width - 30
+            y: combo.compactDisplay ? Math.round((combo.height - implicitHeight) / 2) : 21
+            width: visible ? Math.min(170, implicitWidth + 8) : 0
+            text: combo.currentRightText()
+            visible: text.length > 0
+            color: combo.mutedTextColor
+            font.pixelSize: 12
+            font.bold: true
+            horizontalAlignment: Text.AlignRight
             elide: Text.ElideRight
         }
     }

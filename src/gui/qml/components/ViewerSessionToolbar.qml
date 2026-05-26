@@ -29,6 +29,7 @@ Rectangle {
     function currentIndex() { return sourcePicker.currentIndex }
     function currentSourceId() { return sourcePicker.currentValue }
     function count() { return sourcePicker.count }
+    function selectedSourceSummary() { return bar.sourcesModel.sourceSummary(sourcePicker.currentValue) }
 
     RowLayout {
         anchors.fill: parent
@@ -54,10 +55,10 @@ Rectangle {
                     var label = bar.sourcesModel.labelAt(i)
                     var id = bar.sourcesModel.sourceIdAt(i)
                     var group = bar.sourcesModel.groupAt(i)
-                    var backtests = bar.sourcesModel.backtestCount(id)
-                    var haystack = (label + " " + id + " " + group).toLowerCase()
+                    var summary = bar.sourcesModel.sourceSummary(id)
+                    var haystack = (label + " " + id + " " + group + " " + summary).toLowerCase()
                     if (needle.length === 0 || haystack.indexOf(needle) !== -1)
-                        rows.push({ "index": i, "label": label, "id": id, "group": group, "groupTitle": group, "rightText": backtests > 0 ? String(backtests) : "" })
+                        rows.push({ "index": i, "label": label, "id": id, "group": group, "groupTitle": group, "rightText": summary })
                 }
                 sourcePicker.filteredRows = rows
             }
@@ -67,7 +68,7 @@ Rectangle {
                     return
                 sourcePicker.currentIndex = row.index
                 sourcePicker.popup.close()
-                sourcePicker.activated(row.index)
+                bar.sourceActivated(row.id)
             }
 
             onSearchTextChanged: rebuildFilter()
@@ -78,14 +79,28 @@ Rectangle {
 
             background: Rectangle { radius: 7; color: bar.panelColor; border.color: bar.borderColor; border.width: 1 }
 
-            contentItem: Text {
-                leftPadding: 12
-                rightPadding: 12
-                text: sourcePicker.displayText
-                color: bar.textColor
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-                font.pixelSize: 13
+            contentItem: RowLayout {
+                spacing: 8
+                Text {
+                    Layout.fillWidth: true
+                    leftPadding: 12
+                    text: sourcePicker.displayText
+                    color: bar.textColor
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                    font.pixelSize: 13
+                }
+                Text {
+                    Layout.preferredWidth: visible ? Math.max(210, implicitWidth + 8) : 0
+                    rightPadding: 28
+                    text: bar.selectedSourceSummary()
+                    visible: text.length > 0
+                    color: bar.mutedTextColor
+                    font.pixelSize: 12
+                    font.bold: true
+                    horizontalAlignment: Text.AlignRight
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
 
             indicator: Canvas {
@@ -156,12 +171,12 @@ Rectangle {
                             font.pixelSize: 13
                         }
                         Text {
-                            Layout.preferredWidth: visible ? 32 : 0
+                            Layout.preferredWidth: visible ? Math.max(210, implicitWidth + 8) : 0
                             rightPadding: 12
-                            text: bar.sourcesModel.backtestCount(bar.sourcesModel.sourceIdAt(delegateControl.index)) > 0 ? String(bar.sourcesModel.backtestCount(bar.sourcesModel.sourceIdAt(delegateControl.index))) : ""
+                            text: bar.sourcesModel.sourceSummary(bar.sourcesModel.sourceIdAt(delegateControl.index))
                             visible: text.length > 0
                             color: bar.mutedTextColor
-                            font.pixelSize: 13
+                            font.pixelSize: 12
                             font.bold: true
                             horizontalAlignment: Text.AlignRight
                             verticalAlignment: Text.AlignVCenter
@@ -172,7 +187,7 @@ Rectangle {
 
             popup: Popup {
                 y: sourcePicker.height + 4
-                width: sourcePicker.width
+                width: Math.max(sourcePicker.width, 760)
                 padding: 4
                 onOpened: {
                     sourcePicker.searchText = ""
@@ -188,7 +203,7 @@ Rectangle {
                         id: filteredSourceDelegate
                         ItemDelegate {
                             required property var modelData
-                            width: sourcePicker.width
+                            width: sourcePicker.popup.width - 8
                             highlighted: sourcePicker.highlightedIndex === modelData.index
                             padding: 0
                             background: Rectangle { color: highlighted ? bar.panelAltColor : bar.panelColor }
@@ -232,7 +247,7 @@ Rectangle {
                                         font.pixelSize: 13
                                     }
                                     Text {
-                                        Layout.preferredWidth: visible ? 32 : 0
+                                        Layout.preferredWidth: visible ? Math.max(210, implicitWidth + 8) : 0
                                         rightPadding: 12
                                         text: modelData.rightText || ""
                                         visible: text.length > 0

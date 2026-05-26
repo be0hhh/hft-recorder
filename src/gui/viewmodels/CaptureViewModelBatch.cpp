@@ -321,6 +321,7 @@ void CaptureViewModel::registerLiveSources_() {
         descriptor.insert(QStringLiteral("symbol"), symbol);
         descriptor.insert(QStringLiteral("sessionId"), QString::fromStdString(manifest.sessionId));
         descriptor.insert(QStringLiteral("sessionPath"), QString::fromStdString(coordinator->sessionDirCopy().string()));
+        descriptor.insert(QStringLiteral("startedAtNs"), static_cast<qlonglong>(manifest.startedAtNs));
         descriptor.insert(QStringLiteral("liveAvailable"), true);
         descriptor.insert(QStringLiteral("bookTickerCount"), static_cast<int>(std::min<std::uint64_t>(liveStats.bookTickersTotal, static_cast<std::uint64_t>(std::numeric_limits<int>::max()))));
         descriptor.insert(QStringLiteral("bookTickerRunning"), coordinator->bookTickerRunning());

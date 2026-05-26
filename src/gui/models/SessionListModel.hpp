@@ -1,7 +1,8 @@
 #pragma once
 
 #include <QAbstractListModel>
-#include <QStringList>
+#include <QList>
+#include <QString>
 
 namespace hftrec::gui {
 
@@ -12,6 +13,7 @@ class SessionListModel : public QAbstractListModel {
   public:
     enum Roles {
         SessionIdRole = Qt::UserRole + 1,
+        SessionSummaryRole,
     };
 
     explicit SessionListModel(QObject* parent = nullptr);
@@ -26,7 +28,12 @@ class SessionListModel : public QAbstractListModel {
     QHash<int, QByteArray> roleNames() const override;
 
   private:
-    QStringList sessions_{};
+    struct Entry {
+        QString sessionId{};
+        QString summary{};
+    };
+
+    QList<Entry> sessions_{};
 };
 
 }  // namespace hftrec::gui

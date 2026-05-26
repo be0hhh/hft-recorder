@@ -311,6 +311,23 @@ QString resolveRecordingsRoot() {
     return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
 }
 
+QString formatSessionStartedAt(qint64 startedAtNs) {
+    if (startedAtNs < 1000000000000000ll) return {};
+    return QDateTime::fromMSecsSinceEpoch(startedAtNs / 1000000).toLocalTime().toString(QStringLiteral("dd.MM.yy hh:mm"));
+}
+
+QString sessionSourceSummary(const QString& sessionPath, int backtestCount) {
+    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
+    if (!file.open(QIODevice::ReadOnly)) return QStringLiteral("L1 0 | BT %1").arg(backtestCount);
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    const QJsonObject manifest = doc.object();
+    const QJsonObject bookTicker = manifest.value(QStringLiteral("channels")).toObject().value(QStringLiteral("bookticker")).toObject();
+    QString summary = QStringLiteral("L1 %1 | BT %2").arg(bookTicker.value(QStringLiteral("declared_event_count")).toInt()).arg(backtestCount);
+    const QString startedAt = formatSessionStartedAt(manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
+    if (!startedAt.isEmpty()) summary += QStringLiteral(" | %1").arg(startedAt);
+    return summary;
+}
+
 QString statusTextFor(hft_backtest::Status status) {
     if (status == hft_backtest::Status::Ok) return QStringLiteral("Backtest complete");
     if (status == hft_backtest::Status::Cancelled) return QStringLiteral("Backtest cancelled");
@@ -762,7 +779,7 @@ QVariantList BacktestViewModel::sessions() const {
         row.insert(QStringLiteral("hasManifest"), QFileInfo::exists(QDir(path).absoluteFilePath(QStringLiteral("manifest.json"))));
         row.insert(QStringLiteral("hasBacktests"), backtestsDir.exists());
         row.insert(QStringLiteral("backtestCount"), backtestCount);
-        QString rightText = QString::number(backtestCount);
+        QString rightText = sessionSourceSummary(path, backtestCount);
         row.insert(QStringLiteral("rightText"), rightText);
         out.push_back(row);
     }

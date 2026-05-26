@@ -238,6 +238,41 @@ QString resolveRecordingsRoot() {
     return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
 }
 
+QString formatSessionStartedAt(qint64 startedAtNs) {
+    if (startedAtNs < 1000000000000000ll) return {};
+    return QDateTime::fromMSecsSinceEpoch(startedAtNs / 1000000).toLocalTime().toString(QStringLiteral("dd.MM.yy hh:mm"));
+}
+
+int countBacktestResults(const QString& sessionPath) {
+    const QDir backtestsDir(QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests")));
+    if (!backtestsDir.exists()) return 0;
+    int count = 0;
+    const QFileInfoList runDirs = backtestsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QFileInfo& runDir : runDirs) {
+        if (runDir.fileName() == QStringLiteral("sweeps")) continue;
+        if (QFileInfo::exists(QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++count;
+    }
+    const QDir sweepsDir(backtestsDir.absoluteFilePath(QStringLiteral("sweeps")));
+    const QFileInfoList sweepDirs = sweepsDir.exists() ? sweepsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot) : QFileInfoList{};
+    for (const QFileInfo& sweepDir : sweepDirs) {
+        if (QFileInfo::exists(QDir(sweepDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++count;
+    }
+    return count;
+}
+
+QString sessionSourceSummary(const QString& sessionPath) {
+    const int backtestCount = countBacktestResults(sessionPath);
+    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
+    if (!file.open(QIODevice::ReadOnly)) return QStringLiteral("L1 0 | BT %1").arg(backtestCount);
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    const QJsonObject manifest = doc.object();
+    const QJsonObject bookTicker = manifest.value(QStringLiteral("channels")).toObject().value(QStringLiteral("bookticker")).toObject();
+    QString summary = QStringLiteral("L1 %1 | BT %2").arg(bookTicker.value(QStringLiteral("declared_event_count")).toInt()).arg(backtestCount);
+    const QString startedAt = formatSessionStartedAt(manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
+    if (!startedAt.isEmpty()) summary += QStringLiteral(" | %1").arg(startedAt);
+    return summary;
+}
+
 QString displayChannel(const QString& channel) {
     if (channel == QStringLiteral("bookticker")) return QStringLiteral("BookTicker");
     if (channel == QStringLiteral("depth")) return QStringLiteral("Depth");
@@ -396,6 +431,7 @@ QVariantList CompressionViewModel::sessions() const {
         row.insert(QStringLiteral("id"), entry);
         row.insert(QStringLiteral("label"), entry);
         row.insert(QStringLiteral("path"), path);
+        row.insert(QStringLiteral("rightText"), sessionSourceSummary(path));
         row.insert(QStringLiteral("hasTrades"), !existingChannelPath_(path, QStringLiteral("trades")).isEmpty());
         row.insert(QStringLiteral("hasBookTicker"), !existingChannelPath_(path, QStringLiteral("bookticker")).isEmpty());
         row.insert(QStringLiteral("hasDepth"), !existingChannelPath_(path, QStringLiteral("depth")).isEmpty());

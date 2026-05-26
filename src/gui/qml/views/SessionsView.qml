@@ -79,6 +79,7 @@ Pane {
 
                 delegate: Rectangle {
                     required property string sessionId
+                    required property string sessionSummary
 
                     width: ListView.view.width
                     height: 56
@@ -91,19 +92,25 @@ Pane {
                         anchors.fill: parent
                         anchors.margins: 12
 
-                        ColumnLayout {
+                        RowLayout {
                             Layout.fillWidth: true
-                            spacing: 4
+                            spacing: 8
 
                             Label {
+                                Layout.fillWidth: true
                                 text: sessionId
                                 font.bold: true
                                 color: root.textColor
+                                elide: Text.ElideRight
                             }
 
                             Label {
-                                text: "Session folder"
+                                Layout.preferredWidth: Math.max(150, implicitWidth + 8)
+                                text: sessionSummary
                                 color: root.mutedTextColor
+                                font.bold: true
+                                horizontalAlignment: Text.AlignRight
+                                elide: Text.ElideRight
                             }
                         }
                     }
