@@ -92,6 +92,7 @@ Pane {
             return
         }
         var row = root.backtestRows[index]
+        backtestCombo.currentIndex = index
         if (row.sessionPath !== "" && chart.sessionDir !== row.sessionPath)
             chart.loadSession(row.sessionPath)
         if (!chart.selectBacktestResult(row.path))
@@ -708,8 +709,9 @@ Pane {
                     function selectFilteredRow(row) {
                         if (!row || row.index < 0)
                             return
+                        backtestCombo.currentIndex = row.index
                         backtestCombo.popup.close()
-                        backtestCombo.activated(row.index)
+                        root.chooseBacktestRow(row.index)
                     }
                     onSearchTextChanged: rebuildFilter()
                     onModelChanged: rebuildFilter()

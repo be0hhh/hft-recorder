@@ -107,6 +107,26 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     fs::remove_all(dir, ec);
 }
 
+TEST(StrategyOverlay, AcceptsBacktestRowsWithTrailingLegIndex) {
+    const auto dir = makeTmpDir();
+    const auto resultPath = makeRunResult(dir, "run-leg-index",
+        "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0,0]\n",
+        "[10,1000,1100,1,9900000000,100000000,0,0,0]\n");
+
+    hftrec::gui::viewer::StrategyOverlayData overlay;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
+
+    EXPECT_TRUE(overlay.orderSegments.empty());
+    ASSERT_EQ(overlay.fillMarkers.size(), 1u);
+    EXPECT_EQ(overlay.fillMarkers[0].tsNs, 1100);
+    EXPECT_EQ(overlay.fillMarkers[0].priceE8, e8(99));
+    EXPECT_TRUE(overlay.fillMarkers[0].sideBuy);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(StrategyOverlay, DoesNotStretchInstantFilledLimitToRunEnd) {
     const auto dir = makeTmpDir();
     const auto resultPath = makeRunResult(dir, "run-instant-fill",

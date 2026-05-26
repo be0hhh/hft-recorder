@@ -83,6 +83,13 @@ bool parseBoolByte(hftrec::json::MiniJsonParser& parser, bool& out) noexcept {
     return true;
 }
 
+bool skipOptionalTrailingFields(hftrec::json::MiniJsonParser& parser) noexcept {
+    while (parser.parseComma()) {
+        if (!parser.skipValue()) return false;
+    }
+    return parser.parseArrayEnd() && parser.finish();
+}
+
 bool parseOrderLine(std::string_view line, OrderRow& out) noexcept {
     out = OrderRow{};
     hftrec::json::MiniJsonParser parser{line};
@@ -101,7 +108,7 @@ bool parseOrderLine(std::string_view line, OrderRow& out) noexcept {
     if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
     bool ignoredBool = false;
     if (!parseBoolByte(parser, ignoredBool)) return false;
-    return parser.parseArrayEnd() && parser.finish();
+    return skipOptionalTrailingFields(parser);
 }
 
 bool parseFillLine(std::string_view line, FillRow& out) noexcept {
@@ -117,7 +124,7 @@ bool parseFillLine(std::string_view line, FillRow& out) noexcept {
     if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
     if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
     if (!parseBoolByte(parser, out.reduceOnly)) return false;
-    return parser.parseArrayEnd() && parser.finish();
+    return skipOptionalTrailingFields(parser);
 }
 
 template <typename Row, typename ParseFn>
