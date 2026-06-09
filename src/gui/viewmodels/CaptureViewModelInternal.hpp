@@ -41,6 +41,7 @@ QString buildRequestPreview(const QString& channel,
                             const QStringList& venueSymbolsTexts,
                             const QString& symbolsText);
 std::vector<std::string> normalizedSymbols(const QString& symbolsText);
+QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symbolsText);
 std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QStringList& venueKeys,
                                                 const QStringList& venueSymbolsTexts,

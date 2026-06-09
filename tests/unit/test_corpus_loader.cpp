@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <fstream>
 #include <filesystem>
 
+#include "core/capture/SessionManifest.hpp"
 #include "core/corpus/CorpusLoader.hpp"
 #include "core/replay/SessionReplay.hpp"
 
@@ -63,6 +65,39 @@ TEST(CorpusLoader, StaleSeekIndexDegradesButStillLoads) {
     EXPECT_TRUE(report.staleSeekIndex);
     EXPECT_FALSE(report.usedSeekIndex);
     EXPECT_EQ(report.seekIndexState, hftrec::corpus::ChannelLoadState::Degraded);
+}
+
+TEST(CorpusLoader, RecordingManifestDoesNotRequireFinalSupportArtifacts) {
+    const fs::path sessionDir = fs::temp_directory_path() / "hftrec_recording_manifest_loader_test";
+    std::error_code ec;
+    fs::remove_all(sessionDir, ec);
+    ASSERT_TRUE(fs::create_directories(sessionDir, ec));
+    ASSERT_FALSE(ec);
+
+    hftrec::capture::SessionManifest manifest{};
+    manifest.sessionId = "hftrec_recording_manifest_loader_test";
+    manifest.exchange = "binance";
+    manifest.market = "futures";
+    manifest.symbols = {"ETHUSDT"};
+    manifest.selectedParentDir = sessionDir.parent_path().string();
+    manifest.startedAtNs = 1000;
+    manifest.sessionStatus = "recording";
+    manifest.canonicalArtifacts = {"manifest.json", manifest.instrumentMetadataPath};
+    manifest.supportArtifacts = {};
+
+    std::ofstream out(sessionDir / "manifest.json");
+    ASSERT_TRUE(out.is_open());
+    out << hftrec::capture::renderManifestJson(manifest);
+    out.close();
+
+    hftrec::corpus::CorpusLoader loader{};
+    hftrec::corpus::SessionCorpus corpus{};
+    hftrec::corpus::LoadReport report{};
+    EXPECT_EQ(loader.loadDetailed(sessionDir, corpus, report), hftrec::Status::Ok);
+    EXPECT_TRUE(report.manifestPresent);
+    EXPECT_EQ(corpus.manifest.sessionStatus, "recording");
+
+    fs::remove_all(sessionDir, ec);
 }
 
 TEST(SessionReplay, FixtureReplayUsesSharedLoaderVerdict) {

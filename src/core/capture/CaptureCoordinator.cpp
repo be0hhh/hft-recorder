@@ -12,6 +12,12 @@
 
 namespace hftrec::capture {
 
+namespace {
+
+constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
+
+}  // namespace
+
 CaptureCoordinator::CaptureCoordinator() = default;
 
 CaptureCoordinator::~CaptureCoordinator() {
@@ -60,6 +66,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.depthRowSchema = "cxet_orderbook_flat_levels_v1";
     manifest_.candlesRowSchema = "cxet_candle_lite_tiered_v1";
     manifest_.snapshotSchema = "cxet_orderbook_snapshot_flat_levels_v1";
+    manifest_.sessionStatus = "recording";
 
     sessionDir_ = config.outputDir / manifest_.sessionId;
     std::error_code ec;
@@ -77,6 +84,10 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     if (const auto metadataStatus = writeInstrumentMetadataFile(); !isOk(metadataStatus)) {
         lastError_ = "failed to write instrument metadata sidecar";
         return metadataStatus;
+    }
+    if (const auto manifestStatus = writeManifestFile_(); !isOk(manifestStatus)) {
+        lastError_ = "failed to write initial manifest.json";
+        return manifestStatus;
     }
     liveStore_.clear();
     if (const auto storageStatus = jsonSink_.open(sessionDir_); !isOk(storageStatus)) {
@@ -128,17 +139,9 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     (void)candlesWriter_.close();
     (void)depthWriter_.close();
 
-    {
-        std::ofstream manifestSeed(sessionDir_ / "manifest.json", std::ios::out | std::ios::trunc);
-        if (!manifestSeed.is_open()) {
-            lastError_ = "failed to seed manifest.json for integrity sync";
-            return Status::IoError;
-        }
-        manifestSeed << renderManifestJson(manifest_);
-        if (!manifestSeed.good()) {
-            lastError_ = "failed to seed manifest.json for integrity sync";
-            return Status::IoError;
-        }
+    if (const auto seedStatus = writeManifestFile_(); !isOk(seedStatus)) {
+        lastError_ = "failed to seed manifest.json for integrity sync";
+        return seedStatus;
     }
 
     syncManifestIntegrityFromReplay_();
@@ -148,15 +151,10 @@ Status CaptureCoordinator::finalizeSession() noexcept {
         return supportStatus;
     }
 
-    std::ofstream manifestStream(sessionDir_ / "manifest.json", std::ios::out | std::ios::trunc);
-    if (!manifestStream.is_open()) {
-        lastError_ = "failed to open manifest.json for writing";
-        return Status::IoError;
-    }
-    manifestStream << renderManifestJson(manifest_);
-    if (!manifestStream.good()) {
+    manifest_.sessionStatus = "complete";
+    if (const auto manifestStatus = writeManifestFile_(); !isOk(manifestStatus)) {
         lastError_ = "failed to write manifest.json";
-        return Status::IoError;
+        return manifestStatus;
     }
 
     resetSessionState();
@@ -218,6 +216,43 @@ bool CaptureCoordinator::sessionOpen() const noexcept {
     return !sessionDir_.empty();
 }
 
+void CaptureCoordinator::refreshRecordingManifestLocked_(std::int64_t nowNs) noexcept {
+    manifest_.sessionStatus = "recording";
+    manifest_.endedAtNs = nowNs;
+    if (manifest_.startedAtNs > 0 && manifest_.endedAtNs >= manifest_.startedAtNs) {
+        manifest_.actualDurationSec = (manifest_.endedAtNs - manifest_.startedAtNs) / 1000000000LL;
+    }
+    manifest_.tradesCount = tradesCount_.load(std::memory_order_relaxed);
+    manifest_.liquidationsCount = liquidationsCount_.load(std::memory_order_relaxed);
+    manifest_.bookTickerCount = bookTickerCount_.load(std::memory_order_relaxed);
+    manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
+    manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
+    manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
+    manifest_.warningSummary = lastError_;
+    manifest_.structuralBlockers.clear();
+    manifest_.structurallyLoadable = true;
+}
+
+Status CaptureCoordinator::flushRecordingManifestIfDue_(std::int64_t& nextFlushNs) noexcept {
+    const auto nowNs = internal::nowNs();
+    if (nowNs < nextFlushNs) {
+        return Status::Ok;
+    }
+    nextFlushNs = nowNs + kRecordingManifestFlushIntervalNs;
+
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (!sessionOpen()) {
+        return Status::Ok;
+    }
+
+    refreshRecordingManifestLocked_(nowNs);
+    const auto status = writeManifestFile_();
+    if (!isOk(status) && lastError_.empty()) {
+        lastError_ = "failed to refresh manifest.json";
+    }
+    return status;
+}
+
 void CaptureCoordinator::syncManifestIntegrityFromReplay_() noexcept {
     replay::SessionReplay replay;
     const auto replayStatus = replay.open(sessionDir_);
@@ -239,6 +274,37 @@ void CaptureCoordinator::syncManifestIntegrityFromReplay_() noexcept {
         }
         manifest_.warningSummary += std::string{replay.errorDetail()};
     }
+}
+
+Status CaptureCoordinator::writeManifestFile_() noexcept {
+    if (sessionDir_.empty()) return Status::InvalidArgument;
+    const auto manifestPath = sessionDir_ / "manifest.json";
+    const auto tempPath = sessionDir_ / "manifest.json.tmp";
+    {
+        std::ofstream stream(tempPath, std::ios::out | std::ios::trunc);
+        if (!stream.is_open()) return Status::IoError;
+        stream << renderManifestJson(manifest_);
+        if (!stream.good()) return Status::IoError;
+    }
+
+    std::error_code ec;
+    std::filesystem::rename(tempPath, manifestPath, ec);
+    if (!ec) return Status::Ok;
+
+    ec.clear();
+    std::filesystem::remove(manifestPath, ec);
+    if (ec) {
+        std::filesystem::remove(tempPath, ec);
+        return Status::IoError;
+    }
+    ec.clear();
+    std::filesystem::rename(tempPath, manifestPath, ec);
+    if (ec) {
+        std::error_code cleanupEc;
+        std::filesystem::remove(tempPath, cleanupEc);
+        return Status::IoError;
+    }
+    return Status::Ok;
 }
 
 Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {

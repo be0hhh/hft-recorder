@@ -70,28 +70,83 @@ Pane {
                             color: root.mutedTextColor
                         }
 
-                        ColumnLayout {
+                        RowLayout {
                             Layout.fillWidth: true
-                            spacing: 8
+                            spacing: 10
+
+                            TextField {
+                                Layout.fillWidth: true
+                                text: root.captureVm.symbolsText
+                                placeholderText: "Global symbols, for example BTCUSDT ETHUSDT"
+                                selectByMouse: true
+                                color: root.textColor
+                                placeholderTextColor: root.mutedTextColor
+                                onTextEdited: root.captureVm.symbolsText = text
+                                onAccepted: {
+                                    root.captureVm.applyGlobalSymbolsToVenues()
+                                    venueGrid.refreshVenueSymbolFields()
+                                }
+                                background: Rectangle {
+                                    radius: 8
+                                    color: root.panelAltColor
+                                    border.color: root.borderColor
+                                    border.width: 1
+                                }
+                            }
+
+                            CaptureAccentActionButton {
+                                text: "Apply to venues"
+                                accentColor: root.accentRequiredColor
+                                actionTextColor: "#071419"
+                                mutedTextColor: root.mutedTextColor
+                                enabled: root.captureVm.normalizedSymbolsText !== ""
+                                onClicked: {
+                                    root.captureVm.applyGlobalSymbolsToVenues()
+                                    venueGrid.refreshVenueSymbolFields()
+                                }
+                            }
+                        }
+
+                        GridLayout {
+                            id: venueGrid
+                            Layout.fillWidth: true
+                            columns: 3
+                            columnSpacing: 12
+                            rowSpacing: 12
+
+                            function refreshVenueSymbolFields() {
+                                for (var i = 0; i < venueRepeater.count; ++i) {
+                                    var item = venueRepeater.itemAt(i)
+                                    if (!item) continue
+                                    item.symbolsEditor.text = root.captureVm.venueSymbolsText(item.modelData.key)
+                                }
+                            }
+
                             Repeater {
+                                id: venueRepeater
                                 model: root.captureVm.venueChoices
-                                delegate: RowLayout {
+                                delegate: ColumnLayout {
                                     id: venueRow
                                     required property var modelData
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 220
+                                    spacing: 6
+                                    property alias symbolsEditor: symbolsArea
 
                                     CheckBox {
-                                        Layout.preferredWidth: 160
+                                        Layout.fillWidth: true
                                         text: venueRow.modelData.label
                                         checked: root.captureVm.isVenueSelected(venueRow.modelData.key)
                                         onClicked: root.captureVm.toggleVenue(venueRow.modelData.key)
                                     }
 
                                     TextArea {
+                                        id: symbolsArea
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 56
+                                        Layout.preferredHeight: Math.max(56, contentHeight + topPadding + bottomPadding + 4)
                                         text: root.captureVm.venueSymbolsText(venueRow.modelData.key)
                                         placeholderText: "symbols exactly as this venue expects; split by space, comma, or new line"
-                                        wrapMode: TextEdit.WrapAnywhere
+                                        wrapMode: TextEdit.Wrap
                                         selectByMouse: true
                                         color: root.textColor
                                         placeholderTextColor: root.mutedTextColor

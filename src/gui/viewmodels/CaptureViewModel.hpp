@@ -92,6 +92,7 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE QString venueSymbolsText(const QString& venueKey) const;
     Q_INVOKABLE void setVenueSymbolsText(const QString& venueKey, const QString& symbolsText);
     Q_INVOKABLE void setSymbolsText(const QString& symbolsText);
+    Q_INVOKABLE void applyGlobalSymbolsToVenues();
     Q_INVOKABLE void setTradesHistoryWarmupSec(int seconds);
     Q_INVOKABLE void toggleAlias(const QString& channel, const QString& alias);
     Q_INVOKABLE bool isAliasSelected(const QString& channel, const QString& alias) const;

@@ -101,7 +101,10 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     void marketDataManagerLoop_(CaptureConfig config) noexcept;
     void directBookTickerLoop_(CaptureConfig config) noexcept;
     void liquidationsLoop_(CaptureConfig config) noexcept;
+    void refreshRecordingManifestLocked_(std::int64_t nowNs) noexcept;
+    Status flushRecordingManifestIfDue_(std::int64_t& nextFlushNs) noexcept;
     void syncManifestIntegrityFromReplay_() noexcept;
+    Status writeManifestFile_() noexcept;
     Status writeInstrumentMetadataFile() noexcept;
     Status writeSupportArtifacts() noexcept;
 

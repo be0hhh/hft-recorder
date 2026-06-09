@@ -96,6 +96,61 @@ QString toDslSymbol(const std::string& symbol) {
     return QString::fromStdString(symbol).toLower();
 }
 
+struct ParsedSymbol {
+    QString base;
+    QString quote;
+};
+
+ParsedSymbol parseGlobalSymbol(QString symbol) {
+    symbol = symbol.trimmed().toUpper();
+    symbol.remove(QLatin1Char('-'));
+    symbol.remove(QLatin1Char('_'));
+    if (symbol.endsWith(QStringLiteral("SWAP"))) symbol.chop(4);
+
+    static const QStringList quotes{
+        QStringLiteral("USDT"),
+        QStringLiteral("USDC"),
+        QStringLiteral("USD"),
+    };
+    for (const auto& quote : quotes) {
+        if (symbol.size() > quote.size() && symbol.endsWith(quote)) {
+            symbol.chop(quote.size());
+            return {symbol, quote};
+        }
+    }
+    return {symbol, QStringLiteral("USDT")};
+}
+
+QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol) {
+    const QString exchange = QString::fromLatin1(venue.exchange);
+    const QString market = QString::fromLatin1(venue.market);
+    QString base = symbol.base;
+    QString quote = symbol.quote;
+
+    if (exchange == QStringLiteral("kucoin") && market == QStringLiteral("futures")
+        && base == QStringLiteral("BTC")) {
+        base = QStringLiteral("XBT");
+    }
+    if (market == QStringLiteral("inverse")) quote = QStringLiteral("USD");
+    if (exchange == QStringLiteral("bitget") && market == QStringLiteral("swap")) {
+        quote = QStringLiteral("USDC");
+    }
+
+    if (exchange == QStringLiteral("kucoin")) {
+        if (market == QStringLiteral("futures")) return base + quote + QStringLiteral("M");
+        return base + QLatin1Char('-') + quote;
+    }
+    if (exchange == QStringLiteral("gate")) return base + QLatin1Char('_') + quote;
+    if (exchange == QStringLiteral("okx")) {
+        const QString result = base + QLatin1Char('-') + quote;
+        return market == QStringLiteral("futures") ? result + QStringLiteral("-SWAP") : result;
+    }
+    if (exchange == QStringLiteral("binance") && market == QStringLiteral("inverse")) {
+        return base + quote + QStringLiteral("_PERP");
+    }
+    return base + quote;
+}
+
 bool containsAlias(const QStringList& aliases, const QString& alias) {
     return aliases.contains(alias, Qt::CaseInsensitive);
 }
@@ -321,6 +376,20 @@ std::vector<std::string> normalizedSymbols(const QString& symbolsText) {
         if (std::find(symbols.begin(), symbols.end(), asStd) == symbols.end()) symbols.push_back(asStd);
     }
     return symbols;
+}
+
+QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symbolsText) {
+    const qsizetype idx = venueIndex(venueKey);
+    if (idx < 0) return {};
+
+    QStringList formatted;
+    const auto symbols = normalizedSymbols(symbolsText);
+    formatted.reserve(static_cast<qsizetype>(symbols.size()));
+    for (const auto& symbol : symbols) {
+        const auto parsed = parseGlobalSymbol(QString::fromStdString(symbol));
+        if (!parsed.base.isEmpty()) formatted.push_back(formattedVenueSymbol(kVenues[idx], parsed));
+    }
+    return formatted.join(QLatin1Char('\n'));
 }
 
 QString buildRequestPreview(const QString& channel,

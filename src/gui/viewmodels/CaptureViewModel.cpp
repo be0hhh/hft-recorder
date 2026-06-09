@@ -195,6 +195,21 @@ void CaptureViewModel::setSymbolsText(const QString& symbolsText) {
     reconcileActiveChannels_();
 }
 
+void CaptureViewModel::applyGlobalSymbolsToVenues() {
+    if (detail::normalizedSymbols(symbolsText_).empty()) return;
+
+    const auto choices = venueChoices();
+    while (venueSymbolsTexts_.size() < choices.size()) venueSymbolsTexts_.push_back({});
+    for (qsizetype i = 0; i < choices.size(); ++i) {
+        const auto venueKey = choices[i].toMap().value(QStringLiteral("key")).toString();
+        venueSymbolsTexts_[i] = detail::venueSymbolsFromGlobalInput(venueKey, symbolsText_);
+    }
+
+    emit symbolsTextChanged();
+    emit requestBuilderChanged();
+    reconcileActiveChannels_();
+}
+
 void CaptureViewModel::setTradesHistoryWarmupSec(int seconds) {
     if (seconds < 0) seconds = 0;
     if (seconds > 86400) seconds = 86400;

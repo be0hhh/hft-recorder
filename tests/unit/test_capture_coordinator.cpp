@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <fstream>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 
 #include "core/capture/CaptureCoordinator.hpp"
 
@@ -52,6 +54,25 @@ TEST(CaptureCoordinator, RejectsConfigDriftWhileSessionIsOpen) {
 
     EXPECT_EQ(coordinator.ensureSession(mismatchedConfig), Status::InvalidArgument);
     EXPECT_NE(coordinator.lastError().find("different exchange/market/symbol/output directory"), std::string::npos);
+
+    std::error_code ec;
+    coordinator.finalizeSession();
+    fs::remove_all(config.outputDir, ec);
+}
+
+TEST(CaptureCoordinator, WritesManifestAsSoonAsSessionIsEnsured) {
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+
+    ASSERT_EQ(coordinator.ensureSession(config), Status::Ok);
+
+    const auto sessionDir = coordinator.sessionDirCopy();
+    const auto manifestPath = sessionDir / "manifest.json";
+    ASSERT_TRUE(fs::exists(manifestPath));
+    std::ifstream manifestStream(manifestPath);
+    ASSERT_TRUE(manifestStream.is_open());
+    const std::string manifest((std::istreambuf_iterator<char>(manifestStream)), std::istreambuf_iterator<char>());
+    EXPECT_NE(manifest.find("\"session_status\": \"recording\""), std::string::npos);
 
     std::error_code ec;
     coordinator.finalizeSession();

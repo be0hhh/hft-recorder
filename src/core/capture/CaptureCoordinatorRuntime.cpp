@@ -49,6 +49,7 @@ namespace {
 constexpr unsigned kRecorderTradesKeepaliveMs = 0u;
 constexpr unsigned kRecorderQuietStreamKeepaliveMs = 5000u;
 constexpr unsigned kRecorderReconnectRetryMs = 100u;
+constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
 constexpr std::int64_t kTradesHistoryWarmupMaxSec = 86400;
 constexpr std::size_t kTradesHistoryWarmupTargetRows = 0u;
 constexpr std::uint32_t kTradesHistoryWarmupPageLimit = 1000u;
@@ -1278,9 +1279,11 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
     }
 
     std::uint64_t skippedPolls = 0u;
+    std::int64_t nextManifestFlushNs = internal::nowNs() + kRecordingManifestFlushIntervalNs;
     while (!marketDataStop_.load(std::memory_order_acquire)
            && desiredBookTicker_.load(std::memory_order_acquire)
            && !bookTickerStop_.load(std::memory_order_acquire)) {
+        (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
         const auto status = cxet::api::market::pollPublicMarketDataRouteOnce(channel.route);
         if (status == cxet::api::market::PublicMarketDataStatus::Parsed) {
             cxet::composite::BookTickerRuntimeV1 bookTicker{};
@@ -1328,6 +1331,8 @@ void CaptureCoordinator::directBookTickerLoop_(CaptureConfig config) noexcept {
         }
     }
 
+    nextManifestFlushNs = 0;
+    (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
     cxet::api::market::closePublicMarketDataRoute(channel.route);
     bookTickerRunning_.store(false, std::memory_order_release);
     marketDataRunning_.store(false, std::memory_order_release);
@@ -1406,7 +1411,9 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
         return;
     }
 
+    std::int64_t nextManifestFlushNs = internal::nowNs() + kRecordingManifestFlushIntervalNs;
     while (!liquidationsStop_.load(std::memory_order_acquire)) {
+        (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
         const auto status = cxet::api::market::pollPublicMarketDataRouteOnce(channel.route);
         if (status == cxet::api::market::PublicMarketDataStatus::Parsed) {
             cxet::composite::LiquidationEvent liquidation{};
@@ -1439,6 +1446,8 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
             (void)connectRoute();
         }
     }
+    nextManifestFlushNs = 0;
+    (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
     cxet::api::market::closePublicMarketDataRoute(channel.route);
     liquidationsRunning_.store(false, std::memory_order_release);
 }
@@ -1776,7 +1785,9 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         return mask;
     };
 
+    std::int64_t nextManifestFlushNs = internal::nowNs() + kRecordingManifestFlushIntervalNs;
     while (!marketDataStop_.load(std::memory_order_acquire)) {
+        (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
         const std::uint8_t mask = desiredMask();
         if (mask == 0u) break;
         if (mask != appliedMask) {
@@ -1930,6 +1941,8 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         (void)flushTradesWarmupIfReady();
     }
 
+    nextManifestFlushNs = 0;
+    (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
     closeChannels();
     tradesRunning_.store(false, std::memory_order_release);
     bookTickerRunning_.store(false, std::memory_order_release);

@@ -57,6 +57,14 @@ bool readWholeFileOptional(const std::filesystem::path& path, std::string& out) 
     return readWholeFile(path, out);
 }
 
+bool readWholeFileOptionalPath(const std::filesystem::path& path, std::string& out) noexcept {
+    if (path.empty()) {
+        out.clear();
+        return true;
+    }
+    return readWholeFileOptional(path, out);
+}
+
 std::uint64_t fileSizeOrZero(const std::filesystem::path& path) noexcept {
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
@@ -599,19 +607,25 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
             }
             out.instrumentMetadata = std::move(metadata);
         }
-        if (!readWholeFileOptional(sessionDir / out.manifest.sessionAuditPath, out.sessionAuditDocument)
-            || !readWholeFileOptional(sessionDir / out.manifest.integrityReportPath, out.integrityReportDocument)
-            || !readWholeFileOptional(sessionDir / out.manifest.loaderDiagnosticsPath, out.loaderDiagnosticsDocument)) {
-            addIssue(report,
-                     LoadIssueCode::UnreadableArtifact,
-                     LoadIssueSeverity::Fatal,
-                     Status::IoError,
-                     "support_artifacts",
-                     "reports/*",
-                     0,
-                     "failed to open one or more support artifacts");
-            out.report = report;
-            return report.finalStatus;
+        if (out.manifest.sessionStatus == "complete") {
+            if (!readWholeFileOptional(sessionDir / out.manifest.sessionAuditPath, out.sessionAuditDocument)
+                || !readWholeFileOptional(sessionDir / out.manifest.integrityReportPath, out.integrityReportDocument)
+                || !readWholeFileOptional(sessionDir / out.manifest.loaderDiagnosticsPath, out.loaderDiagnosticsDocument)) {
+                addIssue(report,
+                         LoadIssueCode::UnreadableArtifact,
+                         LoadIssueSeverity::Fatal,
+                         Status::IoError,
+                         "support_artifacts",
+                         "reports/*",
+                         0,
+                         "failed to open one or more support artifacts");
+                out.report = report;
+                return report.finalStatus;
+            }
+        } else {
+            (void)readWholeFileOptionalPath(sessionDir / out.manifest.sessionAuditPath, out.sessionAuditDocument);
+            (void)readWholeFileOptionalPath(sessionDir / out.manifest.integrityReportPath, out.integrityReportDocument);
+            (void)readWholeFileOptionalPath(sessionDir / out.manifest.loaderDiagnosticsPath, out.loaderDiagnosticsDocument);
         }
     }
 

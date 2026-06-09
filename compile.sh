@@ -135,6 +135,71 @@ _reset_build_dir_for_explicit_compiler() {
     rm -rf "$resolved"
 }
 
+_clear_stale_cmake_cache() {
+    local dir="$1"
+    local source_dir="$2"
+    local label="$3"
+    local cache_file="$dir/CMakeCache.txt"
+
+    if [ -d "$dir/_deps" ]; then
+        local deps_parent deps_base deps_resolved subbuild_cache subbuild_dir cached_subbuild
+        deps_parent="$(cd "$(dirname "$dir")" && pwd)"
+        deps_base="$(basename "$dir")"
+        deps_resolved="$deps_parent/$deps_base"
+
+        case "$deps_resolved" in
+            "$COMPRESSOR/build"|"$TRADER/build"|"$BACKTEST/build"|"$CXETCPP/build"|"$APP/build") ;;
+            *)
+                echo "ERROR: refusing to clean unexpected $label dependency directory: $deps_resolved" >&2
+                exit 2
+                ;;
+        esac
+
+        shopt -s nullglob
+        for subbuild_cache in "$deps_resolved"/_deps/*-subbuild/CMakeCache.txt; do
+            subbuild_dir="${subbuild_cache%/CMakeCache.txt}"
+            cached_subbuild="$(grep -E '^CMAKE_CACHEFILE_DIR:INTERNAL=' "$subbuild_cache" 2>/dev/null | cut -d= -f2- || true)"
+            if [ "$cached_subbuild" != "$subbuild_dir" ]; then
+                echo ">>> CMake cache for $label dependency was created from a different path; regenerating: $subbuild_dir"
+                rm -rf "$subbuild_dir"
+            fi
+        done
+        shopt -u nullglob
+    fi
+
+    if [ ! -f "$cache_file" ]; then
+        return 0
+    fi
+
+    local parent base resolved cached_source cached_build
+    parent="$(cd "$(dirname "$dir")" && pwd)"
+    base="$(basename "$dir")"
+    resolved="$parent/$base"
+    cached_source="$(grep -E '^CMAKE_HOME_DIRECTORY:INTERNAL=' "$cache_file" 2>/dev/null | cut -d= -f2- || true)"
+    cached_build="$(grep -E '^CMAKE_CACHEFILE_DIR:INTERNAL=' "$cache_file" 2>/dev/null | cut -d= -f2- || true)"
+    if [ "$cached_source" = "$source_dir" ] && [ "$cached_build" = "$resolved" ]; then
+        return 0
+    fi
+
+    case "$resolved" in
+        "$COMPRESSOR/build"|"$TRADER/build"|"$BACKTEST/build"|"$CXETCPP/build"|"$APP/build") ;;
+        *)
+            echo "ERROR: refusing to clean unexpected $label build directory: $resolved" >&2
+            exit 2
+            ;;
+    esac
+
+    echo ">>> CMake cache for $label was created from a different path; regenerating: $resolved"
+    rm -rf "$resolved/CMakeCache.txt" \
+           "$resolved/CMakeFiles" \
+           "$resolved/compile_commands.json" \
+           "$resolved/cmake_install.cmake" \
+           "$resolved/Makefile" \
+           "$resolved/build.ninja" \
+           "$resolved/.ninja_deps" \
+           "$resolved/.ninja_log"
+}
+
 _require_linux_build_env() {
     if [ "$(uname -s)" != "Linux" ]; then
         echo "ERROR: hft-recorder build is Linux/WSL only." >&2
@@ -204,6 +269,7 @@ _build_trader() {
 
 _build_backtest() {
     _require_backtest_tree
+    _clear_stale_cmake_cache "$BACKTEST/build" "$BACKTEST" "hft-backtest"
     _reset_build_dir_for_explicit_compiler "$BACKTEST/build" "hft-backtest"
     _resolve_trader_lib >/dev/null
     echo ">>> Building hft-backtest library"
@@ -342,9 +408,18 @@ set -euo pipefail
 APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
 INSTALL_DIR="\${HOME}/.local/cxet"
 COMPRESSOR_LIB_DIR="$compressor_lib_dir"
-BACKTEST_LIB_DIR="$backtest_lib_dir"
-TRADER_LIB_DIR="$trader_lib_dir"
-TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir"
+BACKTEST_LIB_DIR="\$APP_DIR/../hft-backtest/build"
+TRADER_LIB_DIR="\$APP_DIR/../hft-trader/build"
+TRADER_CXET_LIB_DIR="\$APP_DIR/../hft-trader/build/cxetcpp/lib"
+if [ ! -f "\$BACKTEST_LIB_DIR/libhft_backtest_core.so" ]; then
+    BACKTEST_LIB_DIR="$backtest_lib_dir"
+fi
+if [ ! -f "\$TRADER_LIB_DIR/libhft_trader_runtime.so" ]; then
+    TRADER_LIB_DIR="$trader_lib_dir"
+fi
+if [ ! -f "\$TRADER_CXET_LIB_DIR/libcxet_lib.so" ]; then
+    TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir"
+fi
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 export HFTREC_METRICS_PORT="\${HFTREC_METRICS_PORT:-8080}"
 export HFTREC_METRICS_MODE="\${HFTREC_METRICS_MODE:-$default_metrics_mode}"
@@ -468,6 +543,7 @@ _build_recorder_app() {
         echo ">>> Removing hft-recorder/build"
         rm -rf build
     fi
+    _clear_stale_cmake_cache "$APP/build" "$APP" "hft-recorder"
     _reset_build_dir_for_explicit_compiler "$APP/build" "hft-recorder"
 
     if [ ! -f build/CMakeCache.txt ] || [ "$CLEAN" = "1" ] || [ "$COMPILER" != "default" ] || [ "$CXET_REFRESHED" = "1" ] || [ "$RECORDER_DEPS_REFRESHED" = "1" ]; then
