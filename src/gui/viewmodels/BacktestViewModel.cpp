@@ -14,6 +14,7 @@
 #include <QSet>
 #include <QTextStream>
 #include <QVariantMap>
+#include <QTimer>
 
 #include <algorithm>
 #include <array>
@@ -777,8 +778,11 @@ QString filteredBaseConfig(const QString& base) {
 }  // namespace
 
 BacktestViewModel::BacktestViewModel(QObject* parent) : QObject(parent) {
-    connect(&watcher_, &QFileSystemWatcher::directoryChanged, this, [this]() { refresh(); });
-    connect(&watcher_, &QFileSystemWatcher::fileChanged, this, [this]() { refresh(); });
+    refreshTimer_.setSingleShot(true);
+    refreshTimer_.setInterval(200);
+    connect(&refreshTimer_, &QTimer::timeout, this, &BacktestViewModel::refresh);
+    connect(&watcher_, &QFileSystemWatcher::directoryChanged, this, [this]() { scheduleRefresh_(); });
+    connect(&watcher_, &QFileSystemWatcher::fileChanged, this, [this]() { scheduleRefresh_(); });
     loadPersistentConfig_();
     const QVariantList rows = sessions();
     if (!rows.empty()) selectedSessionId_ = rows.front().toMap().value(QStringLiteral("id")).toString();
@@ -1065,19 +1069,7 @@ QVariantList BacktestViewModel::selectedResultMetrics() const {
 QVariantList BacktestViewModel::selectedSweepRows() const {
     const auto* record = selectedRecord_();
     if (record == nullptr || !record->sweep) return {};
-    QVariantList out;
-    for (const QVariant& value : record->sweepRows) {
-        QVariantMap row = value.toMap();
-        const qint64 raw = row.value(QStringLiteral("totalPnlE8")).toLongLong();
-        row.insert(QStringLiteral("metricKey"), QStringLiteral("total_pnl_e8"));
-        row.insert(QStringLiteral("metricRaw"), raw);
-        row.insert(QStringLiteral("metricText"), e8DisplayString(raw));
-        out.push_back(row);
-    }
-    std::sort(out.begin(), out.end(), [](const QVariant& lhs, const QVariant& rhs) {
-        return lhs.toMap().value(QStringLiteral("metricRaw")).toLongLong() > rhs.toMap().value(QStringLiteral("metricRaw")).toLongLong();
-    });
-    return out;
+    return record->sweepRows;
 }
 
 QVariantList BacktestViewModel::selectedSweepDistributionParamChoices() const {
@@ -1096,12 +1088,12 @@ QVariantList BacktestViewModel::selectedSweepDistributionParamChoices() const {
 }
 
 QString BacktestViewModel::selectedSweepDistributionParam() const {
-    const QVariantList choices = selectedSweepDistributionParamChoices();
-    for (const QVariant& value : choices) {
-        const QString id = value.toMap().value(QStringLiteral("id")).toString();
-        if (id == selectedSweepDistributionParam_) return id;
+    const auto* record = selectedRecord_();
+    if (record == nullptr || !record->sweep) return {};
+    for (const QString& key : record->sweepParamKeys) {
+        if (key == selectedSweepDistributionParam_) return key;
     }
-    return choices.empty() ? QString{} : choices.front().toMap().value(QStringLiteral("id")).toString();
+    return record->sweepParamKeys.empty() ? QString{} : record->sweepParamKeys.front();
 }
 
 QVariantList BacktestViewModel::selectedSweepCurves() const {
@@ -1579,6 +1571,7 @@ void BacktestViewModel::loadProfile() {
 }
 
 void BacktestViewModel::refresh() {
+    refreshTimer_.stop();
     updateWatcher_();
     std::vector<RunRecord> next;
     const QString dirPath = backtestsDirectory();
@@ -1588,10 +1581,18 @@ void BacktestViewModel::refresh() {
             const QDir candidateDir(runDir.absoluteFilePath());
             const QString manifestPath = candidateDir.absoluteFilePath(QStringLiteral("manifest.json"));
             if (!QFileInfo::exists(manifestPath)) return;
-            filesToWatch.push_back(manifestPath);
-            filesToWatch.push_back(candidateDir.absoluteFilePath(QStringLiteral("equity.jsonl")));
-            filesToWatch.push_back(candidateDir.absoluteFilePath(QStringLiteral("sweep_results.jsonl")));
-            next.push_back(loadRecord_(runDir.absoluteFilePath()));
+            const RunRecord* cached = recordForPath_(runDir.absoluteFilePath());
+            RunRecord record = (cached != nullptr && fileStampMatches_(manifestPath, cached->manifestModifiedMs, cached->manifestSize) && cached->manifestPath == manifestPath &&
+                                fileStampMatches_(cached->equityPath, cached->equityModifiedMs, cached->equitySize) &&
+                                fileStampMatches_(cached->sweepRowsPath, cached->sweepRowsModifiedMs, cached->sweepRowsSize) &&
+                                fileStampMatches_(cached->sweepCurvesPath, cached->sweepCurvesModifiedMs, cached->sweepCurvesSize))
+                ? *cached
+                : loadRecord_(runDir.absoluteFilePath());
+            if (!record.manifestPath.isEmpty()) filesToWatch.push_back(record.manifestPath);
+            if (!record.equityPath.isEmpty()) filesToWatch.push_back(record.equityPath);
+            if (!record.sweepRowsPath.isEmpty()) filesToWatch.push_back(record.sweepRowsPath);
+            if (!record.sweepCurvesPath.isEmpty()) filesToWatch.push_back(record.sweepCurvesPath);
+            next.push_back(std::move(record));
         };
         QDir dir(dirPath);
         const QFileInfoList dirs = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Name);
@@ -1618,7 +1619,23 @@ void BacktestViewModel::refresh() {
         if (selectedSessionPath().isEmpty()) setStatusText_(QStringLiteral("Select a session and strategy"));
         else setStatusText_(QStringLiteral("Watching %1 result%2").arg(static_cast<qulonglong>(records_.size())).arg(records_.size() == 1u ? QString{} : QStringLiteral("s")));
     }
-    if (!filesToWatch.empty()) (void)watcher_.addPaths(filesToWatch);
+    const QStringList watchedFiles = watcher_.files();
+    if (!watchedFiles.empty()) {
+        QStringList filesToRemove;
+        for (const QString& file : watchedFiles) {
+            if (!filesToWatch.contains(file)) filesToRemove.push_back(file);
+        }
+        if (!filesToRemove.empty()) (void)watcher_.removePaths(filesToRemove);
+    }
+    if (!filesToWatch.empty()) {
+        const QStringList currentFiles = watcher_.files();
+        QStringList filesToAdd;
+        for (const QString& file : filesToWatch) {
+            if (!QFileInfo::exists(file) || currentFiles.contains(file)) continue;
+            filesToAdd.push_back(file);
+        }
+        if (!filesToAdd.empty()) (void)watcher_.addPaths(filesToAdd);
+    }
     emit runsChanged();
     emit selectionChanged();
 }
@@ -1955,6 +1972,9 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.fileName = info.fileName();
     record.runId = info.fileName();
     record.modifiedMs = info.lastModified().toMSecsSinceEpoch();
+    record.manifestPath = manifestPath;
+    record.manifestModifiedMs = fileStampMs_(manifestPath, &record.manifestSize);
+    record.modifiedMs = std::max(record.modifiedMs, record.manifestModifiedMs);
 
     QFile file(manifestPath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -1991,12 +2011,18 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
         QString rowsPath = rowsObject.value(QStringLiteral("path")).toString(QStringLiteral("sweep_results.jsonl"));
         const QFileInfo rowsInfo(rowsPath);
         if (rowsInfo.isRelative()) rowsPath = runDir.absoluteFilePath(rowsPath);
+        record.sweepRowsPath = rowsPath;
+        record.sweepRowsModifiedMs = fileStampMs_(rowsPath, &record.sweepRowsSize);
+        record.modifiedMs = std::max(record.modifiedMs, record.sweepRowsModifiedMs);
         record.sweepRows = sweepRowsFromJsonl(rowsPath, QStringLiteral("total_pnl_e8"));
         appendSweepParamKeysFromRows(record.sweepRows, record.sweepParamKeys);
         const QJsonObject curvesObject = object.value(QStringLiteral("curves")).toObject();
         QString curvesPath = curvesObject.value(QStringLiteral("path")).toString(QStringLiteral("sweep_curves.jsonl"));
         const QFileInfo curvesInfo(curvesPath);
         if (curvesInfo.isRelative()) curvesPath = runDir.absoluteFilePath(curvesPath);
+        record.sweepCurvesPath = curvesPath;
+        record.sweepCurvesModifiedMs = fileStampMs_(curvesPath, &record.sweepCurvesSize);
+        record.modifiedMs = std::max(record.modifiedMs, record.sweepCurvesModifiedMs);
         record.sweepCurves = sweepCurvesFromJsonl(curvesPath);
         if (!record.sweepRows.empty()) record.totalPnlE8 = record.sweepRows.front().toMap().value(QStringLiteral("totalPnlE8")).toLongLong();
         if (!record.sweepCurves.empty()) {
@@ -2033,7 +2059,10 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     const QJsonObject streams = object.value(QStringLiteral("streams")).toObject();
     const QJsonObject equityStream = streams.value(QStringLiteral("equity")).toObject();
     const qint64 equityRows = equityStream.value(QStringLiteral("rows")).toInteger();
-    record.equityPoints = equityPointsFromJsonl(runDir.absoluteFilePath(QStringLiteral("equity.jsonl")), summary, equityRows, record.pnlMinE8, record.pnlMaxE8);
+    record.equityPath = runDir.absoluteFilePath(QStringLiteral("equity.jsonl"));
+    record.equityModifiedMs = fileStampMs_(record.equityPath, &record.equitySize);
+    record.modifiedMs = std::max(record.modifiedMs, record.equityModifiedMs);
+    record.equityPoints = equityPointsFromJsonl(record.equityPath, summary, equityRows, record.pnlMinE8, record.pnlMaxE8);
     record.errorCount = errorCount(object.value(QStringLiteral("errors")));
     record.rawJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
     return record;
@@ -2056,18 +2085,59 @@ const BacktestViewModel::RunRecord* BacktestViewModel::selectedRecord_() const n
     return it == records_.end() ? nullptr : &(*it);
 }
 
-void BacktestViewModel::updateWatcher_() {
-    const QStringList watchedFiles = watcher_.files();
-    if (!watchedFiles.empty()) (void)watcher_.removePaths(watchedFiles);
-    const QStringList watchedDirs = watcher_.directories();
-    if (!watchedDirs.empty()) (void)watcher_.removePaths(watchedDirs);
+const BacktestViewModel::RunRecord* BacktestViewModel::recordForPath_(const QString& filePath) const noexcept {
+    const QString target = QFileInfo(filePath).absoluteFilePath();
+    const auto it = std::find_if(records_.begin(), records_.end(), [&target](const RunRecord& record) {
+        return record.filePath == target;
+    });
+    return it == records_.end() ? nullptr : &(*it);
+}
 
+void BacktestViewModel::scheduleRefresh_() {
+    refreshTimer_.start();
+}
+
+qint64 BacktestViewModel::fileStampMs_(const QString& path, qint64* sizeOut) {
+    if (sizeOut != nullptr) *sizeOut = -1;
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) return 0;
+    const QFileInfo info(trimmed);
+    if (!info.exists()) return 0;
+    if (sizeOut != nullptr) *sizeOut = info.size();
+    return info.lastModified().toMSecsSinceEpoch();
+}
+
+bool BacktestViewModel::fileStampMatches_(const QString& path, qint64 modifiedMs, qint64 size) {
+    qint64 currentSize = -1;
+    return fileStampMs_(path, &currentSize) == modifiedMs && currentSize == size;
+}
+
+void BacktestViewModel::updateWatcher_() {
+    QStringList desiredDirs;
     const QString dirPath = backtestsDirectory();
-    if (dirPath.isEmpty()) return;
-    QDir sessionDir(selectedSessionPath());
-    if (!sessionDir.exists()) return;
-    sessionDir.mkpath(QStringLiteral("backtests"));
-    if (QDir(dirPath).exists()) (void)watcher_.addPath(dirPath);
+    if (!dirPath.isEmpty()) {
+        QDir sessionDir(selectedSessionPath());
+        if (sessionDir.exists()) {
+            sessionDir.mkpath(QStringLiteral("backtests"));
+            if (QDir(dirPath).exists()) desiredDirs.push_back(dirPath);
+        }
+    }
+
+    const QStringList watchedDirs = watcher_.directories();
+    if (!watchedDirs.empty()) {
+        QStringList dirsToRemove;
+        for (const QString& dir : watchedDirs) {
+            if (!desiredDirs.contains(dir)) dirsToRemove.push_back(dir);
+        }
+        if (!dirsToRemove.empty()) (void)watcher_.removePaths(dirsToRemove);
+    }
+    if (!desiredDirs.empty()) {
+        QStringList dirsToAdd;
+        for (const QString& dir : desiredDirs) {
+            if (!watchedDirs.contains(dir)) dirsToAdd.push_back(dir);
+        }
+        if (!dirsToAdd.empty()) (void)watcher_.addPaths(dirsToAdd);
+    }
 }
 
 void BacktestViewModel::setStatusText_(const QString& statusText) {

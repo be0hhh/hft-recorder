@@ -601,6 +601,7 @@ Pane {
                                 property string sweepStateKey: ""
                                 property int sweepSteps: 1
                                 property var sweepBounds: ({ "min": 0, "max": 1 })
+                                property var sweepCurveValues: []
 
                                 Connections {
                                     target: root.backtestVm
@@ -615,19 +616,25 @@ Pane {
                                     return max
                                 }
 
-                                function curveValue(curve, step) {
-                                    if (curve.curve.length === 0) return 0
-                                    var idx = Math.min(step, curve.curve.length - 1)
-                                    return root.sweepValue(curve.curve[idx], curve.initialBalanceE8)
+                                function curveValues(curve) {
+                                    var values = []
+                                    for (var i = 0; i < curve.curve.length; ++i) values.push(root.sweepValue(curve.curve[i], curve.initialBalanceE8))
+                                    return values
                                 }
 
-                                function paddedBounds(curves, steps) {
+                                function curveValue(values, step) {
+                                    if (values.length === 0) return 0
+                                    var idx = Math.min(step, values.length - 1)
+                                    return values[idx]
+                                }
+
+                                function paddedBounds(curveValues, steps) {
                                     var minPnl = 0
                                     var maxPnl = 0
                                     var has = false
-                                    for (var c = 0; c < curves.length; ++c) {
+                                    for (var c = 0; c < curveValues.length; ++c) {
                                         for (var s = 0; s < steps; ++s) {
-                                            var value = curveValue(curves[c], s)
+                                            var value = curveValue(curveValues[c], s)
                                             if (!has) { minPnl = value; maxPnl = value; has = true }
                                             minPnl = Math.min(minPnl, value)
                                             maxPnl = Math.max(maxPnl, value)
@@ -654,8 +661,10 @@ Pane {
                                 function ensureSweepState(curves) {
                                     var key = sweepStateCacheKey(curves)
                                     if (sweepStateKey === key) return
+                                    sweepCurveValues = []
+                                    for (var i = 0; i < curves.length; ++i) sweepCurveValues.push(curveValues(curves[i]))
                                     sweepSteps = maxSteps(curves)
-                                    sweepBounds = paddedBounds(curves, sweepSteps)
+                                    sweepBounds = paddedBounds(sweepCurveValues, sweepSteps)
                                     sweepStateKey = key
                                 }
 
@@ -703,13 +712,14 @@ Pane {
                                 }
 
                                 function drawCurve(ctx, curve, index, steps, bounds, plotX, plotY, plotW, plotH) {
+                                    var values = sweepCurveValues[index] || []
                                     ctx.strokeStyle = colorFor(index)
                                     ctx.globalAlpha = root.selectedSweepPointId < 0 || root.selectedSweepPointId === curve.pointId ? 0.95 : 0.35
                                     ctx.lineWidth = root.selectedSweepPointId === curve.pointId ? 3 : 1.7
                                     ctx.beginPath()
                                     for (var step = 0; step < steps; ++step) {
                                         var x = xFor(step, steps, plotX, plotW)
-                                        var y = yFor(curveValue(curve, step), bounds.min, bounds.max, plotY, plotH)
+                                        var y = yFor(curveValue(values, step), bounds.min, bounds.max, plotY, plotH)
                                         if (step === 0) ctx.moveTo(x, y)
                                         else ctx.lineTo(x, y)
                                     }
@@ -735,9 +745,10 @@ Pane {
                                     var firstStep = Math.max(0, centerStep - 1)
                                     var lastStep = Math.min(steps - 1, centerStep + 1)
                                     for (var c = 0; c < curves.length; ++c) {
+                                        var values = sweepCurveValues[c] || []
                                         for (var s = firstStep; s <= lastStep; ++s) {
                                             var x = xFor(s, steps, plotX, plotW)
-                                            var y = yFor(curveValue(curves[c], s), bounds.min, bounds.max, plotY, plotH)
+                                            var y = yFor(curveValue(values, s), bounds.min, bounds.max, plotY, plotH)
                                             var dx = x - mx
                                             var dy = y - my
                                             var d = dx * dx + dy * dy
@@ -751,7 +762,7 @@ Pane {
                                     hoverCurveIndex = bestCurve
                                     hoverStep = bestStep
                                     hoverX = xFor(bestStep, steps, plotX, plotW)
-                                    hoverY = yFor(curveValue(curves[bestCurve], bestStep), bounds.min, bounds.max, plotY, plotH)
+                                    hoverY = yFor(curveValue(sweepCurveValues[bestCurve] || [], bestStep), bounds.min, bounds.max, plotY, plotH)
                                     sweepHoverCanvas.requestPaint()
                                 }
 
@@ -774,7 +785,7 @@ Pane {
                                 function drawHover(ctx, curves, steps, bounds, plotX, plotY, plotW, plotH) {
                                     if (hoverCurveIndex < 0 || hoverCurveIndex >= curves.length) return
                                     var curve = curves[hoverCurveIndex]
-                                    var value = curveValue(curve, hoverStep)
+                                    var value = curveValue(sweepCurveValues[hoverCurveIndex] || [], hoverStep)
                                     ctx.strokeStyle = "rgba(245,245,245,0.42)"
                                     ctx.lineWidth = 1
                                     ctx.beginPath()
@@ -907,6 +918,7 @@ Pane {
                                 property string stateKey: ""
                                 property var bounds: ({ "min": 0, "max": 1 })
                                 property var layoutRows: []
+                                property var barValues: []
 
                                 Connections {
                                     target: root.backtestVm
@@ -926,11 +938,13 @@ Pane {
                                 function ensureState(rows, plotX, plotY, plotW, plotH) {
                                     var key = stateCacheKey(rows) + ":" + Math.round(plotW) + ":" + Math.round(plotH)
                                     if (stateKey === key) return
+                                    barValues = []
+                                    for (var i = 0; i < rows.length; ++i) barValues.push(barValue(rows[i]))
                                     var minValue = 0
                                     var maxValue = 0
                                     var has = false
                                     for (var i = 0; i < rows.length; ++i) {
-                                        var value = barValue(rows[i])
+                                        var value = barValues[i]
                                         if (!has) { minValue = value; maxValue = value; has = true }
                                         minValue = Math.min(minValue, value)
                                         maxValue = Math.max(maxValue, value)
@@ -1000,7 +1014,7 @@ Pane {
                                     for (var i = 0; i < layoutRows.length; ++i) {
                                         var item = layoutRows[i]
                                         var bar = item.bar
-                                        var value = barValue(bar)
+                                        var value = barValues[i]
                                         var y = yFor(value, currentBounds.min, currentBounds.max, plotY, plotH)
                                         var top = Math.min(y, zeroY)
                                         var h = Math.max(1, Math.abs(zeroY - y))
@@ -1035,7 +1049,7 @@ Pane {
                                     for (var i = 0; i < layoutRows.length; ++i) {
                                         var item = layoutRows[i]
                                         if (mx < item.x - 2 || mx > item.x + item.width + 2) continue
-                                        var y = yFor(barValue(item.bar), bounds.min, bounds.max, plotY, plotH)
+                                        var y = yFor(barValues[i], bounds.min, bounds.max, plotY, plotH)
                                         var top = Math.min(y, zeroY)
                                         var bottom = Math.max(y, zeroY)
                                         if (my >= top - 3 && my <= bottom + 3) { best = i; break }
@@ -1044,7 +1058,7 @@ Pane {
                                     hoverIndex = best
                                     hoverPointId = layoutRows[best].bar.pointId
                                     hoverX = layoutRows[best].centerX
-                                    hoverY = yFor(barValue(layoutRows[best].bar), bounds.min, bounds.max, plotY, plotH)
+                                    hoverY = yFor(barValues[best], bounds.min, bounds.max, plotY, plotH)
                                     distributionHoverCanvas.requestPaint()
                                 }
 
@@ -1065,7 +1079,7 @@ Pane {
                                 function drawHover(ctx, plotX, plotY, plotW, plotH) {
                                     if (hoverIndex < 0 || hoverIndex >= layoutRows.length) return
                                     var bar = layoutRows[hoverIndex].bar
-                                    var value = barValue(bar)
+                                    var value = barValues[hoverIndex]
                                     ctx.strokeStyle = "rgba(245,245,245,0.42)"
                                     ctx.lineWidth = 1
                                     ctx.beginPath()

@@ -7,6 +7,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <QTimer>
 
 #include <atomic>
 #include <thread>
@@ -233,6 +234,10 @@ class BacktestViewModel : public QObject {
         QString summaryJson{};
         QString errorText{};
         QString pnlText{};
+        QString manifestPath{};
+        QString equityPath{};
+        QString sweepRowsPath{};
+        QString sweepCurvesPath{};
         QVariantList equityPoints{};
         QVariantList resultMetrics{};
         QVariantList sweepRows{};
@@ -243,6 +248,14 @@ class BacktestViewModel : public QObject {
         qint64 pnlMinE8{0};
         qint64 pnlMaxE8{0};
         qint64 modifiedMs{0};
+        qint64 manifestModifiedMs{0};
+        qint64 manifestSize{-1};
+        qint64 equityModifiedMs{0};
+        qint64 equitySize{-1};
+        qint64 sweepRowsModifiedMs{0};
+        qint64 sweepRowsSize{-1};
+        qint64 sweepCurvesModifiedMs{0};
+        qint64 sweepCurvesSize{-1};
         int errorCount{0};
         bool valid{false};
         bool sweep{false};
@@ -251,8 +264,12 @@ class BacktestViewModel : public QObject {
     static RunRecord loadRecord_(const QString& filePath);
     static QString normalizedPath_(const QString& path);
     static QString sessionIdFromPath_(const QString& path);
+    static qint64 fileStampMs_(const QString& path, qint64* sizeOut = nullptr);
+    static bool fileStampMatches_(const QString& path, qint64 modifiedMs, qint64 size);
 
     const RunRecord* selectedRecord_() const noexcept;
+    const RunRecord* recordForPath_(const QString& filePath) const noexcept;
+    void scheduleRefresh_();
     void updateWatcher_();
     void setStatusText_(const QString& statusText);
     void setRunning_(bool running);
@@ -274,6 +291,7 @@ class BacktestViewModel : public QObject {
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
 
     QFileSystemWatcher watcher_{};
+    QTimer refreshTimer_{};
     QSettings settings_{};
     QString selectedSessionId_{};
     QString manualSessionPath_{};
