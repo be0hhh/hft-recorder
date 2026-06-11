@@ -12,6 +12,13 @@ This repository is a standalone application over `CXETCPP`.
 - Do not check GitHub, remotes, CI status, pull requests, releases, or other network-backed repository state unless the user explicitly asks for that exact remote/GitHub action in the current message.
 - If repository state is needed, ask the user to run the Git command or paste the relevant output.
 
+## Subagents and planning
+
+- Root `AGENTS.md` permits moderate automatic Codex subagent use for independent work. In `hft-recorder`, this is a narrow local exception to the background automation ban: Codex subagents may be used for local file inspection, planning, and disjoint file/module edits only.
+- This exception does not allow git commands, GitHub/remote checks, CI/release inspection, builds, tests, compiles, generated-file rewrites, or long-running binaries. Those still require explicit user consent in the current message.
+- Before non-trivial recorder changes, state the goal, assumptions, affected capture/corpus/validation/gui/lab areas, and the manual verification command or checklist.
+- Subagent worker prompts must define owned files/modules and remind the worker not to revert user or other-agent changes.
+
 ## Core contract
 
 - `hft-recorder` is not part of the core `CXETCPP` library.

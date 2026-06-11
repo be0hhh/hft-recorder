@@ -20,6 +20,7 @@ struct OrderRow {
     std::uint8_t status{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
+    std::uint32_t legIndex{0};
 };
 
 struct FillRow {
@@ -29,6 +30,7 @@ struct FillRow {
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
     bool reduceOnly{false};
+    std::uint32_t legIndex{0};
 };
 
 struct ParsedResult {
@@ -90,6 +92,15 @@ bool skipOptionalTrailingFields(hftrec::json::MiniJsonParser& parser) noexcept {
     return parser.parseArrayEnd() && parser.finish();
 }
 
+bool parseOptionalLegIndexAndTrailingFields(hftrec::json::MiniJsonParser& parser,
+                                            std::uint32_t& out) noexcept {
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    std::int64_t value = 0;
+    if (!parser.parseInt64(value) || value < 0) return false;
+    out = static_cast<std::uint32_t>(value);
+    return skipOptionalTrailingFields(parser);
+}
+
 bool parseOrderLine(std::string_view line, OrderRow& out) noexcept {
     out = OrderRow{};
     hftrec::json::MiniJsonParser parser{line};
@@ -108,7 +119,7 @@ bool parseOrderLine(std::string_view line, OrderRow& out) noexcept {
     if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
     bool ignoredBool = false;
     if (!parseBoolByte(parser, ignoredBool)) return false;
-    return skipOptionalTrailingFields(parser);
+    return parseOptionalLegIndexAndTrailingFields(parser, out.legIndex);
 }
 
 bool parseFillLine(std::string_view line, FillRow& out) noexcept {
@@ -124,7 +135,7 @@ bool parseFillLine(std::string_view line, FillRow& out) noexcept {
     if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
     if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
     if (!parseBoolByte(parser, out.reduceOnly)) return false;
-    return skipOptionalTrailingFields(parser);
+    return parseOptionalLegIndexAndTrailingFields(parser, out.legIndex);
 }
 
 template <typename Row, typename ParseFn>
@@ -226,6 +237,7 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
                     endTs,
                     order.priceE8,
                     order.qtyE8,
+                    order.legIndex,
                     sideBuy(order.side),
                     openEnded,
                 });
@@ -237,6 +249,7 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
                 fill->exitTsNs,
                 fill->priceE8,
                 fill->qtyE8,
+                fill->legIndex,
                 buy,
                 isMarketType(order.type),
                 fill->reduceOnly,

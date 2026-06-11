@@ -7,9 +7,12 @@
 #include <QStringList>
 #include <QVariantMap>
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 #include <chrono>
 
 #include "core/metrics/Metrics.hpp"
@@ -48,40 +51,108 @@ QString recordedSourceIdFromPath(const QString& dir) {
     return sessionName.isEmpty() ? QStringLiteral("recorded") : QStringLiteral("recorded:%1").arg(sessionName);
 }
 
-QString shortPnlText(const std::filesystem::path& manifestPath) {
+struct CachedManifestSummary {
+    std::filesystem::file_time_type writeTime{};
+    std::uintmax_t size{0};
+    bool valid{false};
+    bool selectable{false};
+    QString type{};
+    QString pnlText{};
+};
+
+std::unordered_map<std::string, CachedManifestSummary>& resultManifestCache() {
+    static std::unordered_map<std::string, CachedManifestSummary> cache;
+    return cache;
+}
+
+CachedManifestSummary readManifestSummary(const std::filesystem::path& manifestPath) {
+    std::error_code ec;
+    const auto writeTime = std::filesystem::last_write_time(manifestPath, ec);
+    if (ec) return {};
+    const auto size = std::filesystem::file_size(manifestPath, ec);
+    if (ec) return {};
+
+    auto& cache = resultManifestCache();
+    const std::string key = manifestPath.string();
+    const auto cached = cache.find(key);
+    if (cached != cache.end() && cached->second.writeTime == writeTime && cached->second.size == size) return cached->second;
+
+    CachedManifestSummary summary{};
+    summary.writeTime = writeTime;
+    summary.size = size;
+
     QFile file(QString::fromStdString(manifestPath.string()));
-    if (!file.open(QIODevice::ReadOnly)) return {};
+    if (!file.open(QIODevice::ReadOnly)) {
+        cache[key] = summary;
+        return summary;
+    }
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    if (!doc.isObject()) return {};
-    const QJsonObject summary = doc.object().value(QStringLiteral("summary")).toObject();
-    const qint64 initial = summary.value(QStringLiteral("initial_balance_e8")).toInteger();
-    const qint64 pnl = summary.value(QStringLiteral("total_pnl_e8")).toInteger();
-    if (initial <= 0) return {};
+    if (!doc.isObject()) {
+        cache[key] = summary;
+        return summary;
+    }
+
+    const QJsonObject root = doc.object();
+    const QString type = root.value(QStringLiteral("type")).toString();
+    summary.type = type;
+    summary.valid = type == QStringLiteral("run.result.v2") || type == QStringLiteral("sweep.result.v1");
+    summary.selectable = type == QStringLiteral("run.result.v2");
+    if (!summary.valid) {
+        cache[key] = summary;
+        return summary;
+    }
+
+    const QJsonObject summaryObject = root.value(QStringLiteral("summary")).toObject();
+    const qint64 initial = summaryObject.value(QStringLiteral("initial_balance_e8")).toInteger();
+    const qint64 pnl = summaryObject.value(QStringLiteral("total_pnl_e8")).toInteger();
+    if (initial <= 0) {
+        cache[key] = summary;
+        return summary;
+    }
     const qint64 bps = (pnl * 10000) / initial;
     const QString sign = bps > 0 ? QStringLiteral("+") : (bps < 0 ? QStringLiteral("-") : QString{});
     const qint64 absBps = bps < 0 ? -bps : bps;
-    return QStringLiteral("%1%2.%3%").arg(sign, QString::number(absBps / 100), QString::number(absBps % 100).rightJustified(2, QLatin1Char('0')));
+    summary.pnlText = QStringLiteral("%1%2.%3%").arg(sign, QString::number(absBps / 100), QString::number(absBps % 100).rightJustified(2, QLatin1Char('0')));
+    cache[key] = summary;
+    return summary;
 }
 
-void appendBacktestResultRows(const QString& sessionPath, QStringView prefix, QVariantList& rows) {
-    if (sessionPath.trimmed().isEmpty()) return;
-    const std::filesystem::path dir = std::filesystem::path(stripFileUrl(sessionPath)) / "backtests";
+void appendResultDirs(const QString& sessionPath,
+                      QStringView prefix,
+                      const std::filesystem::path& dir,
+                      QVariantList& rows) {
     std::error_code ec;
     if (!std::filesystem::exists(dir, ec) || ec || !std::filesystem::is_directory(dir, ec) || ec) return;
 
+    std::vector<std::filesystem::path> resultDirs;
     for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
         if (ec) break;
         if (!entry.is_directory(ec) || ec) continue;
         const auto path = entry.path();
         if (!std::filesystem::is_regular_file(path / "manifest.json", ec) || ec) continue;
+        resultDirs.push_back(path);
+    }
+    std::sort(resultDirs.begin(), resultDirs.end());
 
+    for (const auto& path : resultDirs) {
+        const CachedManifestSummary summary = readManifestSummary(path / "manifest.json");
+        if (!summary.valid) continue;
         QVariantMap row;
         row.insert(QStringLiteral("sessionPath"), sessionPath);
         row.insert(QStringLiteral("path"), QString::fromStdString(path.string()));
         row.insert(QStringLiteral("label"), prefix.toString() + QStringLiteral(" ") + QString::fromStdString(path.filename().string()));
-        row.insert(QStringLiteral("pnlText"), shortPnlText(path / "manifest.json"));
+        row.insert(QStringLiteral("pnlText"), summary.pnlText);
+        row.insert(QStringLiteral("type"), summary.type);
+        row.insert(QStringLiteral("selectable"), summary.selectable);
         rows.push_back(row);
     }
+}
+
+void appendBacktestResultRows(const QString& sessionPath, QStringView prefix, QVariantList& rows) {
+    if (sessionPath.trimmed().isEmpty()) return;
+    const std::filesystem::path dir = std::filesystem::path(stripFileUrl(sessionPath)) / "backtests";
+    appendResultDirs(sessionPath, prefix, dir, rows);
+    appendResultDirs(sessionPath, prefix, dir / "sweeps", rows);
 }
 
 }  // namespace
@@ -375,7 +446,6 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
     clearStrategyOverlay_();
     replay_.reset();
     loaded_ = false;
-    tradeLodAggregated_ = false;
     sessionDir_ = sessionPath;
     currentSourceId_ = normalizedSourceId;
     currentSourceKind_ = QStringLiteral("live");
@@ -418,7 +488,6 @@ void ChartController::activateLiveOnlyMode() {
     clearStrategyOverlay_();
     replay_.reset();
     loaded_ = false;
-    tradeLodAggregated_ = false;
     sessionDir_.clear();
     currentSourceId_.clear();
     liveProviderSourceId_.clear();
@@ -443,7 +512,6 @@ void ChartController::resetSession() {
     clearStrategyOverlay_();
     replay_.reset();
     loaded_ = false;
-    tradeLodAggregated_ = false;
     sessionDir_.clear();
     currentSourceId_.clear();
     liveProviderSourceId_.clear();
@@ -464,7 +532,6 @@ void ChartController::resetSession() {
 }
 
 bool ChartController::addTradesFile(const QString& path) {
-    tradeLodAggregated_ = false;
     if (path.trimmed().isEmpty()) {
         statusText_ = QStringLiteral("No path. Enter a trades.jsonl path first.");
         emit statusChanged();
@@ -582,7 +649,6 @@ bool ChartController::addSnapshotFile(const QString& path) {
 }
 
 void ChartController::finalizeFiles() {
-    tradeLodAggregated_ = false;
     stopLiveData_();
     clearSelection();
     replay_.finalize();
@@ -621,7 +687,6 @@ bool ChartController::loadSession(const QString& dir) {
     currentSourceKind_ = QStringLiteral("recorded");
     loaded_ = false;
     replay_ = hftrec::replay::SessionReplay{};
-    tradeLodAggregated_ = false;
     clearSelection();
     if (!verticalMarkers_.empty()) {
         verticalMarkers_.clear();

@@ -239,6 +239,49 @@ Pane {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
+                    Label {
+                        text: "Legs"
+                        color: root.mutedTextColor
+                        font.pixelSize: 12
+                        Layout.preferredWidth: 54
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Repeater {
+                            model: root.backtestVm.selectedSessionLegs
+                            delegate: Rectangle {
+                                width: Math.min(260, legLabel.implicitWidth + 18)
+                                height: 24
+                                radius: 6
+                                color: root.panelAltColor
+                                border.color: root.borderColor
+                                Label {
+                                    id: legLabel
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 9
+                                    anchors.rightMargin: 9
+                                    text: modelData.label
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    elide: Text.ElideRight
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                        }
+                    }
+                    Label {
+                        text: root.backtestVm.selectedSessionCount > 1 && !root.backtestVm.canRun ? root.backtestVm.statusText : ""
+                        color: root.badColor
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                        Layout.preferredWidth: 330
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
                     CompactField {
                         caption: "MD base us"
                         fieldWidth: 92

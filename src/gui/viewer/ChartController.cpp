@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <limits>
 #include <filesystem>
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <chrono>
@@ -36,6 +37,18 @@ bool envForcesSoftwareRenderer() {
         || quickBackend == QStringLiteral("software")
         || libglSoftware == QStringLiteral("1")
         || xcbIntegration == QStringLiteral("none");
+}
+
+QString formatNsAsMs(std::uint64_t ns) {
+    const std::uint64_t wholeMs = ns / 1000000ull;
+    const std::uint64_t hundredths = (ns % 1000000ull) / 10000ull;
+    return QStringLiteral("%1.%2ms")
+        .arg(static_cast<qulonglong>(wholeMs))
+        .arg(static_cast<int>(hundredths), 2, 10, QLatin1Char('0'));
+}
+
+std::uint64_t avgNs(std::uint64_t total, std::uint64_t count) noexcept {
+    return count == 0u ? 0u : total / count;
 }
 
 template <typename Row>
@@ -148,6 +161,23 @@ void ChartController::setLiveUpdateIntervalMs(int intervalMs) {
 
 int ChartController::liveUpdateIntervalMs() const noexcept {
     return liveUpdateIntervalMs_;
+}
+
+QString ChartController::performanceDiagnostics() const {
+    const hftrec::metrics::MetricsSnapshot snap = hftrec::metrics::snapshot();
+    const hftrec::metrics::GuiRuntimeMetrics& gui = snap.gui;
+    return QStringLiteral("FPS %1 | paint %2/%3 | snap %4/%5 | objs ob=%6 bt=%7 tr=%8 liq=%9 | cache h/r=%10/%11")
+        .arg(static_cast<qulonglong>(gui.fps))
+        .arg(formatNsAsMs(avgNs(gui.paintNsTotal, gui.frameTotal)))
+        .arg(formatNsAsMs(gui.paintNsMax))
+        .arg(formatNsAsMs(avgNs(gui.snapshotBuildNsTotal, gui.snapshotBuildCountTotal)))
+        .arg(formatNsAsMs(gui.snapshotBuildNsMax))
+        .arg(static_cast<qulonglong>(gui.orderbookSegments))
+        .arg(static_cast<qulonglong>(gui.bookTickerSamples))
+        .arg(static_cast<qulonglong>(gui.tradeDots))
+        .arg(static_cast<qulonglong>(gui.liquidationDots))
+        .arg(static_cast<qulonglong>(gui.layerCacheHitTotal))
+        .arg(static_cast<qulonglong>(gui.layerCacheRebuildTotal));
 }
 
 void ChartController::setRenderWindowSeconds(int seconds) {

@@ -132,6 +132,10 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
     syncTailOffset_(liquidations_);
     syncTailOffset_(bookTicker_);
     syncTailOffset_(depth_);
+    snapshotPath_.clear();
+    snapshotDiscoveredPath_.clear();
+    snapshotDirWriteTime_ = std::filesystem::file_time_type{};
+    snapshotDirWriteTimeValid_ = false;
     snapshotPath_ = findLatestSnapshotPath_();
     snapshot_ = hftrec::replay::SnapshotDocument{};
     snapshotLoaded_ = false;
@@ -152,6 +156,9 @@ void JsonTailLiveDataProvider::stop() noexcept {
     bookTicker_ = TailFile{};
     depth_ = TailFile{};
     snapshotPath_.clear();
+    snapshotDiscoveredPath_.clear();
+    snapshotDirWriteTime_ = std::filesystem::file_time_type{};
+    snapshotDirWriteTimeValid_ = false;
     snapshotLoaded_ = false;
     snapshot_ = hftrec::replay::SnapshotDocument{};
     tradesHistory_.clear();
@@ -535,11 +542,15 @@ void JsonTailLiveDataProvider::syncTailOffset_(TailFile& file) noexcept {
     file.pending.clear();
 }
 
-std::filesystem::path JsonTailLiveDataProvider::findLatestSnapshotPath_() const {
+std::filesystem::path JsonTailLiveDataProvider::findLatestSnapshotPath_() {
     std::filesystem::path latest{};
     if (sessionDir_.empty()) return latest;
 
     std::error_code ec;
+    const auto dirWriteTime = std::filesystem::last_write_time(sessionDir_, ec);
+    const bool dirWriteTimeOk = !ec;
+    if (dirWriteTimeOk && snapshotDirWriteTimeValid_ && dirWriteTime == snapshotDirWriteTime_) return snapshotDiscoveredPath_;
+    ec.clear();
     for (const auto& entry : std::filesystem::directory_iterator(sessionDir_, ec)) {
         if (ec) break;
         if (!entry.is_regular_file()) continue;
@@ -547,13 +558,15 @@ std::filesystem::path JsonTailLiveDataProvider::findLatestSnapshotPath_() const 
         if (!filename.starts_with("snapshot_") || entry.path().extension() != ".json") continue;
         if (latest.empty() || filename > latest.filename().string()) latest = entry.path();
     }
+    if (!ec && dirWriteTimeOk) {
+        snapshotDiscoveredPath_ = latest;
+        snapshotDirWriteTime_ = dirWriteTime;
+        snapshotDirWriteTimeValid_ = true;
+    }
     return latest;
 }
 
 }  // namespace hftrec::gui::viewer
-
-
-
 
 
 

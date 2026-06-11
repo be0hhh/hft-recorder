@@ -531,8 +531,8 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     live.candleRects.clear();
     live.liquidationDots.clear();
     live.gpuBookVertices.clear();
-    live.tradeDecimated = base.tradeDecimated;
-    live.tradeConnectorsVisible = live.tradesVisible && !live.tradeDecimated;
+    live.tradeDecimated = false;
+    live.tradeConnectorsVisible = live.tradesVisible;
 
     if (!live.loaded || live.vp.tMax <= live.vp.tMin || live.vp.pMax <= live.vp.pMin) return live;
 
@@ -546,100 +546,9 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
             detail::appendGroupedTradeDot(live.tradeDots, TradeDot{row.tsNs, row.priceE8, row.qtyE8, row.sideBuy != 0, rowOrigIndex});
         }
     };
-    struct LiveTradePixelBucket {
-        int xPx{-1};
-        bool active{false};
-        TradeDot dot{};
-        std::int64_t largestAmountE8{0};
-
-        void reset(int nextXPx) noexcept {
-            xPx = nextXPx;
-            active = false;
-            dot = TradeDot{};
-            largestAmountE8 = 0;
-        }
-
-        void absorb(const hftrec::replay::TradeRow& row, int origIndex) noexcept {
-            const auto amountE8 = detail::multiplyScaledE8(row.qtyE8, row.priceE8);
-            if (!active) {
-                active = true;
-                dot.tsNs = row.tsNs;
-                dot.tsStartNs = row.tsNs;
-                dot.tsEndNs = row.tsNs;
-                dot.priceE8 = row.priceE8;
-                dot.representativePriceE8 = row.priceE8;
-                dot.qtyE8 = row.qtyE8;
-                dot.sideBuy = row.sideBuy != 0;
-                dot.origIndex = origIndex;
-                dot.firstOrigIndex = origIndex;
-                dot.lastOrigIndex = origIndex;
-                dot.aggregated = true;
-            }
-            dot.tsStartNs = std::min(dot.tsStartNs, row.tsNs);
-            dot.tsEndNs = std::max(dot.tsEndNs, row.tsNs);
-            dot.firstOrigIndex = dot.firstOrigIndex < 0 ? origIndex : std::min(dot.firstOrigIndex, origIndex);
-            dot.lastOrigIndex = dot.lastOrigIndex < 0 ? origIndex : std::max(dot.lastOrigIndex, origIndex);
-            ++dot.tradeCount;
-            dot.totalQtyE8 += row.qtyE8;
-            dot.totalAmountE8 += amountE8;
-            if (row.sideBuy != 0) {
-                dot.buyQtyE8 += row.qtyE8;
-                dot.buyAmountE8 += amountE8;
-            } else {
-                dot.sellQtyE8 += row.qtyE8;
-                dot.sellAmountE8 += amountE8;
-            }
-            if (amountE8 > largestAmountE8) {
-                largestAmountE8 = amountE8;
-                dot.qtyE8 = row.qtyE8;
-                dot.sideBuy = row.sideBuy != 0;
-                dot.origIndex = origIndex;
-                dot.representativePriceE8 = row.priceE8;
-            }
-        }
-
-        void appendTo(std::vector<TradeDot>& out) noexcept {
-            if (!active || dot.tradeCount <= 0) return;
-            if (dot.totalQtyE8 > 0 && dot.totalAmountE8 > 0) {
-                const long double scaledPrice =
-                    (static_cast<long double>(dot.totalAmountE8) * 100000000.0L)
-                    / static_cast<long double>(dot.totalQtyE8);
-                dot.priceE8 = static_cast<std::int64_t>(std::llround(scaledPrice));
-            }
-            dot.tsNs = dot.tsStartNs + (dot.tsEndNs - dot.tsStartNs) / 2;
-            out.push_back(dot);
-            active = false;
-        }
-    };
-    auto appendAggregatedTradeRows = [&](const auto& rows, std::vector<LiveTradePixelBucket>& buckets) {
-        for (const auto& row : rows) {
-            const int rowOrigIndex = tradeOrigIndex;
-            if (tradeOrigIndex < std::numeric_limits<int>::max()) ++tradeOrigIndex;
-            if (row.tsNs < live.vp.tMin || row.tsNs > live.vp.tMax) continue;
-            if (row.priceE8 < live.vp.pMin || row.priceE8 > live.vp.pMax) continue;
-            const auto x = live.vp.toX(row.tsNs);
-            const auto y = live.vp.toY(row.priceE8);
-            if (x < 0.0 || x > live.vp.w || y < 0.0 || y > live.vp.h) continue;
-            const int xPx = std::clamp(
-                static_cast<int>(std::floor(x)),
-                0,
-                std::max(0, static_cast<int>(std::ceil(live.vp.w)) - 1));
-            buckets[static_cast<std::size_t>(xPx)].absorb(row, rowOrigIndex);
-        }
-    };
     if (live.tradesVisible) {
-        if (live.tradeDecimated) {
-            const std::size_t bucketCount = std::max<std::size_t>(1u, static_cast<std::size_t>(std::ceil(live.vp.w)));
-            live.tradeDots.reserve(bucketCount);
-            std::vector<LiveTradePixelBucket> buckets(bucketCount);
-            for (std::size_t i = 0; i < buckets.size(); ++i) buckets[i].reset(static_cast<int>(i));
-            appendAggregatedTradeRows(cache.stableRows.trades, buckets);
-            appendAggregatedTradeRows(cache.overlayRows.trades, buckets);
-            for (auto& bucket : buckets) bucket.appendTo(live.tradeDots);
-        } else {
-            appendExactTradeRows(cache.stableRows.trades);
-            appendExactTradeRows(cache.overlayRows.trades);
-        }
+        appendExactTradeRows(cache.stableRows.trades);
+        appendExactTradeRows(cache.overlayRows.trades);
     }
 
     if (live.liquidationsVisible) {

@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 
 #include <QString>
 
@@ -95,20 +97,46 @@ TEST(ViewerTradeRendering, DenseTradesRemainExactDots) {
     fs::remove_all(dir, ec);
 }
 
-TEST(ViewerBacktestResults, DiscoversV2RunDirectoriesOnly) {
+TEST(LiveTailProvider, PollHotPublishesNewSnapshotAfterStart) {
+    const auto dir = makeTmpDir("hftrec_live_tail_snapshot");
+    writeFile(dir / "snapshot_000.json", "[[9900000000,100000000,1],100]\n");
+
+    hftrec::gui::viewer::JsonTailLiveDataProvider provider;
+    provider.start(hftrec::gui::viewer::LiveDataProviderConfig{dir, {}, {}});
+    EXPECT_EQ(provider.stats().snapshotsTotal, 1u);
+    EXPECT_TRUE(provider.pollHot(1u).batch.snapshots.empty());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    writeFile(dir / "snapshot_001.json", "[[9900000000,100000000,1],200]\n");
+    const auto poll = provider.pollHot(2u);
+    ASSERT_EQ(poll.batch.snapshots.size(), 1u);
+    EXPECT_EQ(poll.batch.snapshots.front().tsNs, 200);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(ViewerBacktestResults, DiscoversRunDirectoriesAndVisibleSweepsOnly) {
     const auto session = makeTmpDir("hftrec_viewer_backtest_results");
     fs::create_directories(session / "backtests");
     fs::create_directories(session / "backtests" / "run-a");
+    fs::create_directories(session / "backtests" / "sweeps" / "sweep-a");
     writeFile(session / "backtests" / "run-a" / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","summary":{},"errors":[]})json");
+    writeFile(session / "backtests" / "sweeps" / "sweep-a" / "manifest.json", R"json({"type":"sweep.result.v1","sweep_id":"sweep-a","summary":{},"errors":[]})json");
     writeFile(session / "backtests" / "legacy.json", R"json({"type":"run.result","run_id":"legacy","orders":[],"fills":[],"summary":{},"errors":[]})json");
 
     hftrec::gui::viewer::ChartController chart;
     chart.refreshBacktestResults(QString::fromStdString(session.string()));
 
-    ASSERT_EQ(chart.backtestResults().size(), 1);
-    const QVariantMap row = chart.backtestResults().front().toMap();
-    EXPECT_TRUE(row.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("run-a")));
-    EXPECT_FALSE(row.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("legacy.json")));
+    ASSERT_EQ(chart.backtestResults().size(), 2);
+    const QVariantMap firstRow = chart.backtestResults().at(0).toMap();
+    const QVariantMap secondRow = chart.backtestResults().at(1).toMap();
+    EXPECT_TRUE(firstRow.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("run-a")));
+    EXPECT_TRUE(secondRow.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("sweep-a")));
+    EXPECT_TRUE(firstRow.value(QStringLiteral("selectable")).toBool());
+    EXPECT_FALSE(secondRow.value(QStringLiteral("selectable")).toBool());
+    EXPECT_FALSE(firstRow.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("legacy.json")));
+    EXPECT_FALSE(secondRow.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("legacy.json")));
 
     std::error_code ec;
     fs::remove_all(session, ec);

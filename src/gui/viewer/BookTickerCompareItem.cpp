@@ -354,6 +354,46 @@ void drawMeanBands(QPainter& painter,
     painter.drawPolyline(meanLine);
 }
 
+QColor overlayColor(std::uint32_t legIndex, bool buy) noexcept {
+    if (legIndex == 1u) return buy ? QColor{76, 212, 126} : QColor{179, 102, 255};
+    return buy ? QColor{36, 194, 203} : QColor{218, 37, 54};
+}
+
+void drawStrategyOverlay(QPainter& painter,
+                         const StrategyOverlayData& overlay,
+                         const Ranges& ranges,
+                         const QRectF& rect) {
+    for (const auto& segment : overlay.orderSegments) {
+        if (segment.tsEndNs < ranges.tsMin || segment.tsStartNs > ranges.tsMax) continue;
+        if (segment.priceE8 < ranges.priceMin || segment.priceE8 > ranges.priceMax) continue;
+        const qreal x0 = xFor(std::max<std::int64_t>(segment.tsStartNs, ranges.tsMin), ranges, rect);
+        const qreal x1 = xFor(std::min<std::int64_t>(segment.tsEndNs, ranges.tsMax), ranges, rect);
+        const qreal y = priceYFor(segment.priceE8, ranges, rect);
+        QPen pen{overlayColor(segment.legIndex, segment.sideBuy)};
+        pen.setWidth(segment.legIndex == 1u ? 2 : 1);
+        if (segment.openEnded) pen.setStyle(Qt::DashLine);
+        painter.setPen(pen);
+        painter.drawLine(QPointF{x0, y}, QPointF{x1, y});
+    }
+
+    for (const auto& marker : overlay.fillMarkers) {
+        if (marker.tsNs < ranges.tsMin || marker.tsNs > ranges.tsMax) continue;
+        if (marker.priceE8 < ranges.priceMin || marker.priceE8 > ranges.priceMax) continue;
+        const qreal x = xFor(marker.tsNs, ranges, rect);
+        const qreal y = priceYFor(marker.priceE8, ranges, rect);
+        const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
+        QPolygonF triangle;
+        if (marker.shape == StrategyFillShape::BuyUp) {
+            triangle << QPointF{x, y - r} << QPointF{x - r, y + r} << QPointF{x + r, y + r};
+        } else {
+            triangle << QPointF{x, y + r} << QPointF{x - r, y - r} << QPointF{x + r, y - r};
+        }
+        painter.setPen(QPen{QColor{18, 18, 21}, 1});
+        painter.setBrush(overlayColor(marker.legIndex, marker.sideBuy));
+        painter.drawPolygon(triangle);
+    }
+}
+
 const hftrec::arbitrage::BookTickerSpreadPoint* nearestSpreadPoint(
     const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& points,
     std::int64_t ts) noexcept {
@@ -564,6 +604,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
 
     drawMeanBands(*painter, means, ranges, layout.spreadRect);
     drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);
+    drawStrategyOverlay(*painter, controller_->strategyOverlay(), ranges, layout.primaryRect);
 
     painter->setFont(QFont{painter->font().family(), 9});
     painter->setPen(QColor{245, 245, 245});

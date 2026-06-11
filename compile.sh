@@ -10,12 +10,11 @@
 #   ./compile.sh --force-compr build hft-compressor shared library, then build hft-recorder app
 #   ./compile.sh --build-compressor alias for --force-compr
 #   ./compile.sh --compressor-only build only hft-compressor shared library
-#   ./compile.sh --force clang  same as --force, but rebuild with Clang
-#   ./compile.sh --force gcc    same as --force, but rebuild with GCC
+#   ./compile.sh --force        rebuild with Clang by default
 #
 # Optional:
 #   --clean                   remove hft-recorder/build before app configure
-#   --compiler clang|gcc       explicit compiler toolchain
+#   --compiler clang           explicit Clang toolchain
 #   --metrics-off             build with hot-path metrics disabled by default
 #   p|parallel|--parallel     use all CPU jobs and forward p to hft-trader
 #   -j N                      parallel jobs (default: nproc)
@@ -30,7 +29,7 @@ JOBS="$(nproc 2>/dev/null || echo 4)"
 FULL_PARALLEL=0
 MODE="app"
 CLEAN=0
-COMPILER="default"
+COMPILER="clang"
 C_COMPILER=""
 CXX_COMPILER=""
 CMAKE_COMPILER_ARGS=()
@@ -74,7 +73,8 @@ while [ "$#" -gt 0 ]; do
         --compiler)   COMPILER="${2:-}"; shift 2 ;;
         --metrics-off) HOTPATH_METRICS_DEFAULT="OFF"; shift ;;
         p|parallel|--parallel) FULL_PARALLEL=1; JOBS="$(nproc 2>/dev/null || echo 4)"; shift ;;
-        clang|gcc)    COMPILER="$1"; shift ;;
+        clang)        COMPILER="$1"; shift ;;
+        gcc)          echo "ERROR: GCC is not supported for CXETCPP/hft-trader builds; use clang." >&2; exit 2 ;;
         -j)           JOBS="${2:-}"; shift 2 ;;
         -h|--help)    usage; exit 0 ;;
         *) echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
@@ -83,19 +83,12 @@ done
 
 _select_compiler() {
     case "$COMPILER" in
-        default)
-            return 0
-            ;;
         clang)
             C_COMPILER="$(command -v clang || true)"
             CXX_COMPILER="$(command -v clang++ || true)"
             ;;
-        gcc)
-            C_COMPILER="$(command -v gcc || true)"
-            CXX_COMPILER="$(command -v g++ || true)"
-            ;;
         *)
-            echo "ERROR: unsupported compiler '$COMPILER' (expected: clang or gcc)" >&2
+            echo "ERROR: unsupported compiler '$COMPILER' (expected: clang)" >&2
             exit 2
             ;;
     esac
@@ -114,7 +107,16 @@ _select_compiler() {
 _reset_build_dir_for_explicit_compiler() {
     local dir="$1"
     local label="$2"
-    if [ "$COMPILER" = "default" ] || [ ! -d "$dir" ]; then
+    if [ ! -d "$dir" ] || [ -z "$CXX_COMPILER" ]; then
+        return 0
+    fi
+    local cache_file="$dir/CMakeCache.txt"
+    if [ ! -f "$cache_file" ]; then
+        return 0
+    fi
+    local cached_cxx
+    cached_cxx="$(grep -E '^CMAKE_CXX_COMPILER:FILEPATH=' "$cache_file" 2>/dev/null | cut -d= -f2- || true)"
+    if [ "$cached_cxx" = "$CXX_COMPILER" ]; then
         return 0
     fi
 
@@ -131,7 +133,7 @@ _reset_build_dir_for_explicit_compiler() {
             ;;
     esac
 
-    echo ">>> Compiler '$COMPILER' requested; removing $label CMake cache: $resolved"
+    echo ">>> Compiler changed to '$COMPILER' ($CXX_COMPILER); removing $label CMake cache: $resolved"
     rm -rf "$resolved"
 }
 
@@ -209,8 +211,8 @@ _require_linux_build_env() {
         echo "ERROR: cmake is not installed in the active Linux environment." >&2
         exit 2
     fi
-    if ! command -v c++ >/dev/null 2>&1 && ! command -v g++ >/dev/null 2>&1 && ! command -v clang++ >/dev/null 2>&1; then
-        echo "ERROR: no C++ compiler found in the active Linux environment." >&2
+    if ! command -v clang++ >/dev/null 2>&1; then
+        echo "ERROR: clang++ is not installed in the active Linux environment." >&2
         exit 2
     fi
 }
@@ -226,11 +228,7 @@ _build_compressor() {
     _require_compressor_tree
     _reset_build_dir_for_explicit_compiler "$COMPRESSOR/build" "hft-compressor"
     echo ">>> Building hft-compressor library"
-    if [ "$COMPILER" = "default" ]; then
-        (cd "$COMPRESSOR" && ./compile.sh)
-    else
-        (cd "$COMPRESSOR" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh)
-    fi
+    (cd "$COMPRESSOR" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh)
     RECORDER_DEPS_REFRESHED=1
 }
 
@@ -259,11 +257,7 @@ _build_trader() {
     if [ "$FULL_PARALLEL" = "1" ]; then
         trader_args+=(p)
     fi
-    if [ "$COMPILER" = "default" ]; then
-        (cd "$TRADER" && ./compile.sh "${trader_args[@]}")
-    else
-        (cd "$TRADER" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh "${trader_args[@]}")
-    fi
+    (cd "$TRADER" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh "${trader_args[@]}")
     RECORDER_DEPS_REFRESHED=1
 }
 
@@ -273,11 +267,7 @@ _build_backtest() {
     _reset_build_dir_for_explicit_compiler "$BACKTEST/build" "hft-backtest"
     _resolve_trader_lib >/dev/null
     echo ">>> Building hft-backtest library"
-    if [ "$COMPILER" = "default" ]; then
-        (cd "$BACKTEST" && ./compile.sh)
-    else
-        (cd "$BACKTEST" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh)
-    fi
+    (cd "$BACKTEST" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh)
     RECORDER_DEPS_REFRESHED=1
 }
 _resolve_compressor_lib() {
@@ -392,10 +382,6 @@ _write_start_launcher() {
     local trader_cxet_lib_dir="$4"
     local build_compiler="$COMPILER"
     local build_cxx="$CXX_COMPILER"
-    if [ "$build_compiler" = "default" ]; then
-        build_compiler="unknown"
-        build_cxx="unknown"
-    fi
     local default_metrics_mode="full"
     if [ "$HOTPATH_METRICS_DEFAULT" = "OFF" ]; then
         default_metrics_mode="off"
@@ -546,7 +532,7 @@ _build_recorder_app() {
     _clear_stale_cmake_cache "$APP/build" "$APP" "hft-recorder"
     _reset_build_dir_for_explicit_compiler "$APP/build" "hft-recorder"
 
-    if [ ! -f build/CMakeCache.txt ] || [ "$CLEAN" = "1" ] || [ "$COMPILER" != "default" ] || [ "$CXET_REFRESHED" = "1" ] || [ "$RECORDER_DEPS_REFRESHED" = "1" ]; then
+    if [ ! -f build/CMakeCache.txt ] || [ "$CLEAN" = "1" ] || [ "$CXET_REFRESHED" = "1" ] || [ "$RECORDER_DEPS_REFRESHED" = "1" ]; then
         echo ">>> Configuring hft-recorder app"
         cmake -B build \
               -DCMAKE_BUILD_TYPE=Release \
@@ -583,9 +569,7 @@ _build_recorder_app() {
 _require_linux_build_env
 _select_compiler
 
-if [ "$COMPILER" != "default" ]; then
-    echo ">>> Selected compiler: $COMPILER ($CXX_COMPILER)"
-fi
+echo ">>> Selected compiler: $COMPILER ($CXX_COMPILER)"
 
 case "$MODE" in
     app)

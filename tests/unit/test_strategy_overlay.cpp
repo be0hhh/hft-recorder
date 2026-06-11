@@ -110,18 +110,39 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
 TEST(StrategyOverlay, AcceptsBacktestRowsWithTrailingLegIndex) {
     const auto dir = makeTmpDir();
     const auto resultPath = makeRunResult(dir, "run-leg-index",
-        "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0,0]\n",
-        "[10,1000,1100,1,9900000000,100000000,0,0,0]\n");
+        "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0,1]\n",
+        "[10,1000,1100,1,9900000000,100000000,0,0,1]\n");
 
     hftrec::gui::viewer::StrategyOverlayData overlay;
     std::string error;
     ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
 
-    EXPECT_TRUE(overlay.orderSegments.empty());
+    ASSERT_EQ(overlay.orderSegments.size(), 1u);
+    EXPECT_EQ(overlay.orderSegments[0].legIndex, 1u);
     ASSERT_EQ(overlay.fillMarkers.size(), 1u);
     EXPECT_EQ(overlay.fillMarkers[0].tsNs, 1100);
     EXPECT_EQ(overlay.fillMarkers[0].priceE8, e8(99));
     EXPECT_TRUE(overlay.fillMarkers[0].sideBuy);
+    EXPECT_EQ(overlay.fillMarkers[0].legIndex, 1u);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(StrategyOverlay, DefaultsMissingTrailingLegIndexToPrimaryLeg) {
+    const auto dir = makeTmpDir();
+    const auto resultPath = makeRunResult(dir, "run-legacy-leg-index",
+        "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0]\n",
+        "[10,1000,1100,1,9900000000,100000000,0,0]\n");
+
+    hftrec::gui::viewer::StrategyOverlayData overlay;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
+
+    ASSERT_EQ(overlay.orderSegments.size(), 1u);
+    EXPECT_EQ(overlay.orderSegments[0].legIndex, 0u);
+    ASSERT_EQ(overlay.fillMarkers.size(), 1u);
+    EXPECT_EQ(overlay.fillMarkers[0].legIndex, 0u);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

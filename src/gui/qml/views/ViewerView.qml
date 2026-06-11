@@ -33,7 +33,7 @@ Pane {
     property bool userHasExplicitSelection: false
     property bool userHasExplicitCompareSelection: false
     property bool compareMode: selectedCompareSourceA !== "" && selectedCompareSourceB !== "" && selectedCompareSourceA !== selectedCompareSourceB
-    property bool comparePickerActive: compareMode && chart.selectedBacktestResult === ""
+    property bool comparePickerActive: compareMode
     property bool showTradesLayer: false
     property bool showLiquidationsLayer: false
     property bool showCandlesLayer: false
@@ -48,6 +48,7 @@ Pane {
     property bool userDisabledBookTickerLayer: false
     property bool useDedicatedGpuPath: false
     property bool useGpuRenderer: true
+    property string performanceDiagnosticsText: ""
 
     function chartSurface() { return chartLoader.item }
     function syncRendererDiagnostics() { root.appVm.activeChartRenderer = root.useDedicatedGpuPath ? "gpu-orderbook" : "cpu-chart" }
@@ -56,6 +57,9 @@ Pane {
         compareChart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs)
     }
     function syncRenderWindow() { chart.setRenderWindowSeconds(root.appVm.renderWindowSeconds) }
+    function refreshPerformanceDiagnostics() {
+        root.performanceDiagnosticsText = root.tabActive && !root.compareMode ? chart.performanceDiagnostics() : ""
+    }
 
     function syncBacktestRows() {
         var rows = [{ path: "", sessionPath: "", label: "Backtest" }]
@@ -69,6 +73,7 @@ Pane {
         chart.refreshBacktestResults(sourcesModel.sessionPath(root.selectedCompareSourceA),
                                      sourcesModel.sessionPath(root.selectedCompareSourceB))
         root.syncBacktestRows()
+        compareChart.setBacktestResult(chart.selectedBacktestResult)
     }
 
     function syncBacktestComboIndex() {
@@ -88,6 +93,7 @@ Pane {
     function chooseBacktestRow(index) {
         if (index <= 0 || index >= root.backtestRows.length) {
             chart.clearBacktestResult()
+            compareChart.setBacktestResult("")
             root.syncBacktestComboIndex()
             return
         }
@@ -95,8 +101,18 @@ Pane {
         backtestCombo.currentIndex = index
         if (row.sessionPath !== "" && chart.sessionDir !== row.sessionPath)
             chart.loadSession(row.sessionPath)
-        if (!chart.selectBacktestResult(row.path))
+        if (row.selectable === false) {
+            chart.clearBacktestResult()
+            compareChart.setBacktestResult("")
             root.syncBacktestComboIndex()
+            return
+        }
+        if (chart.selectBacktestResult(row.path)) {
+            compareChart.setBacktestResult(row.path)
+        } else {
+            compareChart.setBacktestResult("")
+            root.syncBacktestComboIndex()
+        }
     }
 
     function applySourceSelection(sourceId) {
@@ -532,6 +548,14 @@ Pane {
     ViewerInteractionState { id: interaction }
     Timer { id: interactiveModeTimer; interval: 120; repeat: false; onTriggered: interaction.interactiveMode = false }
     Timer {
+        id: performanceDiagnosticsTimer
+        interval: 1000
+        repeat: true
+        running: root.tabActive && !root.compareMode
+        triggeredOnStart: true
+        onTriggered: root.refreshPerformanceDiagnostics()
+    }
+    Timer {
         id: hoverUpdateTimer
         interval: 33
         repeat: false
@@ -702,7 +726,7 @@ Pane {
                             var row = root.backtestRows[i]
                             var haystack = (row.label + " " + row.path).toLowerCase()
                             if (needle.length === 0 || haystack.indexOf(needle) !== -1)
-                                rows.push({ "index": i, "label": row.label, "path": row.path, "pnlText": row.pnlText || "" })
+                                rows.push({ "index": i, "label": row.label, "path": row.path, "pnlText": row.pnlText || "", "selectable": row.selectable !== false })
                         }
                         backtestCombo.filteredRows = rows
                     }
@@ -740,7 +764,7 @@ Pane {
                                 Text {
                                     Layout.fillWidth: true
                                     text: modelData.label
-                                    color: modelData.index === 0 ? root.mutedTextColor : root.textColor
+                                    color: modelData.index === 0 || modelData.selectable === false ? root.mutedTextColor : root.textColor
                                     elide: Text.ElideRight
                                     verticalAlignment: Text.AlignVCenter
                                 }
@@ -938,11 +962,14 @@ Pane {
             implicitHeight: 28
             Label {
                 anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 8
-                text: chart.selectedBacktestResult !== "" ? chart.statusText : root.compareMode ? "Top: combined bookTicker traces. Bottom: best-side spread in bps with rolling mean and cost band." : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
+                anchors.rightMargin: 8
+                text: root.tabActive && !root.compareMode && root.performanceDiagnosticsText !== "" ? root.performanceDiagnosticsText : root.compareMode ? "Top: combined bookTicker traces and routed backtest markers. Bottom: best-side spread in bps with rolling mean and cost band." : chart.selectedBacktestResult !== "" ? chart.statusText : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
                 color: root.mutedTextColor
                 font.pixelSize: 12
+                elide: Text.ElideRight
             }
         }
 

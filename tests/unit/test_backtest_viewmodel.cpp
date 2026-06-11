@@ -428,6 +428,37 @@ TEST(BacktestViewModel, SessionRowsExposeBacktestCountAsRightText) {
     EXPECT_EQ(sessionRow.value(QStringLiteral("rightText")).toString(), QStringLiteral("2"));
 }
 
+TEST(BacktestViewModel, ExplainsWhenSelectedStrategyDoesNotSupportExtraSessions) {
+    isolateSettings(QStringLiteral("multi_session_gate"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString primaryId = QStringLiteral("hftrec_primary_%1_%2")
+                                  .arg(QCoreApplication::applicationPid())
+                                  .arg(std::rand());
+    const QString secondaryId = QStringLiteral("hftrec_secondary_%1_%2")
+                                    .arg(QCoreApplication::applicationPid())
+                                    .arg(std::rand());
+    const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(primaryId);
+    const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(secondaryId);
+    QDir().mkpath(primary);
+    QDir().mkpath(secondary);
+    writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+    writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+
+    vm.setSessionPath(primary);
+    vm.setExtraSessionIds(secondary);
+
+    EXPECT_EQ(vm.selectedSessionCount(), 2);
+    EXPECT_FALSE(vm.canRun());
+    EXPECT_TRUE(vm.statusText().contains(QStringLiteral("Selected 2 sessions")));
+    EXPECT_TRUE(vm.statusText().contains(QStringLiteral("supports 1 session")));
+
+    QDir(primary).removeRecursively();
+    QDir(secondary).removeRecursively();
+}
+
 TEST(BacktestViewModel, ExposesSweepDistributionBarsGroupedBySelectedParameter) {
     isolateSettings(QStringLiteral("sweep_distribution"));
     const QString session = makeTempSessionDir();

@@ -98,7 +98,7 @@ class JsonTailLiveDataProvider final : public ILiveDataProvider {
 
   private:
     void syncTailOffset_(TailFile& file) noexcept;
-    std::filesystem::path findLatestSnapshotPath_() const;
+    std::filesystem::path findLatestSnapshotPath_();
 
     std::filesystem::path sessionDir_{};
     TailFile trades_{};
@@ -106,6 +106,9 @@ class JsonTailLiveDataProvider final : public ILiveDataProvider {
     TailFile bookTicker_{};
     TailFile depth_{};
     std::filesystem::path snapshotPath_{};
+    std::filesystem::path snapshotDiscoveredPath_{};
+    std::filesystem::file_time_type snapshotDirWriteTime_{};
+    bool snapshotDirWriteTimeValid_{false};
     bool snapshotLoaded_{false};
     hftrec::replay::SnapshotDocument snapshot_{};
     std::vector<hftrec::replay::TradeRow> tradesHistory_{};

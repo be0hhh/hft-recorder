@@ -914,6 +914,18 @@ QString strategySessionRangeText(const hft_backtest::StrategyMetadata& metadata)
     return QStringLiteral("%1-%2 sessions").arg(minCount).arg(maxCount);
 }
 
+QString strategySessionGateText(int selectedCount, const hft_backtest::StrategyMetadata& metadata) {
+    return QStringLiteral("Selected %1 session%2; strategy supports %3")
+        .arg(selectedCount)
+        .arg(selectedCount == 1 ? QString{} : QStringLiteral("s"))
+        .arg(strategySessionRangeText(metadata));
+}
+
+QString strategySessionGateText(const QString& strategy, int selectedCount) {
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
+    return metadata == nullptr ? QString{} : strategySessionGateText(selectedCount, *metadata);
+}
+
 bool indicatorProfileAllowedForStrategy(const QString& strategy, const QString& profile) {
     if (profile.trimmed().isEmpty()) return true;
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
@@ -1212,8 +1224,8 @@ void BacktestViewModel::setExtraSessionIds(const QString& sessionIds) {
     emit multiSessionChanged();
     emit canRunChanged();
     if (!strategySupportsSelectedSessionCount_()) {
-        const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
-        if (metadata != nullptr) setStatusText_(QStringLiteral("Selected strategy supports %1").arg(strategySessionRangeText(*metadata)));
+        const QString gateText = strategySessionGateText(selectedStrategy_, selectedSessionCount());
+        if (!gateText.isEmpty()) setStatusText_(gateText);
     }
 }
 
@@ -1242,6 +1254,10 @@ void BacktestViewModel::setSelectedStrategy(const QString& strategy) {
     emit configChanged();
     emit strategyParametersChanged();
     emit canRunChanged();
+    if (!strategySupportsSelectedSessionCount_()) {
+        const QString gateText = strategySessionGateText(selectedStrategy_, selectedSessionCount());
+        if (!gateText.isEmpty()) setStatusText_(gateText);
+    }
 }
 
 void BacktestViewModel::setSelectedIndicatorProfile(const QString& profile) {

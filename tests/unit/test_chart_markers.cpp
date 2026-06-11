@@ -255,7 +255,7 @@ TEST(ChartTradeGrouping, GroupsOnlyContiguousSameTimestampPriceAndSide) {
     fs::remove_all(dir, ec);
 }
 
-TEST(ChartTradeLod, AggregatesDenseTradesByScreenPixel) {
+TEST(ChartTradesFullDots, KeepsDenseTradesExact) {
     ChartController chart;
     const auto dir = makeTmpDir();
     std::string lines;
@@ -270,25 +270,24 @@ TEST(ChartTradeLod, AggregatesDenseTradesByScreenPixel) {
     chart.setViewport(1000, 25999, e8(95), e8(110));
 
     const auto snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
-    EXPECT_TRUE(snap.tradeDecimated);
-    EXPECT_FALSE(snap.tradeConnectorsVisible);
-    ASSERT_LE(snap.tradeDots.size(), 100u);
+    EXPECT_FALSE(snap.tradeDecimated);
+    ASSERT_EQ(snap.tradeDots.size(), 25000u);
     ASSERT_FALSE(snap.tradeDots.empty());
-    EXPECT_TRUE(snap.tradeDots.front().aggregated);
-    EXPECT_GT(snap.tradeDots.front().tradeCount, 1);
-    EXPECT_GT(snap.tradeDots.front().totalQtyE8, 0);
-    EXPECT_GT(snap.tradeDots.front().buyQtyE8 + snap.tradeDots.front().sellQtyE8, 0);
+    EXPECT_FALSE(snap.tradeDots.front().aggregated);
+    EXPECT_FALSE(snap.tradeDots.back().aggregated);
+    EXPECT_EQ(snap.tradeDots.front().tsNs, 1000);
+    EXPECT_EQ(snap.tradeDots.back().tsNs, 25999);
 
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
 
-TEST(ChartTradeLod, CountsAlreadyGroupedDotsBeforePixelAggregation) {
+TEST(ChartTradesFullDots, KeepsSemanticSameTradeGroupingOnly) {
     ChartController chart;
     const auto dir = makeTmpDir();
     std::string lines;
     for (int i = 0; i < 25000; ++i) {
-        lines += tradeLineWithSide(1000 + (i / 10), e8(100 + (i % 3)), e8(1), i % 2);
+        lines += tradeLineWithSide(1000 + (i / 10), e8(100), e8(1), 1);
     }
     writeFile(dir / "trades.jsonl", lines);
 
@@ -299,37 +298,34 @@ TEST(ChartTradeLod, CountsAlreadyGroupedDotsBeforePixelAggregation) {
 
     const auto snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
     EXPECT_FALSE(snap.tradeDecimated);
-    EXPECT_GT(snap.tradeDots.size(), 100u);
-    EXPECT_LT(snap.tradeDots.size(), 20000u);
+    ASSERT_EQ(snap.tradeDots.size(), 2500u);
+    EXPECT_FALSE(snap.tradeDots.front().aggregated);
+    EXPECT_EQ(snap.tradeDots.front().groupEntries.size(), 10u);
+    EXPECT_EQ(snap.tradeDots.front().totalQtyE8, e8(10));
+    EXPECT_EQ(snap.tradeDots.back().groupEntries.size(), 10u);
 
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
 
-TEST(ChartTradeLod, UsesHysteresisBeforeReturningToExact) {
+TEST(ChartCandles, KeepsTierDirectionWhenViewportStartsAfterPreviousCandle) {
     ChartController chart;
     const auto dir = makeTmpDir();
-    std::string lines;
-    for (int i = 0; i < 25000; ++i) {
-        lines += tradeLineWithSide(1000 + i, e8(100), e8(1), 1);
-    }
-    writeFile(dir / "trades.jsonl", lines);
+    writeFile(dir / "candles.jsonl",
+              "[1,1000,11000000000,9000000000,100000000]\n"
+              "[1,2000,10000000000,9000000000,100000000]\n");
 
-    ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
+    ASSERT_TRUE(chart.addCandlesFile(QString::fromStdString((dir / "candles.jsonl").string())));
     chart.finalizeFiles();
     ASSERT_TRUE(chart.loaded());
+    chart.setViewport(1900, 2100, e8(80), e8(120));
 
-    chart.setViewport(1000, 25999, e8(95), e8(105));
-    auto snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
-    ASSERT_TRUE(snap.tradeDecimated);
-
-    chart.setViewport(1000, 21000, e8(95), e8(105));
-    snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
-    EXPECT_TRUE(snap.tradeDecimated);
-
-    chart.setViewport(1000, 20000, e8(95), e8(105));
-    snap = chart.buildSnapshot(100.0, 300.0, SnapshotInputs{});
-    EXPECT_FALSE(snap.tradeDecimated);
+    SnapshotInputs inputs{};
+    inputs.tradesVisible = false;
+    inputs.candlesVisible = true;
+    const auto snap = chart.buildSnapshot(400.0, 300.0, inputs);
+    ASSERT_EQ(snap.candleRects.size(), 1u);
+    EXPECT_FALSE(snap.candleRects.front().up);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

@@ -124,6 +124,7 @@ class ChartController : public QObject {
     Q_INVOKABLE void finalizeFiles();
     Q_INVOKABLE void setLiveUpdateIntervalMs(int intervalMs);
     Q_INVOKABLE int liveUpdateIntervalMs() const noexcept;
+    Q_INVOKABLE QString performanceDiagnostics() const;
     void setLiveDataProvider(std::unique_ptr<ILiveDataProvider> provider);
 
     Q_INVOKABLE void setViewport(qint64 tsMin, qint64 tsMax,
@@ -295,7 +296,6 @@ class ChartController : public QObject {
     StrategyOverlayData strategyOverlay_{};
     StrategyIndicatorData strategyIndicator_{};
     int renderWindowSeconds_{0};
-    bool tradeLodAggregated_{false};
 };
 
 }  // namespace hftrec::gui::viewer

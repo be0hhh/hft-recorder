@@ -19,6 +19,7 @@ struct StrategyOrderSegment {
     std::int64_t tsEndNs{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
+    std::uint32_t legIndex{0};
     bool sideBuy{true};
     bool openEnded{false};
 };
@@ -27,6 +28,7 @@ struct StrategyFillMarker {
     std::int64_t tsNs{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
+    std::uint32_t legIndex{0};
     bool sideBuy{true};
     bool marketOrder{false};
     bool reduceOnly{false};
@@ -49,4 +51,3 @@ bool loadStrategyOverlayFromResult(const std::filesystem::path& path,
                                    std::string& error) noexcept;
 
 }  // namespace hftrec::gui::viewer
-

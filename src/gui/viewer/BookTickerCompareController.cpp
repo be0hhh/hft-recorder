@@ -104,6 +104,8 @@ void BookTickerCompareController::clear() {
     secondaryRows_.clear();
     spreadPoints_.clear();
     meanPoints_.clear();
+    selectedBacktestResult_.clear();
+    strategyOverlay_ = StrategyOverlayData{};
     fullTsMin_ = 0;
     fullTsMax_ = 1;
     tsMin_ = 0;
@@ -114,6 +116,27 @@ void BookTickerCompareController::clear() {
     setStatus_(QStringLiteral("Select two bookTicker sessions"));
     emit sourcesChanged();
     emit dataChanged();
+}
+
+bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
+    const QString next = resultPath.trimmed();
+    if (selectedBacktestResult_ == next) return true;
+    selectedBacktestResult_ = next;
+    strategyOverlay_ = StrategyOverlayData{};
+    if (next.isEmpty()) {
+        emit dataChanged();
+        return true;
+    }
+
+    std::string error;
+    const std::int64_t fallbackRunEndNs = fullTsMax_ > 0 ? fullTsMax_ : 1;
+    if (!loadStrategyOverlayFromResult(std::filesystem::path{next.toStdString()}, fallbackRunEndNs, strategyOverlay_, error)) {
+        setStatus_(QStringLiteral("Failed to load backtest overlay: %1").arg(QString::fromStdString(error)));
+        emit dataChanged();
+        return false;
+    }
+    emit dataChanged();
+    return true;
 }
 
 void BookTickerCompareController::setPrimaryFeeActionBps(double bps) {
