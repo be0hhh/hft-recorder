@@ -32,6 +32,26 @@ std::filesystem::path liveChannelPath(const std::filesystem::path& sessionDir, c
     if (std::filesystem::exists(nextPath.parent_path(), ec) && !ec) return nextPath;
     return sessionDir / fileName;
 }
+
+bool regularFileExists(const std::filesystem::path& path) noexcept {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec) && !ec;
+}
+
+std::filesystem::path liveDepthTapeChannelPath(const std::filesystem::path& sessionDir) {
+    return liveChannelPath(sessionDir, "depth_tape.jsonl");
+}
+
+std::filesystem::path liveDepthSidecarChannelPath(const std::filesystem::path& sessionDir) {
+    return liveChannelPath(sessionDir, "depth_sidecar.jsonl");
+}
+
+std::filesystem::path liveDepthLegacyChannelPath(const std::filesystem::path& sessionDir) {
+    const auto legacyPath = sessionDir / "jsonl" / "depth.jsonl";
+    if (regularFileExists(legacyPath)) return legacyPath;
+    return sessionDir / "depth.jsonl";
+}
+
 template <typename Row>
 void appendSortedRange(const std::vector<Row>& rows,
                        std::int64_t tsMin,
@@ -115,6 +135,86 @@ void tailRows(JsonTailLiveDataProvider::TailFile& file,
     file.pending = std::move(nextPending);
 }
 
+void collectTailLines(JsonTailLiveDataProvider::TailFile& file,
+                      std::string_view label,
+                      LiveDataPollResult& result) {
+    std::error_code fileEc;
+    if (file.path.empty() || !std::filesystem::exists(file.path, fileEc) || fileEc) return;
+
+    const auto fileSize = std::filesystem::file_size(file.path, fileEc);
+    if (fileEc) return;
+    if (fileSize < file.offset) {
+        result.reloadRequired = true;
+        return;
+    }
+    if (fileSize == file.offset) return;
+
+    std::ifstream in(file.path, std::ios::binary);
+    if (!in) {
+        result.failureStatus = Status::IoError;
+        result.failureDetail = "live " + std::string{label} + " read failed";
+        return;
+    }
+
+    in.seekg(static_cast<std::streamoff>(file.offset), std::ios::beg);
+    std::string chunk(static_cast<std::size_t>(fileSize - file.offset), '\0');
+    in.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+    const auto bytesRead = static_cast<std::size_t>(in.gcount());
+    chunk.resize(bytesRead);
+    if (bytesRead == 0u) return;
+
+    const std::uintmax_t nextOffset = file.offset + bytesRead;
+    std::string nextPending = file.pending;
+    nextPending += chunk;
+
+    std::size_t lineStart = 0;
+    while (true) {
+        const auto lineEnd = nextPending.find('\n', lineStart);
+        if (lineEnd == std::string::npos) break;
+
+        std::string line = nextPending.substr(lineStart, lineEnd - lineStart);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty()) file.ready.push_back(std::move(line));
+        lineStart = lineEnd + 1;
+    }
+
+    nextPending.erase(0, lineStart);
+    file.offset = nextOffset;
+    file.pending = std::move(nextPending);
+}
+
+void tailDepthTapeSidecarRows(JsonTailLiveDataProvider::TailFile& tapeFile,
+                              JsonTailLiveDataProvider::TailFile& sidecarFile,
+                              LiveDataPollResult& result) {
+    collectTailLines(tapeFile, "depth_tape", result);
+    if (result.reloadRequired || !isOk(result.failureStatus)) return;
+    collectTailLines(sidecarFile, "depth_sidecar", result);
+    if (result.reloadRequired || !isOk(result.failureStatus)) return;
+
+    const std::size_t pairCount = std::min(tapeFile.ready.size(), sidecarFile.ready.size());
+    for (std::size_t i = 0; i < pairCount; ++i) {
+        hftrec::replay::DepthRow row{};
+        const auto parseStart = std::chrono::steady_clock::now();
+        const auto st = hftrec::replay::parseDepthTapeSidecarLine(tapeFile.ready[i], sidecarFile.ready[i], row);
+        const auto parseNs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - parseStart).count());
+        hftrec::metrics::recordLiveJsonTailParse(parseNs, "depth");
+        if (!isOk(st)) {
+            result.reloadRequired = true;
+            result.failureStatus = st;
+            result.failureDetail = "live depth_tape/depth_sidecar parse failed, scheduling reload";
+            return;
+        }
+        result.batch.depths.push_back(std::move(row));
+    }
+
+    if (pairCount != 0u) {
+        tapeFile.ready.erase(tapeFile.ready.begin(), tapeFile.ready.begin() + static_cast<std::ptrdiff_t>(pairCount));
+        sidecarFile.ready.erase(sidecarFile.ready.begin(), sidecarFile.ready.begin() + static_cast<std::ptrdiff_t>(pairCount));
+        result.appendedRows = true;
+    }
+}
+
 }  // namespace
 
 void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
@@ -127,10 +227,15 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
     trades_ = TailFile{liveChannelPath(sessionDir_, "trades.jsonl"), 0, {}};
     liquidations_ = TailFile{liveChannelPath(sessionDir_, "liquidations.jsonl"), 0, {}};
     bookTicker_ = TailFile{liveChannelPath(sessionDir_, "bookticker.jsonl"), 0, {}};
-    depth_ = TailFile{liveChannelPath(sessionDir_, "depth.jsonl"), 0, {}};
+    const auto depthTapePath = liveDepthTapeChannelPath(sessionDir_);
+    const auto depthSidecarPath = liveDepthSidecarChannelPath(sessionDir_);
+    depthTapeSidecarMode_ = regularFileExists(depthTapePath) || regularFileExists(depthSidecarPath);
+    depthTape_ = depthTapeSidecarMode_ ? TailFile{depthTapePath, 0, {}} : TailFile{};
+    depth_ = depthTapeSidecarMode_ ? TailFile{depthSidecarPath, 0, {}} : TailFile{liveDepthLegacyChannelPath(sessionDir_), 0, {}};
     syncTailOffset_(trades_);
     syncTailOffset_(liquidations_);
     syncTailOffset_(bookTicker_);
+    syncTailOffset_(depthTape_);
     syncTailOffset_(depth_);
     snapshotPath_.clear();
     snapshotDiscoveredPath_.clear();
@@ -154,7 +259,9 @@ void JsonTailLiveDataProvider::stop() noexcept {
     trades_ = TailFile{};
     liquidations_ = TailFile{};
     bookTicker_ = TailFile{};
+    depthTape_ = TailFile{};
     depth_ = TailFile{};
+    depthTapeSidecarMode_ = false;
     snapshotPath_.clear();
     snapshotDiscoveredPath_.clear();
     snapshotDirWriteTime_ = std::filesystem::file_time_type{};
@@ -237,15 +344,19 @@ LiveDataPollResult JsonTailLiveDataProvider::pollHot(std::uint64_t nextBatchId) 
              result);
     if (result.reloadRequired || !isOk(result.failureStatus)) return result;
 
-    tailRows(depth_,
-             [&result](std::string_view line) {
-                 hftrec::replay::DepthRow row{};
-                 const auto st = hftrec::replay::parseDepthLine(line, row);
-                 if (isOk(st)) result.batch.depths.push_back(std::move(row));
-                 return st;
-             },
-             "depth",
-             result);
+    if (depthTapeSidecarMode_) {
+        tailDepthTapeSidecarRows(depthTape_, depth_, result);
+    } else {
+        tailRows(depth_,
+                 [&result](std::string_view line) {
+                     hftrec::replay::DepthRow row{};
+                     const auto st = hftrec::replay::parseDepthLine(line, row);
+                     if (isOk(st)) result.batch.depths.push_back(std::move(row));
+                     return st;
+                 },
+                 "depth",
+                 result);
+    }
 
     result.appendedRows = result.appendedRows || hasRows(result.batch);
     if (hasRows(result.batch)) {
@@ -540,6 +651,7 @@ void JsonTailLiveDataProvider::syncTailOffset_(TailFile& file) noexcept {
         file.offset = 0;
     }
     file.pending.clear();
+    file.ready.clear();
 }
 
 std::filesystem::path JsonTailLiveDataProvider::findLatestSnapshotPath_() {
@@ -567,6 +679,4 @@ std::filesystem::path JsonTailLiveDataProvider::findLatestSnapshotPath_() {
 }
 
 }  // namespace hftrec::gui::viewer
-
-
 

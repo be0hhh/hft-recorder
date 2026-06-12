@@ -1966,7 +1966,7 @@ void BacktestViewModel::startDetailedRunFromSweepPointById(int pointId) {
         const QVariantMap params = curve.value(QStringLiteral("params")).toMap();
         QHash<QString, QString> overrides;
         for (auto it = params.constBegin(); it != params.constEnd(); ++it) overrides.insert(it.key().trimmed().toLower(), QString::number(it.value().toLongLong()));
-        startBacktestWithOverrides_(overrides, QStringLiteral("detail"));
+        startBacktestWithOverrides_(overrides, QStringLiteral("detail-p%1").arg(pointId));
         return;
     }
 }
@@ -2193,12 +2193,12 @@ QString BacktestViewModel::displayName_() const {
         .simplified();
 }
 
-QString BacktestViewModel::configSummary_() const {
+QString BacktestViewModel::configSummary_(const QHash<QString, QString>& overrides) const {
     QStringList parts;
     for (const QString& key : paramOrder_) {
         const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
         if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
-        const QString value = paramValues_.value(key).trimmed();
+        const QString value = overrides.value(key, paramValues_.value(key)).trimmed();
         if (!value.isEmpty()) parts.push_back(QStringLiteral("%1=%2").arg(key, value));
         if (parts.size() >= 3) break;
     }
@@ -2384,7 +2384,7 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
     QTextStream out(&file);
     out << "# recorder backtest metadata\n";
     out << "# display_name=" << displayName_() << "\n";
-    out << "# config_summary=" << configSummary_() << "\n\n";
+    out << "# config_summary=" << configSummary_(overrides) << "\n\n";
     const QString filteredBase = filteredBaseConfig(base);
     out << filteredBase;
     if (!filteredBase.endsWith(QLatin1Char('\n'))) out << "\n";

@@ -76,6 +76,25 @@ std::filesystem::path resolveJsonlPath(const std::filesystem::path& sessionPath,
     return manifestPresent && !manifestPath.empty() ? sessionPath / manifestPath : legacyPath;
 }
 
+std::filesystem::path resolveDepthJsonlPath(const std::filesystem::path& sessionPath,
+                                            bool manifestPresent,
+                                            const std::string& manifestPath) {
+    if (manifestPresent && !manifestPath.empty()) {
+        const auto path = sessionPath / manifestPath;
+        if (fileExists(path)) return path;
+    }
+
+    const auto nestedTapePath = sessionPath / "jsonl" / "depth_tape.jsonl";
+    if (fileExists(nestedTapePath)) return nestedTapePath;
+    const auto rootTapePath = sessionPath / "depth_tape.jsonl";
+    if (fileExists(rootTapePath)) return rootTapePath;
+    const auto nestedSidecarPath = sessionPath / "jsonl" / "depth_sidecar.jsonl";
+    if (fileExists(nestedSidecarPath)) return nestedSidecarPath;
+    const auto rootSidecarPath = sessionPath / "depth_sidecar.jsonl";
+    if (fileExists(rootSidecarPath)) return rootSidecarPath;
+    return resolveJsonlPath(sessionPath, manifestPresent, manifestPath, "depth.jsonl");
+}
+
 std::filesystem::path resolveSnapshotPath(const std::filesystem::path& sessionPath,
                                           bool manifestPresent,
                                           const capture::SessionManifest& manifest) {
@@ -144,7 +163,7 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
     if (!isOk(status)) return status;
 
     status = addChannel(RecorderChannel_Depth,
-                        resolveJsonlPath(sessionPath, manifestPresent, manifest.depthPath, "depth.jsonl"),
+                        resolveDepthJsonlPath(sessionPath, manifestPresent, manifest.depthPath),
                         &replay::SessionReplay::addDepthFile);
     if (!isOk(status)) return status;
 

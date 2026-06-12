@@ -18,7 +18,7 @@ void printHelp() {
     std::puts("  hft-recorder-bench <session_dir> [--pipelines all|id1,id2,...]");
     std::puts("");
     std::puts("Runs hft-compressor C++ pipelines against jsonl/trades.jsonl,");
-    std::puts("jsonl/bookticker.jsonl, and jsonl/depth.jsonl and writes artifacts under");
+    std::puts("jsonl/bookticker.jsonl, and jsonl/depth_tape.jsonl and writes artifacts under");
     std::puts("<session_dir>/compressed/<pipeline-slug>/sessions/<session>/<channel>.<ext>.");
 }
 
@@ -116,15 +116,22 @@ int main(int argc, char** argv) {
     }
 
     const fs::path sessionDir{argv[1]};
-    const struct Channel { const char* file; hft_compressor::StreamType stream; } channels[] = {
-        {"trades.jsonl", hft_compressor::StreamType::Trades},
-        {"bookticker.jsonl", hft_compressor::StreamType::BookTicker},
-        {"depth.jsonl", hft_compressor::StreamType::Depth},
+    const struct Channel {
+        const char* file;
+        const char* fallbackFile;
+        hft_compressor::StreamType stream;
+    } channels[] = {
+        {"trades.jsonl", nullptr, hft_compressor::StreamType::Trades},
+        {"bookticker.jsonl", nullptr, hft_compressor::StreamType::BookTicker},
+        {"depth_tape.jsonl", "depth.jsonl", hft_compressor::StreamType::Depth},
     };
 
     int failures = 0;
     for (const auto& channel : channels) {
-        const fs::path input = sessionDir / "jsonl" / channel.file;
+        fs::path input = sessionDir / "jsonl" / channel.file;
+        if (!fs::is_regular_file(input) && channel.fallbackFile != nullptr) {
+            input = sessionDir / "jsonl" / channel.fallbackFile;
+        }
         if (!fs::is_regular_file(input)) continue;
         for (const auto& pipeline : selectedPipelines(pipelineArg, channel.stream)) {
             failures += runOne(sessionDir, input, channel.stream, pipeline);

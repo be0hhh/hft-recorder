@@ -232,10 +232,17 @@ bool ChartController::selectBacktestResult(const QString& resultPath) {
         return false;
     }
 
+    const QString orderSegmentCount = QString::number(static_cast<qulonglong>(next.orderSegments.size()));
+    const QString fillMarkerCount = QString::number(static_cast<qulonglong>(next.fillMarkers.size()));
     selectedBacktestResult_ = pathText;
     strategyOverlay_ = std::move(next);
     strategyIndicator_ = std::move(nextIndicator);
+    statusText_ = QStringLiteral("Backtest loaded: %1 | orders %2 fills %3")
+        .arg(QString::fromStdString(resultDir.filename().string()))
+        .arg(orderSegmentCount)
+        .arg(fillMarkerCount);
     emit backtestResultChanged();
+    emit statusChanged();
     emit markersChanged();
     emit viewportChanged();
     return true;
@@ -612,7 +619,7 @@ bool ChartController::addBookTickerFile(const QString& path) {
 
 bool ChartController::addDepthFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
-        statusText_ = QStringLiteral("No path. Enter a depth.jsonl path first.");
+        statusText_ = QStringLiteral("No path. Enter a depth_tape.jsonl or depth.jsonl path first.");
         emit statusChanged();
         return false;
     }

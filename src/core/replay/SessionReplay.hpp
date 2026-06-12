@@ -47,7 +47,7 @@ class SessionReplay {
     Status open(const std::filesystem::path& sessionDir) noexcept;
 
     // Individual-file loaders. Useful from the GUI when the user wants to
-    // pick trades.jsonl, bookticker.jsonl, depth.jsonl or a snapshot file
+    // pick trades.jsonl, bookticker.jsonl, depth_tape.jsonl/depth_sidecar.jsonl, depth.jsonl or a snapshot file
     // from unrelated paths. Call reset() first, then any combination of
     // addXxx(), then finalize(). Each addXxx() may be called multiple times
     // to merge files.

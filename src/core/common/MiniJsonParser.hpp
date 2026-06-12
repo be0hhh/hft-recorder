@@ -151,9 +151,27 @@ class MiniJsonParser {
     }
 
     bool parseUInt64(std::uint64_t& out) noexcept {
-        std::int64_t value = 0;
-        if (!parseInt64(value) || value < 0) return false;
-        out = static_cast<std::uint64_t>(value);
+        skipWs_();
+        if (pos_ >= json_.size() || json_[pos_] == '-') return false;
+        if (json_[pos_] < '0' || json_[pos_] > '9') return false;
+
+        std::uint64_t value = 0;
+        const bool leadingZero = json_[pos_] == '0';
+        while (pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9') {
+            const std::uint64_t digit = static_cast<std::uint64_t>(json_[pos_] - '0');
+            if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10u) return false;
+            value = value * 10u + digit;
+            ++pos_;
+            if (leadingZero && pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9') return false;
+        }
+        if (pos_ < json_.size()) {
+            const char next = json_[pos_];
+            if (next != ' ' && next != '\t' && next != '\n' && next != '\r'
+                && next != ',' && next != ']' && next != '}') {
+                return false;
+            }
+        }
+        out = value;
         return true;
     }
 

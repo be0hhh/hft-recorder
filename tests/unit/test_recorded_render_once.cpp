@@ -141,3 +141,53 @@ TEST(ViewerBacktestResults, DiscoversRunDirectoriesAndVisibleSweepsOnly) {
     std::error_code ec;
     fs::remove_all(session, ec);
 }
+
+TEST(ViewerBacktestResults, SelectsDiscoveredRunResultWithoutTreatingSweepAsRun) {
+    const auto session = makeTmpDir("hftrec_viewer_backtest_select_run");
+    const auto runDir = session / "backtests" / "run-a";
+    const auto sweepDir = session / "backtests" / "sweeps" / "sweep-a";
+    fs::create_directories(runDir);
+    fs::create_directories(sweepDir);
+    writeFile(runDir / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","strategy":"spread_maker1and2","session_path":"/tmp/session-a","summary":{},"errors":[]})json");
+    writeFile(runDir / "orders.jsonl", "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0,0]\n");
+    writeFile(runDir / "fills.jsonl", "[10,1000,1100,1,9900000000,100000000,0,0,0]\n");
+    writeFile(sweepDir / "manifest.json", R"json({"type":"sweep.result.v1","sweep_id":"sweep-a","summary":{},"errors":[]})json");
+
+    hftrec::gui::viewer::ChartController chart;
+    chart.refreshBacktestResults(QString::fromStdString(session.string()));
+
+    ASSERT_EQ(chart.backtestResults().size(), 2);
+    const QVariantMap runRow = chart.backtestResults().at(0).toMap();
+    const QVariantMap sweepRow = chart.backtestResults().at(1).toMap();
+    ASSERT_TRUE(runRow.value(QStringLiteral("selectable")).toBool());
+    ASSERT_FALSE(sweepRow.value(QStringLiteral("selectable")).toBool());
+
+    const QString runPath = runRow.value(QStringLiteral("path")).toString();
+    ASSERT_TRUE(chart.selectBacktestResult(runPath));
+    EXPECT_EQ(chart.selectedBacktestResult(), runPath);
+
+    std::error_code ec;
+    fs::remove_all(session, ec);
+}
+
+TEST(ViewerBacktestResults, SelectingDetailRunReportsLoadedOverlay) {
+    const auto session = makeTmpDir("hftrec_viewer_backtest_select_detail");
+    const auto runDir = session / "backtests" / "run-a-detail";
+    fs::create_directories(runDir);
+    writeFile(runDir / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a-detail","strategy":"spread_maker1and2","session_path":"/tmp/session-a","summary":{},"errors":[]})json");
+    writeFile(runDir / "orders.jsonl", "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0,0]\n");
+    writeFile(runDir / "fills.jsonl", "[10,1000,1100,1,9900000000,100000000,0,0,0]\n");
+
+    hftrec::gui::viewer::ChartController chart;
+    chart.refreshBacktestResults(QString::fromStdString(session.string()));
+
+    ASSERT_EQ(chart.backtestResults().size(), 1);
+    const QString runPath = chart.backtestResults().at(0).toMap().value(QStringLiteral("path")).toString();
+    ASSERT_TRUE(chart.selectBacktestResult(runPath));
+    EXPECT_TRUE(chart.statusText().contains(QStringLiteral("Backtest loaded")));
+    EXPECT_TRUE(chart.statusText().contains(QStringLiteral("run-a-detail")));
+    EXPECT_TRUE(chart.statusText().contains(QStringLiteral("fills 1")));
+
+    std::error_code ec;
+    fs::remove_all(session, ec);
+}

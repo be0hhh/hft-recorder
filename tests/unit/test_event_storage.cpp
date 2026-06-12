@@ -42,6 +42,16 @@ hftrec::replay::TradeRow tradeRow(std::int64_t tsNs, std::int64_t captureSeq, st
     return row;
 }
 
+hftrec::replay::DepthRow depthRow(std::int64_t tsNs) {
+    hftrec::replay::DepthRow row{};
+    row.tsNs = tsNs;
+    row.levels = {
+        hftrec::replay::PricePair{30000, 10, 0},
+        hftrec::replay::PricePair{30001, 20, 1},
+    };
+    return row;
+}
+
 class StubIngress final : public hftrec::market_data::IMarketDataIngress {
   public:
     explicit StubIngress(const hftrec::storage::IEventSource* source) : source_(source) {}
@@ -139,6 +149,25 @@ TEST(EventStorage, JsonSessionSinkWritesCurrentTradeSchema) {
 
     EXPECT_STREQ(sink.backendId(), kJsonSessionId);
     EXPECT_EQ(stats.tradesTotal, 1u);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(EventStorage, JsonSessionSinkWritesDepthTapePackageOnly) {
+    const auto dir = makeTmpDir();
+    hftrec::storage::JsonSessionSink sink{};
+    ASSERT_EQ(sink.open(dir), hftrec::Status::Ok);
+    ASSERT_EQ(sink.appendDepth(depthRow(123)), hftrec::Status::Ok);
+    const auto stats = sink.stats();
+    ASSERT_EQ(sink.close(), hftrec::Status::Ok);
+
+    const auto tapeText = readFile(dir / "jsonl" / "depth_tape.jsonl");
+    const auto sidecarText = readFile(dir / "jsonl" / "depth_sidecar.jsonl");
+    EXPECT_NE(tapeText.find("[9223372036854775931,30000,10,30001,20]"), std::string::npos);
+    EXPECT_NE(sidecarText.find("[9223372036854775931,0,1,1,1]"), std::string::npos);
+    EXPECT_FALSE(fs::exists(dir / "jsonl" / "depth.jsonl"));
+    EXPECT_EQ(stats.depthsTotal, 1u);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

@@ -20,6 +20,7 @@ Pane {
     property color mutedTextColor: "#aaaaaf"
     property color accentBuyColor: "#24c2cb"
     property color chartColor: "#202022"
+    property color panelDeepColor: "#161616"
     property color scaleColor: "#26262b"
     property int priceTickCount: 6
     property int timeTickCount: 5
@@ -98,15 +99,13 @@ Pane {
             return
         }
         var row = root.backtestRows[index]
-        backtestCombo.currentIndex = index
         if (row.sessionPath !== "" && chart.sessionDir !== row.sessionPath)
             chart.loadSession(row.sessionPath)
         if (row.selectable === false) {
-            chart.clearBacktestResult()
-            compareChart.setBacktestResult("")
             root.syncBacktestComboIndex()
             return
         }
+        backtestCombo.currentIndex = index
         if (chart.selectBacktestResult(row.path)) {
             compareChart.setBacktestResult(row.path)
         } else {
@@ -726,7 +725,7 @@ Pane {
                             var row = root.backtestRows[i]
                             var haystack = (row.label + " " + row.path).toLowerCase()
                             if (needle.length === 0 || haystack.indexOf(needle) !== -1)
-                                rows.push({ "index": i, "label": row.label, "path": row.path, "pnlText": row.pnlText || "", "selectable": row.selectable !== false })
+                                rows.push({ "index": i, "label": row.label, "path": row.path, "pnlText": row.pnlText || (row.selectable === false ? "sweep" : ""), "selectable": row.selectable !== false })
                         }
                         backtestCombo.filteredRows = rows
                     }

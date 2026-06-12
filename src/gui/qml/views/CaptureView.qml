@@ -342,7 +342,7 @@ Pane {
                     }
 
                     Label {
-                        text: "Orderbook capture writes WS depth deltas into depth.jsonl; REST snapshot is optional."
+                        text: "Orderbook capture writes WS depth as depth_tape.jsonl plus depth_sidecar.jsonl; REST snapshot is optional."
                         color: root.mutedTextColor
                         wrapMode: Text.WordWrap
                     }

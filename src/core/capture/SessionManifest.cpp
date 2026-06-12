@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 
+#include "core/capture/ChannelKind.hpp"
 #include "core/common/JsonString.hpp"
 #include "core/common/MiniJsonParser.hpp"
 
@@ -162,7 +163,8 @@ bool parseChannelObject(JsonParser& parser,
                         bool& requiredWhenEnabled,
                         std::string& path,
                         std::string& rowSchema,
-                        std::uint64_t& count) noexcept {
+                        std::uint64_t& count,
+                        std::string* sidecarPath = nullptr) noexcept {
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return parser.parseObjectEnd();
     std::string key;
@@ -174,6 +176,12 @@ bool parseChannelObject(JsonParser& parser,
             if (!parser.parseBool(requiredWhenEnabled)) return false;
         } else if (key == "path") {
             if (!parser.parseString(path)) return false;
+        } else if (key == "sidecar_path") {
+            if (sidecarPath == nullptr) {
+                if (!parser.skipValue()) return false;
+            } else if (!parser.parseString(*sidecarPath)) {
+                return false;
+            }
         } else if (key == "row_schema") {
             if (!parser.parseString(rowSchema)) return false;
         } else if (key == "declared_event_count") {
@@ -259,7 +267,8 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
                                     manifest.orderbookRequiredWhenEnabled,
                                     manifest.depthPath,
                                     manifest.depthRowSchema,
-                                    manifest.depthCount)) {
+                                    manifest.depthCount,
+                                    &manifest.depthSidecarPath)) {
                 return false;
             }
         } else if (key == "candles") {
@@ -432,6 +441,8 @@ bool parseChannelIntegrityGroupObject(JsonParser& parser, SessionManifest& manif
 
 bool isSupportedCaptureContractVersion(std::string_view version) noexcept {
     return version == "hftrec.strict_canonical_rows_json.v1"
+        || version == "hftrec.strict_canonical_rows_json.v2"
+        || version == "hftrec.orderbook_tape_sidecar_json.v2"
         || version == "hftrec.cxet_alias_rows_json.v5";
 }
 
@@ -451,7 +462,14 @@ bool isSupportedBookTickerRowSchema(std::string_view schema) noexcept {
 
 bool isSupportedDepthRowSchema(std::string_view schema) noexcept {
     return schema == "cxet_orderbook_flat_levels_v1"
+        || schema == "cxet_orderbook_tape_sidecar_v1"
+        || schema == "cxet_orderbook_tape_rle_sidecar_v1"
         || schema == "cxet_orderbook_alias_first_v5";
+}
+
+bool isDepthTapeSidecarSchema(std::string_view schema) noexcept {
+    return schema == "cxet_orderbook_tape_sidecar_v1"
+        || schema == "cxet_orderbook_tape_rle_sidecar_v1";
 }
 
 bool isSupportedCandlesRowSchema(std::string_view schema) noexcept {
@@ -470,7 +488,12 @@ void populateCanonicalArtifacts(SessionManifest& manifest) {
     if (manifest.tradesEnabled && !manifest.tradesPath.empty()) manifest.canonicalArtifacts.push_back(manifest.tradesPath);
     if (manifest.liquidationsEnabled && !manifest.liquidationsPath.empty()) manifest.canonicalArtifacts.push_back(manifest.liquidationsPath);
     if (manifest.bookTickerEnabled && !manifest.bookTickerPath.empty()) manifest.canonicalArtifacts.push_back(manifest.bookTickerPath);
-    if (manifest.orderbookEnabled && !manifest.depthPath.empty()) manifest.canonicalArtifacts.push_back(manifest.depthPath);
+    if (manifest.orderbookEnabled && !manifest.depthPath.empty()) {
+        manifest.canonicalArtifacts.push_back(manifest.depthPath);
+        if (isDepthTapeSidecarSchema(manifest.depthRowSchema) && !manifest.depthSidecarPath.empty()) {
+            manifest.canonicalArtifacts.push_back(manifest.depthSidecarPath);
+        }
+    }
     if (manifest.candlesEnabled && !manifest.candlesPath.empty()) manifest.canonicalArtifacts.push_back(manifest.candlesPath);
     for (const auto& snapshotFile : manifest.snapshotFiles) {
         manifest.canonicalArtifacts.push_back(snapshotFile);
@@ -522,6 +545,9 @@ bool validateStructurally(SessionManifest& manifest) {
     }
     if (manifest.orderbookEnabled && !isSupportedDepthRowSchema(manifest.depthRowSchema)) {
         manifest.structuralBlockers.push_back("unsupported depth row schema");
+    }
+    if (manifest.orderbookEnabled && isDepthTapeSidecarSchema(manifest.depthRowSchema) && manifest.depthSidecarPath.empty()) {
+        manifest.structuralBlockers.push_back("missing depth sidecar path");
     }
     if (manifest.candlesEnabled && manifest.candlesRequiredWhenEnabled && manifest.candlesPath.empty()) {
         manifest.structuralBlockers.push_back("missing candles path");
@@ -617,6 +643,7 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"enabled\": " << boolToString(manifest.orderbookEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.orderbookRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.depthPath) << ",\n";
+    out << "      \"sidecar_path\": " << json::quote(manifest.depthSidecarPath) << ",\n";
     out << "      \"row_schema\": " << json::quote(manifest.depthRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.depthCount << "\n";
     out << "    },\n";

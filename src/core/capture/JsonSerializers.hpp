@@ -37,6 +37,8 @@ std::string renderCandleJsonLine(const hftrec::replay::CandleRow& candle);
 std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta);
 std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta,
                                 const std::vector<std::string>& aliases);
+std::string renderDepthTapeJsonLine(const hftrec::replay::DepthRow& delta);
+std::string renderDepthRleSidecarJsonLine(const hftrec::replay::DepthRow& delta);
 
 std::string renderSnapshotJson(const hftrec::replay::SnapshotDocument& snapshot);
 

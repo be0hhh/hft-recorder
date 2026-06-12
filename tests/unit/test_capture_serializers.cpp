@@ -9,6 +9,8 @@ namespace {
 
 using hftrec::capture::renderBookTickerJsonLine;
 using hftrec::capture::renderDepthJsonLine;
+using hftrec::capture::renderDepthRleSidecarJsonLine;
+using hftrec::capture::renderDepthTapeJsonLine;
 using hftrec::capture::renderSnapshotJson;
 using hftrec::capture::renderTradeJsonLine;
 using hftrec::replay::BookTickerRow;
@@ -59,6 +61,33 @@ TEST(CaptureSerializers, DepthDeltaLineContainsLevelArrays) {
 
     EXPECT_EQ(renderDepthJsonLine(delta),
               "[[3000000000000,25000000,0],[3000100000000,15000000,1],1713168000750000000]");
+}
+
+TEST(CaptureSerializers, DepthTapeLineContainsTaggedTimestampAndPriceQtyWords) {
+    DepthRow delta{};
+    delta.tsNs = 1'713'168'000'750'000'000LL;
+    delta.levels = {
+        PricePair{3'000'000'000'000LL, 25'000'000LL, 0},
+        PricePair{3'000'100'000'000LL, 15'000'000LL, 1},
+    };
+
+    EXPECT_EQ(renderDepthTapeJsonLine(delta),
+              "[10936540037604775808,3000000000000,25000000,3000100000000,15000000]");
+}
+
+TEST(CaptureSerializers, DepthRleSidecarContainsOnlyTaggedTimestampAndSideRuns) {
+    DepthRow delta{};
+    delta.tsNs = 1'713'168'000'750'000'000LL;
+    delta.levels = {
+        PricePair{3'000'000'000'000LL, 25'000'000LL, 0},
+        PricePair{2'999'900'000'000LL, 10'000'000LL, 0},
+        PricePair{3'000'100'000'000LL, 15'000'000LL, 1},
+        PricePair{3'000'200'000'000LL, 12'000'000LL, 1},
+        PricePair{2'999'800'000'000LL, 7'000'000LL, 0},
+    };
+
+    EXPECT_EQ(renderDepthRleSidecarJsonLine(delta),
+              "[10936540037604775808,0,2,1,2,0,1]");
 }
 
 TEST(CaptureSerializers, SnapshotJsonContainsOnlyLevelsAndTimestamp) {

@@ -87,6 +87,7 @@ class JsonTailLiveDataProvider final : public ILiveDataProvider {
         std::filesystem::path path{};
         std::uintmax_t offset{0};
         std::string pending{};
+        std::vector<std::string> ready{};
     };
 
     void start(const LiveDataProviderConfig& config) override;
@@ -104,7 +105,9 @@ class JsonTailLiveDataProvider final : public ILiveDataProvider {
     TailFile trades_{};
     TailFile liquidations_{};
     TailFile bookTicker_{};
+    TailFile depthTape_{};
     TailFile depth_{};
+    bool depthTapeSidecarMode_{false};
     std::filesystem::path snapshotPath_{};
     std::filesystem::path snapshotDiscoveredPath_{};
     std::filesystem::file_time_type snapshotDirWriteTime_{};

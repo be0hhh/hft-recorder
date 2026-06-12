@@ -1,6 +1,8 @@
 #include "core/replay/JsonLineParser.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 
 #include "core/common/MiniJsonParser.hpp"
 
@@ -34,6 +36,8 @@ constexpr char status[] = {'s','t','a','t','u','s','\0'};
 constexpr char sourceMode[] = {'s','o','u','r','c','e','M','o','d','e','\0'};
 constexpr char captureSeq[] = {'c','a','p','t','u','r','e','S','e','q','\0'};
 constexpr char ingestSeq[] = {'i','n','g','e','s','t','S','e','q','\0'};
+constexpr std::uint64_t orderBookTapeTimestampTag = 1ull << 63u;
+constexpr std::uint64_t orderBookTapePayloadMask = orderBookTapeTimestampTag - 1u;
 
 bool parsePricePair(JsonParser& parser, PricePair& out) noexcept {
     std::int64_t side = 0;
@@ -59,6 +63,61 @@ bool parseFlatOrderbook(JsonParser& parser, std::vector<PricePair>& levels, std:
         if (!parser.parseComma()) return false;
     }
     if (!parser.parseInt64(tsNs)) return false;
+    return parser.parseArrayEnd() && parser.finish();
+}
+
+bool parseTapeNonNegativeI64(JsonParser& parser, std::int64_t& out) noexcept {
+    std::uint64_t value = 0;
+    if (!parser.parseUInt64(value)) return false;
+    if ((value & orderBookTapeTimestampTag) != 0u) return false;
+    if (value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) return false;
+    out = static_cast<std::int64_t>(value);
+    return true;
+}
+
+bool parseDepthTapeLine(std::string_view tapeLine, DepthRow& out) noexcept {
+    out = DepthRow{};
+    JsonParser parser{tapeLine};
+    if (!parser.parseArrayStart()) return false;
+    std::uint64_t word = 0;
+    if (!parser.parseUInt64(word)) return false;
+    if ((word & orderBookTapeTimestampTag) == 0u) return false;
+    out.tsNs = static_cast<std::int64_t>(word & orderBookTapePayloadMask);
+    while (!parser.peek(']')) {
+        if (!parser.parseComma()) return false;
+        std::int64_t price = 0;
+        if (!parseTapeNonNegativeI64(parser, price)) return false;
+        if (!parser.parseComma()) return false;
+        std::int64_t qty = 0;
+        if (!parseTapeNonNegativeI64(parser, qty)) return false;
+        out.levels.push_back(PricePair{price, qty, 0});
+    }
+    return parser.parseArrayEnd() && parser.finish();
+}
+
+bool applyDepthRleSidecar(std::string_view sidecarLine, DepthRow& out) noexcept {
+    JsonParser parser{sidecarLine};
+    if (!parser.parseArrayStart()) return false;
+    std::uint64_t word = 0;
+    if (!parser.parseUInt64(word)) return false;
+    if ((word & orderBookTapeTimestampTag) == 0u) return false;
+    if (static_cast<std::int64_t>(word & orderBookTapePayloadMask) != out.tsNs) return false;
+
+    std::size_t levelIndex = 0;
+    while (!parser.peek(']')) {
+        if (!parser.parseComma()) return false;
+        std::int64_t sideValue = 0;
+        if (!parser.parseInt64(sideValue) || (sideValue != 0 && sideValue != 1)) return false;
+        if (!parser.parseComma()) return false;
+        std::uint64_t runCount = 0;
+        if (!parser.parseUInt64(runCount) || runCount == 0u) return false;
+        if (runCount > static_cast<std::uint64_t>(out.levels.size() - levelIndex)) return false;
+        for (std::uint64_t i = 0; i < runCount; ++i) {
+            out.levels[levelIndex].side = sideValue;
+            ++levelIndex;
+        }
+    }
+    if (levelIndex != out.levels.size()) return false;
     return parser.parseArrayEnd() && parser.finish();
 }
 
@@ -322,6 +381,13 @@ Status parseDepthLine(std::string_view line,
                       const std::vector<std::string>& aliases) noexcept {
     (void)aliases;
     return parseDepthLine(line, out);
+}
+
+Status parseDepthTapeSidecarLine(std::string_view tapeLine,
+                                 std::string_view sidecarLine,
+                                 DepthRow& out) noexcept {
+    if (!parseDepthTapeLine(tapeLine, out)) return Status::CorruptData;
+    return applyDepthRleSidecar(sidecarLine, out) ? Status::Ok : Status::CorruptData;
 }
 
 Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexcept {

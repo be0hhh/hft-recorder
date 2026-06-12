@@ -123,6 +123,11 @@ bool readWholeFile(const std::filesystem::path& path, std::string& out) noexcept
     return in.good() || in.eof();
 }
 
+bool regularFileExists(const std::filesystem::path& path) noexcept {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec) && !ec;
+}
+
 template <typename RowT, typename Parser>
 Status loadJsonl(const std::filesystem::path& path,
                  std::vector<RowT>& out,
@@ -143,6 +148,57 @@ Status loadJsonl(const std::filesystem::path& path,
         if (!isOk(st)) {
             errorDetail = "failed to parse " + path.filename().string()
                 + " line " + std::to_string(lineNumber)
+                + ": " + std::string{statusToString(st)};
+            lineNumberOut = lineNumber;
+            return st;
+        }
+        out.push_back(std::move(row));
+    }
+    lineNumberOut = lineNumber;
+    return Status::Ok;
+}
+
+Status loadDepthTapeSidecarJsonl(const std::filesystem::path& tapePath,
+                                 const std::filesystem::path& sidecarPath,
+                                 std::vector<DepthRow>& out,
+                                 std::string& errorDetail,
+                                 std::size_t& lineNumberOut) noexcept {
+    const bool tapeExists = regularFileExists(tapePath);
+    const bool sidecarExists = regularFileExists(sidecarPath);
+    if (!tapeExists && !sidecarExists) return Status::Ok;
+    if (!tapeExists || !sidecarExists) {
+        errorDetail = "depth_tape/depth_sidecar package is incomplete";
+        lineNumberOut = 0;
+        return Status::CorruptData;
+    }
+
+    std::ifstream tape(tapePath, std::ios::binary);
+    std::ifstream sidecar(sidecarPath, std::ios::binary);
+    if (!tape || !sidecar) {
+        errorDetail = "failed to open depth_tape/depth_sidecar package";
+        lineNumberOut = 0;
+        return Status::IoError;
+    }
+    std::string tapeLine;
+    std::string sidecarLine;
+    std::size_t lineNumber = 0;
+    while (true) {
+        const bool haveTape = static_cast<bool>(std::getline(tape, tapeLine));
+        const bool haveSidecar = static_cast<bool>(std::getline(sidecar, sidecarLine));
+        if (!haveTape && !haveSidecar) break;
+        ++lineNumber;
+        if (haveTape != haveSidecar) {
+            errorDetail = "depth_tape/depth_sidecar line count mismatch at line " + std::to_string(lineNumber);
+            lineNumberOut = lineNumber;
+            return Status::CorruptData;
+        }
+        if (!tapeLine.empty() && tapeLine.back() == '\r') tapeLine.pop_back();
+        if (!sidecarLine.empty() && sidecarLine.back() == '\r') sidecarLine.pop_back();
+        if (tapeLine.empty() && sidecarLine.empty()) continue;
+        DepthRow row{};
+        const auto st = parseDepthTapeSidecarLine(std::string_view{tapeLine}, std::string_view{sidecarLine}, row);
+        if (!isOk(st)) {
+            errorDetail = "failed to parse depth_tape/depth_sidecar line " + std::to_string(lineNumber)
                 + ": " + std::string{statusToString(st)};
             lineNumberOut = lineNumber;
             return st;
@@ -336,7 +392,23 @@ Status SessionReplay::addDepthFile(const std::filesystem::path& path) noexcept {
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber);
+    auto st = Status::Ok;
+    const std::filesystem::path tapePath = path.filename() == "depth_tape.jsonl"
+        ? path
+        : path.parent_path() / "depth_tape.jsonl";
+    const std::filesystem::path sidecarPath = path.filename() == "depth_sidecar.jsonl"
+        ? path
+        : path.parent_path() / "depth_sidecar.jsonl";
+
+    if (path.filename() == "depth_tape.jsonl" || path.filename() == "depth_sidecar.jsonl") {
+        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber);
+    } else if (regularFileExists(path)) {
+        st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber);
+    } else if (regularFileExists(tapePath) || regularFileExists(sidecarPath)) {
+        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber);
+    } else {
+        st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber);
+    }
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("depth");
@@ -573,7 +645,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         DepthRow row{};
         const auto st = parseDepthLine(std::string_view{line}, row);
         if (!isOk(st)) {
-            errorDetail_ = "failed to parse depth.jsonl line from loaded corpus";
+            errorDetail_ = "failed to parse depth sidecar line from loaded corpus";
             ++parseFailureCount_;
             metrics::recordReplayParseFailure("depth");
             status_ = st;

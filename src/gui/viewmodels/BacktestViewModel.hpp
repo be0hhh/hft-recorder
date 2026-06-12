@@ -277,7 +277,7 @@ class BacktestViewModel : public QObject {
     void stopWorker_();
     QString runId_() const;
     QString displayName_() const;
-    QString configSummary_() const;
+    QString configSummary_(const QHash<QString, QString>& overrides = {}) const;
     void loadStrategyDefaults_();
     void loadPersistentConfig_();
     void loadSavedParameterValues_();

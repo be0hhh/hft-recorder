@@ -20,7 +20,7 @@ struct SessionManifest {
     std::vector<std::string> symbols;
     std::int32_t manifestSchemaVersion{kManifestSchemaVersionCurrent};
     std::int32_t corpusSchemaVersion{kCorpusSchemaVersionCurrent};
-    std::string captureContractVersion{"hftrec.strict_canonical_rows_json.v1"};
+    std::string captureContractVersion{"hftrec.strict_canonical_rows_json.v2"};
     std::string sessionStatus{"complete"};
     std::string selectedParentDir;
     std::string instrumentMetadataPath{"instrument_metadata.json"};
@@ -46,12 +46,13 @@ struct SessionManifest {
     std::string tradesPath{"jsonl/trades.jsonl"};
     std::string liquidationsPath{"jsonl/liquidations.jsonl"};
     std::string bookTickerPath{"jsonl/bookticker.jsonl"};
-    std::string depthPath{"jsonl/depth.jsonl"};
+    std::string depthPath{"jsonl/depth_tape.jsonl"};
+    std::string depthSidecarPath{"jsonl/depth_sidecar.jsonl"};
     std::string candlesPath{"jsonl/candles.jsonl"};
     std::string tradesRowSchema{"cxet_trade_strict_v1"};
     std::string liquidationsRowSchema{"cxet_liquidation_alias_first_v1"};
     std::string bookTickerRowSchema{"cxet_bookticker_strict_v1"};
-    std::string depthRowSchema{"cxet_orderbook_flat_levels_v1"};
+    std::string depthRowSchema{"cxet_orderbook_tape_rle_sidecar_v1"};
     std::string candlesRowSchema{"cxet_candle_lite_tiered_v1"};
     std::string snapshotSchema{"cxet_orderbook_snapshot_flat_levels_v1"};
     std::vector<std::string> snapshotFiles{};

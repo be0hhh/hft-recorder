@@ -30,6 +30,9 @@ Status parseDepthLine(std::string_view line, DepthRow& out) noexcept;
 Status parseDepthLine(std::string_view line,
                       DepthRow& out,
                       const std::vector<std::string>& aliases) noexcept;
+Status parseDepthTapeSidecarLine(std::string_view tapeLine,
+                                 std::string_view sidecarLine,
+                                 DepthRow& out) noexcept;
 
 // Snapshot is the positional JSON array produced by renderSnapshotJson.
 Status parseSnapshotDocument(std::string_view doc, SnapshotDocument& out) noexcept;

@@ -5,6 +5,7 @@
 
 #include "core/common/JsonString.hpp"
 #include "core/replay/EventRows.hpp"
+#include "primitives/composite/OrderBookTapeRuntimeV1.hpp"
 
 namespace hftrec::capture {
 
@@ -71,6 +72,12 @@ void appendFlatOrderbook(std::string& out, const std::vector<replay::PricePair>&
     if (!levels.empty()) out.push_back(',');
     appendInt(out, tsNs);
     out.push_back(']');
+}
+
+std::uint64_t taggedTapeTimestamp(std::int64_t tsNs) noexcept {
+    TimeNs ts{};
+    ts.raw = static_cast<std::uint64_t>(tsNs);
+    return cxet::composite::makeOrderBookTapeTimestampWord(ts);
 }
 
 }  // namespace
@@ -210,6 +217,50 @@ std::string renderDepthJsonLine(const replay::DepthRow& delta,
                                 const std::vector<std::string>& aliases) {
     (void)aliases;
     return renderDepthJsonLine(delta);
+}
+
+std::string renderDepthTapeJsonLine(const replay::DepthRow& delta) {
+    std::string out;
+    out.reserve(32 + delta.levels.size() * 40);
+    out.push_back('[');
+    appendInt(out, taggedTapeTimestamp(delta.tsNs));
+    for (const auto& level : delta.levels) {
+        out.push_back(',');
+        appendInt(out, level.priceE8);
+        out.push_back(',');
+        appendInt(out, level.qtyE8);
+    }
+    out.push_back(']');
+    return out;
+}
+
+std::string renderDepthRleSidecarJsonLine(const replay::DepthRow& delta) {
+    std::string out;
+    out.reserve(32 + delta.levels.size() * 6);
+    out.push_back('[');
+    appendInt(out, taggedTapeTimestamp(delta.tsNs));
+    if (!delta.levels.empty()) {
+        std::int64_t runSide = delta.levels.front().side;
+        std::uint64_t runCount = 0;
+        for (const auto& level : delta.levels) {
+            if (level.side == runSide) {
+                ++runCount;
+                continue;
+            }
+            out.push_back(',');
+            appendInt(out, runSide);
+            out.push_back(',');
+            appendInt(out, runCount);
+            runSide = level.side;
+            runCount = 1u;
+        }
+        out.push_back(',');
+        appendInt(out, runSide);
+        out.push_back(',');
+        appendInt(out, runCount);
+    }
+    out.push_back(']');
+    return out;
 }
 
 std::string renderSnapshotJson(const replay::SnapshotDocument& snapshot) {

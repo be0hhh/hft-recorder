@@ -1,9 +1,11 @@
 #include "core/corpus/CorpusLoader.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <system_error>
 #include <unordered_map>
 #include <utility>
 
@@ -70,6 +72,51 @@ std::uint64_t fileSizeOrZero(const std::filesystem::path& path) noexcept {
     const auto size = std::filesystem::file_size(path, ec);
     return ec ? 0u : static_cast<std::uint64_t>(size);
 }
+
+bool regularFileExists(const std::filesystem::path& path) noexcept {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec) && !ec;
+}
+
+template <typename Int>
+void appendInt(std::string& out, Int value) {
+    char buf[32];
+    const auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), value);
+    if (ec == std::errc{}) out.append(buf, ptr);
+}
+
+std::string renderDepthCanonicalLine(const hftrec::replay::DepthRow& row) {
+    std::string out;
+    out.reserve(64 + row.levels.size() * 48);
+    out.push_back('[');
+    for (std::size_t i = 0; i < row.levels.size(); ++i) {
+        if (i != 0u) out.push_back(',');
+        out.push_back('[');
+        appendInt(out, row.levels[i].priceE8);
+        out.push_back(',');
+        appendInt(out, row.levels[i].qtyE8);
+        out.push_back(',');
+        appendInt(out, row.levels[i].side);
+        out.push_back(']');
+    }
+    if (!row.levels.empty()) out.push_back(',');
+    appendInt(out, row.tsNs);
+    out.push_back(']');
+    return out;
+}
+
+bool isDepthTapePackagePath(const std::filesystem::path& path) noexcept {
+    return path.filename() == "depth_tape.jsonl" || path.filename() == "depth_sidecar.jsonl";
+}
+
+std::filesystem::path depthTapePathFor(const std::filesystem::path& path) {
+    return path.filename() == "depth_tape.jsonl" ? path : path.parent_path() / "depth_tape.jsonl";
+}
+
+std::filesystem::path depthSidecarPathFor(const std::filesystem::path& path) {
+    return path.filename() == "depth_sidecar.jsonl" ? path : path.parent_path() / "depth_sidecar.jsonl";
+}
+
 std::filesystem::path resolveChannelPath(const std::filesystem::path& sessionDir,
                                         bool manifestPresent,
                                         const std::string& manifestPath,
@@ -83,6 +130,18 @@ std::filesystem::path resolveChannelPath(const std::filesystem::path& sessionDir
         if (std::filesystem::exists(candidate, ec) && !ec) return candidate;
     }
     return candidates.empty() ? std::filesystem::path{} : candidates.front();
+}
+
+std::filesystem::path resolveDepthPath(const std::filesystem::path& sessionDir,
+                                       bool manifestPresent,
+                                       const std::string& manifestPath) noexcept {
+    const std::filesystem::path legacy = resolveChannelPath(sessionDir, manifestPresent, manifestPath, "depth.jsonl");
+    if (regularFileExists(legacy)) return legacy;
+    const std::filesystem::path base = legacy.parent_path();
+    const std::filesystem::path tape = base / "depth_tape.jsonl";
+    const std::filesystem::path sidecar = base / "depth_sidecar.jsonl";
+    if (regularFileExists(tape) && regularFileExists(sidecar)) return tape;
+    return legacy;
 }
 
 void addIssue(LoadReport& report,
@@ -260,6 +319,99 @@ Status loadJsonLines(const std::filesystem::path& path,
     return Status::Ok;
 }
 
+Status loadDepthTapeSidecarLines(const std::filesystem::path& tapePath,
+                                 const std::filesystem::path& sidecarPath,
+                                 std::vector<std::string>& out,
+                                 LoadReport& report,
+                                 bool required,
+                                 ChannelLoadState& channelState) noexcept {
+    const bool tapeExists = regularFileExists(tapePath);
+    const bool sidecarExists = regularFileExists(sidecarPath);
+    if (!tapeExists && !sidecarExists) {
+        channelState = required ? ChannelLoadState::Missing : ChannelLoadState::NotCaptured;
+        if (required) {
+            addIssue(report,
+                     LoadIssueCode::MissingRequiredArtifact,
+                     LoadIssueSeverity::Fatal,
+                     Status::CorruptData,
+                     "depth",
+                     "depth_tape.jsonl",
+                     0,
+                     "required depth tape package is missing");
+            return Status::CorruptData;
+        }
+        return Status::Ok;
+    }
+    if (!tapeExists || !sidecarExists) {
+        channelState = ChannelLoadState::Corrupt;
+        addIssue(report,
+                 LoadIssueCode::MissingRequiredArtifact,
+                 LoadIssueSeverity::Fatal,
+                 Status::CorruptData,
+                 "depth",
+                 "depth_tape.jsonl+depth_sidecar.jsonl",
+                 0,
+                 "depth tape package is incomplete");
+        return Status::CorruptData;
+    }
+
+    std::ifstream tape(tapePath, std::ios::binary);
+    std::ifstream sidecar(sidecarPath, std::ios::binary);
+    if (!tape.is_open() || !sidecar.is_open()) {
+        channelState = ChannelLoadState::Corrupt;
+        addIssue(report,
+                 LoadIssueCode::UnreadableArtifact,
+                 LoadIssueSeverity::Fatal,
+                 Status::IoError,
+                 "depth",
+                 "depth_tape.jsonl+depth_sidecar.jsonl",
+                 0,
+                 "failed to open depth tape package");
+        return Status::IoError;
+    }
+
+    channelState = ChannelLoadState::Clean;
+    std::string tapeLine;
+    std::string sidecarLine;
+    std::size_t lineNumber = 0;
+    while (true) {
+        const bool haveTape = static_cast<bool>(std::getline(tape, tapeLine));
+        const bool haveSidecar = static_cast<bool>(std::getline(sidecar, sidecarLine));
+        if (!haveTape && !haveSidecar) break;
+        ++lineNumber;
+        if (haveTape != haveSidecar) {
+            channelState = ChannelLoadState::Corrupt;
+            addIssue(report,
+                     LoadIssueCode::InvalidJsonLine,
+                     LoadIssueSeverity::Fatal,
+                     Status::CorruptData,
+                     "depth",
+                     "depth_tape.jsonl+depth_sidecar.jsonl",
+                     lineNumber,
+                     "depth tape and sidecar line counts differ");
+            return Status::CorruptData;
+        }
+        if (!tapeLine.empty() && tapeLine.back() == '\r') tapeLine.pop_back();
+        if (!sidecarLine.empty() && sidecarLine.back() == '\r') sidecarLine.pop_back();
+        if (tapeLine.empty() && sidecarLine.empty()) continue;
+        hftrec::replay::DepthRow row{};
+        if (!isOk(hftrec::replay::parseDepthTapeSidecarLine(tapeLine, sidecarLine, row))) {
+            channelState = ChannelLoadState::Corrupt;
+            addIssue(report,
+                     LoadIssueCode::InvalidJsonLine,
+                     LoadIssueSeverity::Fatal,
+                     Status::CorruptData,
+                     "depth",
+                     "depth_tape.jsonl+depth_sidecar.jsonl",
+                     lineNumber,
+                     "failed to parse depth tape package line " + std::to_string(lineNumber));
+            return Status::CorruptData;
+        }
+        out.push_back(renderDepthCanonicalLine(row));
+    }
+    return Status::Ok;
+}
+
 Status loadSnapshots(const std::filesystem::path& sessionDir,
                      const std::vector<std::string>& declaredSnapshotFiles,
                      bool required,
@@ -384,12 +536,18 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
         return;
     }
 
+    const SourceArtifactInfo depthSource{fileSizeOrZero(sessionDir / corpus.manifest.depthPath),
+                                         static_cast<std::uint64_t>(corpus.depthLines.size())};
+    const SourceArtifactInfo depthSidecarSource{fileSizeOrZero(sessionDir / corpus.manifest.depthSidecarPath),
+                                                static_cast<std::uint64_t>(corpus.depthLines.size())};
     const std::unordered_map<std::string, SourceArtifactInfo> currentSources{
         {"trades.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.tradesPath), static_cast<std::uint64_t>(corpus.tradeLines.size())}},
         {"liquidations.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.liquidationsPath), static_cast<std::uint64_t>(corpus.liquidationLines.size())}},
         {"bookticker.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.bookTickerPath), static_cast<std::uint64_t>(corpus.bookTickerLines.size())}},
         {"candles.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candlesPath), static_cast<std::uint64_t>(corpus.candleLines.size())}},
-        {"depth.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.depthPath), static_cast<std::uint64_t>(corpus.depthLines.size())}},
+        {"depth.jsonl", depthSource},
+        {"depth_tape.jsonl", depthSource},
+        {"depth_sidecar.jsonl", depthSidecarSource},
     };
 
     for (const auto& [name, sourceInfo] : sources) {
@@ -504,7 +662,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     const auto liquidationsPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.liquidationsPath, "liquidations.jsonl");
     const auto bookTickerPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.bookTickerPath, "bookticker.jsonl");
     const auto candlesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.candlesPath, "candles.jsonl");
-    const auto depthPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.depthPath, "depth.jsonl");
+    const auto depthPath = resolveDepthPath(sessionDir, report.manifestPresent, out.manifest.depthPath);
 
     if (!isOk(loadJsonLines<decltype(&parseTradeCanonicalLine), hftrec::replay::TradeRow>(
                             tradesPath,
@@ -554,15 +712,25 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(&parseDepthCanonicalLine), hftrec::replay::DepthRow>(
-                            depthPath,
-                            out.depthLines,
-                            parseDepthCanonicalLine,
-                            report,
-                            "depth",
-                            depthPath.filename().string(),
-                            requireDepth,
-                            report.depthState))) {
+    if (isDepthTapePackagePath(depthPath)) {
+        if (!isOk(loadDepthTapeSidecarLines(depthTapePathFor(depthPath),
+                                            depthSidecarPathFor(depthPath),
+                                            out.depthLines,
+                                            report,
+                                            requireDepth,
+                                            report.depthState))) {
+            out.report = report;
+            return report.finalStatus;
+        }
+    } else if (!isOk(loadJsonLines<decltype(&parseDepthCanonicalLine), hftrec::replay::DepthRow>(
+                                   depthPath,
+                                   out.depthLines,
+                                   parseDepthCanonicalLine,
+                                   report,
+                                   "depth",
+                                   depthPath.filename().string(),
+                                   requireDepth,
+                                   report.depthState))) {
         out.report = report;
         return report.finalStatus;
     }

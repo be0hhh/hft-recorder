@@ -28,6 +28,9 @@ class JsonSessionSink final : public IStorageBackend {
     Status appendLiquidationLine(const replay::LiquidationRow& row, const std::string& line) noexcept;
     Status appendBookTickerLine(const replay::BookTickerRow& row, const std::string& line) noexcept;
     Status appendDepthLine(const replay::DepthRow& row, const std::string& line) noexcept;
+    Status appendDepthTapeSidecarLines(const replay::DepthRow& row,
+                                       const std::string& tapeLine,
+                                       const std::string& sidecarLine) noexcept;
     Status appendSnapshot(const replay::SnapshotDocument& snapshot,
                           std::uint64_t snapshotIndex) noexcept override;
     Status flush() noexcept override;
@@ -42,6 +45,8 @@ class JsonSessionSink final : public IStorageBackend {
     std::ofstream liquidations_{};
     std::ofstream bookTicker_{};
     std::ofstream depth_{};
+    std::ofstream depthTape_{};
+    std::ofstream depthSidecar_{};
     mutable std::mutex mutex_{};
     EventStoreStats stats_{};
 };

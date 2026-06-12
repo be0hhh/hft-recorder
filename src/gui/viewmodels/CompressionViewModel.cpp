@@ -1356,6 +1356,16 @@ QString CompressionViewModel::existingChannelPath_(const QString& sessionPath, c
     if (QFileInfo::exists(jsonlPath)) return jsonlPath;
     const QString legacyPath = dir.absoluteFilePath(fileName);
     if (QFileInfo::exists(legacyPath)) return legacyPath;
+    if (channel == QStringLiteral("depth")) {
+        const QString sidecarPath = dir.absoluteFilePath(QStringLiteral("jsonl/depth_sidecar.jsonl"));
+        if (QFileInfo::exists(sidecarPath)) return sidecarPath;
+        const QString rootSidecarPath = dir.absoluteFilePath(QStringLiteral("depth_sidecar.jsonl"));
+        if (QFileInfo::exists(rootSidecarPath)) return rootSidecarPath;
+        const QString legacyDepthPath = dir.absoluteFilePath(QStringLiteral("jsonl/depth.jsonl"));
+        if (QFileInfo::exists(legacyDepthPath)) return legacyDepthPath;
+        const QString rootLegacyDepthPath = dir.absoluteFilePath(QStringLiteral("depth.jsonl"));
+        if (QFileInfo::exists(rootLegacyDepthPath)) return rootLegacyDepthPath;
+    }
     return {};
 }
 
@@ -1375,7 +1385,7 @@ QString CompressionViewModel::firstAvailableChannel_(const QString& sessionPath)
 
 QString CompressionViewModel::channelFileName_(const QString& channel) const {
     if (channel == QStringLiteral("bookticker")) return QStringLiteral("bookticker.jsonl");
-    if (channel == QStringLiteral("depth")) return QStringLiteral("depth.jsonl");
+    if (channel == QStringLiteral("depth")) return QStringLiteral("depth_tape.jsonl");
     if (channel == QStringLiteral("trades")) return QStringLiteral("trades.jsonl");
     return {};
 }

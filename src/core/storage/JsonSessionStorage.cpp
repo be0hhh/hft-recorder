@@ -85,7 +85,9 @@ Status JsonSessionSink::appendBookTicker(const replay::BookTickerRow& row) noexc
 }
 
 Status JsonSessionSink::appendDepth(const replay::DepthRow& row) noexcept {
-    return appendDepthLine(row, capture::renderDepthJsonLine(row));
+    return appendDepthTapeSidecarLines(row,
+                                       capture::renderDepthTapeJsonLine(row),
+                                       capture::renderDepthRleSidecarJsonLine(row));
 }
 
 Status JsonSessionSink::appendTradeLine(const replay::TradeRow&, const std::string& line) noexcept {
@@ -129,6 +131,20 @@ Status JsonSessionSink::appendDepthLine(const replay::DepthRow&, const std::stri
     return status;
 }
 
+Status JsonSessionSink::appendDepthTapeSidecarLines(const replay::DepthRow&,
+                                                    const std::string& tapeLine,
+                                                    const std::string& sidecarLine) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto tapeStatus = writeLine_(capture::ChannelKind::DepthTape, depthTape_, tapeLine);
+    if (!isOk(tapeStatus)) return tapeStatus;
+    const auto sidecarStatus = writeLine_(capture::ChannelKind::DepthSidecar, depthSidecar_, sidecarLine);
+    if (isOk(sidecarStatus)) {
+        ++stats_.depthsTotal;
+        ++stats_.version;
+    }
+    return sidecarStatus;
+}
+
 Status JsonSessionSink::appendSnapshot(const replay::SnapshotDocument& snapshot,
                                        std::uint64_t snapshotIndex) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -150,10 +166,14 @@ Status JsonSessionSink::flush() noexcept {
     if (liquidations_.is_open()) liquidations_.flush();
     if (bookTicker_.is_open()) bookTicker_.flush();
     if (depth_.is_open()) depth_.flush();
+    if (depthTape_.is_open()) depthTape_.flush();
+    if (depthSidecar_.is_open()) depthSidecar_.flush();
     if ((trades_.is_open() && !trades_.good())
         || (liquidations_.is_open() && !liquidations_.good())
         || (bookTicker_.is_open() && !bookTicker_.good())
-        || (depth_.is_open() && !depth_.good())) {
+        || (depth_.is_open() && !depth_.good())
+        || (depthTape_.is_open() && !depthTape_.good())
+        || (depthSidecar_.is_open() && !depthSidecar_.good())) {
         return Status::IoError;
     }
     return Status::Ok;
@@ -165,6 +185,8 @@ Status JsonSessionSink::close() noexcept {
     if (liquidations_.is_open()) liquidations_.close();
     if (bookTicker_.is_open()) bookTicker_.close();
     if (depth_.is_open()) depth_.close();
+    if (depthTape_.is_open()) depthTape_.close();
+    if (depthSidecar_.is_open()) depthSidecar_.close();
     sessionDir_.clear();
     return Status::Ok;
 }

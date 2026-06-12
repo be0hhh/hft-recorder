@@ -31,7 +31,6 @@ constexpr VenueSpec kVenues[] = {
     {"bybit_inverse", "Bybit Inverse", "bybit", "inverse"},
     {"kucoin_futures", "KuCoin Futures", "kucoin", "futures"},
     {"kucoin_spot", "KuCoin Spot", "kucoin", "spot"},
-    {"kucoin_margin", "KuCoin Margin", "kucoin", "margin"},
     {"gate_futures", "Gate Futures", "gate", "futures"},
     {"gate_spot", "Gate Spot", "gate", "spot"},
     {"gate_margin", "Gate Margin", "gate", "margin"},

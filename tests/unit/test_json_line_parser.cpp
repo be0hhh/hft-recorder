@@ -16,6 +16,7 @@ using hftrec::replay::SnapshotDocument;
 using hftrec::replay::TradeRow;
 using hftrec::replay::parseBookTickerLine;
 using hftrec::replay::parseDepthLine;
+using hftrec::replay::parseDepthTapeSidecarLine;
 using hftrec::replay::parseSnapshotDocument;
 using hftrec::replay::parseTradeLine;
 
@@ -111,6 +112,48 @@ TEST(JsonLineParser, DepthLineEmptyAskArray) {
     DepthRow row{};
     ASSERT_EQ(parseDepthLine(hftrec::capture::renderDepthJsonLine(delta), row), Status::Ok);
     EXPECT_EQ(row.levels.size(), 1u);
+}
+
+TEST(JsonLineParser, DepthTapeSidecarRoundTrip) {
+    const std::string tape = "[10936540037604775808,3000000000000,25000000,3000100000000,15000000]";
+    const std::string sidecar = "[10936540037604775808,0,1,1,1]";
+
+    DepthRow row{};
+    ASSERT_EQ(parseDepthTapeSidecarLine(tape, sidecar, row), Status::Ok);
+    EXPECT_EQ(row.tsNs, 1'713'168'000'750'000'000LL);
+    ASSERT_EQ(row.levels.size(), 2u);
+    EXPECT_EQ(row.levels[0].side, 0);
+    EXPECT_EQ(row.levels[1].side, 1);
+}
+
+TEST(JsonLineParser, DepthTapeRleSidecarMixedRunsRoundTrip) {
+    const std::string tape = "[10936540037604775808,1,10,2,20,3,30,4,40,5,50]";
+    const std::string sidecar = "[10936540037604775808,0,2,1,2,0,1]";
+
+    DepthRow row{};
+    ASSERT_EQ(parseDepthTapeSidecarLine(tape, sidecar, row), Status::Ok);
+    ASSERT_EQ(row.levels.size(), 5u);
+    EXPECT_EQ(row.levels[0].side, 0);
+    EXPECT_EQ(row.levels[1].side, 0);
+    EXPECT_EQ(row.levels[2].side, 1);
+    EXPECT_EQ(row.levels[3].side, 1);
+    EXPECT_EQ(row.levels[4].side, 0);
+}
+
+TEST(JsonLineParser, RejectsDepthTapeSidecarCountMismatch) {
+    const std::string tape = "[10936540037604775808,3000000000001,25000000]";
+    const std::string sidecar = "[10936540037604775808,0,2]";
+
+    DepthRow row{};
+    EXPECT_EQ(parseDepthTapeSidecarLine(tape, sidecar, row), Status::CorruptData);
+}
+
+TEST(JsonLineParser, RejectsDepthTapeSidecarTimestampMismatch) {
+    const std::string tape = "[10936540037604775808,3000000000001,25000000]";
+    const std::string sidecar = "[10936540037604775809,0,1]";
+
+    DepthRow row{};
+    EXPECT_EQ(parseDepthTapeSidecarLine(tape, sidecar, row), Status::CorruptData);
 }
 
 TEST(JsonLineParser, SnapshotDocumentRoundTrip) {

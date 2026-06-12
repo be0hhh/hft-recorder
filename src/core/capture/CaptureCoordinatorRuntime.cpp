@@ -356,7 +356,7 @@ bool readOrderbookSnapshot(const cxet::api::market::PublicMarketDataSnapshot& sn
         const auto status = snapshot.lastStatus;
         const auto hasOrderbook = snapshot.hasOrderbook;
         meta = snapshot.meta;
-        delta = snapshot.orderbook;
+        delta = snapshot.orderbookBridge;
         const std::uint64_t after = snapshot.version.load(std::memory_order_acquire);
         if (before == after && (after & 1u) == 0u) {
             return stream == cxet::api::market::PublicMarketDataStream::Orderbook
@@ -949,8 +949,13 @@ Status CaptureCoordinator::startManagedMarketData_(const CaptureConfig& config, 
                     == manifest_.canonicalArtifacts.end()) {
                     manifest_.canonicalArtifacts.push_back(manifest_.depthPath);
                 }
-                if (!isOk(jsonSink_.ensureChannelFile(ChannelKind::DepthDelta))) {
-                    lastError_ = "failed to create depth.jsonl";
+                if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.depthSidecarPath)
+                    == manifest_.canonicalArtifacts.end()) {
+                    manifest_.canonicalArtifacts.push_back(manifest_.depthSidecarPath);
+                }
+                if (!isOk(jsonSink_.ensureChannelFile(ChannelKind::DepthTape))
+                    || !isOk(jsonSink_.ensureChannelFile(ChannelKind::DepthSidecar))) {
+                    lastError_ = "failed to create depth_tape/depth_sidecar jsonl files";
                     return Status::IoError;
                 }
             }
@@ -1559,20 +1564,21 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 } else {
                     const auto capturedSnapshot = cxet_bridge::CxetCaptureBridge::captureOrderBook(initialSnapshot);
                     const auto row = makeDepthRow(capturedSnapshot);
-                    auto aliases = config.orderbookAliases;
-                    if (aliases.empty()) aliases = {"bidPrice", "bidQty", "askPrice", "askQty", "side", "timestamp"};
-                    const auto jsonLine = renderDepthJsonLine(row, aliases);
+                    const auto tapeLine = renderDepthTapeJsonLine(row);
+                    const auto sidecarLine = renderDepthRleSidecarJsonLine(row);
                     const auto liveStatus = liveStore_.appendDepth(row);
-                    const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendDepthLine(row, jsonLine) : liveStatus;
+                    const auto fileStatus = isOk(liveStatus)
+                        ? jsonSink_.appendDepthTapeSidecarLines(row, tapeLine, sidecarLine)
+                        : liveStatus;
                     if (!isOk(fileStatus)) {
                         metrics::recordCaptureWriteError("depth");
                         std::lock_guard<std::mutex> lock(stateMutex_);
-                        lastError_ = "orderbook: failed to write initial REST snapshot into depth.jsonl";
+                        lastError_ = "orderbook: failed to write initial REST snapshot into depth_tape/depth_sidecar";
                         return false;
                     }
                     depthCount_.fetch_add(1, std::memory_order_acq_rel);
                     metrics::recordCaptureEvent("depth", capturedSnapshot.tsNs,
-                                                static_cast<std::uint64_t>(jsonLine.size() + 1u),
+                                                static_cast<std::uint64_t>(tapeLine.size() + sidecarLine.size() + 2u),
                                                 static_cast<std::uint64_t>(internal::nowNs()));
                 }
             }
@@ -1906,28 +1912,30 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                     normalizeFixedDepthSnapshotDelta(row, bitgetPreviousOrderbookLevels);
                 }
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
-                auto aliases = config.orderbookAliases;
-                if (aliases.empty()) aliases = {"bidPrice", "bidQty", "askPrice", "askQty", "side", "timestamp"};
                 TscTick jsonRenderStartTsc{};
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
-                const auto jsonLine = renderDepthJsonLine(row, aliases);
+                const auto tapeLine = renderDepthTapeJsonLine(row);
+                const auto sidecarLine = renderDepthRleSidecarJsonLine(row);
+                const auto localBusLine = renderDepthJsonLine(row);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
-                local_exchange::globalLocalMarketDataBus().publish("orderbook.delta", std::string_view{meta.symbol.data}, jsonLine);
+                local_exchange::globalLocalMarketDataBus().publish("orderbook.delta", std::string_view{meta.symbol.data}, localBusLine);
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
                 const auto liveStatus = liveStore_.appendDepth(row);
-                const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendDepthLine(row, jsonLine) : liveStatus;
+                const auto fileStatus = isOk(liveStatus)
+                    ? jsonSink_.appendDepthTapeSidecarLines(row, tapeLine, sidecarLine)
+                    : liveStatus;
                 if (!isOk(fileStatus)) {
                     recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                     metrics::recordCaptureWriteError("depth");
                     std::lock_guard<std::mutex> lock(stateMutex_);
-                    lastError_ = "depth: failed to write depth.jsonl";
+                    lastError_ = "depth: failed to write depth_tape/depth_sidecar";
                     marketDataStop_.store(true, std::memory_order_release);
                     break;
                 }
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                 metrics::recordCaptureEvent("depth", capturedDepth.tsNs,
-                                            static_cast<std::uint64_t>(jsonLine.size() + 1u),
+                                            static_cast<std::uint64_t>(tapeLine.size() + sidecarLine.size() + 2u),
                                             static_cast<std::uint64_t>(internal::nowNs()));
             }
         }
