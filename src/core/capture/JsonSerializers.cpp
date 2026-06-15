@@ -206,6 +206,50 @@ std::string renderCandleJsonLine(const replay::CandleRow& candle) {
     return out;
 }
 
+std::string renderMarkPriceJsonLine(const replay::MarkPriceRow& row) {
+    std::string out;
+    out.reserve(64);
+    out.push_back('[');
+    appendInt(out, row.tsNs); out.push_back(',');
+    appendInt(out, row.markPriceE8);
+    out.push_back(']');
+    return out;
+}
+
+std::string renderIndexPriceJsonLine(const replay::IndexPriceRow& row) {
+    std::string out;
+    out.reserve(64);
+    out.push_back('[');
+    appendInt(out, row.tsNs); out.push_back(',');
+    appendInt(out, row.indexPriceE8);
+    out.push_back(']');
+    return out;
+}
+
+std::string renderFundingJsonLine(const replay::FundingRow& row) {
+    std::string out;
+    out.reserve(96);
+    out.push_back('[');
+    appendInt(out, row.tsNs); out.push_back(',');
+    appendInt(out, row.fundingRateE8); out.push_back(',');
+    appendInt(out, row.fundingTsNs); out.push_back(',');
+    appendInt(out, row.nextFundingTsNs);
+    out.push_back(']');
+    return out;
+}
+
+std::string renderPriceLimitJsonLine(const replay::PriceLimitRow& row) {
+    std::string out;
+    out.reserve(96);
+    out.push_back('[');
+    appendInt(out, row.tsNs); out.push_back(',');
+    appendInt(out, row.buyLimitE8); out.push_back(',');
+    appendInt(out, row.sellLimitE8); out.push_back(',');
+    appendInt(out, static_cast<int>(row.enabled));
+    out.push_back(']');
+    return out;
+}
+
 std::string renderDepthJsonLine(const replay::DepthRow& delta) {
     std::string out;
     out.reserve(64 + delta.levels.size() * 48);

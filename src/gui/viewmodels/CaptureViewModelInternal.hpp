@@ -12,6 +12,11 @@ class CaptureViewModel;
 
 namespace detail {
 
+enum class CaptureRefreshMode {
+    Light,
+    Full,
+};
+
 struct CaptureBatchSnapshot {
     QString sessionId{};
     QString sessionPath{};
@@ -20,9 +25,17 @@ struct CaptureBatchSnapshot {
     bool liquidationsRunning{false};
     bool bookTickerRunning{false};
     bool orderbookRunning{false};
+    bool markPriceRunning{false};
+    bool indexPriceRunning{false};
+    bool fundingRunning{false};
+    bool priceLimitRunning{false};
     qulonglong tradesCount{0};
     qulonglong liquidationsCount{0};
     qulonglong bookTickerCount{0};
+    qulonglong markPriceCount{0};
+    qulonglong indexPriceCount{0};
+    qulonglong fundingCount{0};
+    qulonglong priceLimitCount{0};
     qulonglong candlesCount{0};
     qulonglong depthCount{0};
 };
@@ -39,10 +52,13 @@ QString buildRequestPreview(const QString& channel,
                             const QStringList& selectedAliases,
                             const QStringList& venueKeys,
                             const QStringList& venueSymbolsTexts,
-                            const QString& symbolsText);
+                            const QString& symbolsText,
+                            int apiSlot);
 std::vector<std::string> normalizedSymbols(const QString& symbolsText);
 QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symbolsText);
 std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
+                                                const QString& envPath,
+                                                int apiSlot,
                                                 const QStringList& venueKeys,
                                                 const QStringList& venueSymbolsTexts,
                                                 const QString& symbolsText,
@@ -55,7 +71,7 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QStringList& selectedBookTickerAliases,
                                                 const QStringList& selectedOrderbookAliases,
                                                 int tradesHistoryWarmupSec);
-CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel);
+CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, CaptureRefreshMode mode);
 
 }  // namespace detail
 }  // namespace hftrec::gui

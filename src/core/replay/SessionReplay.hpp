@@ -24,6 +24,10 @@ class SessionReplay {
         Trade      = 1,
         Liquidation = 2,
         BookTicker = 3,
+        MarkPrice = 4,
+        IndexPrice = 5,
+        Funding = 6,
+        PriceLimit = 7,
     };
 
     struct Event {
@@ -55,6 +59,10 @@ class SessionReplay {
     Status addTradesFile(const std::filesystem::path& path) noexcept;
     Status addLiquidationsFile(const std::filesystem::path& path) noexcept;
     Status addBookTickerFile(const std::filesystem::path& path) noexcept;
+    Status addMarkPriceFile(const std::filesystem::path& path) noexcept;
+    Status addIndexPriceFile(const std::filesystem::path& path) noexcept;
+    Status addFundingFile(const std::filesystem::path& path) noexcept;
+    Status addPriceLimitFile(const std::filesystem::path& path) noexcept;
     Status addCandlesFile(const std::filesystem::path& path) noexcept;
     Status addDepthFile(const std::filesystem::path& path) noexcept;
     Status addSnapshotFile(const std::filesystem::path& path) noexcept;
@@ -72,6 +80,10 @@ class SessionReplay {
     const std::vector<TradeRow>&      trades()      const noexcept { return trades_;      }
     const std::vector<LiquidationRow>& liquidations() const noexcept { return liquidations_; }
     const std::vector<BookTickerRow>& bookTickers() const noexcept { return bookTickers_; }
+    const std::vector<MarkPriceRow>& markPrices() const noexcept { return markPrices_; }
+    const std::vector<IndexPriceRow>& indexPrices() const noexcept { return indexPrices_; }
+    const std::vector<FundingRow>& fundings() const noexcept { return fundings_; }
+    const std::vector<PriceLimitRow>& priceLimits() const noexcept { return priceLimits_; }
     const std::vector<CandleRow>&     candles()     const noexcept { return candles_;     }
     const std::vector<DepthRow>&      depths()      const noexcept { return depths_;      }
     bool hasSnapshot() const noexcept { return snapshotLoaded_; }
@@ -82,6 +94,10 @@ class SessionReplay {
     void appendTradeRow(TradeRow row);
     void appendLiquidationRow(LiquidationRow row);
     void appendBookTickerRow(BookTickerRow row);
+    void appendMarkPriceRow(MarkPriceRow row);
+    void appendIndexPriceRow(IndexPriceRow row);
+    void appendFundingRow(FundingRow row);
+    void appendPriceLimitRow(PriceLimitRow row);
     void appendCandleRow(CandleRow row);
     void appendDepthRow(DepthRow row);
     void appendSnapshotDocument(SnapshotDocument snapshot);
@@ -132,6 +148,10 @@ class SessionReplay {
     std::vector<TradeRow>      trades_{};
     std::vector<LiquidationRow> liquidations_{};
     std::vector<BookTickerRow> bookTickers_{};
+    std::vector<MarkPriceRow>   markPrices_{};
+    std::vector<IndexPriceRow>  indexPrices_{};
+    std::vector<FundingRow>     fundings_{};
+    std::vector<PriceLimitRow>  priceLimits_{};
     std::vector<CandleRow>     candles_{};
     std::vector<DepthRow>      depths_{};
     std::vector<Event>         events_{};   // transitional flat timeline

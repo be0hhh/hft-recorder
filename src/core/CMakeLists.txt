@@ -70,11 +70,11 @@ target_link_libraries(hftrec_core
         fmt::fmt
 )
 
-if(HFTREC_WITH_CXET)
-    target_link_libraries(hftrec_core PUBLIC cxet_lib)
-    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET=1)
+if(HFTREC_WITH_TRADER_RUNTIME)
+    target_link_libraries(hftrec_core PUBLIC hft_trader_runtime)
+    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_TRADER_RUNTIME=1 HFTREC_WITH_CXET=1)
 else()
-    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET=0)
+    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_TRADER_RUNTIME=0 HFTREC_WITH_CXET=0)
 endif()
 
 if(HFTREC_WITH_CXET_REPLAY)

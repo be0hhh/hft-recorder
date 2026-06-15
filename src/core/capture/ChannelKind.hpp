@@ -14,6 +14,10 @@ enum class ChannelKind : std::uint8_t {
     Candles = 6,
     DepthTape = 7,
     DepthSidecar = 8,
+    MarkPrice = 9,
+    IndexPrice = 10,
+    Funding = 11,
+    PriceLimit = 12,
 };
 
 constexpr std::string_view channelFileName(ChannelKind k) noexcept {
@@ -26,6 +30,10 @@ constexpr std::string_view channelFileName(ChannelKind k) noexcept {
         case ChannelKind::Candles: return "candles.jsonl";
         case ChannelKind::DepthTape: return "depth_tape.jsonl";
         case ChannelKind::DepthSidecar: return "depth_sidecar.jsonl";
+        case ChannelKind::MarkPrice: return "mark_price.jsonl";
+        case ChannelKind::IndexPrice: return "index_price.jsonl";
+        case ChannelKind::Funding: return "funding.jsonl";
+        case ChannelKind::PriceLimit: return "price_limit.jsonl";
     }
     return "unknown";
 }
@@ -41,6 +49,10 @@ constexpr std::string_view channelJsonlRelativePath(ChannelKind k) noexcept {
         case ChannelKind::Candles: return "jsonl/candles.jsonl";
         case ChannelKind::DepthTape: return "jsonl/depth_tape.jsonl";
         case ChannelKind::DepthSidecar: return "jsonl/depth_sidecar.jsonl";
+        case ChannelKind::MarkPrice: return "jsonl/mark_price.jsonl";
+        case ChannelKind::IndexPrice: return "jsonl/index_price.jsonl";
+        case ChannelKind::Funding: return "jsonl/funding.jsonl";
+        case ChannelKind::PriceLimit: return "jsonl/price_limit.jsonl";
     }
     return "unknown";
 }
@@ -54,6 +66,10 @@ constexpr std::string_view channelName(ChannelKind k) noexcept {
         case ChannelKind::Candles: return "candles";
         case ChannelKind::DepthTape: return "depth_tape";
         case ChannelKind::DepthSidecar: return "depth_sidecar";
+        case ChannelKind::MarkPrice: return "mark_price";
+        case ChannelKind::IndexPrice: return "index_price";
+        case ChannelKind::Funding: return "funding";
+        case ChannelKind::PriceLimit: return "price_limit";
     }
     return "unknown";
 }

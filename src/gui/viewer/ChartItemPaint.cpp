@@ -9,10 +9,14 @@
 #include <utility>
 #include <vector>
 
+#include <QDateTime>
 #include <QImage>
+#include <QFont>
+#include <QFontMetrics>
 #include <QPainter>
 #include <QPen>
 #include <QQuickWindow>
+#include <QStringList>
 
 #include <core/replay/BookState.hpp>
 #include <core/metrics/Metrics.hpp>
@@ -38,6 +42,8 @@ namespace hftrec::gui::viewer {
 
 namespace {
 
+void renderReferenceOverlays(QPainter* painter, const RenderSnapshot& snap, const HoverInfo& hover);
+
 void paintSnapshotFrame(QPainter* painter,
                         const RenderSnapshot& snap,
                         const HoverInfo& hover,
@@ -58,9 +64,186 @@ void paintSnapshotFrame(QPainter* painter,
     RenderContext ctx{painter, snap, hover, dpr};
     renderers::renderBook(ctx);
     renderers::renderCandles(ctx);
+    renderReferenceOverlays(painter, snap, hover);
     renderers::renderTrades(ctx);
     renderers::renderStrategyOverlay(ctx);
     renderers::renderOverlay(ctx);
+}
+
+void drawStepLine(QPainter* painter,
+                  const std::vector<QPointF>& points,
+                  const QColor& color) {
+    if (points.empty()) return;
+    QPen pen(color);
+    pen.setWidth(1);
+    pen.setCapStyle(Qt::SquareCap);
+    pen.setJoinStyle(Qt::MiterJoin);
+    painter->setPen(pen);
+    QPointF prev = points.front();
+    for (std::size_t i = 1u; i < points.size(); ++i) {
+        const QPointF point = points[i];
+        const QPointF corner{point.x(), prev.y()};
+        painter->drawLine(prev, corner);
+        painter->drawLine(corner, point);
+        prev = point;
+    }
+}
+
+QString formatNsUtcCompact(std::int64_t tsNs) {
+    if (tsNs <= 0) return QStringLiteral("-");
+    return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(tsNs / 1000000ll), Qt::UTC)
+        .toString(QStringLiteral("yyyy-MM-dd HH:mm 'UTC'"));
+}
+
+QString formatFundingRatePercent(std::int64_t rateE8) {
+    const bool negative = rateE8 < 0;
+    const std::uint64_t magnitude = negative
+        ? static_cast<std::uint64_t>(-(rateE8 + 1)) + 1u
+        : static_cast<std::uint64_t>(rateE8);
+    constexpr std::uint64_t kScale = 1000000u;
+    const std::uint64_t whole = magnitude / kScale;
+    const std::uint64_t frac = magnitude % kScale;
+    return QStringLiteral("%1%2.%3%")
+        .arg(negative ? QStringLiteral("-") : QString())
+        .arg(static_cast<qulonglong>(whole))
+        .arg(static_cast<qulonglong>(frac), 6, 10, QLatin1Char('0'));
+}
+
+qreal fundingStripY(const RenderSnapshot& snap) noexcept {
+    if (snap.vp.h <= 36.0) return std::max<qreal>(8.0, snap.vp.h * 0.5);
+    return std::clamp<qreal>(snap.vp.h - 18.0, 18.0, snap.vp.h - 8.0);
+}
+
+bool fundingStripContextHit(const RenderSnapshot& snap, const HoverInfo& hover, qreal y) noexcept {
+    if (!hover.active || !hover.contextActive) return false;
+    constexpr qreal kStripHitPx = 12.0;
+    constexpr qreal kAxisReserveRight = 88.0;
+    const qreal stripLeft = 8.0;
+    const qreal stripRight = std::max<qreal>(stripLeft, snap.vp.w - kAxisReserveRight);
+    return hover.point.x() >= stripLeft - kStripHitPx
+        && hover.point.x() <= stripRight + kStripHitPx
+        && std::abs(hover.point.y() - y) <= kStripHitPx;
+}
+
+void renderFundingStrip(QPainter* painter, const RenderSnapshot& snap, const HoverInfo& hover, bool drawStrip) {
+    if (!snap.fundingVisible || snap.fundings.empty() || snap.vp.w <= 0.0 || snap.vp.h <= 0.0) return;
+
+    painter->save();
+    constexpr qreal kAxisReserveRight = 88.0;
+    constexpr qreal kAxisReserveBottom = 28.0;
+    const QColor fundingColor{255, 214, 51};
+    const qreal stripLeft = 8.0;
+    const qreal stripRight = std::max<qreal>(stripLeft, snap.vp.w - kAxisReserveRight);
+    const qreal y = fundingStripY(snap);
+
+    if (drawStrip) {
+        QPen stripPen(QColor{255, 214, 51, 86});
+        stripPen.setWidthF(1.0);
+        stripPen.setCosmetic(true);
+        painter->setPen(stripPen);
+        painter->drawLine(QPointF{stripLeft, y}, QPointF{stripRight, y});
+
+        QPen tickPen(QColor{255, 214, 51, 190});
+        tickPen.setWidthF(1.0);
+        tickPen.setCosmetic(true);
+        painter->setPen(tickPen);
+        for (const auto& row : snap.fundings) {
+            if (row.tsNs < snap.vp.tMin || row.tsNs > snap.vp.tMax) continue;
+            const qreal x = std::round(snap.vp.toX(row.tsNs));
+            if (x < stripLeft || x > stripRight) continue;
+            const qreal halfHeight = row.fundingRateE8 < 0 ? 3.0 : 5.0;
+            painter->drawLine(QPointF{x, y - halfHeight}, QPointF{x, y + halfHeight});
+        }
+    }
+
+    if (!fundingStripContextHit(snap, hover, y)) {
+        painter->restore();
+        return;
+    }
+
+    QFont font = painter->font();
+    font.setPixelSize(11);
+    painter->setFont(font);
+    const QFontMetrics metrics(font);
+
+    const std::size_t start = snap.fundings.size() > 5u ? snap.fundings.size() - 5u : 0u;
+    QStringList lines;
+    lines << QStringLiteral("Funding");
+    for (std::size_t i = start; i < snap.fundings.size(); ++i) {
+        const auto& row = snap.fundings[i];
+        lines << QStringLiteral("%1  %2")
+                     .arg(formatFundingRatePercent(row.fundingRateE8),
+                          formatNsUtcCompact(row.nextFundingTsNs));
+    }
+
+    int textWidth = 0;
+    for (const auto& line : lines) {
+        textWidth = std::max(textWidth, metrics.horizontalAdvance(line));
+    }
+    const qreal paddingX = 12.0;
+    const qreal paddingY = 9.0;
+    const qreal cardW = static_cast<qreal>(textWidth) + paddingX * 2.0;
+    const qreal cardH = static_cast<qreal>(metrics.height() * lines.size()) + paddingY * 2.0;
+
+    qreal cardX = std::min<qreal>(hover.point.x() + 14.0, snap.vp.w - kAxisReserveRight - cardW);
+    if (cardX < 8.0) cardX = 8.0;
+    qreal cardY = y - cardH - 14.0;
+    if (cardY < 8.0) cardY = y + 14.0;
+    if (cardY + cardH > snap.vp.h - kAxisReserveBottom) {
+        cardY = std::max<qreal>(8.0, snap.vp.h - kAxisReserveBottom - cardH);
+    }
+
+    const QRectF card{cardX, cardY, cardW, cardH};
+    painter->setPen(QPen(tooltipBorderColor(), 1.0));
+    painter->setBrush(tooltipBackColor());
+    painter->drawRoundedRect(card, 6.0, 6.0);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(fundingColor);
+    painter->drawRoundedRect(QRectF{card.left(), card.top(), 3.0, card.height()}, 1.5, 1.5);
+
+    qreal textY = card.top() + paddingY + metrics.ascent();
+    for (int i = 0; i < lines.size(); ++i) {
+        if (i == 0) {
+            QFont titleFont = font;
+            titleFont.setBold(true);
+            painter->setFont(titleFont);
+            painter->setPen(axisTextColor());
+        } else {
+            painter->setFont(font);
+            painter->setPen(mutedTextColor());
+        }
+        painter->drawText(QPointF{card.left() + paddingX, textY}, lines[i]);
+        textY += metrics.height();
+    }
+    painter->restore();
+}
+
+void renderReferenceOverlays(QPainter* painter, const RenderSnapshot& snap, const HoverInfo& hover) {
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, false);
+    auto collect = [&](const auto& rows, auto priceOf) {
+        std::vector<QPointF> points;
+        points.reserve(rows.size());
+        for (const auto& row : rows) {
+            const auto price = priceOf(row);
+            if (price <= 0 || row.tsNs < snap.vp.tMin || row.tsNs > snap.vp.tMax) continue;
+            if (price < snap.vp.pMin || price > snap.vp.pMax) continue;
+            points.push_back(QPointF{std::round(snap.vp.toX(row.tsNs)), std::round(snap.vp.toY(price))});
+        }
+        return points;
+    };
+    if (snap.markPriceVisible) {
+        drawStepLine(painter, collect(snap.markPrices, [](const hftrec::replay::MarkPriceRow& row) { return row.markPriceE8; }), QColor{255, 152, 0});
+    }
+    if (snap.indexPriceVisible) {
+        drawStepLine(painter, collect(snap.indexPrices, [](const hftrec::replay::IndexPriceRow& row) { return row.indexPriceE8; }), QColor{53, 208, 111});
+    }
+    if (snap.priceLimitVisible) {
+        drawStepLine(painter, collect(snap.priceLimits, [](const hftrec::replay::PriceLimitRow& row) { return row.buyLimitE8; }), QColor{255, 214, 51});
+        drawStepLine(painter, collect(snap.priceLimits, [](const hftrec::replay::PriceLimitRow& row) { return row.sellLimitE8; }), QColor{255, 214, 51});
+    }
+    renderFundingStrip(painter, snap, hover, true);
+    painter->restore();
 }
 
 void paintSnapshotLayers(QPainter* painter,
@@ -89,6 +272,7 @@ void paintSnapshotLayers(QPainter* painter,
     if (layerSnap.orderbookVisible) renderers::renderBook(ctx);
     if (layerSnap.bookTickerVisible) renderers::renderBookTicker(ctx);
     if (layerSnap.candlesVisible) renderers::renderCandles(ctx);
+    renderReferenceOverlays(painter, layerSnap, drawOverlay ? hover : HoverInfo{});
     if (layerSnap.tradesVisible || layerSnap.liquidationsVisible) renderers::renderTrades(ctx);
     if (drawTrades) renderers::renderStrategyOverlay(ctx);
     if (drawOverlay) renderers::renderOverlay(ctx);
@@ -1033,7 +1217,9 @@ void ChartItem::paint(QPainter* painter) {
 
     if (!interactiveMode_) {
         const hftrec::timing::Tick overlayRenderStart = hftrec::timing::captureTick();
-        RenderContext ctx{painter, snap, detail::buildHoverInfo(*this), dpr};
+        const HoverInfo hover = detail::buildHoverInfo(*this);
+        renderFundingStrip(painter, snap, hover, false);
+        RenderContext ctx{painter, snap, hover, dpr};
         renderers::renderOverlay(ctx);
         metrics::recordGuiOverlayRender(hftrec::timing::deltaNs(overlayRenderStart, hftrec::timing::captureTick()).raw);
     }

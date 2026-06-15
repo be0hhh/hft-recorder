@@ -8,6 +8,7 @@
 
 #include "gui/viewer/StrategyOverlay.hpp"
 
+#include "core/replay/EventRows.hpp"
 #include "gui/viewer/ViewportMap.hpp"
 
 namespace hftrec::gui::viewer {
@@ -187,6 +188,10 @@ struct RenderSnapshot {
     bool  tradeConnectorsVisible{false};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
+    bool  markPriceVisible{false};
+    bool  indexPriceVisible{false};
+    bool  fundingVisible{false};
+    bool  priceLimitVisible{false};
     bool  interactiveMode{false};
     bool  overlayOnly{false};
     qreal tradeAmountScale{0.45};
@@ -204,6 +209,10 @@ struct RenderSnapshot {
     std::vector<TradeDot> tradeDots;
     std::vector<CandleRect> candleRects;
     std::vector<LiquidationDot> liquidationDots;
+    std::vector<hftrec::replay::MarkPriceRow> markPrices;
+    std::vector<hftrec::replay::IndexPriceRow> indexPrices;
+    std::vector<hftrec::replay::FundingRow> fundings;
+    std::vector<hftrec::replay::PriceLimitRow> priceLimits;
     std::vector<StrategyOrderSegment> strategyOrderSegments;
     std::vector<StrategyFillMarker> strategyFillMarkers;
 
@@ -230,6 +239,10 @@ struct SnapshotInputs {
     qreal bookRenderDetail{5000.0};
     qreal bookDepthWindowPct{5.0};
     bool  gpuOrderbookVertices{false};
+    bool  markPriceVisible{false};
+    bool  indexPriceVisible{false};
+    bool  fundingVisible{false};
+    bool  priceLimitVisible{false};
 };
 
 }  // namespace hftrec::gui::viewer

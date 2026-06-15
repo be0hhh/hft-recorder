@@ -68,6 +68,10 @@ struct LoadReport {
     ChannelLoadState tradesState{ChannelLoadState::NotCaptured};
     ChannelLoadState liquidationsState{ChannelLoadState::NotCaptured};
     ChannelLoadState bookTickerState{ChannelLoadState::NotCaptured};
+    ChannelLoadState markPriceState{ChannelLoadState::NotCaptured};
+    ChannelLoadState indexPriceState{ChannelLoadState::NotCaptured};
+    ChannelLoadState fundingState{ChannelLoadState::NotCaptured};
+    ChannelLoadState priceLimitState{ChannelLoadState::NotCaptured};
     ChannelLoadState candlesState{ChannelLoadState::NotCaptured};
     ChannelLoadState depthState{ChannelLoadState::NotCaptured};
     ChannelLoadState snapshotState{ChannelLoadState::NotCaptured};

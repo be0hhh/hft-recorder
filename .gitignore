@@ -18,3 +18,7 @@ build-offline/
 *.jsonl
 .venv/
 build-offline/
+.env
+.env.*
+Private_key.env
+Public_key.env

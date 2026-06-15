@@ -26,6 +26,9 @@ CaptureCoordinator::~CaptureCoordinator() {
 
 Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     internal::ensureCxetInitialized();
+    if (const auto envStatus = internal::loadCaptureEnv(config, lastError_); !isOk(envStatus)) {
+        return envStatus;
+    }
 
     if (const auto validateStatus = internal::validateSupportedConfig(config, lastError_); !isOk(validateStatus)) {
         return validateStatus;
@@ -34,7 +37,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex_);
     if (sessionOpen()) {
         if (!internal::sessionConfigMatches(config_, config)) {
-            lastError_ = "capture session already open with a different exchange/market/symbol/output directory";
+            lastError_ = "capture session already open with a different exchange/market/symbol/env/api/output directory";
             return Status::InvalidArgument;
         }
         config_.tradesHistoryWarmupSec = config.tradesHistoryWarmupSec;
@@ -59,6 +62,10 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.depthPath = std::string{channelJsonlRelativePath(ChannelKind::DepthTape)};
     manifest_.depthSidecarPath = std::string{channelJsonlRelativePath(ChannelKind::DepthSidecar)};
     manifest_.candlesPath = std::string{channelJsonlRelativePath(ChannelKind::Candles)};
+    manifest_.markPricePath = std::string{channelJsonlRelativePath(ChannelKind::MarkPrice)};
+    manifest_.indexPricePath = std::string{channelJsonlRelativePath(ChannelKind::IndexPrice)};
+    manifest_.fundingPath = std::string{channelJsonlRelativePath(ChannelKind::Funding)};
+    manifest_.priceLimitPath = std::string{channelJsonlRelativePath(ChannelKind::PriceLimit)};
     manifest_.canonicalArtifacts = {"manifest.json", manifest_.instrumentMetadataPath};
     manifest_.captureContractVersion = "hftrec.strict_canonical_rows_json.v2";
     manifest_.tradesRowSchema = "cxet_trade_strict_v1";
@@ -113,6 +120,10 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     (void)stopLiquidations();
     (void)stopBookTicker();
     (void)stopOrderbook();
+    (void)stopMarkPrice();
+    (void)stopIndexPrice();
+    (void)stopFunding();
+    (void)stopPriceLimit();
 
     std::lock_guard<std::mutex> lock(stateMutex_);
     if (!sessionOpen()) {
@@ -126,6 +137,10 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     manifest_.tradesCount = tradesCount_.load(std::memory_order_relaxed);
     manifest_.liquidationsCount = liquidationsCount_.load(std::memory_order_relaxed);
     manifest_.bookTickerCount = bookTickerCount_.load(std::memory_order_relaxed);
+    manifest_.markPriceCount = markPriceCount_.load(std::memory_order_relaxed);
+    manifest_.indexPriceCount = indexPriceCount_.load(std::memory_order_relaxed);
+    manifest_.fundingCount = fundingCount_.load(std::memory_order_relaxed);
+    manifest_.priceLimitCount = priceLimitCount_.load(std::memory_order_relaxed);
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
@@ -190,13 +205,25 @@ void CaptureCoordinator::resetSessionState() noexcept {
     liquidationsStop_.store(false, std::memory_order_release);
     bookTickerStop_.store(false, std::memory_order_release);
     orderbookStop_.store(false, std::memory_order_release);
+    markPriceStop_.store(false, std::memory_order_release);
+    indexPriceStop_.store(false, std::memory_order_release);
+    fundingStop_.store(false, std::memory_order_release);
+    priceLimitStop_.store(false, std::memory_order_release);
     tradesRunning_.store(false, std::memory_order_release);
     liquidationsRunning_.store(false, std::memory_order_release);
     bookTickerRunning_.store(false, std::memory_order_release);
     orderbookRunning_.store(false, std::memory_order_release);
+    markPriceRunning_.store(false, std::memory_order_release);
+    indexPriceRunning_.store(false, std::memory_order_release);
+    fundingRunning_.store(false, std::memory_order_release);
+    priceLimitRunning_.store(false, std::memory_order_release);
     tradesCount_.store(0, std::memory_order_release);
     liquidationsCount_.store(0, std::memory_order_release);
     bookTickerCount_.store(0, std::memory_order_release);
+    markPriceCount_.store(0, std::memory_order_release);
+    indexPriceCount_.store(0, std::memory_order_release);
+    fundingCount_.store(0, std::memory_order_release);
+    priceLimitCount_.store(0, std::memory_order_release);
     depthCount_.store(0, std::memory_order_release);
     candlesCount_.store(0, std::memory_order_release);
     snapshotCount_.store(0, std::memory_order_release);
@@ -226,6 +253,10 @@ void CaptureCoordinator::refreshRecordingManifestLocked_(std::int64_t nowNs) noe
     manifest_.tradesCount = tradesCount_.load(std::memory_order_relaxed);
     manifest_.liquidationsCount = liquidationsCount_.load(std::memory_order_relaxed);
     manifest_.bookTickerCount = bookTickerCount_.load(std::memory_order_relaxed);
+    manifest_.markPriceCount = markPriceCount_.load(std::memory_order_relaxed);
+    manifest_.indexPriceCount = indexPriceCount_.load(std::memory_order_relaxed);
+    manifest_.fundingCount = fundingCount_.load(std::memory_order_relaxed);
+    manifest_.priceLimitCount = priceLimitCount_.load(std::memory_order_relaxed);
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);

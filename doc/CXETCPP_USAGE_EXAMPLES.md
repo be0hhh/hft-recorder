@@ -113,26 +113,32 @@ stream->stop();
 > WHY `CxetStream` over `runSubscribeBookTickerByConfig`: the library exposes both.
 > `CxetStream` owns an internal SPSC ring → less callback context, cleaner shutdown,
 > matches the aggTrade producer pattern. The callback form is only useful for
-> orderbook deltas (next section) because the library does not provide a
+> non-stream producers. Orderbook uses the tape+sides snapshot path (next section)
+> because the library does not provide a
 > `CxetStream<OrderBookSnapshot>` specialization.
 
 ---
 
-## 4. depth@0ms deltas — `runSubscribeOrderBookRuntimeByConfig` (callback)
+## 4. depth@0ms tape+sides — `PublicMarketDataSnapshot`
 
-`OrderBookRuntimeOnUpdate` signature (from `api/run/RunByConfig.hpp`):
+`ParseOrderBookTapeRuntimeFn` writes the active orderbook payload into paired
+runtime buffers:
 
 ```cpp
-using OrderBookRuntimeOnUpdate =
-    bool (*)(const composite::OrderBookDeltaRuntimeV1& delta,
-             const composite::StreamMeta& meta,
-             void* userData) noexcept;
+using ParseOrderBookTapeRuntimeFn =
+    bool (*)(MessageBuffer& buf,
+             const UnifiedRequestSpec& builder,
+             ExchangeId exchangeId,
+             composite::OrderBookTapeRuntimeV1* tapeOut,
+             composite::OrderBookTapeSidesRuntimeV1* sidesOut,
+             Span<const canon::FieldId> requestedFields) noexcept;
 ```
 
-The callback is invoked on the library's WS thread; keep it short and lock-free.
-`StreamMeta` carries exchange/market/symbol. `OrderBookDeltaRuntimeV1` carries only
-hot-path fields: timestamp, update ids, visible bid/ask counts, and bid/ask
-`BookLevelPxQty` arrays. `qty == 0` is preserved and means delete this level.
+The producer reads the library snapshot atomically and keeps the work loop short
+and lock-free. `StreamMeta` carries exchange/market/symbol.
+`OrderBookTapeRuntimeV1` carries timestamp-tagged tape words plus price/quantity
+pairs. `OrderBookTapeSidesRuntimeV1` is the paired sidecar: one side byte for each
+price/quantity pair. `qty == 0` is preserved and means delete this level.
 
 ```cpp
 struct DepthCallbackCtx {
@@ -140,51 +146,41 @@ struct DepthCallbackCtx {
     std::atomic<bool>*                                     stopFlag;
 };
 
-static bool onDepthDelta(const composite::OrderBookDeltaRuntimeV1& delta,
-                         const composite::StreamMeta& meta,
-                         void* userData) noexcept {
-    auto* ctx = static_cast<DepthCallbackCtx*>(userData);
-    if (ctx->stopFlag->load(std::memory_order_relaxed)) return false;
+static bool pushDepthTape(const composite::OrderBookTapeRuntimeV1& tape,
+                          const composite::OrderBookTapeSidesRuntimeV1& sides,
+                          const composite::StreamMeta& meta,
+                          DepthCallbackCtx& ctx) noexcept {
+    if (ctx.stopFlag->load(std::memory_order_relaxed)) return false;
 
     const CapturedOrderBookRow row =
-        CxetCaptureBridge::captureOrderBook(delta, meta);
-    if (!ctx->ring->tryPush(row)) {
+        CxetCaptureBridge::captureOrderBook(tape, sides, meta);
+    if (!ctx.ring->tryPush(row)) {
         metrics::eventsDropped(StreamType::DepthUpdate, DropReason::SpscFull).increment();
     }
     return true;
 }
 
-void runDepthProducer(Symbol sym, canon::ExchangeId ex, canon::MarketType mkt,
+void runDepthProducer(const cxet::api::market::PublicMarketDataSnapshot& snapshot,
                       SpscRing<CapturedOrderBookRow, kProducerRingCapacity>& ring,
                       std::atomic<bool>& stop) noexcept {
-    UnifiedRequestBuilder b;
-    b.subscribe()
-     .object(cxet::composite::out::SubscribeObject::OrderBook)
-     .exchange(ex).market(mkt).symbol(sym);
-
-    MessageBuffer payloadBuf{};
-    MessageBuffer recvBuf{};
     DepthCallbackCtx ctx{&ring, &stop};
-
-    const bool ok = runSubscribeOrderBookRuntimeByConfig(
-        b, payloadBuf, recvBuf,
-        &onDepthDelta, &ctx,
-        /* maxUpdates        */ 0,
-        /* stopRequested     */ &stop,
-        /* maxReconnectAttempts */ 8,
-        /* pingIntervalMs    */ 20'000);
-    if (!ok) {
-        logError("depth@0ms subscribe failed for {}", sym.cStr());
+    while (!stop.load(std::memory_order_relaxed)) {
+        composite::OrderBookTapeRuntimeV1 tape{};
+        composite::OrderBookTapeSidesRuntimeV1 sides{};
+        composite::StreamMeta meta{};
+        if (readOrderbookSnapshot(snapshot, tape, sides, meta)) {
+            (void)pushDepthTape(tape, sides, meta, ctx);
+        }
     }
 }
 ```
 
 Notes:
 
-- `runSubscribeOrderBookRuntimeByConfig` blocks the calling thread until the WS loop exits.
-- Do the block on a dedicated producer thread (`CPU_PROD_DEPTH`, default `4`).
-- `MessageBuffer` is `64 KB`; two of them on the stack is fine outside the hot path.
-- `ping_interval_ms = 20'000` matches Binance fapi server-side expectation.
+- The public snapshot stores orderbook as paired `orderbook` + `orderbookSides`.
+- The corpus remains paired: `depth_tape.jsonl` stores tape words and
+  `depth_sidecar.jsonl` stores side bytes. Do not emit legacy delta JSON.
+- Do the polling/producer work on a dedicated producer thread (`CPU_PROD_DEPTH`, default `4`).
 - The old snapshot-shaped callback is removed.
 
 ---
@@ -311,8 +307,8 @@ static MessageBuffer gBuf{};                  // data-race; each thread owns its
 
 - `apps/arbitrage-screener/src/data/DataManager.cpp` — reference pattern for `CxetStream<T>` +
   producer/poll thread (lines 148–271 for batched+markprice streams).
-- `CXETCPP/src/src/api/run/RunByConfig.hpp` - `runSubscribeOrderBookRuntimeByConfig` signature.
-- `CXETCPP/src/src/api/run/RunByConfig.hpp:168-171` — `runGetOrderBookByConfig` signature.
+- `CXETCPP/src/src/api/market/PublicMarketDataSubscriptionManager.cpp` - snapshot publication.
+- `CXETCPP/src/src/api/config/ExchangeObjectConfig.hpp` - `ParseOrderBookTapeRuntimeFn` signature.
 - `CODING_STYLE.md` — primitive types, container bans, logging rules.
 - `API_CONTRACTS.md` — internal `SpscRing<T>`, `IStreamRecorder`, `BlockWriter` interfaces.
 - `ERROR_HANDLING_AND_GAPS.md` — what happens when `tryPush` fails or WS drops.

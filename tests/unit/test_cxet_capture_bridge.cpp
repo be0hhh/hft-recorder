@@ -3,7 +3,7 @@
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
 #include "primitives/composite/BookTickerData.hpp"
 #include "primitives/composite/BookTickerRuntimeV1.hpp"
-#include "primitives/composite/OrderBookDeltaRuntimeV1.hpp"
+#include "primitives/composite/OrderBookTapeRuntimeV1.hpp"
 #include "primitives/composite/RuntimeCompatibility.hpp"
 #include "primitives/composite/StreamMeta.hpp"
 #include "primitives/composite/Trade.hpp"
@@ -62,8 +62,10 @@ TEST(CxetCaptureBridge, RuntimeOrderBookRestoresRecorderLevelSemantics) {
     meta.exchangeId.raw = 1u;
     meta.symbol.copyFrom("BTCUSDT");
 
-    cxet::composite::OrderBookDeltaRuntimeV1 delta{};
-    delta.ts.raw = 1'713'168'001'000'000'000ULL;
+    cxet::composite::OrderBookTapeRuntimeV1 tape{};
+    cxet::composite::OrderBookTapeSidesRuntimeV1 sides{};
+    TimeNs ts{};
+    ts.raw = 1'713'168'001'000'000'000ULL;
     Price bidPrice{};
     bidPrice.raw = 3'000'000'000'000LL;
     Amount bidQty{};
@@ -76,12 +78,14 @@ TEST(CxetCaptureBridge, RuntimeOrderBookRestoresRecorderLevelSemantics) {
     askPrice1.raw = 3'000'200'000'000LL;
     Amount askQty1{};
     askQty1.raw = 25'000'000LL;
-    ASSERT_TRUE(cxet::composite::appendOrderBookLevel(delta, bidPrice, bidQty, Side::Buy()));
-    ASSERT_TRUE(cxet::composite::appendOrderBookLevel(delta, askPrice0, askQty0, Side::Sell()));
-    ASSERT_TRUE(cxet::composite::appendOrderBookLevel(delta, askPrice1, askQty1, Side::Sell()));
+    ASSERT_TRUE(cxet::composite::appendOrderBookTapeTimestamp(tape, ts));
+    ASSERT_TRUE(cxet::composite::appendOrderBookTapePriceQtyWithSide(tape, sides, bidPrice, bidQty, Side::Buy()));
+    ASSERT_TRUE(cxet::composite::appendOrderBookTapePriceQtyWithSide(tape, sides, askPrice0, askQty0, Side::Sell()));
+    ASSERT_TRUE(cxet::composite::appendOrderBookTapePriceQtyWithSide(tape, sides, askPrice1, askQty1, Side::Sell()));
 
-    const auto row = hftrec::cxet_bridge::CxetCaptureBridge::captureOrderBook(delta, meta);
+    const auto row = hftrec::cxet_bridge::CxetCaptureBridge::captureOrderBook(tape, sides, meta);
 
+    EXPECT_EQ(row.tsNs, 1'713'168'001'000'000'000ULL);
     ASSERT_EQ(row.bids.size(), 1u);
     ASSERT_EQ(row.asks.size(), 2u);
     EXPECT_EQ(row.bids[0].priceI64, 3'000'000'000'000LL);

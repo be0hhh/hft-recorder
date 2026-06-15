@@ -40,6 +40,10 @@ class ChartItem : public QQuickPaintedItem {
     Q_PROPERTY(bool candlesVisible READ candlesVisible WRITE setCandlesVisible NOTIFY candlesVisibleChanged)
     Q_PROPERTY(bool orderbookVisible READ orderbookVisible WRITE setOrderbookVisible NOTIFY orderbookVisibleChanged)
     Q_PROPERTY(bool bookTickerVisible READ bookTickerVisible WRITE setBookTickerVisible NOTIFY bookTickerVisibleChanged)
+    Q_PROPERTY(bool markPriceVisible READ markPriceVisible WRITE setMarkPriceVisible NOTIFY markPriceVisibleChanged)
+    Q_PROPERTY(bool indexPriceVisible READ indexPriceVisible WRITE setIndexPriceVisible NOTIFY indexPriceVisibleChanged)
+    Q_PROPERTY(bool fundingVisible READ fundingVisible WRITE setFundingVisible NOTIFY fundingVisibleChanged)
+    Q_PROPERTY(bool priceLimitVisible READ priceLimitVisible WRITE setPriceLimitVisible NOTIFY priceLimitVisibleChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
     Q_PROPERTY(qreal candleWidthPx READ candleWidthPx WRITE setCandleWidthPx NOTIFY candleWidthPxChanged)
     Q_PROPERTY(qreal bookOpacityGain READ bookOpacityGain WRITE setBookOpacityGain NOTIFY bookOpacityGainChanged)
@@ -64,6 +68,14 @@ class ChartItem : public QQuickPaintedItem {
     void setOrderbookVisible(bool value);
     bool bookTickerVisible() const noexcept { return bookTickerVisible_; }
     void setBookTickerVisible(bool value);
+    bool markPriceVisible() const noexcept { return markPriceVisible_; }
+    void setMarkPriceVisible(bool value);
+    bool indexPriceVisible() const noexcept { return indexPriceVisible_; }
+    void setIndexPriceVisible(bool value);
+    bool fundingVisible() const noexcept { return fundingVisible_; }
+    void setFundingVisible(bool value);
+    bool priceLimitVisible() const noexcept { return priceLimitVisible_; }
+    void setPriceLimitVisible(bool value);
     qreal tradeAmountScale() const noexcept { return tradeAmountScale_; }
     void setTradeAmountScale(qreal value);
     qreal candleWidthPx() const noexcept { return candleWidthPx_; }
@@ -91,6 +103,10 @@ class ChartItem : public QQuickPaintedItem {
     void candlesVisibleChanged();
     void orderbookVisibleChanged();
     void bookTickerVisibleChanged();
+    void markPriceVisibleChanged();
+    void indexPriceVisibleChanged();
+    void fundingVisibleChanged();
+    void priceLimitVisibleChanged();
     void tradeAmountScaleChanged();
     void candleWidthPxChanged();
     void bookOpacityGainChanged();
@@ -168,6 +184,10 @@ class ChartItem : public QQuickPaintedItem {
     bool candlesVisible_{false};
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};
+    bool markPriceVisible_{false};
+    bool indexPriceVisible_{false};
+    bool fundingVisible_{false};
+    bool priceLimitVisible_{false};
     qreal tradeAmountScale_{0.45};
     qreal candleWidthPx_{10.0};
     qreal bookOpacityGain_{15000.0};

@@ -31,6 +31,22 @@ Status parseBookTickerCanonicalLine(std::string_view line, hftrec::replay::BookT
     return hftrec::replay::parseBookTickerLine(line, row);
 }
 
+Status parseMarkPriceCanonicalLine(std::string_view line, hftrec::replay::MarkPriceRow& row) noexcept {
+    return hftrec::replay::parseMarkPriceLine(line, row);
+}
+
+Status parseIndexPriceCanonicalLine(std::string_view line, hftrec::replay::IndexPriceRow& row) noexcept {
+    return hftrec::replay::parseIndexPriceLine(line, row);
+}
+
+Status parseFundingCanonicalLine(std::string_view line, hftrec::replay::FundingRow& row) noexcept {
+    return hftrec::replay::parseFundingLine(line, row);
+}
+
+Status parsePriceLimitCanonicalLine(std::string_view line, hftrec::replay::PriceLimitRow& row) noexcept {
+    return hftrec::replay::parsePriceLimitLine(line, row);
+}
+
 Status parseDepthCanonicalLine(std::string_view line, hftrec::replay::DepthRow& row) noexcept {
     return hftrec::replay::parseDepthLine(line, row);
 }
@@ -544,6 +560,10 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
         {"trades.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.tradesPath), static_cast<std::uint64_t>(corpus.tradeLines.size())}},
         {"liquidations.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.liquidationsPath), static_cast<std::uint64_t>(corpus.liquidationLines.size())}},
         {"bookticker.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.bookTickerPath), static_cast<std::uint64_t>(corpus.bookTickerLines.size())}},
+        {"mark_price.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.markPricePath), static_cast<std::uint64_t>(corpus.markPriceLines.size())}},
+        {"index_price.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.indexPricePath), static_cast<std::uint64_t>(corpus.indexPriceLines.size())}},
+        {"funding.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.fundingPath), static_cast<std::uint64_t>(corpus.fundingLines.size())}},
+        {"price_limit.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.priceLimitPath), static_cast<std::uint64_t>(corpus.priceLimitLines.size())}},
         {"candles.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candlesPath), static_cast<std::uint64_t>(corpus.candleLines.size())}},
         {"depth.jsonl", depthSource},
         {"depth_tape.jsonl", depthSource},
@@ -655,12 +675,20 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     const bool requireTrades = report.manifestPresent ? (out.manifest.tradesEnabled && out.manifest.tradesRequiredWhenEnabled) : false;
     const bool requireLiquidations = false;
     const bool requireBookTicker = report.manifestPresent ? (out.manifest.bookTickerEnabled && out.manifest.bookTickerRequiredWhenEnabled) : false;
+    const bool requireMarkPrice = report.manifestPresent ? (out.manifest.markPriceEnabled && out.manifest.markPriceRequiredWhenEnabled) : false;
+    const bool requireIndexPrice = report.manifestPresent ? (out.manifest.indexPriceEnabled && out.manifest.indexPriceRequiredWhenEnabled) : false;
+    const bool requireFunding = report.manifestPresent ? (out.manifest.fundingEnabled && out.manifest.fundingRequiredWhenEnabled) : false;
+    const bool requirePriceLimit = report.manifestPresent ? (out.manifest.priceLimitEnabled && out.manifest.priceLimitRequiredWhenEnabled) : false;
     const bool requireCandles = report.manifestPresent ? (out.manifest.candlesEnabled && out.manifest.candlesRequiredWhenEnabled) : false;
     const bool requireDepth = report.manifestPresent ? (out.manifest.orderbookEnabled && out.manifest.orderbookRequiredWhenEnabled) : false;
 
     const auto tradesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.tradesPath, "trades.jsonl");
     const auto liquidationsPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.liquidationsPath, "liquidations.jsonl");
     const auto bookTickerPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.bookTickerPath, "bookticker.jsonl");
+    const auto markPricePath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.markPricePath, "mark_price.jsonl");
+    const auto indexPricePath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.indexPricePath, "index_price.jsonl");
+    const auto fundingPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.fundingPath, "funding.jsonl");
+    const auto priceLimitPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.priceLimitPath, "price_limit.jsonl");
     const auto candlesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.candlesPath, "candles.jsonl");
     const auto depthPath = resolveDepthPath(sessionDir, report.manifestPresent, out.manifest.depthPath);
 
@@ -697,6 +725,54 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
                             bookTickerPath.filename().string(),
                             requireBookTicker,
                             report.bookTickerState))) {
+        out.report = report;
+        return report.finalStatus;
+    }
+    if (!isOk(loadJsonLines<decltype(&parseMarkPriceCanonicalLine), hftrec::replay::MarkPriceRow>(
+                            markPricePath,
+                            out.markPriceLines,
+                            parseMarkPriceCanonicalLine,
+                            report,
+                            "mark_price",
+                            markPricePath.filename().string(),
+                            requireMarkPrice,
+                            report.markPriceState))) {
+        out.report = report;
+        return report.finalStatus;
+    }
+    if (!isOk(loadJsonLines<decltype(&parseIndexPriceCanonicalLine), hftrec::replay::IndexPriceRow>(
+                            indexPricePath,
+                            out.indexPriceLines,
+                            parseIndexPriceCanonicalLine,
+                            report,
+                            "index_price",
+                            indexPricePath.filename().string(),
+                            requireIndexPrice,
+                            report.indexPriceState))) {
+        out.report = report;
+        return report.finalStatus;
+    }
+    if (!isOk(loadJsonLines<decltype(&parseFundingCanonicalLine), hftrec::replay::FundingRow>(
+                            fundingPath,
+                            out.fundingLines,
+                            parseFundingCanonicalLine,
+                            report,
+                            "funding",
+                            fundingPath.filename().string(),
+                            requireFunding,
+                            report.fundingState))) {
+        out.report = report;
+        return report.finalStatus;
+    }
+    if (!isOk(loadJsonLines<decltype(&parsePriceLimitCanonicalLine), hftrec::replay::PriceLimitRow>(
+                            priceLimitPath,
+                            out.priceLimitLines,
+                            parsePriceLimitCanonicalLine,
+                            report,
+                            "price_limit",
+                            priceLimitPath.filename().string(),
+                            requirePriceLimit,
+                            report.priceLimitState))) {
         out.report = report;
         return report.finalStatus;
     }

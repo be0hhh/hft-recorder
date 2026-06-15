@@ -1,9 +1,11 @@
 #include <chrono>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <iterator>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -15,8 +17,8 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture <trades|liquidations|bookticker|orderbook|candles> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
-    std::puts("  hft-recorder capture bookticker all [seconds] [output_dir]");
+    std::puts("  hft-recorder capture [--env path] [--api-slot n] <trades|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
+    std::puts("  hft-recorder capture [--env path] [--api-slot n] bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
     std::puts("Examples:");
@@ -28,7 +30,12 @@ void printUsage() {
     std::puts("  hft-recorder capture bookticker 10 ./recordings aster ASTERUSDT spot");
     std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT margin");
     std::puts("  hft-recorder capture bookticker 10 ./recordings okx BTC-USDT-SWAP futures");
+    std::puts("  hft-recorder capture mark_price 30 ./recordings binance BTCUSDT futures");
+    std::puts("  hft-recorder capture index_price 30 ./recordings bybit BTCUSDT futures");
+    std::puts("  hft-recorder capture funding 30 ./recordings gate BTC_USDT futures");
+    std::puts("  hft-recorder capture price_limit 30 ./recordings bitget BTCUSDT futures");
     std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT futures 300");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 ./recordings binance ETHUSDT futures 300");
     std::puts("  hft-recorder capture candles 1 ./recordings binance BSBUSDT");
 }
 
@@ -60,6 +67,22 @@ constexpr VenueDefault kBookTickerVenueDefaults[] = {
     {"okx", "futures", "BTC-USDT-SWAP"},
 };
 
+bool isMarkPriceChannel(std::string_view channel) noexcept {
+    return channel == "mark_price" || channel == "mark-price" || channel == "markprice" || channel == "mark";
+}
+
+bool isIndexPriceChannel(std::string_view channel) noexcept {
+    return channel == "index_price" || channel == "index-price" || channel == "indexprice" || channel == "index";
+}
+
+bool isFundingChannel(std::string_view channel) noexcept {
+    return channel == "funding" || channel == "funding_rate" || channel == "funding-rate" || channel == "fundingrate";
+}
+
+bool isPriceLimitChannel(std::string_view channel) noexcept {
+    return channel == "price_limit" || channel == "price-limit" || channel == "pricelimit" || channel == "limit" || channel == "limits";
+}
+
 Status startChannel(capture::CaptureCoordinator& coordinator,
                     const std::string& channel,
                     const capture::CaptureConfig& config) {
@@ -67,6 +90,10 @@ Status startChannel(capture::CaptureCoordinator& coordinator,
     if (channel == "liquidations" || channel == "liquidation" || channel == "forceOrder") return coordinator.startLiquidations(config);
     if (channel == "bookticker") return coordinator.startBookTicker(config);
     if (channel == "orderbook") return coordinator.startOrderbook(config);
+    if (isMarkPriceChannel(channel)) return coordinator.startMarkPrice(config);
+    if (isIndexPriceChannel(channel)) return coordinator.startIndexPrice(config);
+    if (isFundingChannel(channel)) return coordinator.startFunding(config);
+    if (isPriceLimitChannel(channel)) return coordinator.startPriceLimit(config);
     if (channel == "candles" || channel == "candle" || channel == "klines") {
         const auto sessionStatus = coordinator.ensureSession(config);
         if (!isOk(sessionStatus)) return sessionStatus;
@@ -104,6 +131,42 @@ bool applyOptionalSingleVenueArgs(capture::CaptureConfig& config, int argc, char
     return true;
 }
 
+bool stripCaptureOptions(capture::CaptureConfig& config,
+                         int argc,
+                         char** argv,
+                         std::vector<char*>& positional) {
+    positional.clear();
+    positional.reserve(static_cast<std::size_t>(argc));
+    if (argc > 0) positional.push_back(argv[0]);
+
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg{argv[i]};
+        if (arg == "--env") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --env requires a path\n", stderr);
+                return false;
+            }
+            config.envPath = argv[++i];
+            continue;
+        }
+        if (arg == "--api-slot") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --api-slot requires a value\n", stderr);
+                return false;
+            }
+            const long slot = std::strtol(argv[++i], nullptr, 10);
+            if (slot < 1 || slot > 255) {
+                std::fputs("capture: --api-slot must be in [1,255]\n", stderr);
+                return false;
+            }
+            config.apiSlot = static_cast<std::uint8_t>(slot);
+            continue;
+        }
+        positional.push_back(argv[i]);
+    }
+    return true;
+}
+
 }  // namespace
 
 int runCapture(int argc, char** argv) {
@@ -113,6 +176,15 @@ int runCapture(int argc, char** argv) {
     }
 
     auto config = makeDefaultConfig();
+    std::vector<char*> positional;
+    if (!stripCaptureOptions(config, argc, argv, positional)) return 2;
+    argc = static_cast<int>(positional.size());
+    argv = positional.data();
+    if (argc < 2) {
+        printUsage();
+        return 2;
+    }
+
     const std::string channel = argv[1];
     const bool allBookTickers = channel == "bookticker" && argc >= 3 && std::string{argv[2]} == "all";
     const int secondsArgIndex = allBookTickers ? 3 : 2;
@@ -152,12 +224,14 @@ int runCapture(int argc, char** argv) {
                 for (auto& running : coordinators) (void)running->finalizeSession();
                 return 1;
             }
-            std::printf("capture started: channel=bookticker exchange=%s market=%s symbol=%s duration=%llds dir=%s\n",
+            std::printf("capture started: channel=bookticker exchange=%s market=%s symbol=%s duration=%llds dir=%s env=%s api_slot=%u\n",
                         venue.exchange,
                         venue.market,
                         venue.symbol,
                         static_cast<long long>(venueConfig.durationSec),
-                        venueConfig.outputDir.string().c_str());
+                        venueConfig.outputDir.string().c_str(),
+                        venueConfig.envPath.string().c_str(),
+                        static_cast<unsigned>(venueConfig.apiSlot == 0u ? 1u : venueConfig.apiSlot));
             coordinators.push_back(std::move(coordinator));
         }
 
@@ -209,13 +283,15 @@ int runCapture(int argc, char** argv) {
         return 1;
     }
 
-    std::printf("capture started: channel=%s exchange=%s market=%s symbol=%s duration=%llds dir=%s trades_warmup=%llds\n",
+    std::printf("capture started: channel=%s exchange=%s market=%s symbol=%s duration=%llds dir=%s env=%s api_slot=%u trades_warmup=%llds\n",
                 channel.c_str(),
                 config.exchange.c_str(),
                 config.market.c_str(),
                 config.symbols.empty() ? "" : config.symbols.front().c_str(),
                 static_cast<long long>(config.durationSec),
                 config.outputDir.string().c_str(),
+                config.envPath.string().c_str(),
+                static_cast<unsigned>(config.apiSlot == 0u ? 1u : config.apiSlot),
                 static_cast<long long>(config.tradesHistoryWarmupSec));
 
     std::this_thread::sleep_for(std::chrono::seconds(config.durationSec));

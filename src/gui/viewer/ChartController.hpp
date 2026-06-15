@@ -39,6 +39,10 @@ class ChartController : public QObject {
     Q_PROPERTY(bool hasCandles READ hasCandles NOTIFY sessionChanged)
     Q_PROPERTY(bool hasBookTicker READ hasBookTicker NOTIFY sessionChanged)
     Q_PROPERTY(bool hasOrderbook READ hasOrderbook NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasMarkPrice READ hasMarkPrice NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasIndexPrice READ hasIndexPrice NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasFunding READ hasFunding NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasPriceLimit READ hasPriceLimit NOTIFY sessionChanged)
     Q_PROPERTY(bool gpuRendererAvailable READ gpuRendererAvailable CONSTANT)
     Q_PROPERTY(int tradeCount READ tradeCount NOTIFY sessionChanged)
     Q_PROPERTY(int candleCount READ candleCount NOTIFY sessionChanged)
@@ -95,6 +99,30 @@ class ChartController : public QObject {
             || !liveDataCache_.stableRows.depths.empty()
             || !liveDataCache_.overlayRows.depths.empty()
             || !liveOverlayState_.depths.empty();
+    }
+    bool hasMarkPrice() const noexcept {
+        return !replay_.markPrices().empty()
+            || !liveDataCache_.stableRows.markPrices.empty()
+            || !liveDataCache_.overlayRows.markPrices.empty()
+            || !liveOverlayState_.markPrices.empty();
+    }
+    bool hasIndexPrice() const noexcept {
+        return !replay_.indexPrices().empty()
+            || !liveDataCache_.stableRows.indexPrices.empty()
+            || !liveDataCache_.overlayRows.indexPrices.empty()
+            || !liveOverlayState_.indexPrices.empty();
+    }
+    bool hasFunding() const noexcept {
+        return !replay_.fundings().empty()
+            || !liveDataCache_.stableRows.fundings.empty()
+            || !liveDataCache_.overlayRows.fundings.empty()
+            || !liveOverlayState_.fundings.empty();
+    }
+    bool hasPriceLimit() const noexcept {
+        return !replay_.priceLimits().empty()
+            || !liveDataCache_.stableRows.priceLimits.empty()
+            || !liveDataCache_.overlayRows.priceLimits.empty()
+            || !liveOverlayState_.priceLimits.empty();
     }
     bool gpuRendererAvailable() const noexcept { return gpuRendererAvailable_; }
 

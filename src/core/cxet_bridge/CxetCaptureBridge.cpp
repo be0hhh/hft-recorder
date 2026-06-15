@@ -3,8 +3,8 @@
 #include "primitives/composite/BookTickerData.hpp"
 #include "primitives/composite/BookTickerRuntimeV1.hpp"
 #include "primitives/composite/LiquidationEvent.hpp"
-#include "primitives/composite/OrderBookDeltaRuntimeV1.hpp"
 #include "primitives/composite/OrderBookSnapshot.hpp"
+#include "primitives/composite/OrderBookTapeRuntimeV1.hpp"
 #include "primitives/composite/RuntimeCompatibility.hpp"
 #include "primitives/composite/StreamMeta.hpp"
 #include "primitives/composite/Trade.hpp"
@@ -108,25 +108,38 @@ CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::
     return row;
 }
 
-CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookDeltaRuntimeV1& delta,
+CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookTapeRuntimeV1& tape,
+                                                          const cxet::composite::OrderBookTapeSidesRuntimeV1& sides,
                                                           const cxet::composite::StreamMeta& meta) {
     (void)meta;
     CapturedOrderBookRow row{};
-    row.tsNs = static_cast<std::uint64_t>(delta.ts.raw);
-    row.bids.reserve(delta.levelCount.raw);
-    row.asks.reserve(delta.levelCount.raw);
-    for (std::uint32_t i = 0; i < delta.levelCount.raw; ++i) {
-        const auto& level = delta.levels[i];
-        if (static_cast<std::uint8_t>(level.side.raw) == 1u) {
+    row.tsNs = static_cast<std::uint64_t>(cxet::composite::orderBookTapeTimestamp(tape).raw);
+    const std::uint32_t wordCount = tape.wordCount.raw < cxet::composite::kMaxOrderBookTapeWords
+        ? tape.wordCount.raw
+        : static_cast<std::uint32_t>(cxet::composite::kMaxOrderBookTapeWords);
+    const std::uint32_t sideCapacity = static_cast<std::uint32_t>(sides.sides.size());
+    const std::uint32_t sideCount = sides.sideCount.raw < sideCapacity
+        ? sides.sideCount.raw
+        : sideCapacity;
+    row.bids.reserve(sideCount);
+    row.asks.reserve(sideCount);
+    std::uint32_t sideIndex = 0u;
+    for (std::uint32_t wordIndex = 0u; wordIndex + 1u < wordCount && sideIndex < sideCount;) {
+        const std::uint64_t priceWord = tape.words[wordIndex++];
+        if (cxet::composite::isOrderBookTapeTimestampWord(priceWord)) continue;
+        const std::uint64_t qtyWord = tape.words[wordIndex++];
+        if (cxet::composite::isOrderBookTapeTimestampWord(qtyWord)) continue;
+        const auto side = sides.sides[sideIndex++];
+        if (side == 1u) {
             row.bids.push_back(CapturedLevel{
-                static_cast<std::int64_t>(level.price.raw),
-                static_cast<std::int64_t>(level.qty.raw),
+                static_cast<std::int64_t>(priceWord),
+                static_cast<std::int64_t>(qtyWord),
                 0
             });
         } else {
             row.asks.push_back(CapturedLevel{
-                static_cast<std::int64_t>(level.price.raw),
-                static_cast<std::int64_t>(level.qty.raw),
+                static_cast<std::int64_t>(priceWord),
+                static_cast<std::int64_t>(qtyWord),
                 1
             });
         }

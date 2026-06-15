@@ -43,7 +43,14 @@ QString liveModeLabel(int intervalMs) {
 }
 
 bool hasRows(const LiveDataBatch& batch) noexcept {
-    return !batch.trades.empty() || !batch.liquidations.empty() || !batch.bookTickers.empty() || !batch.depths.empty();
+    return !batch.trades.empty()
+        || !batch.liquidations.empty()
+        || !batch.bookTickers.empty()
+        || !batch.markPrices.empty()
+        || !batch.indexPrices.empty()
+        || !batch.fundings.empty()
+        || !batch.priceLimits.empty()
+        || !batch.depths.empty();
 }
 
 QString recordedSourceIdFromPath(const QString& dir) {
@@ -320,10 +327,18 @@ void ChartController::pollLiveData_() {
     const bool oldHasLiquidations = hasLiquidations();
     const bool oldHasBookTicker = hasBookTicker();
     const bool oldHasOrderbook = hasOrderbook();
+    const bool oldHasMarkPrice = hasMarkPrice();
+    const bool oldHasIndexPrice = hasIndexPrice();
+    const bool oldHasFunding = hasFunding();
+    const bool oldHasPriceLimit = hasPriceLimit();
     const auto oldTradeCount = replay_.trades().size();
     const auto oldLiquidationCount = replay_.liquidations().size();
     const auto oldDepthCount = replay_.depths().size();
     const auto oldBookTickerCount = replay_.bookTickers().size();
+    const auto oldMarkPriceCount = replay_.markPrices().size();
+    const auto oldIndexPriceCount = replay_.indexPrices().size();
+    const auto oldFundingCount = replay_.fundings().size();
+    const auto oldPriceLimitCount = replay_.priceLimits().size();
 
     bool reloadedSession = false;
     QString failureText{};
@@ -421,10 +436,18 @@ void ChartController::pollLiveData_() {
         || (hasLiquidations() != oldHasLiquidations)
         || (hasBookTicker() != oldHasBookTicker)
         || (hasOrderbook() != oldHasOrderbook)
+        || (hasMarkPrice() != oldHasMarkPrice)
+        || (hasIndexPrice() != oldHasIndexPrice)
+        || (hasFunding() != oldHasFunding)
+        || (hasPriceLimit() != oldHasPriceLimit)
         || (replay_.trades().size() != oldTradeCount)
         || (replay_.liquidations().size() != oldLiquidationCount)
         || (replay_.depths().size() != oldDepthCount)
-        || (replay_.bookTickers().size() != oldBookTickerCount);
+        || (replay_.bookTickers().size() != oldBookTickerCount)
+        || (replay_.markPrices().size() != oldMarkPriceCount)
+        || (replay_.indexPrices().size() != oldIndexPriceCount)
+        || (replay_.fundings().size() != oldFundingCount)
+        || (replay_.priceLimits().size() != oldPriceLimitCount);
 
     if (reloadedSession || sessionChangedFlag) emit sessionChanged();
     else if (hasLiveDataBatch) emit liveDataChanged();

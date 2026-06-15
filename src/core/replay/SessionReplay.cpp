@@ -32,6 +32,22 @@ Status parseBookTickerCanonicalLine(std::string_view line, BookTickerRow& row) n
     return parseBookTickerLine(line, row);
 }
 
+Status parseMarkPriceCanonicalLine(std::string_view line, MarkPriceRow& row) noexcept {
+    return parseMarkPriceLine(line, row);
+}
+
+Status parseIndexPriceCanonicalLine(std::string_view line, IndexPriceRow& row) noexcept {
+    return parseIndexPriceLine(line, row);
+}
+
+Status parseFundingCanonicalLine(std::string_view line, FundingRow& row) noexcept {
+    return parseFundingLine(line, row);
+}
+
+Status parsePriceLimitCanonicalLine(std::string_view line, PriceLimitRow& row) noexcept {
+    return parsePriceLimitLine(line, row);
+}
+
 Status parseDepthCanonicalLine(std::string_view line, DepthRow& row) noexcept {
     return parseDepthLine(line, row);
 }
@@ -215,6 +231,10 @@ void SessionReplay::reset() noexcept {
     trades_.clear();
     liquidations_.clear();
     bookTickers_.clear();
+    markPrices_.clear();
+    indexPrices_.clear();
+    fundings_.clear();
+    priceLimits_.clear();
     candles_.clear();
     depths_.clear();
     events_.clear();
@@ -345,6 +365,82 @@ Status SessionReplay::addBookTickerFile(const std::filesystem::path& path) noexc
         });
     }
     return st;
+}
+
+Status SessionReplay::addMarkPriceFile(const std::filesystem::path& path) noexcept {
+    if (path.empty()) {
+        errorDetail_ = "mark_price path is empty";
+        ++parseFailureCount_;
+        return Status::InvalidArgument;
+    }
+    std::size_t lineNumber = 0;
+    const auto st = loadJsonl<MarkPriceRow>(path, markPrices_, errorDetail_, parseMarkPriceCanonicalLine, lineNumber);
+    if (!isOk(st)) {
+        ++parseFailureCount_;
+        status_ = st;
+        return st;
+    }
+    std::stable_sort(markPrices_.begin(), markPrices_.end(), [](const MarkPriceRow& lhs, const MarkPriceRow& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
+    });
+    return Status::Ok;
+}
+
+Status SessionReplay::addIndexPriceFile(const std::filesystem::path& path) noexcept {
+    if (path.empty()) {
+        errorDetail_ = "index_price path is empty";
+        ++parseFailureCount_;
+        return Status::InvalidArgument;
+    }
+    std::size_t lineNumber = 0;
+    const auto st = loadJsonl<IndexPriceRow>(path, indexPrices_, errorDetail_, parseIndexPriceCanonicalLine, lineNumber);
+    if (!isOk(st)) {
+        ++parseFailureCount_;
+        status_ = st;
+        return st;
+    }
+    std::stable_sort(indexPrices_.begin(), indexPrices_.end(), [](const IndexPriceRow& lhs, const IndexPriceRow& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
+    });
+    return Status::Ok;
+}
+
+Status SessionReplay::addFundingFile(const std::filesystem::path& path) noexcept {
+    if (path.empty()) {
+        errorDetail_ = "funding path is empty";
+        ++parseFailureCount_;
+        return Status::InvalidArgument;
+    }
+    std::size_t lineNumber = 0;
+    const auto st = loadJsonl<FundingRow>(path, fundings_, errorDetail_, parseFundingCanonicalLine, lineNumber);
+    if (!isOk(st)) {
+        ++parseFailureCount_;
+        status_ = st;
+        return st;
+    }
+    std::stable_sort(fundings_.begin(), fundings_.end(), [](const FundingRow& lhs, const FundingRow& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
+    });
+    return Status::Ok;
+}
+
+Status SessionReplay::addPriceLimitFile(const std::filesystem::path& path) noexcept {
+    if (path.empty()) {
+        errorDetail_ = "price_limit path is empty";
+        ++parseFailureCount_;
+        return Status::InvalidArgument;
+    }
+    std::size_t lineNumber = 0;
+    const auto st = loadJsonl<PriceLimitRow>(path, priceLimits_, errorDetail_, parsePriceLimitCanonicalLine, lineNumber);
+    if (!isOk(st)) {
+        ++parseFailureCount_;
+        status_ = st;
+        return st;
+    }
+    std::stable_sort(priceLimits_.begin(), priceLimits_.end(), [](const PriceLimitRow& lhs, const PriceLimitRow& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
+    });
+    return Status::Ok;
 }
 
 Status SessionReplay::addCandlesFile(const std::filesystem::path& path) noexcept {
@@ -618,6 +714,82 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         bookTickers_.push_back(std::move(row));
     }
 
+    markPrices_.reserve(corpus.markPriceLines.size());
+    for (const auto& line : corpus.markPriceLines) {
+        if (line.empty()) continue;
+        MarkPriceRow row{};
+        const auto st = parseMarkPriceLine(std::string_view{line}, row);
+        if (!isOk(st)) {
+            errorDetail_ = "failed to parse mark_price.jsonl line from loaded corpus";
+            ++parseFailureCount_;
+            status_ = st;
+            refreshHealthSummary_();
+            maybeWriteIntegrityReport_();
+            return status_;
+        }
+        markPrices_.push_back(std::move(row));
+    }
+    std::stable_sort(markPrices_.begin(), markPrices_.end(), [](const MarkPriceRow& lhs, const MarkPriceRow& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
+    });
+
+    indexPrices_.reserve(corpus.indexPriceLines.size());
+    for (const auto& line : corpus.indexPriceLines) {
+        if (line.empty()) continue;
+        IndexPriceRow row{};
+        const auto st = parseIndexPriceLine(std::string_view{line}, row);
+        if (!isOk(st)) {
+            errorDetail_ = "failed to parse index_price.jsonl line from loaded corpus";
+            ++parseFailureCount_;
+            status_ = st;
+            refreshHealthSummary_();
+            maybeWriteIntegrityReport_();
+            return status_;
+        }
+        indexPrices_.push_back(std::move(row));
+    }
+    std::stable_sort(indexPrices_.begin(), indexPrices_.end(), [](const IndexPriceRow& lhs, const IndexPriceRow& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
+    });
+
+    fundings_.reserve(corpus.fundingLines.size());
+    for (const auto& line : corpus.fundingLines) {
+        if (line.empty()) continue;
+        FundingRow row{};
+        const auto st = parseFundingLine(std::string_view{line}, row);
+        if (!isOk(st)) {
+            errorDetail_ = "failed to parse funding.jsonl line from loaded corpus";
+            ++parseFailureCount_;
+            status_ = st;
+            refreshHealthSummary_();
+            maybeWriteIntegrityReport_();
+            return status_;
+        }
+        fundings_.push_back(std::move(row));
+    }
+    std::stable_sort(fundings_.begin(), fundings_.end(), [](const FundingRow& lhs, const FundingRow& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
+    });
+
+    priceLimits_.reserve(corpus.priceLimitLines.size());
+    for (const auto& line : corpus.priceLimitLines) {
+        if (line.empty()) continue;
+        PriceLimitRow row{};
+        const auto st = parsePriceLimitLine(std::string_view{line}, row);
+        if (!isOk(st)) {
+            errorDetail_ = "failed to parse price_limit.jsonl line from loaded corpus";
+            ++parseFailureCount_;
+            status_ = st;
+            refreshHealthSummary_();
+            maybeWriteIntegrityReport_();
+            return status_;
+        }
+        priceLimits_.push_back(std::move(row));
+    }
+    std::stable_sort(priceLimits_.begin(), priceLimits_.end(), [](const PriceLimitRow& lhs, const PriceLimitRow& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
+    });
+
     candles_.reserve(corpus.candleLines.size());
     for (const auto& line : corpus.candleLines) {
         if (line.empty()) continue;
@@ -680,7 +852,15 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         const auto loadNs = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - startedAt).count());
-        metrics::recordReplayLoad(trades_.size() + liquidations_.size() + bookTickers_.size() + depths_.size(), loadNs);
+        metrics::recordReplayLoad(trades_.size()
+                                  + liquidations_.size()
+                                  + bookTickers_.size()
+                                  + markPrices_.size()
+                                  + indexPrices_.size()
+                                  + fundings_.size()
+                                  + priceLimits_.size()
+                                  + depths_.size(),
+                                  loadNs);
     }
     return status_;
 }

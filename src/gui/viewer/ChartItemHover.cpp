@@ -1,5 +1,8 @@
 #include "gui/viewer/ChartItem.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/ChartItemInternal.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
@@ -40,6 +43,23 @@ bool sameViewport(const RenderSnapshot& lhs, const RenderSnapshot& rhs) noexcept
         && lhs.vp.h == rhs.vp.h;
 }
 
+qreal fundingStripY(const RenderSnapshot& snap) noexcept {
+    if (snap.vp.h <= 36.0) return std::max<qreal>(8.0, snap.vp.h * 0.5);
+    return std::clamp<qreal>(snap.vp.h - 18.0, 18.0, snap.vp.h - 8.0);
+}
+
+bool fundingStripHit(const RenderSnapshot& snap, const QPointF& point) noexcept {
+    if (!snap.fundingVisible || snap.fundings.empty() || snap.vp.w <= 0.0 || snap.vp.h <= 0.0) return false;
+    constexpr qreal kStripHitPx = 12.0;
+    constexpr qreal kAxisReserveRight = 88.0;
+    const qreal stripLeft = 8.0;
+    const qreal stripRight = std::max<qreal>(stripLeft, snap.vp.w - kAxisReserveRight);
+    const qreal y = fundingStripY(snap);
+    return point.x() >= stripLeft - kStripHitPx
+        && point.x() <= stripRight + kStripHitPx
+        && std::abs(point.y() - y) <= kStripHitPx;
+}
+
 }  // namespace
 
 bool ChartItem::shouldSkipHoverRecompute_(const QPointF& point, bool contextActive) const noexcept {
@@ -65,8 +85,11 @@ void ChartItem::activateContextPoint(qreal x, qreal y) {
     contextActive_ = true;
     updateHover_();
     if (hoveredTradeIndex_ < 0 && hoveredLiquidationIndex_ < 0 && !hoveredStrategyFill_ && hoveredBookKind_ == 0) {
-        clearHover();
-        return;
+        const RenderSnapshot& snap = ensureSnapshot_();
+        if (!fundingStripHit(snap, hoverPoint_)) {
+            clearHover();
+            return;
+        }
     }
     update();
 }

@@ -23,10 +23,18 @@ class JsonSessionSink final : public IStorageBackend {
     Status appendTrade(const replay::TradeRow& row) noexcept override;
     Status appendLiquidation(const replay::LiquidationRow& row) noexcept override;
     Status appendBookTicker(const replay::BookTickerRow& row) noexcept override;
+    Status appendMarkPrice(const replay::MarkPriceRow& row) noexcept override;
+    Status appendIndexPrice(const replay::IndexPriceRow& row) noexcept override;
+    Status appendFunding(const replay::FundingRow& row) noexcept override;
+    Status appendPriceLimit(const replay::PriceLimitRow& row) noexcept override;
     Status appendDepth(const replay::DepthRow& row) noexcept override;
     Status appendTradeLine(const replay::TradeRow& row, const std::string& line) noexcept;
     Status appendLiquidationLine(const replay::LiquidationRow& row, const std::string& line) noexcept;
     Status appendBookTickerLine(const replay::BookTickerRow& row, const std::string& line) noexcept;
+    Status appendMarkPriceLine(const replay::MarkPriceRow& row, const std::string& line) noexcept;
+    Status appendIndexPriceLine(const replay::IndexPriceRow& row, const std::string& line) noexcept;
+    Status appendFundingLine(const replay::FundingRow& row, const std::string& line) noexcept;
+    Status appendPriceLimitLine(const replay::PriceLimitRow& row, const std::string& line) noexcept;
     Status appendDepthLine(const replay::DepthRow& row, const std::string& line) noexcept;
     Status appendDepthTapeSidecarLines(const replay::DepthRow& row,
                                        const std::string& tapeLine,
@@ -44,6 +52,10 @@ class JsonSessionSink final : public IStorageBackend {
     std::ofstream trades_{};
     std::ofstream liquidations_{};
     std::ofstream bookTicker_{};
+    std::ofstream markPrice_{};
+    std::ofstream indexPrice_{};
+    std::ofstream funding_{};
+    std::ofstream priceLimit_{};
     std::ofstream depth_{};
     std::ofstream depthTape_{};
     std::ofstream depthSidecar_{};

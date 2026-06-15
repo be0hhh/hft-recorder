@@ -22,6 +22,22 @@ void SessionReplay::appendBookTickerRow(BookTickerRow row) {
     bookTickers_.push_back(std::move(row));
 }
 
+void SessionReplay::appendMarkPriceRow(MarkPriceRow row) {
+    markPrices_.push_back(std::move(row));
+}
+
+void SessionReplay::appendIndexPriceRow(IndexPriceRow row) {
+    indexPrices_.push_back(std::move(row));
+}
+
+void SessionReplay::appendFundingRow(FundingRow row) {
+    fundings_.push_back(std::move(row));
+}
+
+void SessionReplay::appendPriceLimitRow(PriceLimitRow row) {
+    priceLimits_.push_back(std::move(row));
+}
+
 void SessionReplay::appendCandleRow(CandleRow row) {
     candles_.push_back(std::move(row));
 }
@@ -321,7 +337,14 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
 
 void SessionReplay::rebuildEvents_() noexcept {
     events_.clear();
-    events_.reserve(trades_.size() + liquidations_.size() + bookTickers_.size() + depths_.size());
+    events_.reserve(trades_.size()
+                    + liquidations_.size()
+                    + bookTickers_.size()
+                    + markPrices_.size()
+                    + indexPrices_.size()
+                    + fundings_.size()
+                    + priceLimits_.size()
+                    + depths_.size());
     for (std::size_t i = 0; i < depths_.size(); ++i) {
         events_.push_back(Event{depths_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::Depth});
     }
@@ -333,6 +356,18 @@ void SessionReplay::rebuildEvents_() noexcept {
     }
     for (std::size_t i = 0; i < bookTickers_.size(); ++i) {
         events_.push_back(Event{bookTickers_[i].tsNs, bookTickers_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::BookTicker});
+    }
+    for (std::size_t i = 0; i < markPrices_.size(); ++i) {
+        events_.push_back(Event{markPrices_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::MarkPrice});
+    }
+    for (std::size_t i = 0; i < indexPrices_.size(); ++i) {
+        events_.push_back(Event{indexPrices_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::IndexPrice});
+    }
+    for (std::size_t i = 0; i < fundings_.size(); ++i) {
+        events_.push_back(Event{fundings_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::Funding});
+    }
+    for (std::size_t i = 0; i < priceLimits_.size(); ++i) {
+        events_.push_back(Event{priceLimits_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::PriceLimit});
     }
     std::stable_sort(events_.begin(), events_.end(),
                      [](const Event& a, const Event& b) noexcept {

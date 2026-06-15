@@ -227,6 +227,56 @@ TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
     fs::remove_all(dir, ec);
 }
 
+TEST(SessionReplay, OpenLoadsReferenceChannelsFromSessionCorpus) {
+    const auto dir = makeTmpDir();
+    fs::create_directories(dir / "jsonl");
+
+    SessionManifest manifest{};
+    manifest.sessionId = "reference_session";
+    manifest.exchange = "binance";
+    manifest.market = "futures_usd";
+    manifest.symbols = {"BTCUSDT"};
+    manifest.tradesEnabled = false;
+    manifest.liquidationsEnabled = false;
+    manifest.bookTickerEnabled = false;
+    manifest.orderbookEnabled = false;
+    manifest.markPriceEnabled = true;
+    manifest.indexPriceEnabled = true;
+    manifest.fundingEnabled = true;
+    manifest.priceLimitEnabled = true;
+    manifest.markPriceCount = 1u;
+    manifest.indexPriceCount = 1u;
+    manifest.fundingCount = 1u;
+    manifest.priceLimitCount = 1u;
+    writeFile(dir / "manifest.json", renderManifestJson(manifest));
+    writeFile(dir / "jsonl" / "mark_price.jsonl", "[2000,30000]\n");
+    writeFile(dir / "jsonl" / "index_price.jsonl", "[2100,29990]\n");
+    writeFile(dir / "jsonl" / "funding.jsonl", "[2200,125,2000,2400]\n");
+    writeFile(dir / "jsonl" / "price_limit.jsonl", "[2300,31000,29000,1]\n");
+
+    SessionReplay replay{};
+    ASSERT_EQ(replay.open(dir), Status::Ok);
+    ASSERT_EQ(replay.markPrices().size(), 1u);
+    ASSERT_EQ(replay.indexPrices().size(), 1u);
+    ASSERT_EQ(replay.fundings().size(), 1u);
+    ASSERT_EQ(replay.priceLimits().size(), 1u);
+    EXPECT_EQ(replay.markPrices()[0].markPriceE8, 30000);
+    EXPECT_EQ(replay.indexPrices()[0].indexPriceE8, 29990);
+    EXPECT_EQ(replay.fundings()[0].fundingRateE8, 125);
+    EXPECT_EQ(replay.priceLimits()[0].buyLimitE8, 31000);
+    EXPECT_EQ(replay.events().size(), 4u);
+    EXPECT_EQ(replay.buckets().size(), 4u);
+    EXPECT_EQ(replay.firstTsNs(), 2000);
+    EXPECT_EQ(replay.lastTsNs(), 2300);
+    EXPECT_EQ(replay.loadReport().markPriceState, hftrec::corpus::ChannelLoadState::Clean);
+    EXPECT_EQ(replay.loadReport().indexPriceState, hftrec::corpus::ChannelLoadState::Clean);
+    EXPECT_EQ(replay.loadReport().fundingState, hftrec::corpus::ChannelLoadState::Clean);
+    EXPECT_EQ(replay.loadReport().priceLimitState, hftrec::corpus::ChannelLoadState::Clean);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(SessionReplay, CrossChannelIngestSequenceDoesNotDegradeWhenTimestampOrderDiffers) {
     const auto dir = makeTmpDir();
     writeManifest(dir, true, true, true, 1u, 1u, 1u, 1u);

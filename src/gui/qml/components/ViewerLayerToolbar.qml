@@ -13,6 +13,10 @@ Rectangle {
     required property bool showCandlesLayer
     required property bool showOrderbookLayer
     required property bool showBookTickerLayer
+    required property bool showMarkPriceLayer
+    required property bool showIndexPriceLayer
+    required property bool showFundingLayer
+    required property bool showPriceLimitLayer
     required property bool effectiveBookTickerLayer
     required property color chromeColor
     required property color panelColor
@@ -27,6 +31,10 @@ Rectangle {
     signal toggleCandles()
     signal toggleOrderbook()
     signal toggleBookTicker()
+    signal toggleMarkPrice()
+    signal toggleIndexPrice()
+    signal toggleFunding()
+    signal togglePriceLimit()
 
     property color liveControlBg: '#050505'
     property color liveControlBorder: '#6e6e75'
@@ -34,11 +42,11 @@ Rectangle {
     property color liveControlPopup: '#090909'
     property color liveControlActive: '#1fd0d8'
     property color liveControlActiveText: '#031114'
-    property bool compact: width < 1780
-    property int toolbarSpacing: compact ? 5 : 8
-    property int sliderMinWidth: compact ? 58 : 72
-    property int sliderPreferredWidth: compact ? 84 : 120
-    property int usdInputWidth: compact ? 62 : 76
+    property bool compact: width < 2200
+    property int toolbarSpacing: compact ? 4 : 8
+    property int sliderMinWidth: compact ? 44 : 64
+    property int sliderPreferredWidth: compact ? 64 : 104
+    property int usdInputWidth: compact ? 54 : 70
 
     function clamp(value, lo, hi) {
         return Math.max(lo, Math.min(hi, value))
@@ -55,20 +63,37 @@ Rectangle {
     }
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 48
+    Layout.preferredHeight: 52
     color: bar.chromeColor
     border.color: bar.borderColor
     border.width: 1
 
-    RowLayout {
+    Flickable {
         anchors.fill: parent
-        anchors.leftMargin: 14
-        anchors.rightMargin: 14
-        spacing: bar.toolbarSpacing
+        anchors.leftMargin: 8
+        anchors.rightMargin: 8
+        anchors.topMargin: 2
+        anchors.bottomMargin: 2
+        clip: true
+        contentWidth: Math.max(width, toolbarRow.implicitWidth)
+        contentHeight: height
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.HorizontalFlick
+
+        ScrollBar.horizontal: ScrollBar {
+            policy: ScrollBar.AsNeeded
+            height: 6
+        }
+
+        Row {
+            id: toolbarRow
+            height: parent.height - 6
+            spacing: bar.toolbarSpacing
 
         ViewerChannelButton {
             text: "Trades"
             active: bar.showTradesLayer
+            compact: bar.compact
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor
@@ -79,8 +104,9 @@ Rectangle {
         }
 
         ViewerChannelButton {
-            text: "Liquidations"
+            text: bar.compact ? "Liq" : "Liquidations"
             active: bar.showLiquidationsLayer
+            compact: bar.compact
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor
@@ -93,6 +119,7 @@ Rectangle {
         ViewerChannelButton {
             text: "Candles"
             active: bar.showCandlesLayer
+            compact: bar.compact
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor
@@ -102,8 +129,9 @@ Rectangle {
             onClicked: bar.toggleCandles()
         }
         ViewerChannelButton {
-            text: "Orderbook"
+            text: bar.compact ? "Book" : "Orderbook"
             active: bar.showOrderbookLayer
+            compact: bar.compact
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor
@@ -114,8 +142,9 @@ Rectangle {
         }
 
         ViewerChannelButton {
-            text: "BookTicker"
+            text: bar.compact ? "BBO" : "BookTicker"
             active: bar.effectiveBookTickerLayer
+            compact: bar.compact
             panelColor: bar.panelColor
             panelAltColor: bar.panelAltColor
             borderColor: bar.borderColor
@@ -123,6 +152,58 @@ Rectangle {
             mutedTextColor: bar.mutedTextColor
             accentBuyColor: bar.accentBuyColor
             onClicked: bar.toggleBookTicker()
+        }
+
+        ViewerChannelButton {
+            text: "Mark"
+            active: bar.showMarkPriceLayer
+            compact: bar.compact
+            panelColor: bar.panelColor
+            panelAltColor: bar.panelAltColor
+            borderColor: bar.borderColor
+            textColor: bar.textColor
+            mutedTextColor: bar.mutedTextColor
+            accentBuyColor: bar.accentBuyColor
+            onClicked: bar.toggleMarkPrice()
+        }
+
+        ViewerChannelButton {
+            text: "Index"
+            active: bar.showIndexPriceLayer
+            compact: bar.compact
+            panelColor: bar.panelColor
+            panelAltColor: bar.panelAltColor
+            borderColor: bar.borderColor
+            textColor: bar.textColor
+            mutedTextColor: bar.mutedTextColor
+            accentBuyColor: bar.accentBuyColor
+            onClicked: bar.toggleIndexPrice()
+        }
+
+        ViewerChannelButton {
+            text: bar.compact ? "Fund" : "Funding"
+            active: bar.showFundingLayer
+            compact: bar.compact
+            panelColor: bar.panelColor
+            panelAltColor: bar.panelAltColor
+            borderColor: bar.borderColor
+            textColor: bar.textColor
+            mutedTextColor: bar.mutedTextColor
+            accentBuyColor: bar.accentBuyColor
+            onClicked: bar.toggleFunding()
+        }
+
+        ViewerChannelButton {
+            text: "Limits"
+            active: bar.showPriceLimitLayer
+            compact: bar.compact
+            panelColor: bar.panelColor
+            panelAltColor: bar.panelAltColor
+            borderColor: bar.borderColor
+            textColor: bar.textColor
+            mutedTextColor: bar.mutedTextColor
+            accentBuyColor: bar.accentBuyColor
+            onClicked: bar.togglePriceLimit()
         }
 
         Label {
@@ -133,7 +214,8 @@ Rectangle {
 
         ComboBox {
             id: liveModeCombo
-            Layout.preferredWidth: bar.compact ? 96 : 108
+            width: bar.compact ? 84 : 108
+            Layout.preferredWidth: bar.compact ? 84 : 108
             model: ["Tick", "100 ms", "250 ms", "500 ms"]
             currentIndex: bar.liveModeIndex()
             font.pixelSize: 12
@@ -155,8 +237,8 @@ Rectangle {
             }
 
             contentItem: Text {
-                leftPadding: 12
-                rightPadding: 28
+                leftPadding: bar.compact ? 8 : 12
+                rightPadding: bar.compact ? 22 : 28
                 text: liveModeCombo.displayText
                 color: bar.textColor
                 verticalAlignment: Text.AlignVCenter
@@ -251,7 +333,8 @@ Rectangle {
 
         TextField {
             id: renderWindowInput
-            Layout.preferredWidth: 58
+            width: bar.compact ? 46 : 58
+            Layout.preferredWidth: bar.compact ? 46 : 58
             text: ""
             color: bar.textColor
             selectionColor: bar.accentBuyColor
@@ -288,6 +371,7 @@ Rectangle {
         }
 
         Slider {
+            width: bar.sliderPreferredWidth
             Layout.fillWidth: true
             Layout.minimumWidth: bar.sliderMinWidth
             Layout.preferredWidth: bar.sliderPreferredWidth
@@ -299,7 +383,8 @@ Rectangle {
 
         TextField {
             id: tradeSizeInput
-            Layout.preferredWidth: 44
+            width: bar.compact ? 36 : 44
+            Layout.preferredWidth: bar.compact ? 36 : 44
             text: ""
             color: bar.textColor
             selectionColor: bar.accentBuyColor
@@ -334,6 +419,7 @@ Rectangle {
         }
 
         Slider {
+            width: bar.sliderPreferredWidth
             Layout.fillWidth: true
             Layout.minimumWidth: bar.sliderMinWidth
             Layout.preferredWidth: bar.sliderPreferredWidth
@@ -347,7 +433,8 @@ Rectangle {
 
         TextField {
             id: candleWidthInput
-            Layout.preferredWidth: 42
+            width: bar.compact ? 36 : 42
+            Layout.preferredWidth: bar.compact ? 36 : 42
             text: ""
             color: bar.textColor
             selectionColor: bar.accentBuyColor
@@ -382,6 +469,7 @@ Rectangle {
         }
 
         Slider {
+            width: bar.sliderPreferredWidth
             Layout.fillWidth: true
             Layout.minimumWidth: bar.sliderMinWidth
             Layout.preferredWidth: bar.sliderPreferredWidth
@@ -393,6 +481,7 @@ Rectangle {
 
         TextField {
             id: fullBrightInput
+            width: bar.usdInputWidth
             Layout.preferredWidth: bar.usdInputWidth
             text: ""
             color: bar.textColor
@@ -426,6 +515,7 @@ Rectangle {
         }
 
         Slider {
+            width: bar.sliderPreferredWidth
             Layout.fillWidth: true
             Layout.minimumWidth: bar.sliderMinWidth
             Layout.preferredWidth: bar.sliderPreferredWidth
@@ -437,6 +527,7 @@ Rectangle {
 
         TextField {
             id: minVisibleInput
+            width: bar.usdInputWidth
             Layout.preferredWidth: bar.usdInputWidth
             text: ""
             color: bar.textColor
@@ -469,6 +560,7 @@ Rectangle {
         }
 
         Slider {
+            width: bar.sliderPreferredWidth
             Layout.fillWidth: true
             Layout.minimumWidth: bar.sliderMinWidth
             Layout.preferredWidth: bar.sliderPreferredWidth
@@ -482,7 +574,8 @@ Rectangle {
 
         TextField {
             id: depthWindowInput
-            Layout.preferredWidth: 40
+            width: bar.compact ? 34 : 40
+            Layout.preferredWidth: bar.compact ? 34 : 40
             text: ""
             color: bar.textColor
             selectionColor: bar.accentBuyColor
@@ -509,6 +602,7 @@ Rectangle {
         }
 
         Label { text: "%"; color: bar.mutedTextColor; font.pixelSize: 12 }
+        }
 }
 }
 

@@ -370,6 +370,62 @@ Status parseCandleLine(std::string_view line, CandleRow& out) noexcept {
     return Status::Ok;
 }
 
+Status parseMarkPriceLine(std::string_view line, MarkPriceRow& out) noexcept {
+    out = MarkPriceRow{};
+    JsonParser parser{line};
+    if (!parser.parseArrayStart()) return Status::CorruptData;
+    if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.markPriceE8)) return Status::CorruptData;
+    if (out.tsNs <= 0 || out.markPriceE8 <= 0) return Status::CorruptData;
+    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    return Status::Ok;
+}
+
+Status parseIndexPriceLine(std::string_view line, IndexPriceRow& out) noexcept {
+    out = IndexPriceRow{};
+    JsonParser parser{line};
+    if (!parser.parseArrayStart()) return Status::CorruptData;
+    if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.indexPriceE8)) return Status::CorruptData;
+    if (out.tsNs <= 0 || out.indexPriceE8 <= 0) return Status::CorruptData;
+    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    return Status::Ok;
+}
+
+Status parseFundingLine(std::string_view line, FundingRow& out) noexcept {
+    out = FundingRow{};
+    JsonParser parser{line};
+    if (!parser.parseArrayStart()) return Status::CorruptData;
+    if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.fundingRateE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.fundingTsNs)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.nextFundingTsNs)) return Status::CorruptData;
+    if (out.tsNs <= 0) return Status::CorruptData;
+    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    return Status::Ok;
+}
+
+Status parsePriceLimitLine(std::string_view line, PriceLimitRow& out) noexcept {
+    out = PriceLimitRow{};
+    JsonParser parser{line};
+    if (!parser.parseArrayStart()) return Status::CorruptData;
+    if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.buyLimitE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parser.parseInt64(out.sellLimitE8)) return Status::CorruptData;
+    if (!parser.parseComma()) return Status::CorruptData;
+    if (!parseBoolByte(parser, out.enabled)) return Status::CorruptData;
+    if (out.tsNs <= 0 || out.buyLimitE8 < 0 || out.sellLimitE8 < 0) return Status::CorruptData;
+    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    return Status::Ok;
+}
+
 Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
     out = DepthRow{};
     JsonParser parser{line};

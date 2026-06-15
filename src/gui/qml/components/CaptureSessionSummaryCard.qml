@@ -49,6 +49,28 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 10
+
+            Label {
+                Layout.fillWidth: true
+                text: "Last stats snapshot"
+                wrapMode: Text.WordWrap
+                color: card.mutedTextColor
+            }
+
+            CaptureAccentActionButton {
+                text: "Refresh stats"
+                accentColor: card.accentBuyColor
+                actionTextColor: "#071419"
+                mutedTextColor: card.mutedTextColor
+                enabled: card.captureVm.sessionOpen
+                onClicked: card.captureVm.refreshStats()
+            }
+        }
+
+        Flow {
+            Layout.fillWidth: true
+            Layout.preferredHeight: implicitHeight
             spacing: 18
 
             Label { text: "Trades: " + card.captureVm.tradesCount; color: card.textColor }
@@ -56,7 +78,10 @@ Rectangle {
             Label { text: "BookTicker: " + card.captureVm.bookTickerCount + (card.captureVm.bookTickerRunning ? " (running)" : ""); color: card.textColor }
             Label { text: "Candles: " + card.captureVm.candlesCount; color: card.textColor }
             Label { text: "Depth: " + card.captureVm.depthCount; color: card.textColor }
-            Item { Layout.fillWidth: true }
+            Label { text: "Mark: " + card.captureVm.markPriceCount; color: card.textColor }
+            Label { text: "Index: " + card.captureVm.indexPriceCount; color: card.textColor }
+            Label { text: "Funding: " + card.captureVm.fundingCount; color: card.textColor }
+            Label { text: "PriceLimit: " + card.captureVm.priceLimitCount; color: card.textColor }
         }
     }
 }

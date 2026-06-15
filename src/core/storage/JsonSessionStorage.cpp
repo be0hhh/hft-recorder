@@ -84,6 +84,22 @@ Status JsonSessionSink::appendBookTicker(const replay::BookTickerRow& row) noexc
     return appendBookTickerLine(row, capture::renderBookTickerJsonLine(row));
 }
 
+Status JsonSessionSink::appendMarkPrice(const replay::MarkPriceRow& row) noexcept {
+    return appendMarkPriceLine(row, capture::renderMarkPriceJsonLine(row));
+}
+
+Status JsonSessionSink::appendIndexPrice(const replay::IndexPriceRow& row) noexcept {
+    return appendIndexPriceLine(row, capture::renderIndexPriceJsonLine(row));
+}
+
+Status JsonSessionSink::appendFunding(const replay::FundingRow& row) noexcept {
+    return appendFundingLine(row, capture::renderFundingJsonLine(row));
+}
+
+Status JsonSessionSink::appendPriceLimit(const replay::PriceLimitRow& row) noexcept {
+    return appendPriceLimitLine(row, capture::renderPriceLimitJsonLine(row));
+}
+
 Status JsonSessionSink::appendDepth(const replay::DepthRow& row) noexcept {
     return appendDepthTapeSidecarLines(row,
                                        capture::renderDepthTapeJsonLine(row),
@@ -116,6 +132,46 @@ Status JsonSessionSink::appendBookTickerLine(const replay::BookTickerRow&, const
     const auto status = writeLine_(capture::ChannelKind::BookTicker, bookTicker_, line);
     if (isOk(status)) {
         ++stats_.bookTickersTotal;
+        ++stats_.version;
+    }
+    return status;
+}
+
+Status JsonSessionSink::appendMarkPriceLine(const replay::MarkPriceRow&, const std::string& line) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto status = writeLine_(capture::ChannelKind::MarkPrice, markPrice_, line);
+    if (isOk(status)) {
+        ++stats_.markPricesTotal;
+        ++stats_.version;
+    }
+    return status;
+}
+
+Status JsonSessionSink::appendIndexPriceLine(const replay::IndexPriceRow&, const std::string& line) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto status = writeLine_(capture::ChannelKind::IndexPrice, indexPrice_, line);
+    if (isOk(status)) {
+        ++stats_.indexPricesTotal;
+        ++stats_.version;
+    }
+    return status;
+}
+
+Status JsonSessionSink::appendFundingLine(const replay::FundingRow&, const std::string& line) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto status = writeLine_(capture::ChannelKind::Funding, funding_, line);
+    if (isOk(status)) {
+        ++stats_.fundingsTotal;
+        ++stats_.version;
+    }
+    return status;
+}
+
+Status JsonSessionSink::appendPriceLimitLine(const replay::PriceLimitRow&, const std::string& line) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto status = writeLine_(capture::ChannelKind::PriceLimit, priceLimit_, line);
+    if (isOk(status)) {
+        ++stats_.priceLimitsTotal;
         ++stats_.version;
     }
     return status;
@@ -165,12 +221,20 @@ Status JsonSessionSink::flush() noexcept {
     if (trades_.is_open()) trades_.flush();
     if (liquidations_.is_open()) liquidations_.flush();
     if (bookTicker_.is_open()) bookTicker_.flush();
+    if (markPrice_.is_open()) markPrice_.flush();
+    if (indexPrice_.is_open()) indexPrice_.flush();
+    if (funding_.is_open()) funding_.flush();
+    if (priceLimit_.is_open()) priceLimit_.flush();
     if (depth_.is_open()) depth_.flush();
     if (depthTape_.is_open()) depthTape_.flush();
     if (depthSidecar_.is_open()) depthSidecar_.flush();
     if ((trades_.is_open() && !trades_.good())
         || (liquidations_.is_open() && !liquidations_.good())
         || (bookTicker_.is_open() && !bookTicker_.good())
+        || (markPrice_.is_open() && !markPrice_.good())
+        || (indexPrice_.is_open() && !indexPrice_.good())
+        || (funding_.is_open() && !funding_.good())
+        || (priceLimit_.is_open() && !priceLimit_.good())
         || (depth_.is_open() && !depth_.good())
         || (depthTape_.is_open() && !depthTape_.good())
         || (depthSidecar_.is_open() && !depthSidecar_.good())) {
@@ -184,6 +248,10 @@ Status JsonSessionSink::close() noexcept {
     if (trades_.is_open()) trades_.close();
     if (liquidations_.is_open()) liquidations_.close();
     if (bookTicker_.is_open()) bookTicker_.close();
+    if (markPrice_.is_open()) markPrice_.close();
+    if (indexPrice_.is_open()) indexPrice_.close();
+    if (funding_.is_open()) funding_.close();
+    if (priceLimit_.is_open()) priceLimit_.close();
     if (depth_.is_open()) depth_.close();
     if (depthTape_.is_open()) depthTape_.close();
     if (depthSidecar_.is_open()) depthSidecar_.close();

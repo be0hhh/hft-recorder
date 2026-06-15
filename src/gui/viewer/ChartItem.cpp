@@ -85,6 +85,42 @@ void ChartItem::setBookTickerVisible(bool value) {
     update();
 }
 
+void ChartItem::setMarkPriceVisible(bool value) {
+    if (markPriceVisible_ == value) return;
+    markPriceVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit markPriceVisibleChanged();
+    update();
+}
+
+void ChartItem::setIndexPriceVisible(bool value) {
+    if (indexPriceVisible_ == value) return;
+    indexPriceVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit indexPriceVisibleChanged();
+    update();
+}
+
+void ChartItem::setFundingVisible(bool value) {
+    if (fundingVisible_ == value) return;
+    fundingVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit fundingVisibleChanged();
+    update();
+}
+
+void ChartItem::setPriceLimitVisible(bool value) {
+    if (priceLimitVisible_ == value) return;
+    priceLimitVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit priceLimitVisibleChanged();
+    update();
+}
+
 void ChartItem::setTradeAmountScale(qreal value) {
     value = detail::clampReal(value, 0.0, 1.0);
     if (qFuzzyCompare(tradeAmountScale_ + 1.0, value + 1.0)) return;
@@ -195,6 +231,10 @@ SnapshotInputs collectInputs(const ChartItem& item) {
         item.bookRenderDetail(),
         item.bookDepthWindowPct(),
         false,
+        item.markPriceVisible(),
+        item.indexPriceVisible(),
+        item.fundingVisible(),
+        item.priceLimitVisible(),
     };
 }
 

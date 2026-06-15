@@ -10,6 +10,7 @@ namespace hftrec::gui {
 CaptureViewModel::CaptureViewModel(QObject* parent)
     : QObject(parent) {
     outputDirectory_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../recordings"));
+    envPath_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../.env"));
     tradesAvailableAliases_ = detail::loadAliasesForChannel("trades");
     liquidationsAvailableAliases_ = detail::loadAliasesForChannel("liquidations");
     bookTickerAvailableAliases_ = detail::loadAliasesForChannel("bookticker");
@@ -18,38 +19,32 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSD_PERP"),
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSD"),
         QStringLiteral("XBTUSDTM"),
         QStringLiteral("BTC-USDT"),
-        QStringLiteral("BTC-USDT"),
         QStringLiteral("BTC_USDT"),
         QStringLiteral("BTC_USDT"),
         QStringLiteral("BTC_USDT"),
-        QStringLiteral("BTC_USD"),
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSD"),
-        QStringLiteral("BTCUSDC"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("ASTERUSDT"),
         QStringLiteral("ASTERUSDT"),
         QStringLiteral("BTC-USDT-SWAP"),
         QStringLiteral("BTC-USDT"),
-        QStringLiteral("BTC-USDT"),
     };
 
-    refreshTimer_.setInterval(250);
-    connect(&refreshTimer_, &QTimer::timeout, this, &CaptureViewModel::refreshState);
+    refreshTimer_.setInterval(1000);
+    connect(&refreshTimer_, &QTimer::timeout, this, [this]() {
+        refreshState(detail::CaptureRefreshMode::Light);
+    });
     refreshTimer_.start();
-    refreshState();
+    refreshState(detail::CaptureRefreshMode::Full);
 }
 
 QString CaptureViewModel::outputDirectory() const { return outputDirectory_; }
+QString CaptureViewModel::envPath() const { return envPath_; }
+int CaptureViewModel::apiSlot() const noexcept { return apiSlot_; }
 QStringList CaptureViewModel::selectedVenueKeys() const { return selectedVenueKeys_; }
 QVariantList CaptureViewModel::venueChoices() const { return detail::venueChoices(); }
 QString CaptureViewModel::symbolsText() const { return symbolsText_; }
@@ -79,11 +74,20 @@ bool CaptureViewModel::tradesRunning() const { return lastTradesRunning_; }
 bool CaptureViewModel::liquidationsRunning() const { return lastLiquidationsRunning_; }
 bool CaptureViewModel::bookTickerRunning() const { return lastBookTickerRunning_; }
 bool CaptureViewModel::orderbookRunning() const { return lastOrderbookRunning_; }
+bool CaptureViewModel::markPriceRunning() const { return lastMarkPriceRunning_; }
+bool CaptureViewModel::indexPriceRunning() const { return lastIndexPriceRunning_; }
+bool CaptureViewModel::fundingRunning() const { return lastFundingRunning_; }
+bool CaptureViewModel::priceLimitRunning() const { return lastPriceLimitRunning_; }
 qulonglong CaptureViewModel::tradesCount() const { return lastTradesCount_; }
 qulonglong CaptureViewModel::liquidationsCount() const { return lastLiquidationsCount_; }
 qulonglong CaptureViewModel::bookTickerCount() const { return lastBookTickerCount_; }
+qulonglong CaptureViewModel::markPriceCount() const { return lastMarkPriceCount_; }
+qulonglong CaptureViewModel::indexPriceCount() const { return lastIndexPriceCount_; }
+qulonglong CaptureViewModel::fundingCount() const { return lastFundingCount_; }
+qulonglong CaptureViewModel::priceLimitCount() const { return lastPriceLimitCount_; }
 qulonglong CaptureViewModel::candlesCount() const { return lastCandlesCount_; }
 qulonglong CaptureViewModel::depthCount() const { return lastDepthCount_; }
+void CaptureViewModel::refreshStats() { refreshState(detail::CaptureRefreshMode::Full); }
 QStringList CaptureViewModel::tradesAvailableAliases() const { return tradesAvailableAliases_; }
 QStringList CaptureViewModel::liquidationsAvailableAliases() const { return liquidationsAvailableAliases_; }
 QStringList CaptureViewModel::bookTickerAvailableAliases() const { return bookTickerAvailableAliases_; }
@@ -103,7 +107,8 @@ QString CaptureViewModel::tradesRequestPreview() const {
                                        selectedTradesAliases_,
                                        selectedVenueKeys_,
                                        venueSymbolsTexts_,
-                                       symbolsText_);
+                                       symbolsText_,
+                                       apiSlot_);
 }
 
 QString CaptureViewModel::liquidationsRequestPreview() const {
@@ -112,7 +117,8 @@ QString CaptureViewModel::liquidationsRequestPreview() const {
                                        selectedLiquidationsAliases_,
                                        selectedVenueKeys_,
                                        venueSymbolsTexts_,
-                                       symbolsText_);
+                                       symbolsText_,
+                                       apiSlot_);
 }
 
 QString CaptureViewModel::bookTickerRequestPreview() const {
@@ -121,7 +127,8 @@ QString CaptureViewModel::bookTickerRequestPreview() const {
                                        selectedBookTickerAliases_,
                                        selectedVenueKeys_,
                                        venueSymbolsTexts_,
-                                       symbolsText_);
+                                       symbolsText_,
+                                       apiSlot_);
 }
 
 QString CaptureViewModel::orderbookRequestPreview() const {
@@ -130,7 +137,8 @@ QString CaptureViewModel::orderbookRequestPreview() const {
                                        selectedOrderbookAliases_,
                                        selectedVenueKeys_,
                                        venueSymbolsTexts_,
-                                       symbolsText_);
+                                       symbolsText_,
+                                       apiSlot_);
 }
 
 void CaptureViewModel::setOutputDirectory(const QString& outputDirectory) {
@@ -138,6 +146,25 @@ void CaptureViewModel::setOutputDirectory(const QString& outputDirectory) {
     if (normalized.isEmpty() || normalized == outputDirectory_) return;
     outputDirectory_ = normalized;
     emit outputDirectoryChanged();
+}
+
+void CaptureViewModel::setEnvPath(const QString& envPath) {
+    const auto normalized = envPath.trimmed();
+    if (normalized.isEmpty() || normalized == envPath_) return;
+    envPath_ = normalized;
+    emit envSettingsChanged();
+    emit requestBuilderChanged();
+    reconcileActiveChannels_();
+}
+
+void CaptureViewModel::setApiSlot(int apiSlot) {
+    if (apiSlot < 1) apiSlot = 1;
+    if (apiSlot > 255) apiSlot = 255;
+    if (apiSlot == apiSlot_) return;
+    apiSlot_ = apiSlot;
+    emit envSettingsChanged();
+    emit requestBuilderChanged();
+    reconcileActiveChannels_();
 }
 
 void CaptureViewModel::toggleVenue(const QString& venueKey) {
@@ -258,6 +285,8 @@ QString CaptureViewModel::channelWeightSummary(const QString& channel) const {
 
 std::vector<capture::CaptureConfig> CaptureViewModel::makeConfigs() const {
     return detail::makeConfigs(outputDirectory_,
+                               envPath_,
+                               apiSlot_,
                                selectedVenueKeys_,
                                venueSymbolsTexts_,
                                symbolsText_,

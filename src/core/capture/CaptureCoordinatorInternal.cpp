@@ -1,7 +1,9 @@
 #include "core/capture/CaptureCoordinatorInternal.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <mutex>
+#include <string>
 #include <string_view>
 
 #if HFTREC_WITH_CXET
@@ -74,6 +76,7 @@ cxet::UnifiedRequestBuilder makeSubscribeBuilder(const CaptureConfig& config,
         .object(object)
         .exchange(exchangeIdFromConfig(config.exchange))
         .market(marketTypeFromConfig(config.market))
+        .api(normalizedApiSlot(config))
         .symbol(symbol);
 }
 
@@ -84,18 +87,45 @@ void ensureCxetInitialized() noexcept {
 #if HFTREC_WITH_CXET
     static std::once_flag initOnce;
     std::call_once(initOnce, []() noexcept {
-        static constexpr const char* kEnvPaths[] = {
-            ".env",
+        cxet::initBuildDispatch();
+    });
+#endif
+}
+
+Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexcept {
+#if HFTREC_WITH_CXET
+    static std::mutex envMutex;
+    std::lock_guard<std::mutex> lock(envMutex);
+
+    const std::string primaryPath = config.envPath.empty() ? std::string{".env"} : config.envPath.string();
+    bool loaded = cxet::loadDotEnv(primaryPath.c_str());
+    if (!loaded && primaryPath == ".env") {
+        static constexpr const char* kLegacyEnvPaths[] = {
+            "apps/hft-recorder/.env",
+            "apps/hft-trader/.env",
             "../.env",
             "../../.env",
             "../../../.env",
             "../../../../.env",
         };
-        for (const char* path : kEnvPaths) (void)cxet::loadDotEnv(path);
-        (void)cxet::initProxyFromEnv();
-        cxet::initBuildDispatch();
-    });
+        for (const char* path : kLegacyEnvPaths) {
+            if (cxet::loadDotEnv(path)) {
+                loaded = true;
+                break;
+            }
+        }
+    }
+
+    if (!loaded && primaryPath != ".env") {
+        lastError = "capture env file not found: " + primaryPath;
+        return Status::InvalidArgument;
+    }
+    (void)cxet::initProxyFromEnv();
+#else
+    (void)config;
+    (void)lastError;
 #endif
+    return Status::Ok;
 }
 
 std::int64_t nowNs() noexcept {
@@ -108,6 +138,10 @@ long long nowSec() noexcept {
     return std::chrono::duration_cast<std::chrono::seconds>(
                std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+std::uint8_t normalizedApiSlot(const CaptureConfig& config) noexcept {
+    return config.apiSlot == 0u ? 1u : config.apiSlot;
 }
 
 #if HFTREC_WITH_CXET
@@ -123,7 +157,8 @@ cxet::UnifiedRequestBuilder makeLiquidationBuilder(const CaptureConfig& config) 
     auto builder = cxet::subscribe()
         .object(cxet::composite::out::SubscribeObject::Liquidation)
         .exchange(exchangeIdFromConfig(config.exchange))
-        .market(marketTypeFromConfig(config.market));
+        .market(marketTypeFromConfig(config.market))
+        .api(normalizedApiSlot(config));
     const std::string& symbolText = config.symbols.empty() ? std::string{} : config.symbols.front();
     if (symbolTextIsAll(symbolText)) return builder.symbol(canon::SlotScope::All);
     auto symbol = makeSymbol(symbolText);
@@ -199,6 +234,8 @@ bool sessionConfigMatches(const CaptureConfig& lhs, const CaptureConfig& rhs) no
     return lhs.exchange == rhs.exchange
         && lhs.market == rhs.market
         && lhs.symbols == rhs.symbols
+        && lhs.envPath == rhs.envPath
+        && normalizedApiSlot(lhs) == normalizedApiSlot(rhs)
         && lhs.outputDir == rhs.outputDir;
 }
 

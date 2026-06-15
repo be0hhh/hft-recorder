@@ -280,6 +280,42 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
                                     manifest.candlesCount)) {
                 return false;
             }
+        } else if (key == "mark_price") {
+            if (!parseChannelObject(parser,
+                                    manifest.markPriceEnabled,
+                                    manifest.markPriceRequiredWhenEnabled,
+                                    manifest.markPricePath,
+                                    manifest.markPriceRowSchema,
+                                    manifest.markPriceCount)) {
+                return false;
+            }
+        } else if (key == "index_price") {
+            if (!parseChannelObject(parser,
+                                    manifest.indexPriceEnabled,
+                                    manifest.indexPriceRequiredWhenEnabled,
+                                    manifest.indexPricePath,
+                                    manifest.indexPriceRowSchema,
+                                    manifest.indexPriceCount)) {
+                return false;
+            }
+        } else if (key == "funding") {
+            if (!parseChannelObject(parser,
+                                    manifest.fundingEnabled,
+                                    manifest.fundingRequiredWhenEnabled,
+                                    manifest.fundingPath,
+                                    manifest.fundingRowSchema,
+                                    manifest.fundingCount)) {
+                return false;
+            }
+        } else if (key == "price_limit") {
+            if (!parseChannelObject(parser,
+                                    manifest.priceLimitEnabled,
+                                    manifest.priceLimitRequiredWhenEnabled,
+                                    manifest.priceLimitPath,
+                                    manifest.priceLimitRowSchema,
+                                    manifest.priceLimitCount)) {
+                return false;
+            }
         } else {
             if (!parser.skipValue()) return false;
         }
@@ -476,6 +512,22 @@ bool isSupportedCandlesRowSchema(std::string_view schema) noexcept {
     return schema == "cxet_candle_lite_tiered_v1";
 }
 
+bool isSupportedMarkPriceRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_mark_price_ref_v1";
+}
+
+bool isSupportedIndexPriceRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_index_price_ref_v1";
+}
+
+bool isSupportedFundingRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_funding_ref_dedup_v1";
+}
+
+bool isSupportedPriceLimitRowSchema(std::string_view schema) noexcept {
+    return schema == "cxet_price_limit_ref_v1";
+}
+
 bool isSupportedSnapshotSchema(std::string_view schema) noexcept {
     return schema == "cxet_orderbook_snapshot_flat_levels_v1"
         || schema == "cxet_orderbook_snapshot_alias_first_v5";
@@ -495,6 +547,10 @@ void populateCanonicalArtifacts(SessionManifest& manifest) {
         }
     }
     if (manifest.candlesEnabled && !manifest.candlesPath.empty()) manifest.canonicalArtifacts.push_back(manifest.candlesPath);
+    if (manifest.markPriceEnabled && !manifest.markPricePath.empty()) manifest.canonicalArtifacts.push_back(manifest.markPricePath);
+    if (manifest.indexPriceEnabled && !manifest.indexPricePath.empty()) manifest.canonicalArtifacts.push_back(manifest.indexPricePath);
+    if (manifest.fundingEnabled && !manifest.fundingPath.empty()) manifest.canonicalArtifacts.push_back(manifest.fundingPath);
+    if (manifest.priceLimitEnabled && !manifest.priceLimitPath.empty()) manifest.canonicalArtifacts.push_back(manifest.priceLimitPath);
     for (const auto& snapshotFile : manifest.snapshotFiles) {
         manifest.canonicalArtifacts.push_back(snapshotFile);
     }
@@ -554,6 +610,30 @@ bool validateStructurally(SessionManifest& manifest) {
     }
     if (manifest.candlesEnabled && !isSupportedCandlesRowSchema(manifest.candlesRowSchema)) {
         manifest.structuralBlockers.push_back("unsupported candles row schema");
+    }
+    if (manifest.markPriceEnabled && manifest.markPriceRequiredWhenEnabled && manifest.markPricePath.empty()) {
+        manifest.structuralBlockers.push_back("missing mark_price path");
+    }
+    if (manifest.markPriceEnabled && !isSupportedMarkPriceRowSchema(manifest.markPriceRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported mark_price row schema");
+    }
+    if (manifest.indexPriceEnabled && manifest.indexPriceRequiredWhenEnabled && manifest.indexPricePath.empty()) {
+        manifest.structuralBlockers.push_back("missing index_price path");
+    }
+    if (manifest.indexPriceEnabled && !isSupportedIndexPriceRowSchema(manifest.indexPriceRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported index_price row schema");
+    }
+    if (manifest.fundingEnabled && manifest.fundingRequiredWhenEnabled && manifest.fundingPath.empty()) {
+        manifest.structuralBlockers.push_back("missing funding path");
+    }
+    if (manifest.fundingEnabled && !isSupportedFundingRowSchema(manifest.fundingRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported funding row schema");
+    }
+    if (manifest.priceLimitEnabled && manifest.priceLimitRequiredWhenEnabled && manifest.priceLimitPath.empty()) {
+        manifest.structuralBlockers.push_back("missing price_limit path");
+    }
+    if (manifest.priceLimitEnabled && !isSupportedPriceLimitRowSchema(manifest.priceLimitRowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported price_limit row schema");
     }
     if (manifest.snapshotCount > 0u && manifest.snapshotFiles.empty()) {
         manifest.structuralBlockers.push_back("missing snapshot file inventory");
@@ -653,6 +733,34 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"path\": " << json::quote(manifest.candlesPath) << ",\n";
     out << "      \"row_schema\": " << json::quote(manifest.candlesRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.candlesCount << "\n";
+    out << "    },\n";
+    out << "    \"mark_price\": {\n";
+    out << "      \"enabled\": " << boolToString(manifest.markPriceEnabled) << ",\n";
+    out << "      \"required_when_enabled\": " << boolToString(manifest.markPriceRequiredWhenEnabled) << ",\n";
+    out << "      \"path\": " << json::quote(manifest.markPricePath) << ",\n";
+    out << "      \"row_schema\": " << json::quote(manifest.markPriceRowSchema) << ",\n";
+    out << "      \"declared_event_count\": " << manifest.markPriceCount << "\n";
+    out << "    },\n";
+    out << "    \"index_price\": {\n";
+    out << "      \"enabled\": " << boolToString(manifest.indexPriceEnabled) << ",\n";
+    out << "      \"required_when_enabled\": " << boolToString(manifest.indexPriceRequiredWhenEnabled) << ",\n";
+    out << "      \"path\": " << json::quote(manifest.indexPricePath) << ",\n";
+    out << "      \"row_schema\": " << json::quote(manifest.indexPriceRowSchema) << ",\n";
+    out << "      \"declared_event_count\": " << manifest.indexPriceCount << "\n";
+    out << "    },\n";
+    out << "    \"funding\": {\n";
+    out << "      \"enabled\": " << boolToString(manifest.fundingEnabled) << ",\n";
+    out << "      \"required_when_enabled\": " << boolToString(manifest.fundingRequiredWhenEnabled) << ",\n";
+    out << "      \"path\": " << json::quote(manifest.fundingPath) << ",\n";
+    out << "      \"row_schema\": " << json::quote(manifest.fundingRowSchema) << ",\n";
+    out << "      \"declared_event_count\": " << manifest.fundingCount << "\n";
+    out << "    },\n";
+    out << "    \"price_limit\": {\n";
+    out << "      \"enabled\": " << boolToString(manifest.priceLimitEnabled) << ",\n";
+    out << "      \"required_when_enabled\": " << boolToString(manifest.priceLimitRequiredWhenEnabled) << ",\n";
+    out << "      \"path\": " << json::quote(manifest.priceLimitPath) << ",\n";
+    out << "      \"row_schema\": " << json::quote(manifest.priceLimitRowSchema) << ",\n";
+    out << "      \"declared_event_count\": " << manifest.priceLimitCount << "\n";
     out << "    }\n";
     out << "  },\n";
     out << "  \"snapshots\": {\n";

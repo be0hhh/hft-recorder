@@ -52,6 +52,38 @@ hftrec::replay::DepthRow depthRow(std::int64_t tsNs) {
     return row;
 }
 
+hftrec::replay::MarkPriceRow markPriceRow(std::int64_t tsNs) {
+    hftrec::replay::MarkPriceRow row{};
+    row.tsNs = tsNs;
+    row.markPriceE8 = 30000;
+    return row;
+}
+
+hftrec::replay::IndexPriceRow indexPriceRow(std::int64_t tsNs) {
+    hftrec::replay::IndexPriceRow row{};
+    row.tsNs = tsNs;
+    row.indexPriceE8 = 29990;
+    return row;
+}
+
+hftrec::replay::FundingRow fundingRow(std::int64_t tsNs) {
+    hftrec::replay::FundingRow row{};
+    row.tsNs = tsNs;
+    row.fundingRateE8 = 125;
+    row.fundingTsNs = tsNs - 100;
+    row.nextFundingTsNs = tsNs + 100;
+    return row;
+}
+
+hftrec::replay::PriceLimitRow priceLimitRow(std::int64_t tsNs) {
+    hftrec::replay::PriceLimitRow row{};
+    row.tsNs = tsNs;
+    row.buyLimitE8 = 31000;
+    row.sellLimitE8 = 29000;
+    row.enabled = 1u;
+    return row;
+}
+
 class StubIngress final : public hftrec::market_data::IMarketDataIngress {
   public:
     explicit StubIngress(const hftrec::storage::IEventSource* source) : source_(source) {}
@@ -124,6 +156,34 @@ TEST(EventStorage, LiveStoreReadsSnapshotDeltaFromOffsets) {
     EXPECT_EQ(delta.snapshots[0].tsNs, 200);
 }
 
+TEST(EventStorage, LiveStoreStatsAndReadSinceIncludeReferenceChannels) {
+    hftrec::storage::LiveEventStore store{};
+    ASSERT_EQ(store.appendMarkPrice(markPriceRow(100)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendMarkPrice(markPriceRow(200)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendIndexPrice(indexPriceRow(110)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendIndexPrice(indexPriceRow(210)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendFunding(fundingRow(120)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendFunding(fundingRow(220)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendPriceLimit(priceLimitRow(130)), hftrec::Status::Ok);
+    ASSERT_EQ(store.appendPriceLimit(priceLimitRow(230)), hftrec::Status::Ok);
+
+    const auto stats = store.stats();
+    EXPECT_EQ(stats.markPricesTotal, 2u);
+    EXPECT_EQ(stats.indexPricesTotal, 2u);
+    EXPECT_EQ(stats.fundingsTotal, 2u);
+    EXPECT_EQ(stats.priceLimitsTotal, 2u);
+
+    const auto delta = store.readSince(0u, 0u, 0u, 0u, 0u, 1u, 1u, 1u, 1u);
+    ASSERT_EQ(delta.markPrices.size(), 1u);
+    ASSERT_EQ(delta.indexPrices.size(), 1u);
+    ASSERT_EQ(delta.fundings.size(), 1u);
+    ASSERT_EQ(delta.priceLimits.size(), 1u);
+    EXPECT_EQ(delta.markPrices[0].tsNs, 200);
+    EXPECT_EQ(delta.indexPrices[0].tsNs, 210);
+    EXPECT_EQ(delta.fundings[0].tsNs, 220);
+    EXPECT_EQ(delta.priceLimits[0].tsNs, 230);
+}
+
 TEST(EventStorage, CompositeSinkFansOutToAllSinks) {
     hftrec::storage::LiveEventStore first{};
     hftrec::storage::LiveEventStore second{};
@@ -168,6 +228,30 @@ TEST(EventStorage, JsonSessionSinkWritesDepthTapePackageOnly) {
     EXPECT_NE(sidecarText.find("[9223372036854775931,0,1,1,1]"), std::string::npos);
     EXPECT_FALSE(fs::exists(dir / "jsonl" / "depth.jsonl"));
     EXPECT_EQ(stats.depthsTotal, 1u);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(EventStorage, JsonSessionSinkWritesReferenceChannelsAndStats) {
+    const auto dir = makeTmpDir();
+    hftrec::storage::JsonSessionSink sink{};
+    ASSERT_EQ(sink.open(dir), hftrec::Status::Ok);
+    ASSERT_EQ(sink.appendMarkPrice(markPriceRow(100)), hftrec::Status::Ok);
+    ASSERT_EQ(sink.appendIndexPrice(indexPriceRow(110)), hftrec::Status::Ok);
+    ASSERT_EQ(sink.appendFunding(fundingRow(120)), hftrec::Status::Ok);
+    ASSERT_EQ(sink.appendPriceLimit(priceLimitRow(130)), hftrec::Status::Ok);
+    const auto stats = sink.stats();
+    ASSERT_EQ(sink.close(), hftrec::Status::Ok);
+
+    EXPECT_NE(readFile(dir / "jsonl" / "mark_price.jsonl").find("[100,30000]"), std::string::npos);
+    EXPECT_NE(readFile(dir / "jsonl" / "index_price.jsonl").find("[110,29990]"), std::string::npos);
+    EXPECT_NE(readFile(dir / "jsonl" / "funding.jsonl").find("[120,125,20,220]"), std::string::npos);
+    EXPECT_NE(readFile(dir / "jsonl" / "price_limit.jsonl").find("[130,31000,29000,1]"), std::string::npos);
+    EXPECT_EQ(stats.markPricesTotal, 1u);
+    EXPECT_EQ(stats.indexPricesTotal, 1u);
+    EXPECT_EQ(stats.fundingsTotal, 1u);
+    EXPECT_EQ(stats.priceLimitsTotal, 1u);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

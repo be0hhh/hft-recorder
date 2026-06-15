@@ -59,9 +59,10 @@ This repository is a standalone application over `CXETCPP`.
 
 ## Stream semantics
 
-- Never assume `trades == aggTrade`.
-- The current Binance FAPI library path is semantically tied to `aggTrade`.
+- Never assume live `trade` equals historical/cold `aggTrade`.
+- Binance FAPI realtime trade capture is a separate logical live stream; historical warmup may use `aggTrade` when that is the configured history source.
 - Keep that distinction explicit in filenames, schema, and benchmark labels.
+- Recorder UI/CLI asks for logical streams only. CXETCPP must choose the real exchange route and fan out one wire message into all requested logical streams when needed, for example Binance FAPI `@markPrice@1s` into `mark_price`, `index_price`, and `funding`. Do not hardcode exchange-specific wire routing in recorder.
 
 ## Research priorities
 

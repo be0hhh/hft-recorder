@@ -18,6 +18,11 @@ endif()
 set(CXET_PUBLIC_INCLUDE_DIR "" CACHE PATH "Path to CXETCPP public headers")
 set(CXET_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_lib shared library")
 set(CXET_REPLAY_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_replay_core shared library")
+set(HFT_TRADER_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/include" CACHE PATH "Path to hft-trader public headers")
+set(HFT_TRADER_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/generated" CACHE PATH "Path to hft-trader generated headers")
+set(HFT_TRADER_SHARED_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/libhft_trader_runtime.so" CACHE FILEPATH "Path to prebuilt hft-trader runtime shared library")
+set(HFT_TRADER_CXET_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/include" CACHE PATH "Path to hft-trader bundled CXETCPP headers")
+set(HFT_TRADER_CXET_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/lib" CACHE PATH "Path to hft-trader bundled CXETCPP libraries")
 set(HFTREC_CXET_MODE "AUTO" CACHE STRING "CXET integration mode: AUTO, ON, or OFF")
 set_property(CACHE HFTREC_CXET_MODE PROPERTY STRINGS AUTO ON OFF)
 option(HFTREC_HOTPATH_METRICS_DEFAULT "Enable hft-recorder/CXET hot-path metrics by default" ON)
@@ -36,28 +41,65 @@ else()
 endif()
 string(TOUPPER "${HFTREC_CXET_MODE}" HFTREC_CXET_MODE_NORMALIZED)
 
+set(HFTREC_WITH_TRADER_RUNTIME OFF)
+if(HFT_TRADER_PUBLIC_INCLUDE_DIR AND HFT_TRADER_SHARED_LIB
+        AND EXISTS "${HFT_TRADER_PUBLIC_INCLUDE_DIR}/hft_trader/runtime/market/MarketDataRuntime.hpp"
+        AND EXISTS "${HFT_TRADER_SHARED_LIB}")
+    set(HFTREC_WITH_TRADER_RUNTIME ON)
+    get_filename_component(_hft_trader_lib_dir "${HFT_TRADER_SHARED_LIB}" DIRECTORY)
+    add_library(hft_trader_runtime SHARED IMPORTED GLOBAL)
+    set(_hft_trader_include_dirs "${HFT_TRADER_PUBLIC_INCLUDE_DIR}")
+    if(HFT_TRADER_GENERATED_INCLUDE_DIR AND EXISTS "${HFT_TRADER_GENERATED_INCLUDE_DIR}")
+        list(APPEND _hft_trader_include_dirs "${HFT_TRADER_GENERATED_INCLUDE_DIR}")
+    endif()
+    if(HFT_TRADER_CXET_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_INCLUDE_DIR}/cxet.hpp")
+        list(APPEND _hft_trader_include_dirs "${HFT_TRADER_CXET_INCLUDE_DIR}")
+    elseif(CXET_PUBLIC_INCLUDE_DIR AND EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/cxet.hpp")
+        list(APPEND _hft_trader_include_dirs "${CXET_PUBLIC_INCLUDE_DIR}")
+    endif()
+    set(_hft_trader_link_options "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_trader_lib_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${_hft_trader_lib_dir}>")
+    set(_hft_trader_link_dirs "${_hft_trader_lib_dir}")
+    set(_hft_trader_interface_libs "")
+    if(HFT_TRADER_CXET_LIB_DIR AND EXISTS "${HFT_TRADER_CXET_LIB_DIR}")
+        set(_hft_trader_cxet_lib "${HFT_TRADER_CXET_LIB_DIR}/libcxet_lib.so")
+        if(NOT EXISTS "${_hft_trader_cxet_lib}")
+            message(FATAL_ERROR "hft-recorder: hft-trader CXET library is missing: ${_hft_trader_cxet_lib}")
+        endif()
+        add_library(hft_trader_cxet_lib SHARED IMPORTED GLOBAL)
+        set_target_properties(hft_trader_cxet_lib PROPERTIES
+            IMPORTED_LOCATION "${_hft_trader_cxet_lib}"
+            INTERFACE_INCLUDE_DIRECTORIES "${HFT_TRADER_CXET_INCLUDE_DIR}"
+            INTERFACE_LINK_DIRECTORIES "${HFT_TRADER_CXET_LIB_DIR}"
+            INTERFACE_LINK_OPTIONS "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${HFT_TRADER_CXET_LIB_DIR}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${HFT_TRADER_CXET_LIB_DIR}>"
+        )
+        list(APPEND _hft_trader_link_dirs "${HFT_TRADER_CXET_LIB_DIR}")
+        list(APPEND _hft_trader_interface_libs hft_trader_cxet_lib)
+        list(APPEND _hft_trader_link_options "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${HFT_TRADER_CXET_LIB_DIR}>")
+        list(APPEND _hft_trader_link_options "$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${HFT_TRADER_CXET_LIB_DIR}>")
+    endif()
+    set_target_properties(hft_trader_runtime PROPERTIES
+        IMPORTED_LOCATION "${HFT_TRADER_SHARED_LIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_hft_trader_include_dirs}"
+        INTERFACE_LINK_DIRECTORIES "${_hft_trader_link_dirs}"
+        INTERFACE_LINK_LIBRARIES "${_hft_trader_interface_libs}"
+        INTERFACE_LINK_OPTIONS "${_hft_trader_link_options}"
+    )
+    message(STATUS "hft-recorder: hft-trader runtime integration enabled")
+else()
+    message(STATUS "hft-recorder: hft-trader runtime integration not found")
+endif()
+
 set(HFTREC_WITH_CXET OFF)
 if(HFTREC_CXET_MODE_NORMALIZED STREQUAL "OFF")
     message(STATUS "hft-recorder: CXETCPP integration disabled")
-elseif(CXET_PUBLIC_INCLUDE_DIR AND CXET_SHARED_LIB AND EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/cxet.hpp" AND EXISTS "${CXET_SHARED_LIB}")
+elseif(HFTREC_WITH_TRADER_RUNTIME)
     set(HFTREC_WITH_CXET ON)
-    message(STATUS "hft-recorder: CXETCPP integration enabled")
+    message(STATUS "hft-recorder: CXETCPP data integration enabled through hft-trader runtime")
 else()
     if(HFTREC_CXET_MODE_NORMALIZED STREQUAL "ON")
-        message(FATAL_ERROR "HFTREC_CXET_MODE=ON requires valid CXET_PUBLIC_INCLUDE_DIR and CXET_SHARED_LIB")
+        message(FATAL_ERROR "HFTREC_CXET_MODE=ON requires a valid prebuilt hft-trader runtime")
     endif()
-    message(STATUS "hft-recorder: CXETCPP integration not found; building offline viewer mode")
-endif()
-
-if(HFTREC_WITH_CXET)
-    get_filename_component(_cxet_lib_dir "${CXET_SHARED_LIB}" DIRECTORY)
-    add_library(cxet_lib SHARED IMPORTED GLOBAL)
-    set_target_properties(cxet_lib PROPERTIES
-        IMPORTED_LOCATION "${CXET_SHARED_LIB}"
-        INTERFACE_INCLUDE_DIRECTORIES "${CXET_PUBLIC_INCLUDE_DIR}"
-        INTERFACE_LINK_DIRECTORIES "${_cxet_lib_dir}"
-        INTERFACE_LINK_OPTIONS "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_cxet_lib_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${_cxet_lib_dir}>"
-    )
+    message(STATUS "hft-recorder: hft-trader runtime not found; building offline viewer mode")
 endif()
 
 set(HFTREC_WITH_CXET_REPLAY OFF)

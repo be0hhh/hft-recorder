@@ -523,6 +523,9 @@ _build_recorder_app() {
     local compressor_lib="$1"
     local backtest_lib="$2"
     _resolve_cxet_paths
+    local trader_lib trader_cxet_lib_dir
+    trader_lib="$(_resolve_trader_lib)"
+    trader_cxet_lib_dir="$(cd "$TRADER/build/cxetcpp/lib" 2>/dev/null && pwd || printf '%s\n' "$INSTALL_DIR/lib")"
 
     cd "$APP"
     if [ "$CLEAN" = "1" ]; then
@@ -540,6 +543,11 @@ _build_recorder_app() {
               -DCXET_PUBLIC_INCLUDE_DIR="$CXET_INCLUDE" \
               -DCXET_SHARED_LIB="$CXET_LIB" \
               -DCXET_REPLAY_SHARED_LIB="$CXET_REPLAY_LIB" \
+              -DHFT_TRADER_PUBLIC_INCLUDE_DIR="$TRADER/include" \
+              -DHFT_TRADER_GENERATED_INCLUDE_DIR="$TRADER/build/generated" \
+              -DHFT_TRADER_SHARED_LIB="$trader_lib" \
+              -DHFT_TRADER_CXET_INCLUDE_DIR="$TRADER/build/cxetcpp/include" \
+              -DHFT_TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir" \
               -DHFTREC_HOTPATH_METRICS_DEFAULT="$HOTPATH_METRICS_DEFAULT" \
               -DHFT_COMPRESSOR_PUBLIC_INCLUDE_DIR="$COMPRESSOR/include" \
               -DHFT_COMPRESSOR_SHARED_LIB="$compressor_lib" \
@@ -552,12 +560,10 @@ _build_recorder_app() {
     echo ">>> Building hft-recorder app (jobs=$JOBS)"
     cmake --build build --target hft-recorder hft-recorder-gui -j"$JOBS"
 
-    local compressor_lib_dir backtest_lib_dir trader_lib trader_lib_dir trader_cxet_lib_dir
-    trader_lib="$(_resolve_trader_lib)"
+    local compressor_lib_dir backtest_lib_dir trader_lib_dir
     compressor_lib_dir="$(cd "$(dirname "$compressor_lib")" && pwd)"
     backtest_lib_dir="$(cd "$(dirname "$backtest_lib")" && pwd)"
     trader_lib_dir="$(cd "$(dirname "$trader_lib")" && pwd)"
-    trader_cxet_lib_dir="$(cd "$TRADER/build/cxetcpp/lib" 2>/dev/null && pwd || printf '%s\n' "$INSTALL_DIR/lib")"
     _write_start_launcher "$compressor_lib_dir" "$backtest_lib_dir" "$trader_lib_dir" "$trader_cxet_lib_dir"
 
     echo ""

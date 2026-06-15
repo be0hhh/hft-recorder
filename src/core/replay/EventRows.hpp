@@ -68,6 +68,30 @@ struct CandleRow {
     std::int64_t quoteAmountE8{0};
 };
 
+struct MarkPriceRow {
+    std::int64_t tsNs{0};
+    std::int64_t markPriceE8{0};
+};
+
+struct IndexPriceRow {
+    std::int64_t tsNs{0};
+    std::int64_t indexPriceE8{0};
+};
+
+struct FundingRow {
+    std::int64_t tsNs{0};
+    std::int64_t fundingRateE8{0};
+    std::int64_t fundingTsNs{0};
+    std::int64_t nextFundingTsNs{0};
+};
+
+struct PriceLimitRow {
+    std::int64_t tsNs{0};
+    std::int64_t buyLimitE8{0};
+    std::int64_t sellLimitE8{0};
+    std::uint8_t enabled{0};
+};
+
 struct PricePair {
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};

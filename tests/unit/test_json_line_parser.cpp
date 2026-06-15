@@ -11,12 +11,20 @@ namespace {
 using hftrec::Status;
 using hftrec::replay::BookTickerRow;
 using hftrec::replay::DepthRow;
+using hftrec::replay::FundingRow;
+using hftrec::replay::IndexPriceRow;
+using hftrec::replay::MarkPriceRow;
 using hftrec::replay::PricePair;
+using hftrec::replay::PriceLimitRow;
 using hftrec::replay::SnapshotDocument;
 using hftrec::replay::TradeRow;
 using hftrec::replay::parseBookTickerLine;
 using hftrec::replay::parseDepthLine;
 using hftrec::replay::parseDepthTapeSidecarLine;
+using hftrec::replay::parseFundingLine;
+using hftrec::replay::parseIndexPriceLine;
+using hftrec::replay::parseMarkPriceLine;
+using hftrec::replay::parsePriceLimitLine;
 using hftrec::replay::parseSnapshotDocument;
 using hftrec::replay::parseTradeLine;
 
@@ -77,6 +85,52 @@ TEST(JsonLineParser, BookTickerLineRoundTrip) {
     EXPECT_EQ(row.bidQtyE8, 50'000'000LL);
     EXPECT_EQ(row.askPriceE8, 200'010'000'000LL);
     EXPECT_EQ(row.askQtyE8, 60'000'000LL);
+}
+
+TEST(JsonLineParser, ReferenceChannelLinesRoundTrip) {
+    MarkPriceRow markPrice{};
+    markPrice.tsNs = 1'713'168'000'500'000'000LL;
+    markPrice.markPriceE8 = 3'000'100'000'000LL;
+
+    IndexPriceRow indexPrice{};
+    indexPrice.tsNs = 1'713'168'000'600'000'000LL;
+    indexPrice.indexPriceE8 = 3'000'000'000'000LL;
+
+    FundingRow funding{};
+    funding.tsNs = 1'713'168'000'700'000'000LL;
+    funding.fundingRateE8 = 12500LL;
+    funding.fundingTsNs = 1'713'168'000'000'000'000LL;
+    funding.nextFundingTsNs = 1'713'196'800'000'000'000LL;
+
+    PriceLimitRow priceLimit{};
+    priceLimit.tsNs = 1'713'168'000'800'000'000LL;
+    priceLimit.buyLimitE8 = 3'100'000'000'000LL;
+    priceLimit.sellLimitE8 = 2'900'000'000'000LL;
+    priceLimit.enabled = 1u;
+
+    MarkPriceRow parsedMarkPrice{};
+    ASSERT_EQ(parseMarkPriceLine(hftrec::capture::renderMarkPriceJsonLine(markPrice), parsedMarkPrice), Status::Ok);
+    EXPECT_EQ(parsedMarkPrice.tsNs, markPrice.tsNs);
+    EXPECT_EQ(parsedMarkPrice.markPriceE8, markPrice.markPriceE8);
+
+    IndexPriceRow parsedIndexPrice{};
+    ASSERT_EQ(parseIndexPriceLine(hftrec::capture::renderIndexPriceJsonLine(indexPrice), parsedIndexPrice), Status::Ok);
+    EXPECT_EQ(parsedIndexPrice.tsNs, indexPrice.tsNs);
+    EXPECT_EQ(parsedIndexPrice.indexPriceE8, indexPrice.indexPriceE8);
+
+    FundingRow parsedFunding{};
+    ASSERT_EQ(parseFundingLine(hftrec::capture::renderFundingJsonLine(funding), parsedFunding), Status::Ok);
+    EXPECT_EQ(parsedFunding.tsNs, funding.tsNs);
+    EXPECT_EQ(parsedFunding.fundingRateE8, funding.fundingRateE8);
+    EXPECT_EQ(parsedFunding.fundingTsNs, funding.fundingTsNs);
+    EXPECT_EQ(parsedFunding.nextFundingTsNs, funding.nextFundingTsNs);
+
+    PriceLimitRow parsedPriceLimit{};
+    ASSERT_EQ(parsePriceLimitLine(hftrec::capture::renderPriceLimitJsonLine(priceLimit), parsedPriceLimit), Status::Ok);
+    EXPECT_EQ(parsedPriceLimit.tsNs, priceLimit.tsNs);
+    EXPECT_EQ(parsedPriceLimit.buyLimitE8, priceLimit.buyLimitE8);
+    EXPECT_EQ(parsedPriceLimit.sellLimitE8, priceLimit.sellLimitE8);
+    EXPECT_EQ(parsedPriceLimit.enabled, 1u);
 }
 
 TEST(JsonLineParser, DepthLineRoundTrip) {
