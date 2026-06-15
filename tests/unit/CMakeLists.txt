@@ -35,6 +35,7 @@ if(Qt6_FOUND)
             test_workspace_viewmodel.cpp
             test_backtest_viewmodel.cpp
             test_recorded_render_once.cpp
+            test_capture_viewmodel_requests.cpp
             test_strategy_overlay.cpp
             test_strategy_indicator.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.cpp
@@ -47,6 +48,7 @@ if(Qt6_FOUND)
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/CaptureViewModelRequests.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/BacktestViewModel.cpp
     )

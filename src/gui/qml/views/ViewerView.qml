@@ -1388,26 +1388,6 @@ Pane {
                     onCanceled: { interaction.timeScaleDragging = false; if (dragActive) interaction.stopInteractiveModeSoon(interactiveModeTimer); dragActive = false }
                 }
             }
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.leftMargin: 16
-                anchors.topMargin: 14
-                radius: 8
-                color: "#2b2b31"
-                border.color: root.borderColor
-                border.width: 1
-                visible: !root.comparePickerActive && (root.showOrderbookLayer || root.showBookTickerLayer || root.showLiquidationsLayer || root.showCandlesLayer || !root.showTradesLayer)
-                implicitWidth: layerStatusText.implicitWidth + 20
-                implicitHeight: layerStatusText.implicitHeight + 12
-                Label {
-                    id: layerStatusText
-                    anchors.centerIn: parent
-                    text: root.showLiquidationsLayer ? "Liquidations" : root.showCandlesLayer ? "Candles" : !root.showTradesLayer ? "Trades hidden" : root.showOrderbookLayer ? "Orderbook" : "BookTicker mode"
-                    color: root.mutedTextColor
-                    font.pixelSize: 12
-                }
-            }
         }
     }
 }

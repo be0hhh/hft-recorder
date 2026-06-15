@@ -181,7 +181,7 @@ Pane {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: Math.max(56, contentHeight + topPadding + bottomPadding + 4)
                                         text: root.captureVm.venueSymbolsText(venueRow.modelData.key)
-                                        placeholderText: "symbols exactly as this venue expects; split by space, comma, or new line"
+                                        placeholderText: root.captureVm.venueSymbolPlaceholder(venueRow.modelData.key)
                                         wrapMode: TextEdit.Wrap
                                         selectByMouse: true
                                         color: root.textColor

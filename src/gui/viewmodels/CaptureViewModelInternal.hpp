@@ -53,9 +53,11 @@ QString buildRequestPreview(const QString& channel,
                             const QStringList& venueKeys,
                             const QStringList& venueSymbolsTexts,
                             const QString& symbolsText,
-                            int apiSlot);
+                             int apiSlot);
 std::vector<std::string> normalizedSymbols(const QString& symbolsText);
 QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symbolsText);
+QString venueSymbolPlaceholder(const QString& venueKey);
+QString missingVenueSymbolsText(const QStringList& venueKeys, const QStringList& venueSymbolsTexts);
 std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QString& envPath,
                                                 int apiSlot,

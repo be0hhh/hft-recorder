@@ -260,7 +260,7 @@ void paintSnapshotLayers(QPainter* painter,
     layerSnap.bookTickerVisible = drawBookTicker && snap.bookTickerVisible;
     layerSnap.tradesVisible = drawTrades && snap.tradesVisible;
     layerSnap.liquidationsVisible = drawTrades && snap.liquidationsVisible;
-    layerSnap.candlesVisible = drawTrades && snap.candlesVisible;
+    layerSnap.candlesVisible = snap.candlesVisible;
     layerSnap.tradeConnectorsVisible = drawTrades && snap.tradeConnectorsVisible;
     if (drawBackground && !layerSnap.overlayOnly) {
         painter->fillRect(QRectF{0.0, 0.0, layerSnap.vp.w, layerSnap.vp.h}, bgColor());

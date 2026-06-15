@@ -20,16 +20,14 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSDT"),
         QStringLiteral("XBTUSDTM"),
         QStringLiteral("BTC-USDT"),
         QStringLiteral("BTC_USDT"),
         QStringLiteral("BTC_USDT"),
-        QStringLiteral("BTC_USDT"),
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTCUSDT"),
-        QStringLiteral("ASTERUSDT"),
+        QStringLiteral("BTCUSDT"),
         QStringLiteral("BTC-USDT-SWAP"),
         QStringLiteral("BTC-USDT"),
     };
@@ -220,6 +218,10 @@ void CaptureViewModel::setSymbolsText(const QString& symbolsText) {
     emit symbolsTextChanged();
     emit requestBuilderChanged();
     reconcileActiveChannels_();
+}
+
+QString CaptureViewModel::venueSymbolPlaceholder(const QString& venueKey) const {
+    return detail::venueSymbolPlaceholder(venueKey);
 }
 
 void CaptureViewModel::applyGlobalSymbolsToVenues() {

@@ -338,6 +338,7 @@ bool CaptureViewModel::ensureCoordinatorBatch_() {
 
 bool CaptureViewModel::reconcileCoordinatorBatch_() {
     const auto configs = makeConfigs();
+    const QString missingSymbols = detail::missingVenueSymbolsText(selectedVenueKeys_, venueSymbolsTexts_);
     if (configs.empty()) {
         for (auto& entry : coordinators_) {
             if (entry.coordinator) (void)entry.coordinator->finalizeSession();
@@ -345,8 +346,11 @@ bool CaptureViewModel::reconcileCoordinatorBatch_() {
         coordinators_.clear();
         viewer::LiveDataRegistry::instance().clear();
         publishActiveLiveSources_();
-        setStatusText(QStringLiteral("Enter at least one venue symbol"));
+        setStatusText(missingSymbols.isEmpty() ? QStringLiteral("Enter at least one venue symbol") : missingSymbols);
         return false;
+    }
+    if (!missingSymbols.isEmpty()) {
+        setStatusText(missingSymbols);
     }
 
     for (auto it = coordinators_.begin(); it != coordinators_.end();) {
@@ -448,6 +452,7 @@ void CaptureViewModel::registerLiveSources_() {
         descriptor.insert(QStringLiteral("startedAtNs"), static_cast<qlonglong>(manifest.startedAtNs));
         descriptor.insert(QStringLiteral("liveAvailable"), true);
         descriptor.insert(QStringLiteral("bookTickerRunning"), coordinator->bookTickerRunning());
+        descriptor.insert(QStringLiteral("bookTickerCount"), static_cast<int>(coordinator->bookTickerCount()));
         descriptors.push_back(descriptor);
     }
 

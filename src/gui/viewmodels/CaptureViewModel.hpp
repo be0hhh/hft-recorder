@@ -114,6 +114,7 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE bool isVenueSelected(const QString& venueKey) const;
     Q_INVOKABLE QString venueSymbolsText(const QString& venueKey) const;
     Q_INVOKABLE void setVenueSymbolsText(const QString& venueKey, const QString& symbolsText);
+    Q_INVOKABLE QString venueSymbolPlaceholder(const QString& venueKey) const;
     Q_INVOKABLE void setSymbolsText(const QString& symbolsText);
     Q_INVOKABLE void applyGlobalSymbolsToVenues();
     Q_INVOKABLE void setTradesHistoryWarmupSec(int seconds);

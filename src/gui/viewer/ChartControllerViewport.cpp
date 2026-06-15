@@ -21,6 +21,8 @@ namespace hftrec::gui::viewer {
 namespace {
 
 constexpr std::int64_t kOneMsNs = 1000000ll;
+constexpr std::int64_t kOneSecondNs = 1000000000ll;
+constexpr std::int64_t kMinimumRecordedWindowNs = 180ll * kOneSecondNs;
 constexpr std::size_t kViewportBookLevelsPerSide = 24;
 constexpr std::size_t kRenderBookLevelsBudgetPerSide = 96;
 constexpr std::size_t kInteractiveBookLevelsBudgetPerSide = 48;
@@ -414,6 +416,12 @@ void ChartController::computeInitialViewport_() {
     tsMin_ = hasMarketTs ? marketTsMin : replay_.firstTsNs();
     tsMax_ = hasMarketTs ? marketTsMax : replay_.lastTsNs();
     if (tsMax_ == tsMin_) tsMax_ = tsMin_ + 1;
+    if ((tsMax_ - tsMin_) < kMinimumRecordedWindowNs) {
+        const std::int64_t centre = tsMin_ + (tsMax_ - tsMin_) / 2;
+        const std::int64_t half = kMinimumRecordedWindowNs / 2;
+        tsMin_ = std::max<std::int64_t>(0, centre - half);
+        tsMax_ = centre + half;
+    }
 
     std::int64_t pMin = 0;
     std::int64_t pMax = 0;

@@ -44,10 +44,10 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, Cap
             snapshot.priceLimitCount += static_cast<qulonglong>(coordinator->priceLimitCount());
             snapshot.candlesCount += static_cast<qulonglong>(coordinator->candlesCount());
             snapshot.depthCount += static_cast<qulonglong>(coordinator->depthCount());
-
-            const auto error = QString::fromStdString(coordinator->lastError()).trimmed();
-            if (!error.isEmpty() && !errors.contains(error)) errors.push_back(error);
         }
+
+        const auto error = QString::fromStdString(coordinator->lastError()).trimmed();
+        if (!error.isEmpty() && !errors.contains(error)) errors.push_back(error);
     }
 
     if (fullRefresh) {
@@ -58,9 +58,9 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, Cap
             snapshot.sessionId = QStringLiteral("%1 sessions").arg(sessionIds.size());
             snapshot.sessionPath = viewModel.outputDirectory_;
         }
-
-        snapshot.errorText = errors.join(QStringLiteral(" | "));
     }
+
+    snapshot.errorText = errors.join(QStringLiteral(" | "));
 
     return snapshot;
 }
@@ -140,7 +140,9 @@ void CaptureViewModel::refreshState(detail::CaptureRefreshMode mode) {
     }
     if (countersChangedLocal) {
         emit countersChanged();
+        if (!activeLiveSources_.isEmpty()) registerLiveSources_();
     }
+    if (!fullRefresh && !activeLiveSources_.isEmpty()) registerLiveSources_();
 }
 
 }  // namespace hftrec::gui

@@ -18,6 +18,12 @@ enum class ChannelKind : std::uint8_t {
     IndexPrice = 10,
     Funding = 11,
     PriceLimit = 12,
+    ExecutionFast = 13,
+    FastFill = 14,
+    ContractStats = 15,
+    ContractInfo = 16,
+    OkxBooks50L2Tbt = 17,
+    BitgetRpiBooks = 18,
 };
 
 constexpr std::string_view channelFileName(ChannelKind k) noexcept {
@@ -34,6 +40,12 @@ constexpr std::string_view channelFileName(ChannelKind k) noexcept {
         case ChannelKind::IndexPrice: return "index_price.jsonl";
         case ChannelKind::Funding: return "funding.jsonl";
         case ChannelKind::PriceLimit: return "price_limit.jsonl";
+        case ChannelKind::ExecutionFast: return "execution_fast.jsonl";
+        case ChannelKind::FastFill: return "fast_fill.jsonl";
+        case ChannelKind::ContractStats: return "contract_stats.jsonl";
+        case ChannelKind::ContractInfo: return "contract_info.jsonl";
+        case ChannelKind::OkxBooks50L2Tbt: return "okx_books50_l2_tbt.jsonl";
+        case ChannelKind::BitgetRpiBooks: return "bitget_rpi_books.jsonl";
     }
     return "unknown";
 }
@@ -53,6 +65,12 @@ constexpr std::string_view channelJsonlRelativePath(ChannelKind k) noexcept {
         case ChannelKind::IndexPrice: return "jsonl/index_price.jsonl";
         case ChannelKind::Funding: return "jsonl/funding.jsonl";
         case ChannelKind::PriceLimit: return "jsonl/price_limit.jsonl";
+        case ChannelKind::ExecutionFast: return "jsonl/execution_fast.jsonl";
+        case ChannelKind::FastFill: return "jsonl/fast_fill.jsonl";
+        case ChannelKind::ContractStats: return "jsonl/contract_stats.jsonl";
+        case ChannelKind::ContractInfo: return "jsonl/contract_info.jsonl";
+        case ChannelKind::OkxBooks50L2Tbt: return "jsonl/okx_books50_l2_tbt.jsonl";
+        case ChannelKind::BitgetRpiBooks: return "jsonl/bitget_rpi_books.jsonl";
     }
     return "unknown";
 }
@@ -70,6 +88,12 @@ constexpr std::string_view channelName(ChannelKind k) noexcept {
         case ChannelKind::IndexPrice: return "index_price";
         case ChannelKind::Funding: return "funding";
         case ChannelKind::PriceLimit: return "price_limit";
+        case ChannelKind::ExecutionFast: return "execution_fast";
+        case ChannelKind::FastFill: return "fast_fill";
+        case ChannelKind::ContractStats: return "contract_stats";
+        case ChannelKind::ContractInfo: return "contract_info";
+        case ChannelKind::OkxBooks50L2Tbt: return "okx_books50_l2_tbt";
+        case ChannelKind::BitgetRpiBooks: return "bitget_rpi_books";
     }
     return "unknown";
 }

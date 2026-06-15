@@ -15,6 +15,7 @@ namespace hftrec::gui::viewer {
 namespace {
 
 ChartController* g_activeChartController = nullptr;
+constexpr std::int64_t kMinimumRecordedWindowNs = 180000000000ll;
 
 }  // namespace
 
@@ -549,13 +550,14 @@ void ChartController::applyRecordedRenderWindowViewport_() noexcept {
     if (latestTs <= 0) return;
 
     const std::int64_t anchorTs = replay_.bookTickers().empty() ? replay_.firstTsNs() : replay_.bookTickers().front().tsNs;
+    const std::int64_t minimumWindowStart = latestTs > kMinimumRecordedWindowNs ? latestTs - kMinimumRecordedWindowNs : 0;
     if (latestOnlyRenderWindow_()) {
         tsMax_ = latestTs;
-        tsMin_ = std::max<std::int64_t>(anchorTs, latestTs - 1);
+        tsMin_ = std::max<std::int64_t>(anchorTs, minimumWindowStart);
         if (tsMax_ <= tsMin_) tsMin_ = std::max<std::int64_t>(0, latestTs - 1);
     } else {
         tsMax_ = latestTs;
-        tsMin_ = std::max<std::int64_t>(anchorTs, effectiveRenderMinTs_(latestTs));
+        tsMin_ = std::max<std::int64_t>(anchorTs, std::min(effectiveRenderMinTs_(latestTs), minimumWindowStart));
     }
 
     if (tsMax_ <= tsMin_) tsMax_ = tsMin_ + 1;

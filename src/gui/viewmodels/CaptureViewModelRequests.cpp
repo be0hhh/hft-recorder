@@ -66,10 +66,9 @@ QString symbolsTextForVenue(const VenueSpec& venue,
                             const QString& fallbackSymbolsText) {
     const qsizetype idx = venueIndex(QString::fromLatin1(venue.key));
     if (idx >= 0 && idx < venueSymbolsTexts.size()) {
-        const auto text = venueSymbolsTexts[idx].trimmed();
-        if (!text.isEmpty()) return text;
+        return venueSymbolsTexts[idx].trimmed();
     }
-    return fallbackSymbolsText;
+    return venueSymbolsFromGlobalInput(QString::fromLatin1(venue.key), fallbackSymbolsText);
 }
 
 QString marketDsl(const VenueSpec& venue) {
@@ -385,6 +384,26 @@ QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symb
         if (!parsed.base.isEmpty()) formatted.push_back(formattedVenueSymbol(kVenues[idx], parsed));
     }
     return formatted.join(QLatin1Char('\n'));
+}
+
+QString venueSymbolPlaceholder(const QString& venueKey) {
+    const qsizetype idx = venueIndex(venueKey);
+    if (idx < 0) return QStringLiteral("Example: BTCUSDT");
+    return QStringLiteral("Example: %1").arg(formattedVenueSymbol(kVenues[idx], parseGlobalSymbol(QStringLiteral("BTCUSDT"))));
+}
+
+QString missingVenueSymbolsText(const QStringList& venueKeys, const QStringList& venueSymbolsTexts) {
+    QStringList missing;
+    for (const auto& rawKey : venueKeys) {
+        const auto key = rawKey.trimmed().toLower();
+        const qsizetype idx = venueIndex(key);
+        if (idx < 0) continue;
+        if (idx < venueSymbolsTexts.size() && !venueSymbolsTexts[idx].trimmed().isEmpty()) continue;
+        const auto label = QString::fromLatin1(kVenues[idx].label);
+        const auto example = formattedVenueSymbol(kVenues[idx], parseGlobalSymbol(QStringLiteral("BTCUSDT")));
+        missing.push_back(QStringLiteral("%1 symbol is empty; expected %2").arg(label, example));
+    }
+    return missing.join(QStringLiteral(" | "));
 }
 
 QString buildRequestPreview(const QString& channel,
