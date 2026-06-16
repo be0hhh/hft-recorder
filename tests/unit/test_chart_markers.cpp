@@ -111,6 +111,9 @@ TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
     writeFile(resultPath / "fills.jsonl",
               "[1,1200,1800,1,9900000000,100000000,0,0]\n"
               "[2,1500,1600,0,10100000000,100000000,0,1]\n");
+    writeFile(resultPath / "strategy_range.jsonl",
+              "[1100,9800000000,10000000000,10200000000]\n"
+              "[2100,9900000000,10100000000,10300000000]\n");
 
     ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
     chart.finalizeFiles();
@@ -130,6 +133,11 @@ TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
     EXPECT_TRUE(snap.strategyFillMarkers[0].reduceOnly);
     EXPECT_EQ(snap.strategyFillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
     EXPECT_FALSE(snap.strategyFillMarkers[1].reduceOnly);
+    ASSERT_EQ(snap.strategyRangePoints.size(), 2u);
+    EXPECT_EQ(snap.strategyRangePoints[0].tsNs, 1100);
+    EXPECT_EQ(snap.strategyRangePoints[0].lowE8, e8(98));
+    EXPECT_EQ(snap.strategyRangePoints[0].midE8, e8(100));
+    EXPECT_EQ(snap.strategyRangePoints[0].highE8, e8(102));
 
     hftrec::gui::viewer::HoverInfo hover{};
     hftrec::gui::viewer::hit_test::computeHover(snap,
@@ -163,6 +171,15 @@ TEST(ChartStrategyOverlay, FinalOverlayPassDoesNotDependOnTradesLayer) {
 
     EXPECT_TRUE(hftrec::gui::viewer::detail::shouldRenderStrategyOverlayInFinalPass(snap, false));
     EXPECT_FALSE(hftrec::gui::viewer::detail::shouldRenderStrategyOverlayInFinalPass(snap, true));
+
+    hftrec::gui::viewer::RenderSnapshot rangeOnly{};
+    rangeOnly.strategyRangePoints.push_back(hftrec::gui::viewer::StrategyRangePoint{
+        1600,
+        e8(99),
+        e8(100),
+        e8(101),
+    });
+    EXPECT_FALSE(hftrec::gui::viewer::detail::shouldRenderStrategyOverlayInFinalPass(rangeOnly, false));
 }
 
 TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {

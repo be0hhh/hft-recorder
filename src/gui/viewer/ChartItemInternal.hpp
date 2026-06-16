@@ -10,8 +10,7 @@ HoverInfo buildHoverInfo(const ChartItem& item);
 inline bool shouldRenderStrategyOverlayInFinalPass(const RenderSnapshot& snap, bool interactiveMode) noexcept {
     return !interactiveMode
         && (!snap.strategyOrderSegments.empty()
-            || !snap.strategyFillMarkers.empty()
-            || !snap.strategyRangePoints.empty());
+            || !snap.strategyFillMarkers.empty());
 }
 
 }  // namespace hftrec::gui::viewer::detail

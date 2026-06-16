@@ -594,7 +594,7 @@ Pane {
                         Layout.fillWidth: true
                         Label { text: root.backtestVm.selectedIsSweep ? "Sweep" : "Summary"; color: root.textColor; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
                         RecorderComboBox {
-                            visible: root.backtestVm.selectedIsSweep
+                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded
                             Layout.preferredWidth: 158
                             caption: "View"
                             textRole: "label"
@@ -605,7 +605,7 @@ Pane {
                             onActivated: root.backtestVm.setSelectedSweepView(currentValue)
                         }
                         RecorderComboBox {
-                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedSweepView === "curves"
+                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded && root.backtestVm.selectedSweepView === "curves"
                             Layout.preferredWidth: 132
                             caption: "Curves"
                             textRole: "label"
@@ -616,7 +616,7 @@ Pane {
                             onActivated: root.backtestVm.setSelectedSweepCurveLimit(currentValue)
                         }
                         RecorderComboBox {
-                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedSweepView === "distribution"
+                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded && root.backtestVm.selectedSweepView === "distribution"
                             Layout.preferredWidth: 116
                             caption: "Metric"
                             textRole: "label"
@@ -627,7 +627,7 @@ Pane {
                             onActivated: root.backtestVm.setSelectedSweepMetric(currentValue)
                         }
                         RecorderComboBox {
-                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedSweepView === "distribution"
+                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded && root.backtestVm.selectedSweepView === "distribution"
                             Layout.preferredWidth: 180
                             caption: "Parameter"
                             textRole: "label"
@@ -637,11 +637,25 @@ Pane {
                             Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedSweepDistributionParam)
                             onActivated: root.backtestVm.setSelectedSweepDistributionParam(currentValue)
                         }
-                        ActionButton { text: root.sweepPercentMode ? "PnL %" : "PnL $"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.sweepPercentMode = !root.sweepPercentMode; sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint(); distributionCanvas.requestPaint(); distributionHoverCanvas.requestPaint() } }
-                        ActionButton { text: "Apply"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.selectedSweepPointId >= 0 && !root.backtestVm.running; onClicked: root.backtestVm.applySweepPointById(root.selectedSweepPointId) }
-                        ActionButton { text: "Detailed run"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.selectedSweepPointId >= 0 && !root.backtestVm.running; accent: root.goodColor; onClicked: root.backtestVm.startDetailedRunFromSweepPointById(root.selectedSweepPointId) }
+                        ActionButton {
+                            text: root.backtestVm.selectedDetailsLoading ? "Loading" : (root.backtestVm.selectedDetailsLoaded ? "Visual loaded" : "Load visual")
+                            visible: root.backtestVm.hasSelection
+                            enabledValue: !root.backtestVm.selectedDetailsLoading && !root.backtestVm.selectedDetailsLoaded
+                            accent: root.goodColor
+                            onClicked: root.backtestVm.loadSelectedRunDetails()
+                        }
+                        ActionButton { text: root.sweepPercentMode ? "PnL %" : "PnL $"; visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded; enabledValue: root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.sweepPercentMode = !root.sweepPercentMode; sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint(); distributionCanvas.requestPaint(); distributionHoverCanvas.requestPaint() } }
+                        ActionButton { text: "Apply"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedDetailsLoaded && root.selectedSweepPointId >= 0 && !root.backtestVm.running; onClicked: root.backtestVm.applySweepPointById(root.selectedSweepPointId) }
+                        ActionButton { text: "Detailed run"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedDetailsLoaded && root.selectedSweepPointId >= 0 && !root.backtestVm.running; accent: root.goodColor; onClicked: root.backtestVm.startDetailedRunFromSweepPointById(root.selectedSweepPointId) }
                         ActionButton { text: "Delete"; visible: root.backtestVm.hasSelection; enabledValue: root.backtestVm.hasSelection && !root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.deleteSelectedRun() }
-                        Label { text: root.backtestVm.selectedErrorText; visible: text !== ""; color: root.badColor; font.pixelSize: 11; elide: Text.ElideRight; Layout.maximumWidth: 360 }
+                        Label {
+                            text: root.backtestVm.selectedErrorText !== "" ? root.backtestVm.selectedErrorText : root.backtestVm.selectedDetailsErrorText
+                            visible: text !== ""
+                            color: root.badColor
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                            Layout.maximumWidth: 360
+                        }
                     }
 
                     ColumnLayout {
@@ -653,14 +667,14 @@ Pane {
                             Layout.fillWidth: true
                             Label { text: "Run metrics"; color: root.textColor; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true }
                             Label {
-                                text: root.backtestVm.selectedResultMetrics.length > 0 ? "" : "Select completed run with manifest.json"
+                                text: root.backtestVm.selectedDetailsLoading ? "Loading visual data..." : (!root.backtestVm.selectedDetailsLoaded ? "Load visual to open metrics and chart" : (root.backtestVm.selectedResultMetrics.length > 0 ? "" : "Selected run has no metrics"))
                                 color: root.mutedTextColor
                                 font.pixelSize: 11
                                 visible: text !== ""
                             }
                         }
                         Flow {
-                            visible: root.backtestVm.selectedResultMetrics.length > 0
+                            visible: root.backtestVm.selectedDetailsLoaded && root.backtestVm.selectedResultMetrics.length > 0
                             Layout.fillWidth: true
                             Layout.preferredHeight: childrenRect.height
                             spacing: 8
@@ -674,7 +688,7 @@ Pane {
                             }
                         }
                         Rectangle {
-                            visible: root.backtestVm.selectedResultMetrics.length > 0
+                            visible: root.backtestVm.selectedDetailsLoaded && root.backtestVm.selectedResultMetrics.length > 0
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             Layout.minimumHeight: 300
@@ -879,7 +893,19 @@ Pane {
                         Layout.fillHeight: true
                         spacing: 8
 
+                        Label {
+                            visible: !root.backtestVm.selectedDetailsLoaded
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            text: root.backtestVm.selectedDetailsLoading ? "Loading visual data..." : "Load visual to open sweep charts."
+                            color: root.mutedTextColor
+                            font.pixelSize: 12
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
                         Rectangle {
+                            visible: root.backtestVm.selectedDetailsLoaded
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             color: root.panelDeepColor

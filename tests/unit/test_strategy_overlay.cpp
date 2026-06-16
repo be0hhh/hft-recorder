@@ -139,6 +139,31 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     fs::remove_all(dir, ec);
 }
 
+TEST(StrategyOverlay, LoadsStrategyRangeRows) {
+    const auto dir = makeTmpDir();
+    const auto resultPath = makeRunResult(dir, "run-range", "", "");
+    writeFile(resultPath / "strategy_range.jsonl",
+              "[1000,9900000000,10000000000,10100000000]\n"
+              "[2000,9950000000,10050000000,10150000000]\n");
+
+    hftrec::gui::viewer::StrategyOverlayData overlay;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
+
+    ASSERT_EQ(overlay.rangePoints.size(), 2u);
+    EXPECT_EQ(overlay.rangePoints[0].tsNs, 1000);
+    EXPECT_EQ(overlay.rangePoints[0].lowE8, e8(99));
+    EXPECT_EQ(overlay.rangePoints[0].midE8, e8(100));
+    EXPECT_EQ(overlay.rangePoints[0].highE8, e8(101));
+    EXPECT_EQ(overlay.rangePoints[1].tsNs, 2000);
+    EXPECT_EQ(overlay.rangePoints[1].lowE8, 9950000000ll);
+    EXPECT_EQ(overlay.rangePoints[1].midE8, 10050000000ll);
+    EXPECT_EQ(overlay.rangePoints[1].highE8, 10150000000ll);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(StrategyOverlay, AcceptsBacktestRowsWithTrailingLegIndex) {
     const auto dir = makeTmpDir();
     const auto resultPath = makeRunResult(dir, "run-leg-index",

@@ -10,6 +10,7 @@
 #include <QTimer>
 
 #include <atomic>
+#include <cstdint>
 #include <thread>
 #include <vector>
 
@@ -77,6 +78,9 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QVariantList selectedSweepDistributionBars READ selectedSweepDistributionBars NOTIFY selectionChanged)
     Q_PROPERTY(bool selectedIsSweep READ selectedIsSweep NOTIFY selectionChanged)
     Q_PROPERTY(bool hasEquityPoints READ hasEquityPoints NOTIFY selectionChanged)
+    Q_PROPERTY(bool selectedDetailsLoaded READ selectedDetailsLoaded NOTIFY selectionChanged)
+    Q_PROPERTY(bool selectedDetailsLoading READ selectedDetailsLoading NOTIFY detailsLoadingChanged)
+    Q_PROPERTY(QString selectedDetailsErrorText READ selectedDetailsErrorText NOTIFY detailsLoadingChanged)
     Q_PROPERTY(qint64 selectedInitialBalanceE8 READ selectedInitialBalanceE8 NOTIFY selectionChanged)
     Q_PROPERTY(qint64 selectedPnlMinE8 READ selectedPnlMinE8 NOTIFY selectionChanged)
     Q_PROPERTY(qint64 selectedPnlMaxE8 READ selectedPnlMaxE8 NOTIFY selectionChanged)
@@ -151,6 +155,9 @@ class BacktestViewModel : public QObject {
     QVariantList selectedSweepDistributionBars() const;
     bool selectedIsSweep() const;
     bool hasEquityPoints() const;
+    bool selectedDetailsLoaded() const;
+    bool selectedDetailsLoading() const;
+    QString selectedDetailsErrorText() const { return selectedDetailsErrorText_; }
     qint64 selectedInitialBalanceE8() const;
     qint64 selectedPnlMinE8() const;
     qint64 selectedPnlMaxE8() const;
@@ -200,6 +207,8 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void refreshResults() { refresh(); }
     Q_INVOKABLE void selectRun(const QString& runId);
+    Q_INVOKABLE void loadSelectedRunDetails();
+    Q_INVOKABLE void unloadSelectedRunDetails();
     Q_INVOKABLE void setSelectedResultMetricKey(const QString& key);
     Q_INVOKABLE void setSelectedResultMetricRatioKey(const QString& key);
     Q_INVOKABLE bool deleteSelectedRun();
@@ -234,6 +243,7 @@ class BacktestViewModel : public QObject {
     void runningChanged();
     void canRunChanged();
     void progressChanged();
+    void detailsLoadingChanged();
 
   private:
     struct RunRecord {
@@ -257,6 +267,7 @@ class BacktestViewModel : public QObject {
         QVariantList sweepRows{};
         QVariantList sweepCurves{};
         QStringList sweepParamKeys{};
+        QString detailsErrorText{};
         qint64 initialBalanceE8{0};
         qint64 totalPnlE8{0};
         qint64 pnlMinE8{0};
@@ -273,9 +284,10 @@ class BacktestViewModel : public QObject {
         int errorCount{0};
         bool valid{false};
         bool sweep{false};
+        bool detailsLoaded{false};
     };
 
-    static RunRecord loadRecord_(const QString& filePath);
+    static RunRecord loadRecord_(const QString& filePath, bool loadDetails);
     static QString normalizedPath_(const QString& path);
     static QString sessionIdFromPath_(const QString& path);
     static qint64 fileStampMs_(const QString& path, qint64* sizeOut = nullptr);
@@ -283,11 +295,15 @@ class BacktestViewModel : public QObject {
 
     const RunRecord* selectedRecord_() const noexcept;
     const RunRecord* recordForPath_(const QString& filePath) const noexcept;
+    RunRecord* mutableRecordForRunId_(const QString& runId) noexcept;
     void scheduleRefresh_();
     void updateWatcher_();
     void setStatusText_(const QString& statusText);
     void setRunning_(bool running);
     void setProgress_(int percent, const QString& text);
+    void setDetailsLoading_(bool loading, const QString& runId = QString{});
+    void clearRecordDetails_(RunRecord& record);
+    void applyLoadedDetails_(std::uint64_t generation, const QString& runId, const RunRecord& loaded);
     QVariantList loadSessions_() const;
     void stopWorker_();
     QString runId_() const;
@@ -339,8 +355,12 @@ class BacktestViewModel : public QObject {
     QString selectedResultMetricRatioKey_{};
     QString statusText_{QStringLiteral("Select a session and strategy")};
     QString progressText_{QStringLiteral("Idle")};
+    QString selectedDetailsErrorText_{};
+    QString detailsLoadingRunId_{};
+    std::uint64_t detailsLoadGeneration_{0};
     int progressPercent_{0};
     bool running_{false};
+    bool detailsLoading_{false};
     std::atomic<bool> cancelRequested_{false};
     std::thread worker_{};
     QVariantList sessions_{};

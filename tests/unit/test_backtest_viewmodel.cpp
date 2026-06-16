@@ -2,6 +2,8 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFile>
 #include <QSettings>
 #include <QString>
@@ -82,6 +84,15 @@ QString metricLabelValue(const QVariantList& rows, const QString& key) {
     return {};
 }
 
+void waitForDetailsLoad(hftrec::gui::BacktestViewModel& vm) {
+    QElapsedTimer timer;
+    timer.start();
+    while (vm.selectedDetailsLoading() && timer.elapsed() < 5000) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    }
+    ASSERT_FALSE(vm.selectedDetailsLoading());
+}
+
 }  // namespace
 
 TEST(BacktestViewModel, LoadsValidResultAndSummary) {
@@ -104,6 +115,8 @@ TEST(BacktestViewModel, LoadsValidResultAndSummary) {
     EXPECT_TRUE(vm.selectedJson().contains(QStringLiteral("spread_maker1and2")));
     EXPECT_TRUE(vm.selectedSummaryJson().contains(QStringLiteral("pnl_raw")));
     EXPECT_TRUE(vm.selectedErrorText().isEmpty());
+    EXPECT_FALSE(vm.selectedDetailsLoaded());
+    EXPECT_FALSE(vm.selectedDetailsLoading());
 }
 
 TEST(BacktestViewModel, DeletesSelectedRunDirectoryAndKeepsOtherRuns) {
@@ -267,7 +280,7 @@ TEST(BacktestViewModel, IgnoresLooseLegacyJsonResultFiles) {
     EXPECT_TRUE(vm.selectedRunId().isEmpty());
 }
 
-TEST(BacktestViewModel, ExposesEquityPointsAndMetricsForResultsTab) {
+TEST(BacktestViewModel, DefersEquityPointsAndMetricsUntilDetailsLoad) {
     isolateSettings(QStringLiteral("equity_points"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-equity"), R"json({
@@ -285,6 +298,16 @@ TEST(BacktestViewModel, ExposesEquityPointsAndMetricsForResultsTab) {
     hftrec::gui::BacktestViewModel vm;
     vm.setSessionPath(session);
 
+    EXPECT_FALSE(vm.selectedDetailsLoaded());
+    EXPECT_TRUE(vm.selectedEquityPoints().empty());
+    EXPECT_TRUE(vm.selectedResultMetrics().empty());
+    EXPECT_FALSE(vm.hasEquityPoints());
+
+    vm.loadSelectedRunDetails();
+    waitForDetailsLoad(vm);
+
+    EXPECT_TRUE(vm.selectedDetailsLoaded());
+    EXPECT_TRUE(vm.selectedDetailsErrorText().isEmpty());
     const QVariantList points = vm.selectedEquityPoints();
     ASSERT_EQ(points.size(), 2);
     EXPECT_EQ(points.at(1).toMap().value(QStringLiteral("grossTotalPnlE8")).toLongLong(), 170000000ll);
@@ -299,6 +322,42 @@ TEST(BacktestViewModel, ExposesEquityPointsAndMetricsForResultsTab) {
     EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("wallet_balance_e8")), QStringLiteral("1001"));
     EXPECT_EQ(metricLabelValue(vm.selectedResultMetrics(), QStringLiteral("wallet_balance_e8")), QStringLiteral("Final balance"));
     EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("fills")), QStringLiteral("2"));
+}
+
+TEST(BacktestViewModel, ClearsLoadedDetailsWhenRunChanges) {
+    isolateSettings(QStringLiteral("clear_details"));
+    const QString session = makeTempSessionDir();
+    makeRunDir(session, QStringLiteral("run-a"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-a",
+      "status":"complete",
+      "strategy":"spread_maker1and2",
+      "streams":{"equity":{"rows":1}},
+      "summary":{"total_pnl_e8":100000000,"initial_balance_e8":100000000000},
+      "errors":[]
+    })json", QByteArrayLiteral("[100,0,0,0,100000000,100000000,100000000,0,100000000000,0,0]\n"));
+    makeRunDir(session, QStringLiteral("run-b"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-b",
+      "status":"complete",
+      "strategy":"spread_maker1and2",
+      "streams":{"equity":{"rows":1}},
+      "summary":{"total_pnl_e8":200000000,"initial_balance_e8":100000000000},
+      "errors":[]
+    })json", QByteArrayLiteral("[100,0,0,0,200000000,200000000,200000000,0,100000000000,0,0]\n"));
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSessionPath(session);
+    vm.selectRun(QStringLiteral("run-a"));
+    vm.loadSelectedRunDetails();
+    waitForDetailsLoad(vm);
+    ASSERT_TRUE(vm.selectedDetailsLoaded());
+
+    vm.selectRun(QStringLiteral("run-b"));
+
+    EXPECT_FALSE(vm.selectedDetailsLoaded());
+    EXPECT_TRUE(vm.selectedEquityPoints().empty());
+    EXPECT_TRUE(vm.selectedResultMetrics().empty());
 }
 TEST(BacktestViewModel, ReadsSymbolFromNestedManifestAndAllowsOverride) {
     isolateSettings(QStringLiteral("symbol"));
@@ -503,6 +562,14 @@ TEST(BacktestViewModel, ExposesSweepDistributionBarsGroupedBySelectedParameter) 
 
     EXPECT_TRUE(hasChoiceId(vm.sweepViewChoices(), QStringLiteral("distribution")));
     EXPECT_EQ(vm.selectedSweepMetric(), QStringLiteral("total_pnl_e8"));
+    EXPECT_FALSE(vm.selectedDetailsLoaded());
+    EXPECT_TRUE(vm.selectedSweepDistributionParamChoices().empty());
+    EXPECT_TRUE(vm.selectedSweepDistributionBars().empty());
+
+    vm.loadSelectedRunDetails();
+    waitForDetailsLoad(vm);
+
+    ASSERT_TRUE(vm.selectedDetailsLoaded());
     ASSERT_EQ(vm.selectedSweepDistributionParamChoices().size(), 2);
     EXPECT_EQ(vm.selectedSweepDistributionParamChoices().at(0).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("close_delay_us"));
     EXPECT_EQ(vm.selectedSweepDistributionParam(), QStringLiteral("close_delay_us"));

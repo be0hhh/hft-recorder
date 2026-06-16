@@ -165,17 +165,6 @@ void StrategyIndicatorItem::paint(QPainter* painter) {
     drawBuckets(auxBuckets, QColor(118, 134, 160, 150), 1.0);
     drawBuckets(buckets, QColor("#24c2cb"), 1.6);
 
-    painter->setPen(QPen(QColor("#e8c75a"), 1));
-    painter->setBrush(QColor("#e8c75a"));
-    for (std::size_t i = firstVisible; i <= lastVisible; ++i) {
-        const auto& point = indicator.points[i];
-        if (point.eventCode == 0u || point.tsNs < tsMin || point.tsNs > tsMax) continue;
-        const qreal x = mapX(point.tsNs, tsMin, tsMax, left, plotWidth);
-        const qreal y = mapY(point.valueRaw, minValue, maxValue, top, plotHeight);
-        painter->drawLine(QPointF(x, top), QPointF(x, top + plotHeight));
-        painter->drawEllipse(QPointF(x, y), 3.0, 3.0);
-    }
-
     painter->setPen(QColor("#f1f4f8"));
     painter->setFont(QFont(painter->font().family(), 10));
     const QString title = indicator.title.isEmpty() ? indicator.profile : indicator.title;

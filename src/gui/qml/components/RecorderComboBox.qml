@@ -105,6 +105,7 @@ ComboBox {
         width: combo.popupMaxWidth > 0 ? Math.min(combo.popupMaxWidth, Math.max(combo.width, combo.popupWidth)) : Math.max(combo.width, combo.popupWidth)
         implicitHeight: Math.min(contentItem.implicitHeight, 400)
         padding: 1
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside | Popup.CloseOnReleaseOutside
         onOpened: {
             combo.searchText = ""
             combo.rebuildFilter()

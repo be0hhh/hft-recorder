@@ -72,13 +72,13 @@ void paintSnapshotFrame(QPainter* painter,
 
 void drawStepLine(QPainter* painter,
                   const std::vector<QPointF>& points,
-                  const QColor& color) {
+                  const QPen& pen) {
     if (points.empty()) return;
-    QPen pen(color);
-    pen.setWidth(1);
-    pen.setCapStyle(Qt::SquareCap);
-    pen.setJoinStyle(Qt::MiterJoin);
-    painter->setPen(pen);
+    QPen linePen = pen;
+    linePen.setCapStyle(Qt::SquareCap);
+    linePen.setJoinStyle(Qt::MiterJoin);
+    linePen.setCosmetic(true);
+    painter->setPen(linePen);
     QPointF prev = points.front();
     for (std::size_t i = 1u; i < points.size(); ++i) {
         const QPointF point = points[i];
@@ -87,6 +87,12 @@ void drawStepLine(QPainter* painter,
         painter->drawLine(corner, point);
         prev = point;
     }
+}
+
+void drawStepLine(QPainter* painter,
+                  const std::vector<QPointF>& points,
+                  const QColor& color) {
+    drawStepLine(painter, points, QPen(color, 1.0));
 }
 
 QString formatNsUtcCompact(std::int64_t tsNs) {
@@ -239,8 +245,25 @@ void renderReferenceOverlays(QPainter* painter, const RenderSnapshot& snap, cons
         drawStepLine(painter, collect(snap.indexPrices, [](const hftrec::replay::IndexPriceRow& row) { return row.indexPriceE8; }), QColor{53, 208, 111});
     }
     if (snap.priceLimitVisible) {
-        drawStepLine(painter, collect(snap.priceLimits, [](const hftrec::replay::PriceLimitRow& row) { return row.buyLimitE8; }), QColor{255, 214, 51});
-        drawStepLine(painter, collect(snap.priceLimits, [](const hftrec::replay::PriceLimitRow& row) { return row.sellLimitE8; }), QColor{255, 214, 51});
+        drawStepLine(painter,
+                     collect(snap.priceLimits, [](const hftrec::replay::PriceLimitRow& row) { return row.buyLimitE8; }),
+                     QPen(QColor{122, 145, 156, 150}, 1.0));
+        drawStepLine(painter,
+                     collect(snap.priceLimits, [](const hftrec::replay::PriceLimitRow& row) { return row.sellLimitE8; }),
+                     QPen(QColor{132, 124, 150, 150}, 1.0));
+    }
+    if (!snap.strategyRangePoints.empty()) {
+        drawStepLine(painter,
+                     collect(snap.strategyRangePoints, [](const StrategyRangePoint& row) { return row.lowE8; }),
+                     QPen(QColor{42, 209, 184, 235}, 1.4));
+        QPen midPen(QColor{218, 226, 232, 205}, 1.1);
+        midPen.setStyle(Qt::DashLine);
+        drawStepLine(painter,
+                     collect(snap.strategyRangePoints, [](const StrategyRangePoint& row) { return row.midE8; }),
+                     midPen);
+        drawStepLine(painter,
+                     collect(snap.strategyRangePoints, [](const StrategyRangePoint& row) { return row.highE8; }),
+                     QPen(QColor{68, 178, 255, 235}, 1.4));
     }
     renderFundingStrip(painter, snap, hover, true);
     painter->restore();

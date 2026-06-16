@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QMetaObject>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QSet>
 #include <QTextStream>
@@ -1174,6 +1175,7 @@ QVariantList BacktestViewModel::runs() const {
         row.insert(QStringLiteral("errorCount"), record.errorCount);
         row.insert(QStringLiteral("valid"), record.valid);
         row.insert(QStringLiteral("sweep"), record.sweep);
+        row.insert(QStringLiteral("detailsLoaded"), record.detailsLoaded);
         out.push_back(row);
     }
     return out;
@@ -1196,17 +1198,17 @@ QString BacktestViewModel::selectedErrorText() const {
 
 QVariantList BacktestViewModel::selectedEquityPoints() const {
     const auto* record = selectedRecord_();
-    return record == nullptr ? QVariantList{} : record->equityPoints;
+    return record == nullptr || !record->detailsLoaded ? QVariantList{} : record->equityPoints;
 }
 
 QVariantList BacktestViewModel::selectedResultMetrics() const {
     const auto* record = selectedRecord_();
-    return record == nullptr ? QVariantList{} : record->resultMetrics;
+    return record == nullptr || !record->detailsLoaded ? QVariantList{} : record->resultMetrics;
 }
 
 QString BacktestViewModel::selectedResultMetricKey() const {
     const auto* record = selectedRecord_();
-    if (record == nullptr || record->resultMetrics.empty()) return selectedResultMetricKey_;
+    if (record == nullptr || !record->detailsLoaded || record->resultMetrics.empty()) return selectedResultMetricKey_;
     for (const QVariant& value : record->resultMetrics) {
         const QVariantMap row = value.toMap();
         if (row.value(QStringLiteral("key")).toString() == selectedResultMetricKey_) return selectedResultMetricKey_;
@@ -1216,7 +1218,7 @@ QString BacktestViewModel::selectedResultMetricKey() const {
 
 QVariantList BacktestViewModel::selectedResultMetricSeries() const {
     const auto* record = selectedRecord_();
-    if (record == nullptr || record->equityPoints.size() < 2) return {};
+    if (record == nullptr || !record->detailsLoaded || record->equityPoints.size() < 2) return {};
 
     const QString metricKey = selectedResultMetricKey();
     const QString ratioKey = selectedResultMetricRatioKey_;
@@ -1278,7 +1280,7 @@ QVariantList BacktestViewModel::resultMetricRatioChoices() const {
     none.insert(QStringLiteral("label"), QStringLiteral("None"));
     out.push_back(none);
     const auto* record = selectedRecord_();
-    if (record == nullptr) return out;
+    if (record == nullptr || !record->detailsLoaded) return out;
     for (const QVariant& value : record->resultMetrics) {
         const QVariantMap metric = value.toMap();
         if (!metric.value(QStringLiteral("hasSeries")).toBool()) continue;
@@ -1292,13 +1294,13 @@ QVariantList BacktestViewModel::resultMetricRatioChoices() const {
 
 QVariantList BacktestViewModel::selectedSweepRows() const {
     const auto* record = selectedRecord_();
-    if (record == nullptr || !record->sweep) return {};
+    if (record == nullptr || !record->sweep || !record->detailsLoaded) return {};
     return record->sweepRows;
 }
 
 QVariantList BacktestViewModel::selectedSweepDistributionParamChoices() const {
     const auto* record = selectedRecord_();
-    if (record == nullptr || !record->sweep) return {};
+    if (record == nullptr || !record->sweep || !record->detailsLoaded) return {};
     QStringList keys = record->sweepParamKeys;
     appendSweepParamKeysFromRows(record->sweepRows, keys);
     QVariantList out;
@@ -1313,7 +1315,7 @@ QVariantList BacktestViewModel::selectedSweepDistributionParamChoices() const {
 
 QString BacktestViewModel::selectedSweepDistributionParam() const {
     const auto* record = selectedRecord_();
-    if (record == nullptr || !record->sweep) return {};
+    if (record == nullptr || !record->sweep || !record->detailsLoaded) return {};
     for (const QString& key : record->sweepParamKeys) {
         if (key == selectedSweepDistributionParam_) return key;
     }
@@ -1322,7 +1324,7 @@ QString BacktestViewModel::selectedSweepDistributionParam() const {
 
 QVariantList BacktestViewModel::selectedSweepCurves() const {
     const auto* record = selectedRecord_();
-    if (record == nullptr || !record->sweep) return {};
+    if (record == nullptr || !record->sweep || !record->detailsLoaded) return {};
     const int limit = selectedSweepCurveLimit_ == QStringLiteral("all") ? record->sweepCurves.size() : selectedSweepCurveLimit_.toInt();
     QVariantList out;
     for (int i = 0; i < record->sweepCurves.size() && i < limit; ++i) out.push_back(record->sweepCurves.at(i));
@@ -1331,7 +1333,7 @@ QVariantList BacktestViewModel::selectedSweepCurves() const {
 
 QVariantList BacktestViewModel::selectedSweepDistributionBars() const {
     const auto* record = selectedRecord_();
-    if (record == nullptr || !record->sweep) return {};
+    if (record == nullptr || !record->sweep || !record->detailsLoaded) return {};
     const QString paramKey = selectedSweepDistributionParam();
     if (paramKey.isEmpty()) return {};
     const QString metricKey = selectedSweepMetric_.isEmpty() ? QStringLiteral("total_pnl_e8") : selectedSweepMetric_;
@@ -1372,7 +1374,16 @@ bool BacktestViewModel::selectedIsSweep() const {
 
 bool BacktestViewModel::hasEquityPoints() const {
     const auto* record = selectedRecord_();
-    return record != nullptr && !record->equityPoints.empty();
+    return record != nullptr && record->detailsLoaded && !record->equityPoints.empty();
+}
+
+bool BacktestViewModel::selectedDetailsLoaded() const {
+    const auto* record = selectedRecord_();
+    return record != nullptr && record->detailsLoaded;
+}
+
+bool BacktestViewModel::selectedDetailsLoading() const {
+    return detailsLoading_ && !selectedRunId_.isEmpty() && selectedRunId_ == detailsLoadingRunId_;
 }
 
 qint64 BacktestViewModel::selectedInitialBalanceE8() const {
@@ -1408,11 +1419,15 @@ void BacktestViewModel::setSelectedSessionId(const QString& sessionId) {
     manualSessionPath_.clear();
     symbolOverride_.clear();
     selectedRunId_.clear();
+    ++detailsLoadGeneration_;
+    selectedDetailsErrorText_.clear();
+    setDetailsLoading_(false);
     emit selectedSessionChanged();
     emit multiSessionChanged();
     emit symbolChanged();
     emit canRunChanged();
-    refresh();
+    emit detailsLoadingChanged();
+    scheduleRefresh_();
 }
 
 void BacktestViewModel::setSessionPath(const QString& sessionPath) {
@@ -1422,10 +1437,14 @@ void BacktestViewModel::setSessionPath(const QString& sessionPath) {
     selectedSessionId_ = sessionIdFromPath_(normalized);
     symbolOverride_.clear();
     selectedRunId_.clear();
+    ++detailsLoadGeneration_;
+    selectedDetailsErrorText_.clear();
+    setDetailsLoading_(false);
     emit selectedSessionChanged();
     emit multiSessionChanged();
     emit symbolChanged();
     emit canRunChanged();
+    emit detailsLoadingChanged();
     refresh();
 }
 
@@ -1822,12 +1841,30 @@ void BacktestViewModel::refresh() {
             const QString manifestPath = candidateDir.absoluteFilePath(QStringLiteral("manifest.json"));
             if (!QFileInfo::exists(manifestPath)) return;
             const RunRecord* cached = recordForPath_(runDir.absoluteFilePath());
-            RunRecord record = (cached != nullptr && fileStampMatches_(manifestPath, cached->manifestModifiedMs, cached->manifestSize) && cached->manifestPath == manifestPath &&
-                                fileStampMatches_(cached->equityPath, cached->equityModifiedMs, cached->equitySize) &&
-                                fileStampMatches_(cached->sweepRowsPath, cached->sweepRowsModifiedMs, cached->sweepRowsSize) &&
-                                fileStampMatches_(cached->sweepCurvesPath, cached->sweepCurvesModifiedMs, cached->sweepCurvesSize))
-                ? *cached
-                : loadRecord_(runDir.absoluteFilePath());
+            RunRecord record = loadRecord_(runDir.absoluteFilePath(), false);
+            if (cached != nullptr
+                && cached->detailsLoaded
+                && cached->manifestPath == manifestPath
+                && fileStampMatches_(manifestPath, cached->manifestModifiedMs, cached->manifestSize)
+                && record.equityPath == cached->equityPath
+                && record.sweepRowsPath == cached->sweepRowsPath
+                && record.sweepCurvesPath == cached->sweepCurvesPath
+                && fileStampMatches_(cached->equityPath, cached->equityModifiedMs, cached->equitySize)
+                && fileStampMatches_(cached->sweepRowsPath, cached->sweepRowsModifiedMs, cached->sweepRowsSize)
+                && fileStampMatches_(cached->sweepCurvesPath, cached->sweepCurvesModifiedMs, cached->sweepCurvesSize)) {
+                record.equityPoints = cached->equityPoints;
+                record.resultMetrics = cached->resultMetrics;
+                record.sweepRows = cached->sweepRows;
+                record.sweepCurves = cached->sweepCurves;
+                record.sweepParamKeys = cached->sweepParamKeys;
+                record.detailsErrorText = cached->detailsErrorText;
+                record.pnlMinE8 = cached->pnlMinE8;
+                record.pnlMaxE8 = cached->pnlMaxE8;
+                record.initialBalanceE8 = cached->initialBalanceE8;
+                record.totalPnlE8 = cached->totalPnlE8;
+                record.pnlText = cached->pnlText;
+                record.detailsLoaded = true;
+            }
             if (!record.manifestPath.isEmpty()) filesToWatch.push_back(record.manifestPath);
             if (!record.equityPath.isEmpty()) filesToWatch.push_back(record.equityPath);
             if (!record.sweepRowsPath.isEmpty()) filesToWatch.push_back(record.sweepRowsPath);
@@ -1883,9 +1920,45 @@ void BacktestViewModel::refresh() {
 
 void BacktestViewModel::selectRun(const QString& runId) {
     if (selectedRunId_ == runId) return;
+    if (RunRecord* oldRecord = mutableRecordForRunId_(selectedRunId_)) clearRecordDetails_(*oldRecord);
+    ++detailsLoadGeneration_;
+    selectedDetailsErrorText_.clear();
+    setDetailsLoading_(false);
     selectedRunId_ = runId;
     emit selectionChanged();
     emit selectedResultMetricChanged();
+    emit detailsLoadingChanged();
+}
+
+void BacktestViewModel::loadSelectedRunDetails() {
+    const RunRecord* record = selectedRecord_();
+    if (record == nullptr || record->detailsLoaded || selectedDetailsLoading()) return;
+    const QString runId = record->runId;
+    const QString filePath = record->filePath;
+    const std::uint64_t generation = ++detailsLoadGeneration_;
+    selectedDetailsErrorText_.clear();
+    setDetailsLoading_(true, runId);
+
+    QPointer<BacktestViewModel> self(this);
+    std::thread([self, generation, runId, filePath]() {
+        RunRecord loaded = BacktestViewModel::loadRecord_(filePath, true);
+        if (!self) return;
+        QMetaObject::invokeMethod(self, [self, generation, runId, loaded = std::move(loaded)]() {
+            if (self) self->applyLoadedDetails_(generation, runId, loaded);
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void BacktestViewModel::unloadSelectedRunDetails() {
+    RunRecord* record = mutableRecordForRunId_(selectedRunId_);
+    if (record == nullptr) return;
+    clearRecordDetails_(*record);
+    selectedDetailsErrorText_.clear();
+    ++detailsLoadGeneration_;
+    setDetailsLoading_(false);
+    emit selectionChanged();
+    emit selectedResultMetricChanged();
+    emit detailsLoadingChanged();
 }
 
 void BacktestViewModel::setSelectedResultMetricKey(const QString& key) {
@@ -2260,7 +2333,7 @@ void BacktestViewModel::applyWorkerProgress(int percent, const QString& text) {
     setProgress_(percent, text);
 }
 
-BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& filePath) {
+BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& filePath, bool loadDetails) {
     RunRecord record;
     const QFileInfo info(filePath);
     const QDir runDir(info.absoluteFilePath());
@@ -2311,8 +2384,6 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
         record.sweepRowsPath = rowsPath;
         record.sweepRowsModifiedMs = fileStampMs_(rowsPath, &record.sweepRowsSize);
         record.modifiedMs = std::max(record.modifiedMs, record.sweepRowsModifiedMs);
-        record.sweepRows = sweepRowsFromJsonl(rowsPath, QStringLiteral("total_pnl_e8"));
-        appendSweepParamKeysFromRows(record.sweepRows, record.sweepParamKeys);
         const QJsonObject curvesObject = object.value(QStringLiteral("curves")).toObject();
         QString curvesPath = curvesObject.value(QStringLiteral("path")).toString(QStringLiteral("sweep_curves.jsonl"));
         const QFileInfo curvesInfo(curvesPath);
@@ -2320,12 +2391,17 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
         record.sweepCurvesPath = curvesPath;
         record.sweepCurvesModifiedMs = fileStampMs_(curvesPath, &record.sweepCurvesSize);
         record.modifiedMs = std::max(record.modifiedMs, record.sweepCurvesModifiedMs);
-        record.sweepCurves = sweepCurvesFromJsonl(curvesPath);
-        if (!record.sweepRows.empty()) record.totalPnlE8 = record.sweepRows.front().toMap().value(QStringLiteral("totalPnlE8")).toLongLong();
-        if (!record.sweepCurves.empty()) {
-            const QVariantMap first = record.sweepCurves.front().toMap();
-            record.initialBalanceE8 = first.value(QStringLiteral("initialBalanceE8")).toLongLong();
-            record.totalPnlE8 = first.value(QStringLiteral("totalPnlE8")).toLongLong();
+        if (loadDetails) {
+            record.sweepRows = sweepRowsFromJsonl(rowsPath, QStringLiteral("total_pnl_e8"));
+            appendSweepParamKeysFromRows(record.sweepRows, record.sweepParamKeys);
+            record.sweepCurves = sweepCurvesFromJsonl(curvesPath);
+            if (!record.sweepRows.empty()) record.totalPnlE8 = record.sweepRows.front().toMap().value(QStringLiteral("totalPnlE8")).toLongLong();
+            if (!record.sweepCurves.empty()) {
+                const QVariantMap first = record.sweepCurves.front().toMap();
+                record.initialBalanceE8 = first.value(QStringLiteral("initialBalanceE8")).toLongLong();
+                record.totalPnlE8 = first.value(QStringLiteral("totalPnlE8")).toLongLong();
+            }
+            record.detailsLoaded = true;
         }
         record.errorCount = errorCount(object.value(QStringLiteral("errors")));
         record.summaryJson = humanSummaryJson(object);
@@ -2352,14 +2428,17 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.totalPnlE8 = summary.value(QStringLiteral("total_pnl_e8")).toInteger();
     record.pnlText = pnlPercentText(record.totalPnlE8, record.initialBalanceE8);
     record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
-    record.resultMetrics = resultMetrics(object, summary);
     const QJsonObject streams = object.value(QStringLiteral("streams")).toObject();
     const QJsonObject equityStream = streams.value(QStringLiteral("equity")).toObject();
     const qint64 equityRows = equityStream.value(QStringLiteral("rows")).toInteger();
     record.equityPath = runDir.absoluteFilePath(QStringLiteral("equity.jsonl"));
     record.equityModifiedMs = fileStampMs_(record.equityPath, &record.equitySize);
     record.modifiedMs = std::max(record.modifiedMs, record.equityModifiedMs);
-    record.equityPoints = equityPointsFromJsonl(record.equityPath, summary, equityRows, record.pnlMinE8, record.pnlMaxE8);
+    if (loadDetails) {
+        record.resultMetrics = resultMetrics(object, summary);
+        record.equityPoints = equityPointsFromJsonl(record.equityPath, summary, equityRows, record.pnlMinE8, record.pnlMaxE8);
+        record.detailsLoaded = true;
+    }
     record.errorCount = errorCount(object.value(QStringLiteral("errors")));
     record.rawJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
     return record;
@@ -2386,6 +2465,13 @@ const BacktestViewModel::RunRecord* BacktestViewModel::recordForPath_(const QStr
     const QString target = QFileInfo(filePath).absoluteFilePath();
     const auto it = std::find_if(records_.begin(), records_.end(), [&target](const RunRecord& record) {
         return record.filePath == target;
+    });
+    return it == records_.end() ? nullptr : &(*it);
+}
+
+BacktestViewModel::RunRecord* BacktestViewModel::mutableRecordForRunId_(const QString& runId) noexcept {
+    const auto it = std::find_if(records_.begin(), records_.end(), [&runId](const RunRecord& record) {
+        return record.runId == runId;
     });
     return it == records_.end() ? nullptr : &(*it);
 }
@@ -2456,6 +2542,54 @@ void BacktestViewModel::setProgress_(int percent, const QString& text) {
     progressPercent_ = clamped;
     progressText_ = text;
     emit progressChanged();
+}
+
+void BacktestViewModel::setDetailsLoading_(bool loading, const QString& runId) {
+    if (detailsLoading_ == loading && detailsLoadingRunId_ == runId) return;
+    detailsLoading_ = loading;
+    detailsLoadingRunId_ = loading ? runId : QString{};
+    emit detailsLoadingChanged();
+}
+
+void BacktestViewModel::clearRecordDetails_(RunRecord& record) {
+    record.equityPoints.clear();
+    record.resultMetrics.clear();
+    record.sweepRows.clear();
+    record.sweepCurves.clear();
+    record.detailsErrorText.clear();
+    record.pnlMinE8 = 0;
+    record.pnlMaxE8 = 0;
+    record.detailsLoaded = false;
+}
+
+void BacktestViewModel::applyLoadedDetails_(std::uint64_t generation, const QString& runId, const RunRecord& loaded) {
+    if (generation != detailsLoadGeneration_ || selectedRunId_ != runId) return;
+    setDetailsLoading_(false);
+    RunRecord* record = mutableRecordForRunId_(runId);
+    if (record == nullptr || record->filePath != loaded.filePath) return;
+
+    record->rawJson = loaded.rawJson;
+    record->summaryJson = loaded.summaryJson;
+    record->errorText = loaded.errorText;
+    record->detailsErrorText = loaded.detailsErrorText;
+    record->equityPoints = loaded.equityPoints;
+    record->resultMetrics = loaded.resultMetrics;
+    record->sweepRows = loaded.sweepRows;
+    record->sweepCurves = loaded.sweepCurves;
+    record->sweepParamKeys = loaded.sweepParamKeys;
+    record->pnlMinE8 = loaded.pnlMinE8;
+    record->pnlMaxE8 = loaded.pnlMaxE8;
+    record->initialBalanceE8 = loaded.initialBalanceE8;
+    record->totalPnlE8 = loaded.totalPnlE8;
+    record->pnlText = loaded.pnlText;
+    record->valid = loaded.valid;
+    record->detailsLoaded = loaded.valid;
+    selectedDetailsErrorText_ = loaded.valid ? loaded.detailsErrorText : loaded.errorText;
+
+    emit runsChanged();
+    emit selectionChanged();
+    emit selectedResultMetricChanged();
+    emit detailsLoadingChanged();
 }
 
 void BacktestViewModel::stopWorker_() {
