@@ -5,7 +5,9 @@
 #include <fstream>
 #include <string>
 
+#include <QCoreApplication>
 #include <QPointF>
+#include <QSettings>
 #include <QString>
 
 #include "core/storage/EventStorage.hpp"
@@ -39,6 +41,12 @@ fs::path makeTmpDir() {
 void writeFile(const fs::path& path, const std::string& data) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out << data;
+}
+
+void isolateViewerSettings(QStringView suffix) {
+    QCoreApplication::setOrganizationName(QStringLiteral("hftrec_viewer_tests"));
+    QCoreApplication::setApplicationName(QStringLiteral("case_%1_%2").arg(suffix, QString::number(std::rand())));
+    QSettings{}.clear();
 }
 
 std::string bookTickerLine(std::int64_t tsNs,
@@ -263,6 +271,52 @@ TEST(ViewerBookTickerCompare, RebuildPreservesManualTimeViewport) {
     fs::remove_all(dirA, ec);
     fs::remove_all(dirB, ec);
 }
+
+TEST(ViewerBookTickerCompare, RecordedSourceUsesBookTickerWithoutFullSessionReplay) {
+    const auto dirA = makeTmpDir();
+    const auto dirB = makeTmpDir();
+    fs::create_directories(dirA / "jsonl");
+    fs::create_directories(dirB / "jsonl");
+
+    writeFile(
+        dirA / "jsonl" / "bookticker.jsonl",
+        bookTickerLine(1000, 1, e8(10000), e8(10010))
+            + bookTickerLine(2000, 2, e8(10020), e8(10030)));
+    writeFile(
+        dirB / "jsonl" / "bookticker.jsonl",
+        bookTickerLine(1000, 1, e8(10005), e8(10015))
+            + bookTickerLine(2000, 2, e8(10025), e8(10035)));
+
+    writeFile(dirA / "jsonl" / "depth_tape.jsonl", "[9223372036854776808,100,2]\n[9223372036854777808,101,2]\n");
+    writeFile(dirA / "jsonl" / "depth_sidecar.jsonl", "[9223372036854776808,0,1]\n");
+    writeFile(dirB / "jsonl" / "depth_tape.jsonl", "[9223372036854776808,100,2]\n[9223372036854777808,101,2]\n");
+    writeFile(dirB / "jsonl" / "depth_sidecar.jsonl", "[9223372036854776808,0,1]\n");
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
+    EXPECT_EQ(compare.primaryCount(), 2);
+    EXPECT_EQ(compare.secondaryCount(), 2);
+    EXPECT_TRUE(compare.ready());
+
+    std::error_code ec;
+    fs::remove_all(dirA, ec);
+    fs::remove_all(dirB, ec);
+}
+
+TEST(ViewerBookTickerCompare, PersistsMeanWindowSeconds) {
+    isolateViewerSettings(QStringLiteral("mean_window"));
+
+    {
+        BookTickerCompareController compare;
+        EXPECT_NEAR(compare.meanWindowSeconds(), 5.0, 0.000001);
+        compare.setMeanWindowSeconds(12.5);
+    }
+
+    BookTickerCompareController restored;
+    EXPECT_NEAR(restored.meanWindowSeconds(), 12.5, 0.000001);
+}
+
 TEST(ViewerLiveSource, RegistrySelectionUsesInMemoryProviderForViewportCache) {
     hftrec::storage::LiveEventStore store{};
     ASSERT_EQ(store.appendTrade(tradeRow(100, 1, e8(100), e8(2))), hftrec::Status::Ok);

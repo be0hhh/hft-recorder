@@ -5,6 +5,9 @@
 
 #include "core/replay/SessionReplay.hpp"
 
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 
 namespace hftrec::gui::viewer {
@@ -45,10 +48,38 @@ QString feeSettingsKey(const QString& exchange, const QString& market) {
     return QStringLiteral("fees/%1/%2/action_bps").arg(ex, mk);
 }
 
+QString meanWindowSettingsKey() {
+    return QStringLiteral("viewer/bookticker_compare/mean_window_seconds");
+}
+
+std::filesystem::path existingFileOrEmpty(const std::filesystem::path& path) noexcept {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec) && !ec ? path : std::filesystem::path{};
+}
+
+QJsonObject readSessionManifestObject(const std::filesystem::path& sessionPath) {
+    QFile file(QString::fromStdString((sessionPath / "manifest.json").string()));
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    return doc.isObject() ? doc.object() : QJsonObject{};
+}
+
+std::filesystem::path recordedBookTickerPath(const std::filesystem::path& sessionPath) {
+    const QJsonObject manifest = readSessionManifestObject(sessionPath);
+    const QJsonObject channels = manifest.value(QStringLiteral("channels")).toObject();
+    const QString manifestPath = channels.value(QStringLiteral("bookticker")).toObject().value(QStringLiteral("path")).toString();
+    if (!manifestPath.isEmpty()) {
+        if (const auto path = existingFileOrEmpty(sessionPath / manifestPath.toStdString()); !path.empty()) return path;
+    }
+    if (const auto path = existingFileOrEmpty(sessionPath / "jsonl" / "bookticker.jsonl"); !path.empty()) return path;
+    return existingFileOrEmpty(sessionPath / "bookticker.jsonl");
+}
+
 }  // namespace
 
 BookTickerCompareController::BookTickerCompareController(QObject* parent)
     : QObject(parent) {
+    meanWindowSeconds_ = cleanMeanWindowSeconds(QSettings{}.value(meanWindowSettingsKey(), meanWindowSeconds_).toDouble());
     liveTimer_.setInterval(100);
     connect(&liveTimer_, &QTimer::timeout, this, &BookTickerCompareController::pollLive_);
 }
@@ -159,6 +190,7 @@ void BookTickerCompareController::setMeanWindowSeconds(double seconds) {
     seconds = cleanMeanWindowSeconds(seconds);
     if (std::abs(meanWindowSeconds_ - seconds) < 0.000001) return;
     meanWindowSeconds_ = seconds;
+    QSettings{}.setValue(meanWindowSettingsKey(), meanWindowSeconds_);
     emit meanChanged();
     rebuild_();
 }
@@ -268,12 +300,19 @@ bool BookTickerCompareController::setSource_(SourceState& state,
 
 void BookTickerCompareController::reloadRecorded_(SourceState& state) {
     state.rows.clear();
-    hftrec::replay::SessionReplay replay{};
-    const auto status = replay.open(state.sessionPath);
-    if (!isOk(status)) {
-        setStatus_(QStringLiteral("Failed to load recorded session"));
+    const auto bookTickerPath = recordedBookTickerPath(state.sessionPath);
+    if (bookTickerPath.empty()) {
+        setStatus_(QStringLiteral("bookTicker file is missing for recorded session"));
         return;
     }
+
+    hftrec::replay::SessionReplay replay{};
+    const auto status = replay.addBookTickerFile(bookTickerPath);
+    if (!isOk(status)) {
+        setStatus_(QStringLiteral("Failed to load recorded bookTicker"));
+        return;
+    }
+    replay.finalize();
     state.rows = replay.bookTickers();
     std::sort(state.rows.begin(), state.rows.end(), rowsLessTs);
 }

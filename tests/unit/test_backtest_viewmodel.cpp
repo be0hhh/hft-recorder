@@ -429,6 +429,39 @@ TEST(BacktestViewModel, ExposesBacktestProbeWithoutStrategyParams) {
     EXPECT_EQ(vm.selectedIndicatorProfile(), QStringLiteral("trade_range"));
 }
 
+TEST(BacktestViewModel, ExposesTwoLegProbeWithoutStrategyParams) {
+    isolateSettings(QStringLiteral("two_leg_probe"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(QStringLiteral("hftrec_two_leg_probe_primary_%1_%2")
+                                                                           .arg(QCoreApplication::applicationPid())
+                                                                           .arg(std::rand()));
+    const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(QStringLiteral("hftrec_two_leg_probe_secondary_%1_%2")
+                                                                             .arg(QCoreApplication::applicationPid())
+                                                                             .arg(std::rand()));
+    QDir().mkpath(primary);
+    QDir().mkpath(secondary);
+    writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+    writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+
+    vm.setSessionPath(primary);
+    vm.setExtraSessionIds(secondary);
+
+    EXPECT_EQ(vm.selectedSessionCount(), 2);
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("two_leg_probe")));
+    EXPECT_FALSE(hasChoiceId(vm.strategyChoices(), QStringLiteral("spread_maker1and2")));
+    EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("two_leg_probe"));
+    EXPECT_TRUE(vm.strategyParameters().empty());
+    EXPECT_EQ(vm.configModeChoices().size(), 1);
+    EXPECT_TRUE(vm.indicatorProfileChoices().empty());
+    EXPECT_TRUE(vm.selectedIndicatorProfile().isEmpty());
+
+    QDir(primary).removeRecursively();
+    QDir(secondary).removeRecursively();
+}
+
 TEST(BacktestViewModel, ExposesStrategyChoicesFromBacktestMetadata) {
     isolateSettings(QStringLiteral("strategy_discovery"));
 
@@ -439,6 +472,7 @@ TEST(BacktestViewModel, ExposesStrategyChoicesFromBacktestMetadata) {
     EXPECT_EQ(choiceLabel(choices, QStringLiteral("spread_maker1and2")), QStringLiteral("spread_maker1and2"));
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("backtest_probe")));
     EXPECT_EQ(choiceLabel(choices, QStringLiteral("backtest_probe")), QStringLiteral("backtest_probe"));
+    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("two_leg_probe")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("strategyMD")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("horizontal_levels")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("iceberg_detector")));
@@ -519,11 +553,103 @@ TEST(BacktestViewModel, ExplainsWhenSelectedStrategyDoesNotSupportExtraSessions)
 
     vm.setSessionPath(primary);
     vm.setExtraSessionIds(secondary);
+    vm.setSelectedStrategy(QStringLiteral("spread_maker1and2"));
 
     EXPECT_EQ(vm.selectedSessionCount(), 2);
     EXPECT_FALSE(vm.canRun());
     EXPECT_TRUE(vm.statusText().contains(QStringLiteral("Selected 2 sessions")));
     EXPECT_TRUE(vm.statusText().contains(QStringLiteral("supports 1 session")));
+
+    QDir(primary).removeRecursively();
+    QDir(secondary).removeRecursively();
+}
+
+TEST(BacktestViewModel, AllowsTwoLegProbeOnlyForTwoSessions) {
+    isolateSettings(QStringLiteral("two_leg_gate"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString primaryId = QStringLiteral("hftrec_primary_%1_%2")
+                                  .arg(QCoreApplication::applicationPid())
+                                  .arg(std::rand());
+    const QString secondaryId = QStringLiteral("hftrec_secondary_%1_%2")
+                                    .arg(QCoreApplication::applicationPid())
+                                    .arg(std::rand());
+    const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(primaryId);
+    const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(secondaryId);
+    QDir().mkpath(primary);
+    QDir().mkpath(secondary);
+    writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+    writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"ETHUSDT\"}"));
+
+    vm.setSessionPath(primary);
+
+    EXPECT_EQ(vm.selectedSessionCount(), 1);
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("spread_maker1and2")));
+    EXPECT_FALSE(hasChoiceId(vm.strategyChoices(), QStringLiteral("two_leg_probe")));
+
+    vm.setExtraSessionIds(secondary);
+
+    EXPECT_EQ(vm.selectedSessionCount(), 2);
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("two_leg_probe")));
+    EXPECT_FALSE(hasChoiceId(vm.strategyChoices(), QStringLiteral("spread_maker1and2")));
+    EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("two_leg_probe"));
+    EXPECT_TRUE(vm.canRun());
+    EXPECT_FALSE(vm.statusText().contains(QStringLiteral("strategy supports")));
+    const QVariantList legs = vm.selectedSessionLegs();
+    ASSERT_EQ(legs.size(), 2);
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("index")).toInt(), 0);
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("index")).toInt(), 1);
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("bybit_futures"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("okx_futures"));
+
+    QDir(primary).removeRecursively();
+    QDir(secondary).removeRecursively();
+}
+
+TEST(BacktestViewModel, StoresVenueExecutionValuesPerExchangeMarket) {
+    isolateSettings(QStringLiteral("venue_execution_values"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString primaryId = QStringLiteral("hftrec_fee_primary_%1_%2")
+                                  .arg(QCoreApplication::applicationPid())
+                                  .arg(std::rand());
+    const QString secondaryId = QStringLiteral("hftrec_fee_secondary_%1_%2")
+                                    .arg(QCoreApplication::applicationPid())
+                                    .arg(std::rand());
+    const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(primaryId);
+    const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(secondaryId);
+    QDir().mkpath(primary);
+    QDir().mkpath(secondary);
+    writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+    writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"exchange\":\"bybit\",\"market\":\"futures\",\"symbols\":\"ETHUSDT\"}"));
+
+    vm.setSessionPath(primary);
+    vm.setExtraSessionIds(secondary);
+    vm.setVenueExecutionValue(0, QStringLiteral("maker_fee_bps"), QStringLiteral("0.2"));
+    vm.setVenueExecutionValue(0, QStringLiteral("market_data_latency_us"), QStringLiteral("111"));
+    vm.setVenueExecutionValue(1, QStringLiteral("maker_fee_bps"), QStringLiteral("0.1"));
+    vm.setVenueExecutionValue(1, QStringLiteral("market_data_latency_us"), QStringLiteral("333"));
+
+    QVariantList rows = vm.selectedSessionLegs();
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("okx"));
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.2"));
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("111"));
+    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("bybit"));
+    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.1"));
+    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
+
+    hftrec::gui::BacktestViewModel restored;
+    restored.setSessionPath(primary);
+    restored.setExtraSessionIds(secondary);
+    rows = restored.selectedSessionLegs();
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.2"));
+    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
 
     QDir(primary).removeRecursively();
     QDir(secondary).removeRecursively();

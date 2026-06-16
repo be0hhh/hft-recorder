@@ -7,6 +7,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QTimer>
 
 #include <atomic>
@@ -28,7 +29,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(int selectedSessionCount READ selectedSessionCount NOTIFY multiSessionChanged)
     Q_PROPERTY(QString selectedSymbol READ selectedSymbol WRITE setSelectedSymbol NOTIFY symbolChanged)
     Q_PROPERTY(QString backtestsDirectory READ backtestsDirectory NOTIFY selectedSessionChanged)
-    Q_PROPERTY(QVariantList strategyChoices READ strategyChoices CONSTANT)
+    Q_PROPERTY(QVariantList strategyChoices READ strategyChoices NOTIFY selectedStrategyChanged)
     Q_PROPERTY(QString selectedStrategy READ selectedStrategy WRITE setSelectedStrategy NOTIFY selectedStrategyChanged)
     Q_PROPERTY(QString configMode READ configMode WRITE setConfigMode NOTIFY configChanged)
     Q_PROPERTY(QVariantList indicatorProfileChoices READ indicatorProfileChoices NOTIFY selectedStrategyChanged)
@@ -66,6 +67,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedRunId READ selectedRunId NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedJson READ selectedJson NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedSummaryJson READ selectedSummaryJson NOTIFY selectionChanged)
+    Q_PROPERTY(QString selectedConfigText READ selectedConfigText NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedErrorText READ selectedErrorText NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedEquityPoints READ selectedEquityPoints NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedResultMetrics READ selectedResultMetrics NOTIFY selectionChanged)
@@ -78,6 +80,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QVariantList selectedSweepDistributionBars READ selectedSweepDistributionBars NOTIFY selectionChanged)
     Q_PROPERTY(bool selectedIsSweep READ selectedIsSweep NOTIFY selectionChanged)
     Q_PROPERTY(bool hasEquityPoints READ hasEquityPoints NOTIFY selectionChanged)
+    Q_PROPERTY(bool selectedPreviewLoading READ selectedPreviewLoading NOTIFY previewLoadingChanged)
     Q_PROPERTY(bool selectedDetailsLoaded READ selectedDetailsLoaded NOTIFY selectionChanged)
     Q_PROPERTY(bool selectedDetailsLoading READ selectedDetailsLoading NOTIFY detailsLoadingChanged)
     Q_PROPERTY(QString selectedDetailsErrorText READ selectedDetailsErrorText NOTIFY detailsLoadingChanged)
@@ -143,6 +146,7 @@ class BacktestViewModel : public QObject {
     QString selectedRunId() const { return selectedRunId_; }
     QString selectedJson() const;
     QString selectedSummaryJson() const;
+    QString selectedConfigText() const;
     QString selectedErrorText() const;
     QVariantList selectedEquityPoints() const;
     QVariantList selectedResultMetrics() const;
@@ -155,6 +159,7 @@ class BacktestViewModel : public QObject {
     QVariantList selectedSweepDistributionBars() const;
     bool selectedIsSweep() const;
     bool hasEquityPoints() const;
+    bool selectedPreviewLoading() const;
     bool selectedDetailsLoaded() const;
     bool selectedDetailsLoading() const;
     QString selectedDetailsErrorText() const { return selectedDetailsErrorText_; }
@@ -187,6 +192,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setMarketOrderJitterUs(const QString& value);
     Q_INVOKABLE void setLimitOrderLatencyUs(const QString& value);
     Q_INVOKABLE void setLimitOrderJitterUs(const QString& value);
+    Q_INVOKABLE void setVenueExecutionValue(int legIndex, const QString& field, const QString& value);
     Q_INVOKABLE void setInitialBalanceUsdt(const QString& value);
     Q_INVOKABLE void setRiskMinEquityPct(const QString& value);
     Q_INVOKABLE void setMakerFeeBps(const QString& value);
@@ -239,6 +245,7 @@ class BacktestViewModel : public QObject {
     void runsChanged();
     void selectionChanged();
     void selectedResultMetricChanged();
+    void previewLoadingChanged();
     void statusTextChanged();
     void runningChanged();
     void canRunChanged();
@@ -246,6 +253,12 @@ class BacktestViewModel : public QObject {
     void detailsLoadingChanged();
 
   private:
+    enum class RecordLoadMode {
+        MetadataOnly,
+        Preview,
+        Details,
+    };
+
     struct RunRecord {
         QString runId{};
         QString displayName{};
@@ -287,7 +300,7 @@ class BacktestViewModel : public QObject {
         bool detailsLoaded{false};
     };
 
-    static RunRecord loadRecord_(const QString& filePath, bool loadDetails);
+    static RunRecord loadRecord_(const QString& filePath, RecordLoadMode mode);
     static QString normalizedPath_(const QString& path);
     static QString sessionIdFromPath_(const QString& path);
     static qint64 fileStampMs_(const QString& path, qint64* sizeOut = nullptr);
@@ -299,10 +312,14 @@ class BacktestViewModel : public QObject {
     void scheduleRefresh_();
     void updateWatcher_();
     void setStatusText_(const QString& statusText);
+    void refreshSessionGateStatus_();
     void setRunning_(bool running);
     void setProgress_(int percent, const QString& text);
+    void setPreviewLoading_(bool loading, const QString& runId = QString{});
     void setDetailsLoading_(bool loading, const QString& runId = QString{});
     void clearRecordDetails_(RunRecord& record);
+    void ensureSelectedPreviewLoaded_();
+    void applyLoadedPreview_(std::uint64_t generation, const QString& runId, const RunRecord& loaded);
     void applyLoadedDetails_(std::uint64_t generation, const QString& runId, const RunRecord& loaded);
     QVariantList loadSessions_() const;
     void stopWorker_();
@@ -317,8 +334,11 @@ class BacktestViewModel : public QObject {
     QString writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides = {}, bool fixedOnly = false);
     QStringList selectedSessionPaths_() const;
     bool strategySupportsSelectedSessionCount_() const;
+    bool ensureSelectedStrategySupportsSessionCount_();
     qint64 decimalE8Value_(const QString& value, qint64 fallback) const noexcept;
     quint64 latencyValue_(const QString& value, quint64 fallback) const noexcept;
+    QString venueExecutionValue_(const QString& venueKey, const QString& field, const QString& fallback) const;
+    std::vector<QVariantMap> venueExecutionRows_() const;
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
 
     QFileSystemWatcher watcher_{};
@@ -356,16 +376,21 @@ class BacktestViewModel : public QObject {
     QString statusText_{QStringLiteral("Select a session and strategy")};
     QString progressText_{QStringLiteral("Idle")};
     QString selectedDetailsErrorText_{};
+    QString previewLoadingRunId_{};
     QString detailsLoadingRunId_{};
+    QString pendingDetailsRunId_{};
+    std::uint64_t previewLoadGeneration_{0};
     std::uint64_t detailsLoadGeneration_{0};
     int progressPercent_{0};
     bool running_{false};
+    bool previewLoading_{false};
     bool detailsLoading_{false};
     std::atomic<bool> cancelRequested_{false};
     std::thread worker_{};
     QVariantList sessions_{};
     std::vector<RunRecord> records_{};
     QHash<QString, QString> paramValues_{};
+    QHash<QString, QString> venueExecutionValues_{};
     QHash<QString, QString> paramModes_{};
     QHash<QString, QString> paramMinValues_{};
     QHash<QString, QString> paramMaxValues_{};

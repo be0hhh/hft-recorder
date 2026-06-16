@@ -119,8 +119,7 @@ TEST(BookTickerSpread, ComputesTrailingMeanAndCostEdge) {
     EXPECT_NEAR(mean[1].meanBps, -90.0, 0.0001);
     EXPECT_NEAR(mean[2].meanBps, -50.0, 0.0001);
     EXPECT_NEAR(mean[2].deviationBps, 30.0, 0.0001);
-    EXPECT_NEAR(mean[2].costBandBps, 52.0, 0.0001);
-    EXPECT_NEAR(mean[2].edgeAfterCostBps, -22.0, 0.0001);
+    EXPECT_NEAR(mean[2].costBandBps, 47.0, 0.0001);
+    EXPECT_NEAR(mean[2].edgeAfterCostBps, -17.0, 0.0001);
 }
 }  // namespace
-

@@ -172,14 +172,23 @@ QVariantList resultMetrics(const QJsonObject& root, const QJsonObject& summary) 
         if (!summary.contains(key)) return;
         appendMetric(key, label, metricDisplayValue(key, summary.value(key)), group, primary, hasSeries, description, why, interpretation);
     };
-    appendSummary("total_pnl_e8",
-                  QStringLiteral("Total PnL"),
+    const char* realizedPnlKey = summary.contains(QStringLiteral("net_realized_pnl_e8")) ? "net_realized_pnl_e8" : "realized_pnl_e8";
+    appendSummary(realizedPnlKey,
+                  QStringLiteral("Realized PnL"),
                   QStringLiteral("Return"),
                   true,
                   true,
-                  QStringLiteral("Итоговый PnL после комиссий. Это главный ответ: стратегия заработала или потеряла."),
+                  QStringLiteral("Итоговый реализованный PnL после комиссий, без нереализованной позиции."),
                   QStringLiteral("По графику видно, когда именно результат набирался или проседал."),
                   QStringLiteral("Плавный рост лучше резких скачков. Долгая плоская линия значит, что стратегия мало торговала или не находила сигнал."));
+    appendSummary("total_pnl_e8",
+                  QStringLiteral("Total PnL"),
+                  QStringLiteral("Return"),
+                  false,
+                  true,
+                  QStringLiteral("Итоговый PnL с учетом нереализованной позиции, если она была открыта."),
+                  QStringLiteral("Нужен для сверки с engine summary, но основной экран смотрит realized PnL."),
+                  QStringLiteral("Если отличается от Realized PnL, значит в конце backtest оставалась открытая позиция."));
     appendSummary("fees_paid_e8",
                   QStringLiteral("Fees paid"),
                   QStringLiteral("Return"),
@@ -495,6 +504,22 @@ QString firstDiscoveredStrategy() {
     return metadata == nullptr ? QString{} : qString(metadata->id);
 }
 
+bool strategyMetadataSupportsSessionCount(const hft_backtest::StrategyMetadata& metadata, int selectedCount) {
+    const int count = selectedCount <= 0 ? 1 : selectedCount;
+    const int minCount = metadata.minSessionCount == 0u ? 1 : static_cast<int>(metadata.minSessionCount);
+    const int maxCount = metadata.maxSessionCount == 0u ? 1 : static_cast<int>(metadata.maxSessionCount);
+    return count >= minCount && count <= maxCount;
+}
+
+QString firstDiscoveredStrategyForSessionCount(int selectedCount) {
+    const std::size_t count = hft_backtest::strategyMetadataCount();
+    for (std::size_t i = 0; i < count; ++i) {
+        const hft_backtest::StrategyMetadata* metadata = hft_backtest::strategyMetadataAt(i);
+        if (metadata != nullptr && metadata->id != nullptr && strategyMetadataSupportsSessionCount(*metadata, selectedCount)) return qString(metadata->id);
+    }
+    return {};
+}
+
 QString configTemplatePathForStrategy(const QString& strategy) {
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
     if (metadata == nullptr || metadata->configTemplateFile == nullptr || metadata->configTemplateFile[0] == '\0') return {};
@@ -568,9 +593,13 @@ QString symbolFromSessionId(const QString& sessionId) {
 }
 
 QString venueSectionFor(const QString& exchange, const QString& market) {
-    if (exchange == QStringLiteral("binance") && market.startsWith(QStringLiteral("futures"))) return QStringLiteral("binance_futures");
-    if (exchange == QStringLiteral("bybit")) return QStringLiteral("bybit_linear");
+    if (exchange == QStringLiteral("binance") && market == QStringLiteral("spot")) return QStringLiteral("binance_spot");
+    if (exchange == QStringLiteral("binance")) return QStringLiteral("binance_futures");
+    if (exchange == QStringLiteral("bybit") && market == QStringLiteral("spot")) return QStringLiteral("bybit_spot");
+    if (exchange == QStringLiteral("bybit")) return QStringLiteral("bybit_futures");
+    if (exchange == QStringLiteral("kucoin") && market == QStringLiteral("spot")) return QStringLiteral("kucoin_spot");
     if (exchange == QStringLiteral("kucoin")) return QStringLiteral("kucoin_futures");
+    if (exchange == QStringLiteral("gate") && market == QStringLiteral("spot")) return QStringLiteral("gate_spot");
     if (exchange == QStringLiteral("gate")) return QStringLiteral("gate_futures");
     if (exchange == QStringLiteral("bitget") && market == QStringLiteral("spot")) return QStringLiteral("bitget_spot");
     if (exchange == QStringLiteral("bitget") && market == QStringLiteral("inverse")) return QStringLiteral("bitget_inverse");
@@ -578,6 +607,7 @@ QString venueSectionFor(const QString& exchange, const QString& market) {
     if (exchange == QStringLiteral("bitget")) return QStringLiteral("bitget_futures");
     if (exchange == QStringLiteral("aster") && market == QStringLiteral("spot")) return QStringLiteral("aster_spot");
     if (exchange == QStringLiteral("aster")) return QStringLiteral("aster_futures");
+    if (exchange == QStringLiteral("okx") && market == QStringLiteral("spot")) return QStringLiteral("okx_spot");
     if (exchange == QStringLiteral("okx")) return QStringLiteral("okx_futures");
     return QStringLiteral("binance_futures");
 }
@@ -606,6 +636,35 @@ QString normalizedFeeMarket(QString market) {
     if (market == QStringLiteral("usdt") || market == QStringLiteral("linear")) return QStringLiteral("futures_usdt");
     if (market == QStringLiteral("usdc")) return QStringLiteral("futures_usdc");
     return market;
+}
+
+QString venueExecutionKey(const QString& sessionPath) {
+    const QString exchange = manifestValue(sessionPath, QStringLiteral("exchange")).trimmed().toLower();
+    const QString market = normalizedFeeMarket(manifestValue(sessionPath, QStringLiteral("market")));
+    if (exchange.isEmpty() || market.isEmpty()) return {};
+    return exchange + QLatin1Char('|') + market;
+}
+
+QString venueExecutionSettingKey(QString venueKey) {
+    venueKey.replace(QLatin1Char('|'), QStringLiteral("__"));
+    venueKey.replace(QLatin1Char('/'), QLatin1Char('_'));
+    venueKey.replace(QLatin1Char('\\'), QLatin1Char('_'));
+    return venueKey;
+}
+
+QString venueExecutionMapKey(const QString& venueKey, const QString& field) {
+    return venueKey + QLatin1Char('|') + field.trimmed().toLower();
+}
+
+bool isVenueExecutionField(const QString& field) {
+    return field == QStringLiteral("maker_fee_bps") ||
+           field == QStringLiteral("taker_fee_bps") ||
+           field == QStringLiteral("market_data_latency_us") ||
+           field == QStringLiteral("market_data_jitter_us") ||
+           field == QStringLiteral("market_order_latency_us") ||
+           field == QStringLiteral("market_order_jitter_us") ||
+           field == QStringLiteral("limit_order_latency_us") ||
+           field == QStringLiteral("limit_order_jitter_us");
 }
 
 QString cleanProfileName(QString name) {
@@ -909,6 +968,7 @@ BacktestViewModel::BacktestViewModel(QObject* parent) : QObject(parent) {
     loadPersistentConfig_();
     sessions_ = loadSessions_();
     if (!sessions_.empty()) selectedSessionId_ = sessions_.front().toMap().value(QStringLiteral("id")).toString();
+    ensureSelectedStrategySupportsSessionCount_();
     refresh();
 }
 
@@ -989,11 +1049,23 @@ QVariantList BacktestViewModel::selectedSessionLegs() const {
     for (int i = 0; i < paths.size(); ++i) {
         QVariantMap row;
         const QString path = paths.at(i);
+        const QString venueKey = venueExecutionKey(path);
         row.insert(QStringLiteral("index"), i);
         row.insert(QStringLiteral("path"), path);
         row.insert(QStringLiteral("id"), sessionIdFromPath_(path));
         row.insert(QStringLiteral("symbol"), symbolForSessionPath(path));
         row.insert(QStringLiteral("venue"), venueSectionForSession(path));
+        row.insert(QStringLiteral("venueKey"), venueKey);
+        row.insert(QStringLiteral("exchange"), manifestValue(path, QStringLiteral("exchange")).trimmed().toLower());
+        row.insert(QStringLiteral("market"), normalizedFeeMarket(manifestValue(path, QStringLiteral("market"))));
+        row.insert(QStringLiteral("makerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), makerFeeBps_));
+        row.insert(QStringLiteral("takerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), takerFeeBps_));
+        row.insert(QStringLiteral("marketDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_));
+        row.insert(QStringLiteral("marketDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_));
+        row.insert(QStringLiteral("marketOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_));
+        row.insert(QStringLiteral("marketOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_));
+        row.insert(QStringLiteral("limitOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_));
+        row.insert(QStringLiteral("limitOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_));
         row.insert(QStringLiteral("label"), QStringLiteral("%1: %2 %3")
             .arg(i + 1)
             .arg(venueSectionForSession(path), symbolForSessionPath(path)));
@@ -1004,6 +1076,43 @@ QVariantList BacktestViewModel::selectedSessionLegs() const {
 
 int BacktestViewModel::selectedSessionCount() const {
     return selectedSessionPaths_().size();
+}
+
+QString BacktestViewModel::venueExecutionValue_(const QString& venueKey, const QString& field, const QString& fallback) const {
+    const QString normalizedField = field.trimmed().toLower();
+    if (venueKey.isEmpty() || normalizedField.isEmpty()) return fallback;
+    const QString mapKey = venueExecutionMapKey(venueKey, normalizedField);
+    if (venueExecutionValues_.contains(mapKey)) return venueExecutionValues_.value(mapKey);
+    return settings_.value(QStringLiteral("backtests/venue_execution/%1/%2")
+                               .arg(venueExecutionSettingKey(venueKey), normalizedField),
+                           fallback)
+        .toString()
+        .trimmed();
+}
+
+std::vector<QVariantMap> BacktestViewModel::venueExecutionRows_() const {
+    std::vector<QVariantMap> out;
+    QSet<QString> emitted;
+    const QStringList paths = selectedSessionPaths_();
+    out.reserve(static_cast<std::size_t>(paths.size()));
+    for (const QString& path : paths) {
+        const QString venueKey = venueExecutionKey(path);
+        if (venueKey.isEmpty() || emitted.contains(venueKey)) continue;
+        emitted.insert(venueKey);
+        QVariantMap row;
+        row.insert(QStringLiteral("exchange"), manifestValue(path, QStringLiteral("exchange")).trimmed().toLower());
+        row.insert(QStringLiteral("market"), normalizedFeeMarket(manifestValue(path, QStringLiteral("market"))));
+        row.insert(QStringLiteral("makerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), makerFeeBps_));
+        row.insert(QStringLiteral("takerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), takerFeeBps_));
+        row.insert(QStringLiteral("marketDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_));
+        row.insert(QStringLiteral("marketDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_));
+        row.insert(QStringLiteral("marketOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_));
+        row.insert(QStringLiteral("marketOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_));
+        row.insert(QStringLiteral("limitOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_));
+        row.insert(QStringLiteral("limitOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_));
+        out.push_back(std::move(row));
+    }
+    return out;
 }
 
 QString BacktestViewModel::selectedSymbol() const {
@@ -1066,10 +1175,12 @@ bool indicatorProfileAllowedForStrategy(const QString& strategy, const QString& 
 }
 QVariantList BacktestViewModel::strategyChoices() const {
     QVariantList out;
+    const int selectedCount = selectedSessionCount();
     const std::size_t count = hft_backtest::strategyMetadataCount();
     for (std::size_t i = 0; i < count; ++i) {
         const hft_backtest::StrategyMetadata* metadata = hft_backtest::strategyMetadataAt(i);
         if (metadata == nullptr || metadata->id == nullptr) continue;
+        if (!strategyMetadataSupportsSessionCount(*metadata, selectedCount)) continue;
         QVariantMap row;
         const QString id = qString(metadata->id);
         row.insert(QStringLiteral("id"), id);
@@ -1191,6 +1302,11 @@ QString BacktestViewModel::selectedSummaryJson() const {
     return record == nullptr ? QString{} : record->summaryJson;
 }
 
+QString BacktestViewModel::selectedConfigText() const {
+    const auto* record = selectedRecord_();
+    return record == nullptr ? QString{} : record->configText;
+}
+
 QString BacktestViewModel::selectedErrorText() const {
     const auto* record = selectedRecord_();
     return record == nullptr ? QString{} : record->errorText;
@@ -1198,17 +1314,17 @@ QString BacktestViewModel::selectedErrorText() const {
 
 QVariantList BacktestViewModel::selectedEquityPoints() const {
     const auto* record = selectedRecord_();
-    return record == nullptr || !record->detailsLoaded ? QVariantList{} : record->equityPoints;
+    return record == nullptr ? QVariantList{} : record->equityPoints;
 }
 
 QVariantList BacktestViewModel::selectedResultMetrics() const {
     const auto* record = selectedRecord_();
-    return record == nullptr || !record->detailsLoaded ? QVariantList{} : record->resultMetrics;
+    return record == nullptr ? QVariantList{} : record->resultMetrics;
 }
 
 QString BacktestViewModel::selectedResultMetricKey() const {
     const auto* record = selectedRecord_();
-    if (record == nullptr || !record->detailsLoaded || record->resultMetrics.empty()) return selectedResultMetricKey_;
+    if (record == nullptr || record->resultMetrics.empty()) return selectedResultMetricKey_;
     for (const QVariant& value : record->resultMetrics) {
         const QVariantMap row = value.toMap();
         if (row.value(QStringLiteral("key")).toString() == selectedResultMetricKey_) return selectedResultMetricKey_;
@@ -1229,6 +1345,7 @@ QVariantList BacktestViewModel::selectedResultMetricSeries() const {
 
     auto valueFor = [](const QString& key, const QVariantMap& point, qint64 drawdown, qint64 mfe, qint64 mae, bool& ok) -> qint64 {
         ok = true;
+        if (key == QStringLiteral("net_realized_pnl_e8") || key == QStringLiteral("realized_pnl_e8")) return point.value(QStringLiteral("realizedPnlE8")).toLongLong();
         if (key == QStringLiteral("total_pnl_e8")) return point.value(QStringLiteral("totalPnlE8")).toLongLong();
         if (key == QStringLiteral("fees_paid_e8")) return point.value(QStringLiteral("feesPaidE8")).toLongLong();
         if (key == QStringLiteral("wallet_balance_e8")) return point.value(QStringLiteral("walletBalanceE8")).toLongLong();
@@ -1280,7 +1397,7 @@ QVariantList BacktestViewModel::resultMetricRatioChoices() const {
     none.insert(QStringLiteral("label"), QStringLiteral("None"));
     out.push_back(none);
     const auto* record = selectedRecord_();
-    if (record == nullptr || !record->detailsLoaded) return out;
+    if (record == nullptr) return out;
     for (const QVariant& value : record->resultMetrics) {
         const QVariantMap metric = value.toMap();
         if (!metric.value(QStringLiteral("hasSeries")).toBool()) continue;
@@ -1374,7 +1491,11 @@ bool BacktestViewModel::selectedIsSweep() const {
 
 bool BacktestViewModel::hasEquityPoints() const {
     const auto* record = selectedRecord_();
-    return record != nullptr && record->detailsLoaded && !record->equityPoints.empty();
+    return record != nullptr && !record->equityPoints.empty();
+}
+
+bool BacktestViewModel::selectedPreviewLoading() const {
+    return previewLoading_ && !selectedRunId_.isEmpty() && selectedRunId_ == previewLoadingRunId_;
 }
 
 bool BacktestViewModel::selectedDetailsLoaded() const {
@@ -1407,8 +1528,10 @@ bool BacktestViewModel::canRun() const {
 
 void BacktestViewModel::reloadSessions() {
     sessions_ = loadSessions_();
+    const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit sessionsChanged();
     emit multiSessionChanged();
+    if (!strategyChanged) emit selectedStrategyChanged();
     emit canRunChanged();
 }
 
@@ -1422,8 +1545,10 @@ void BacktestViewModel::setSelectedSessionId(const QString& sessionId) {
     ++detailsLoadGeneration_;
     selectedDetailsErrorText_.clear();
     setDetailsLoading_(false);
+    const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit selectedSessionChanged();
     emit multiSessionChanged();
+    if (!strategyChanged) emit selectedStrategyChanged();
     emit symbolChanged();
     emit canRunChanged();
     emit detailsLoadingChanged();
@@ -1440,8 +1565,10 @@ void BacktestViewModel::setSessionPath(const QString& sessionPath) {
     ++detailsLoadGeneration_;
     selectedDetailsErrorText_.clear();
     setDetailsLoading_(false);
+    const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit selectedSessionChanged();
     emit multiSessionChanged();
+    if (!strategyChanged) emit selectedStrategyChanged();
     emit symbolChanged();
     emit canRunChanged();
     emit detailsLoadingChanged();
@@ -1453,12 +1580,11 @@ void BacktestViewModel::setExtraSessionIds(const QString& sessionIds) {
     if (extraSessionIds_ == next) return;
     extraSessionIds_ = next;
     savePersistentConfig_();
+    const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit multiSessionChanged();
+    if (!strategyChanged) emit selectedStrategyChanged();
     emit canRunChanged();
-    if (!strategySupportsSelectedSessionCount_()) {
-        const QString gateText = strategySessionGateText(selectedStrategy_, selectedSessionCount());
-        if (!gateText.isEmpty()) setStatusText_(gateText);
-    }
+    refreshSessionGateStatus_();
 }
 
 void BacktestViewModel::setSelectedSymbol(const QString& symbol) {
@@ -1486,10 +1612,7 @@ void BacktestViewModel::setSelectedStrategy(const QString& strategy) {
     emit configChanged();
     emit strategyParametersChanged();
     emit canRunChanged();
-    if (!strategySupportsSelectedSessionCount_()) {
-        const QString gateText = strategySessionGateText(selectedStrategy_, selectedSessionCount());
-        if (!gateText.isEmpty()) setStatusText_(gateText);
-    }
+    refreshSessionGateStatus_();
 }
 
 void BacktestViewModel::setSelectedIndicatorProfile(const QString& profile) {
@@ -1608,6 +1731,26 @@ void BacktestViewModel::setLimitOrderJitterUs(const QString& value) {
     limitOrderJitterUs_ = next;
     savePersistentConfig_();
     emit latencyChanged();
+}
+
+void BacktestViewModel::setVenueExecutionValue(int legIndex, const QString& field, const QString& value) {
+    const QString normalizedField = field.trimmed().toLower();
+    if (!isVenueExecutionField(normalizedField)) return;
+    const QStringList paths = selectedSessionPaths_();
+    if (legIndex < 0 || legIndex >= paths.size()) return;
+    const QString venueKey = venueExecutionKey(paths.at(legIndex));
+    if (venueKey.isEmpty()) return;
+    const QString next = value.trimmed();
+    const QString mapKey = venueExecutionMapKey(venueKey, normalizedField);
+    if (venueExecutionValues_.value(mapKey) == next) return;
+    venueExecutionValues_.insert(mapKey, next);
+    settings_.setValue(QStringLiteral("backtests/venue_execution/%1/%2")
+                           .arg(venueExecutionSettingKey(venueKey), normalizedField),
+                       next);
+    settings_.sync();
+    emit multiSessionChanged();
+    if (normalizedField == QStringLiteral("maker_fee_bps") || normalizedField == QStringLiteral("taker_fee_bps")) emit accountingChanged();
+    else emit latencyChanged();
 }
 
 void BacktestViewModel::setInitialBalanceUsdt(const QString& value) {
@@ -1745,6 +1888,21 @@ void BacktestViewModel::saveProfile() {
     out << "sweep_budget=" << sweepBudget_ << "\n";
     out << "sweep_seed=" << sweepSeed_ << "\n";
     out << "config_mode=" << configMode_ << "\n\n";
+    QSet<QString> savedVenueKeys;
+    for (const QString& sessionPath : selectedSessionPaths_()) {
+        const QString venueKey = venueExecutionKey(sessionPath);
+        if (venueKey.isEmpty() || savedVenueKeys.contains(venueKey)) continue;
+        savedVenueKeys.insert(venueKey);
+        out << "[venue_execution." << venueExecutionSettingKey(venueKey) << "]\n";
+        out << "maker_fee_bps=" << venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), makerFeeBps_) << "\n";
+        out << "taker_fee_bps=" << venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), takerFeeBps_) << "\n";
+        out << "market_data_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_) << "\n";
+        out << "market_data_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_) << "\n";
+        out << "market_order_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_) << "\n";
+        out << "market_order_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_) << "\n";
+        out << "limit_order_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_) << "\n";
+        out << "limit_order_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_) << "\n\n";
+    }
     out << "[strategy]\n";
     for (auto it = activeParamByGroup_.constBegin(); it != activeParamByGroup_.constEnd(); ++it) out << groupSettingKey(it.key()) << "=" << it.value() << "\n";
     for (const QString& key : paramOrder_) {
@@ -1797,6 +1955,17 @@ void BacktestViewModel::loadProfile() {
     if (!sweepBudget.isEmpty()) sweepBudget_ = sweepBudget;
     if (!sweepSeed.isEmpty()) sweepSeed_ = sweepSeed;
     if (!mode.isEmpty()) configMode_ = normalizeConfigMode(mode);
+    for (const QString& sessionPath : selectedSessionPaths_()) {
+        const QString venueKey = venueExecutionKey(sessionPath);
+        if (venueKey.isEmpty()) continue;
+        const QString section = QStringLiteral("venue_execution.%1").arg(venueExecutionSettingKey(venueKey));
+        for (const IniKeyValue& row : iniSectionValues(text, section)) {
+            const QString field = row.key.trimmed().toLower();
+            const QString value = row.value.trimmed();
+            if (!isVenueExecutionField(field) || value.isEmpty()) continue;
+            venueExecutionValues_.insert(venueExecutionMapKey(venueKey, field), value);
+        }
+    }
     for (const IniKeyValue& row : iniSectionValues(text, QStringLiteral("strategy"))) {
         const QString key = row.key;
         const QString value = row.value;
@@ -1824,6 +1993,7 @@ void BacktestViewModel::loadProfile() {
     }
     emit latencyChanged();
     emit accountingChanged();
+    emit multiSessionChanged();
     emit sweepConfigChanged();
     emit configChanged();
     emit strategyParametersChanged();
@@ -1831,6 +2001,12 @@ void BacktestViewModel::loadProfile() {
 
 void BacktestViewModel::refresh() {
     refreshTimer_.stop();
+    ++previewLoadGeneration_;
+    setPreviewLoading_(false);
+    if (!pendingDetailsRunId_.isEmpty()) {
+        pendingDetailsRunId_.clear();
+        setDetailsLoading_(false);
+    }
     updateWatcher_();
     std::vector<RunRecord> next;
     const QString dirPath = backtestsDirectory();
@@ -1841,34 +2017,37 @@ void BacktestViewModel::refresh() {
             const QString manifestPath = candidateDir.absoluteFilePath(QStringLiteral("manifest.json"));
             if (!QFileInfo::exists(manifestPath)) return;
             const RunRecord* cached = recordForPath_(runDir.absoluteFilePath());
-            RunRecord record = loadRecord_(runDir.absoluteFilePath(), false);
-            if (cached != nullptr
-                && cached->detailsLoaded
+            RunRecord record = loadRecord_(runDir.absoluteFilePath(), RecordLoadMode::MetadataOnly);
+            const bool metadataMatches = cached != nullptr
                 && cached->manifestPath == manifestPath
-                && fileStampMatches_(manifestPath, cached->manifestModifiedMs, cached->manifestSize)
+                && fileStampMatches_(manifestPath, cached->manifestModifiedMs, cached->manifestSize);
+            const bool equityMatches = metadataMatches
                 && record.equityPath == cached->equityPath
+                && fileStampMatches_(cached->equityPath, cached->equityModifiedMs, cached->equitySize);
+            if (equityMatches) {
+                record.equityPoints = cached->equityPoints;
+                record.pnlMinE8 = cached->pnlMinE8;
+                record.pnlMaxE8 = cached->pnlMaxE8;
+            }
+            const bool sweepMatches = metadataMatches
+                && cached->detailsLoaded
                 && record.sweepRowsPath == cached->sweepRowsPath
                 && record.sweepCurvesPath == cached->sweepCurvesPath
-                && fileStampMatches_(cached->equityPath, cached->equityModifiedMs, cached->equitySize)
                 && fileStampMatches_(cached->sweepRowsPath, cached->sweepRowsModifiedMs, cached->sweepRowsSize)
-                && fileStampMatches_(cached->sweepCurvesPath, cached->sweepCurvesModifiedMs, cached->sweepCurvesSize)) {
-                record.equityPoints = cached->equityPoints;
-                record.resultMetrics = cached->resultMetrics;
+                && fileStampMatches_(cached->sweepCurvesPath, cached->sweepCurvesModifiedMs, cached->sweepCurvesSize);
+            if (cached != nullptr && cached->detailsLoaded && ((!record.sweep && equityMatches) || (record.sweep && sweepMatches))) {
                 record.sweepRows = cached->sweepRows;
                 record.sweepCurves = cached->sweepCurves;
                 record.sweepParamKeys = cached->sweepParamKeys;
                 record.detailsErrorText = cached->detailsErrorText;
-                record.pnlMinE8 = cached->pnlMinE8;
-                record.pnlMaxE8 = cached->pnlMaxE8;
-                record.initialBalanceE8 = cached->initialBalanceE8;
-                record.totalPnlE8 = cached->totalPnlE8;
-                record.pnlText = cached->pnlText;
+                if (!cached->sweepRows.empty() || !cached->sweepCurves.empty()) {
+                    record.initialBalanceE8 = cached->initialBalanceE8;
+                    record.totalPnlE8 = cached->totalPnlE8;
+                    record.pnlText = cached->pnlText;
+                }
                 record.detailsLoaded = true;
             }
             if (!record.manifestPath.isEmpty()) filesToWatch.push_back(record.manifestPath);
-            if (!record.equityPath.isEmpty()) filesToWatch.push_back(record.equityPath);
-            if (!record.sweepRowsPath.isEmpty()) filesToWatch.push_back(record.sweepRowsPath);
-            if (!record.sweepCurvesPath.isEmpty()) filesToWatch.push_back(record.sweepCurvesPath);
             next.push_back(std::move(record));
         };
         QDir dir(dirPath);
@@ -1891,6 +2070,13 @@ void BacktestViewModel::refresh() {
 
     if (!selectedRunId_.isEmpty() && selectedRecord_() == nullptr) selectedRunId_.clear();
     if (selectedRunId_.isEmpty() && !records_.empty()) selectedRunId_ = records_.front().runId;
+    if (const RunRecord* selected = selectedRecord_()) {
+        if (!selected->equityPath.isEmpty()) filesToWatch.push_back(selected->equityPath);
+        if (selected->detailsLoaded) {
+            if (!selected->sweepRowsPath.isEmpty()) filesToWatch.push_back(selected->sweepRowsPath);
+            if (!selected->sweepCurvesPath.isEmpty()) filesToWatch.push_back(selected->sweepCurvesPath);
+        }
+    }
 
     if (!running_) {
         if (selectedSessionPath().isEmpty()) setStatusText_(QStringLiteral("Select a session and strategy"));
@@ -1916,32 +2102,49 @@ void BacktestViewModel::refresh() {
     emit runsChanged();
     emit selectionChanged();
     emit selectedResultMetricChanged();
+    ensureSelectedPreviewLoaded_();
 }
 
 void BacktestViewModel::selectRun(const QString& runId) {
     if (selectedRunId_ == runId) return;
     if (RunRecord* oldRecord = mutableRecordForRunId_(selectedRunId_)) clearRecordDetails_(*oldRecord);
+    ++previewLoadGeneration_;
     ++detailsLoadGeneration_;
+    pendingDetailsRunId_.clear();
     selectedDetailsErrorText_.clear();
+    setPreviewLoading_(false);
     setDetailsLoading_(false);
     selectedRunId_ = runId;
     emit selectionChanged();
     emit selectedResultMetricChanged();
     emit detailsLoadingChanged();
+    ensureSelectedPreviewLoaded_();
 }
 
 void BacktestViewModel::loadSelectedRunDetails() {
-    const RunRecord* record = selectedRecord_();
+    RunRecord* record = mutableRecordForRunId_(selectedRunId_);
     if (record == nullptr || record->detailsLoaded || selectedDetailsLoading()) return;
     const QString runId = record->runId;
     const QString filePath = record->filePath;
+    if (!record->sweep && !record->equityPoints.empty()) {
+        record->detailsLoaded = true;
+        emit runsChanged();
+        emit selectionChanged();
+        emit selectedResultMetricChanged();
+        return;
+    }
+    if (!record->sweep && selectedPreviewLoading()) {
+        pendingDetailsRunId_ = runId;
+        setDetailsLoading_(true, runId);
+        return;
+    }
     const std::uint64_t generation = ++detailsLoadGeneration_;
     selectedDetailsErrorText_.clear();
     setDetailsLoading_(true, runId);
 
     QPointer<BacktestViewModel> self(this);
     std::thread([self, generation, runId, filePath]() {
-        RunRecord loaded = BacktestViewModel::loadRecord_(filePath, true);
+        RunRecord loaded = BacktestViewModel::loadRecord_(filePath, RecordLoadMode::Details);
         if (!self) return;
         QMetaObject::invokeMethod(self, [self, generation, runId, loaded = std::move(loaded)]() {
             if (self) self->applyLoadedDetails_(generation, runId, loaded);
@@ -1955,6 +2158,7 @@ void BacktestViewModel::unloadSelectedRunDetails() {
     clearRecordDetails_(*record);
     selectedDetailsErrorText_.clear();
     ++detailsLoadGeneration_;
+    pendingDetailsRunId_.clear();
     setDetailsLoading_(false);
     emit selectionChanged();
     emit selectedResultMetricChanged();
@@ -2040,8 +2244,34 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
     const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
+    std::vector<hft_backtest::BacktestFeeSchedule> feeSchedules;
+    std::vector<hft_backtest::BacktestLatencySchedule> latencySchedules;
+    const std::vector<QVariantMap> venueRows = venueExecutionRows_();
+    feeSchedules.reserve(venueRows.size());
+    latencySchedules.reserve(venueRows.size());
+    for (const QVariantMap& row : venueRows) {
+        const QString exchange = row.value(QStringLiteral("exchange")).toString();
+        const QString market = row.value(QStringLiteral("market")).toString();
+        if (exchange.isEmpty() || market.isEmpty()) continue;
+        hft_backtest::BacktestFeeSchedule fee{};
+        fee.exchange = exchange.toStdString();
+        fee.market = market.toStdString();
+        fee.makerFeeBpsE8 = decimalE8Value_(row.value(QStringLiteral("makerFeeBps")).toString(), makerFee);
+        fee.takerFeeBpsE8 = decimalE8Value_(row.value(QStringLiteral("takerFeeBps")).toString(), takerFee);
+        feeSchedules.push_back(std::move(fee));
+        hft_backtest::BacktestLatencySchedule latency{};
+        latency.exchange = exchange.toStdString();
+        latency.market = market.toStdString();
+        latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
+        latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
+        latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
+        latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
+        latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
+        latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
+        latencySchedules.push_back(std::move(latency));
+    }
     const QString indicatorProfile = selectedIndicatorProfile_;
-    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee] {
+    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee, feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules)] {
         try {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPath.toStdString();
@@ -2073,22 +2303,8 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.initialBalanceE8 = initialBalance;
         request.makerFeeBpsE8 = makerFee;
         request.takerFeeBpsE8 = takerFee;
-        if (sessionPaths.size() > 1) {
-            QSet<QString> emittedFees;
-            for (const QString& path : sessionPaths) {
-                const QString exchange = manifestValue(path, QStringLiteral("exchange")).trimmed().toLower();
-                const QString market = normalizedFeeMarket(manifestValue(path, QStringLiteral("market")));
-                const QString key = exchange + QLatin1Char('|') + market;
-                if (exchange.isEmpty() || market.isEmpty() || emittedFees.contains(key)) continue;
-                emittedFees.insert(key);
-                hft_backtest::BacktestFeeSchedule fee{};
-                fee.exchange = exchange.toStdString();
-                fee.market = market.toStdString();
-                fee.makerFeeBpsE8 = makerFee;
-                fee.takerFeeBpsE8 = takerFee;
-                request.feeSchedules.push_back(std::move(fee));
-            }
-        }
+        request.feeSchedules = feeSchedules;
+        request.latencySchedules = latencySchedules;
         request.outputPath = (QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();
 
         const auto result = hft_backtest::runBacktest(request, progressCallback, this);
@@ -2183,9 +2399,35 @@ void BacktestViewModel::startSweep() {
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
     const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
+    std::vector<hft_backtest::BacktestFeeSchedule> feeSchedules;
+    std::vector<hft_backtest::BacktestLatencySchedule> latencySchedules;
+    const std::vector<QVariantMap> venueRows = venueExecutionRows_();
+    feeSchedules.reserve(venueRows.size());
+    latencySchedules.reserve(venueRows.size());
+    for (const QVariantMap& row : venueRows) {
+        const QString exchange = row.value(QStringLiteral("exchange")).toString();
+        const QString market = row.value(QStringLiteral("market")).toString();
+        if (exchange.isEmpty() || market.isEmpty()) continue;
+        hft_backtest::BacktestFeeSchedule fee{};
+        fee.exchange = exchange.toStdString();
+        fee.market = market.toStdString();
+        fee.makerFeeBpsE8 = decimalE8Value_(row.value(QStringLiteral("makerFeeBps")).toString(), makerFee);
+        fee.takerFeeBpsE8 = decimalE8Value_(row.value(QStringLiteral("takerFeeBps")).toString(), takerFee);
+        feeSchedules.push_back(std::move(fee));
+        hft_backtest::BacktestLatencySchedule latency{};
+        latency.exchange = exchange.toStdString();
+        latency.market = market.toStdString();
+        latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
+        latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
+        latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
+        latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
+        latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
+        latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
+        latencySchedules.push_back(std::move(latency));
+    }
     const QString indicatorProfile = selectedIndicatorProfile_;
 
-    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, initialBalance, makerFee, takerFee, ranges = std::move(ranges)] {
+    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, initialBalance, makerFee, takerFee, feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), ranges = std::move(ranges)] {
         try {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPath.toStdString();
@@ -2215,22 +2457,8 @@ void BacktestViewModel::startSweep() {
         request.baseRun.initialBalanceE8 = initialBalance;
         request.baseRun.makerFeeBpsE8 = makerFee;
         request.baseRun.takerFeeBpsE8 = takerFee;
-        if (sessionPaths.size() > 1) {
-            QSet<QString> emittedFees;
-            for (const QString& path : sessionPaths) {
-                const QString exchange = manifestValue(path, QStringLiteral("exchange")).trimmed().toLower();
-                const QString market = normalizedFeeMarket(manifestValue(path, QStringLiteral("market")));
-                const QString key = exchange + QLatin1Char('|') + market;
-                if (exchange.isEmpty() || market.isEmpty() || emittedFees.contains(key)) continue;
-                emittedFees.insert(key);
-                hft_backtest::BacktestFeeSchedule fee{};
-                fee.exchange = exchange.toStdString();
-                fee.market = market.toStdString();
-                fee.makerFeeBpsE8 = makerFee;
-                fee.takerFeeBpsE8 = takerFee;
-                request.baseRun.feeSchedules.push_back(std::move(fee));
-            }
-        }
+        request.baseRun.feeSchedules = feeSchedules;
+        request.baseRun.latencySchedules = latencySchedules;
         request.baseRun.writeArtifacts = false;
         request.sweepId = runId.toStdString();
         request.runBudget = runBudget;
@@ -2333,7 +2561,7 @@ void BacktestViewModel::applyWorkerProgress(int percent, const QString& text) {
     setProgress_(percent, text);
 }
 
-BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& filePath, bool loadDetails) {
+BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& filePath, RecordLoadMode mode) {
     RunRecord record;
     const QFileInfo info(filePath);
     const QDir runDir(info.absoluteFilePath());
@@ -2391,7 +2619,7 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
         record.sweepCurvesPath = curvesPath;
         record.sweepCurvesModifiedMs = fileStampMs_(curvesPath, &record.sweepCurvesSize);
         record.modifiedMs = std::max(record.modifiedMs, record.sweepCurvesModifiedMs);
-        if (loadDetails) {
+        if (mode == RecordLoadMode::Details) {
             record.sweepRows = sweepRowsFromJsonl(rowsPath, QStringLiteral("total_pnl_e8"));
             appendSweepParamKeysFromRows(record.sweepRows, record.sweepParamKeys);
             record.sweepCurves = sweepCurvesFromJsonl(curvesPath);
@@ -2425,7 +2653,8 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     if (record.configText.isEmpty()) record.configText = jsonValueString(object, QStringLiteral("config_summary"));
     const QJsonObject summary = object.value(QStringLiteral("summary")).toObject();
     record.initialBalanceE8 = summary.value(QStringLiteral("initial_balance_e8")).toInteger();
-    record.totalPnlE8 = summary.value(QStringLiteral("total_pnl_e8")).toInteger();
+    record.totalPnlE8 = summary.value(QStringLiteral("net_realized_pnl_e8")).toInteger(
+        summary.value(QStringLiteral("realized_pnl_e8")).toInteger(summary.value(QStringLiteral("total_pnl_e8")).toInteger()));
     record.pnlText = pnlPercentText(record.totalPnlE8, record.initialBalanceE8);
     record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
     const QJsonObject streams = object.value(QStringLiteral("streams")).toObject();
@@ -2434,9 +2663,11 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.equityPath = runDir.absoluteFilePath(QStringLiteral("equity.jsonl"));
     record.equityModifiedMs = fileStampMs_(record.equityPath, &record.equitySize);
     record.modifiedMs = std::max(record.modifiedMs, record.equityModifiedMs);
-    if (loadDetails) {
-        record.resultMetrics = resultMetrics(object, summary);
+    record.resultMetrics = resultMetrics(object, summary);
+    if (mode != RecordLoadMode::MetadataOnly) {
         record.equityPoints = equityPointsFromJsonl(record.equityPath, summary, equityRows, record.pnlMinE8, record.pnlMaxE8);
+    }
+    if (mode == RecordLoadMode::Details) {
         record.detailsLoaded = true;
     }
     record.errorCount = errorCount(object.value(QStringLiteral("errors")));
@@ -2529,6 +2760,25 @@ void BacktestViewModel::setStatusText_(const QString& statusText) {
     emit statusTextChanged();
 }
 
+void BacktestViewModel::refreshSessionGateStatus_() {
+    if (!strategySupportsSelectedSessionCount_()) {
+        const QString gateText = strategySessionGateText(selectedStrategy_, selectedSessionCount());
+        if (!gateText.isEmpty()) setStatusText_(gateText);
+        return;
+    }
+    if (!statusText_.startsWith(QStringLiteral("Selected ")) ||
+        !statusText_.contains(QStringLiteral("strategy supports"))) {
+        return;
+    }
+    if (selectedSessionPath().isEmpty()) {
+        setStatusText_(QStringLiteral("Select a session and strategy"));
+    } else {
+        setStatusText_(QStringLiteral("Watching %1 result%2")
+                           .arg(static_cast<qulonglong>(records_.size()))
+                           .arg(records_.size() == 1u ? QString{} : QStringLiteral("s")));
+    }
+}
+
 void BacktestViewModel::setRunning_(bool running) {
     if (running_ == running) return;
     running_ = running;
@@ -2544,6 +2794,13 @@ void BacktestViewModel::setProgress_(int percent, const QString& text) {
     emit progressChanged();
 }
 
+void BacktestViewModel::setPreviewLoading_(bool loading, const QString& runId) {
+    if (previewLoading_ == loading && previewLoadingRunId_ == runId) return;
+    previewLoading_ = loading;
+    previewLoadingRunId_ = loading ? runId : QString{};
+    emit previewLoadingChanged();
+}
+
 void BacktestViewModel::setDetailsLoading_(bool loading, const QString& runId) {
     if (detailsLoading_ == loading && detailsLoadingRunId_ == runId) return;
     detailsLoading_ = loading;
@@ -2552,14 +2809,51 @@ void BacktestViewModel::setDetailsLoading_(bool loading, const QString& runId) {
 }
 
 void BacktestViewModel::clearRecordDetails_(RunRecord& record) {
-    record.equityPoints.clear();
-    record.resultMetrics.clear();
     record.sweepRows.clear();
     record.sweepCurves.clear();
     record.detailsErrorText.clear();
-    record.pnlMinE8 = 0;
-    record.pnlMaxE8 = 0;
     record.detailsLoaded = false;
+}
+
+void BacktestViewModel::ensureSelectedPreviewLoaded_() {
+    const RunRecord* record = selectedRecord_();
+    if (record == nullptr || record->sweep || !record->valid || !record->equityPoints.empty() || selectedPreviewLoading()) return;
+    const QString runId = record->runId;
+    const QString filePath = record->filePath;
+    const std::uint64_t generation = ++previewLoadGeneration_;
+    setPreviewLoading_(true, runId);
+
+    QPointer<BacktestViewModel> self(this);
+    std::thread([self, generation, runId, filePath]() {
+        RunRecord loaded = BacktestViewModel::loadRecord_(filePath, RecordLoadMode::Preview);
+        if (!self) return;
+        QMetaObject::invokeMethod(self, [self, generation, runId, loaded = std::move(loaded)]() {
+            if (self) self->applyLoadedPreview_(generation, runId, loaded);
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void BacktestViewModel::applyLoadedPreview_(std::uint64_t generation, const QString& runId, const RunRecord& loaded) {
+    if (generation != previewLoadGeneration_ || selectedRunId_ != runId) return;
+    setPreviewLoading_(false);
+    RunRecord* record = mutableRecordForRunId_(runId);
+    if (record == nullptr || record->filePath != loaded.filePath) return;
+
+    record->equityPoints = loaded.equityPoints;
+    record->pnlMinE8 = loaded.pnlMinE8;
+    record->pnlMaxE8 = loaded.pnlMaxE8;
+    record->equityModifiedMs = loaded.equityModifiedMs;
+    record->equitySize = loaded.equitySize;
+    if (pendingDetailsRunId_ == runId) {
+        record->detailsLoaded = loaded.valid;
+        pendingDetailsRunId_.clear();
+        setDetailsLoading_(false);
+    }
+
+    emit runsChanged();
+    emit selectionChanged();
+    emit selectedResultMetricChanged();
+    emit detailsLoadingChanged();
 }
 
 void BacktestViewModel::applyLoadedDetails_(std::uint64_t generation, const QString& runId, const RunRecord& loaded) {
@@ -2762,11 +3056,28 @@ QString BacktestViewModel::profilePath_() const {
 bool BacktestViewModel::strategySupportsSelectedSessionCount_() const {
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata == nullptr) return false;
-    const int count = selectedSessionCount();
-    if (count <= 0) return false;
-    const int minCount = metadata->minSessionCount == 0u ? 1 : static_cast<int>(metadata->minSessionCount);
-    const int maxCount = metadata->maxSessionCount == 0u ? 1 : static_cast<int>(metadata->maxSessionCount);
-    return count >= minCount && count <= maxCount;
+    return strategyMetadataSupportsSessionCount(*metadata, selectedSessionCount());
+}
+
+bool BacktestViewModel::ensureSelectedStrategySupportsSessionCount_() {
+    if (strategySupportsSelectedSessionCount_()) return false;
+    const QString fallback = firstDiscoveredStrategyForSessionCount(selectedSessionCount());
+    if (fallback.isEmpty() || fallback == selectedStrategy_) return false;
+    selectedStrategy_ = fallback;
+    configMode_ = QStringLiteral("fixed");
+    loadStrategyDefaults_();
+    loadSavedParameterValues_();
+    selectedIndicatorProfile_ = settings_.value(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_),
+                                                defaultIndicatorProfileForStrategy(selectedStrategy_))
+                                    .toString()
+                                    .trimmed();
+    if (!indicatorProfileAllowedForStrategy(selectedStrategy_, selectedIndicatorProfile_)) selectedIndicatorProfile_ = defaultIndicatorProfileForStrategy(selectedStrategy_);
+    savePersistentConfig_();
+    emit selectedStrategyChanged();
+    emit indicatorProfileChanged();
+    emit configChanged();
+    emit strategyParametersChanged();
+    return true;
 }
 
 QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides, bool fixedOnly) {
@@ -2780,6 +3091,7 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
     QStringList venueOrder;
     QHash<QString, QStringList> venueSymbols;
     QHash<QString, QString> venueApiSlots;
+    QHash<QString, QVariantMap> venueExecutionByVenue;
     for (int i = 0; i < sessionPaths.size(); ++i) {
         const QString path = sessionPaths.at(i);
         const QString venue = venueSectionForSession(path);
@@ -2793,6 +3105,13 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         QString apiSlot = iniValue(base, QStringLiteral("venue.%1").arg(venue), QStringLiteral("api_slot"));
         if (apiSlot.isEmpty()) apiSlot = QStringLiteral("1");
         if (!venueApiSlots.contains(venue)) venueApiSlots.insert(venue, apiSlot);
+        if (!venueExecutionByVenue.contains(venue)) {
+            const QString venueKey = venueExecutionKey(path);
+            QVariantMap row;
+            row.insert(QStringLiteral("makerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), makerFeeBps_));
+            row.insert(QStringLiteral("takerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), takerFeeBps_));
+            venueExecutionByVenue.insert(venue, row);
+        }
     }
     QDir outDir(QDir(session).absoluteFilePath(QStringLiteral("backtests")));
     outDir.mkpath(runId);
@@ -2826,8 +3145,9 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         out << "api_slot=" << venueApiSlots.value(venue, QStringLiteral("1")) << "\n";
         out << "symbols=" << venueSymbols.value(venue).join(QLatin1Char(',')) << "\n";
         out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\n";
-        out << "maker_fee_bps=" << makerFeeBps_ << "\n";
-        out << "taker_fee_bps=" << takerFeeBps_ << "\n";
+        const QVariantMap execution = venueExecutionByVenue.value(venue);
+        out << "maker_fee_bps=" << execution.value(QStringLiteral("makerFeeBps"), makerFeeBps_).toString() << "\n";
+        out << "taker_fee_bps=" << execution.value(QStringLiteral("takerFeeBps"), takerFeeBps_).toString() << "\n";
     }
     if (legRefs.size() > 1) {
         out << "\n[portfolio.recorder]\n";

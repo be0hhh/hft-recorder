@@ -25,6 +25,7 @@ Pane {
     property int selectedSweepPointId: -1
     property bool sweepPercentMode: false
     property bool showRawSummary: false
+    property var secondarySessionRows: []
     property var sweepPalette: ["#24c2cb", "#82d46b", "#f0b35a", "#ef6f6c", "#a98cf5", "#5ca9ff", "#d77ad9", "#8bd3dd", "#c4d76b", "#ff8a5b"]
 
     function e8Text(value) {
@@ -65,8 +66,39 @@ Pane {
         return metricKey.endsWith("_e8") ? root.e8Text(value) : String(Math.round(Number(value) * 1000) / 1000)
     }
 
+    function firstExtraSessionId() {
+        var text = String(root.backtestVm.extraSessionIds || "").trim()
+        if (text.length === 0)
+            return ""
+        return text.split(/[,;\n]+/)[0].trim()
+    }
+
+    function rebuildSecondarySessionRows() {
+        var rows = [{ "id": "", "label": "No second leg", "rightText": "" }]
+        var sessions = root.backtestVm.sessions || []
+        var primaryId = String(root.backtestVm.selectedSessionId || "")
+        var currentExtra = root.firstExtraSessionId()
+        var currentFound = currentExtra.length === 0
+        for (var i = 0; i < sessions.length; ++i) {
+            var row = sessions[i]
+            if (!row)
+                continue
+            var id = String(row.id || "")
+            if (id.length === 0 || id === primaryId)
+                continue
+            if (id === currentExtra)
+                currentFound = true
+            rows.push(row)
+        }
+        if (!currentFound && currentExtra !== primaryId)
+            rows.push({ "id": currentExtra, "label": currentExtra, "rightText": "custom" })
+        root.secondarySessionRows = rows
+    }
+
     function syncSelections() {
+        root.rebuildSecondarySessionRows()
         sessionBox.currentIndex = sessionBox.indexOfValue(root.backtestVm.selectedSessionId)
+        secondarySessionBox.currentIndex = secondarySessionBox.indexOfValue(root.firstExtraSessionId())
         strategyBox.currentIndex = strategyBox.indexOfValue(root.backtestVm.selectedStrategy)
         configModeBox.currentIndex = configModeBox.indexOfValue(root.backtestVm.configMode)
         indicatorBox.currentIndex = indicatorBox.indexOfValue(root.backtestVm.selectedIndicatorProfile)
@@ -78,6 +110,7 @@ Pane {
         target: root.backtestVm
         function onSessionsChanged() { root.syncSelections() }
         function onSelectedSessionChanged() { root.syncSelections() }
+        function onMultiSessionChanged() { root.syncSelections() }
         function onSymbolChanged() { symbolField.text = root.backtestVm.selectedSymbol }
         function onSelectedStrategyChanged() { root.syncSelections() }
         function onConfigChanged() { root.syncSelections() }
@@ -180,7 +213,11 @@ Pane {
                         valueRole: "id"
                         model: root.backtestVm.sessions
                         popupWidth: 720
-                        onActivated: root.backtestVm.setSelectedSessionId(currentValue)
+                        onActivated: {
+                            if (root.firstExtraSessionId() === currentValue)
+                                root.backtestVm.setExtraSessionIds("")
+                            root.backtestVm.setSelectedSessionId(currentValue)
+                        }
                         Component.onCompleted: root.syncSelections()
                     }
                     CompactField {
@@ -246,25 +283,19 @@ Pane {
                         text: root.backtestVm.riskMinEquityPct
                         onEdited: function(value) { root.backtestVm.riskMinEquityPct = value }
                     }
-                    CompactField {
-                        caption: "Maker fee bps"
-                        fieldWidth: 116
-                        text: root.backtestVm.makerFeeBps
-                        onEdited: function(value) { root.backtestVm.makerFeeBps = value }
-                    }
-                    CompactField {
-                        caption: "Taker fee bps"
-                        fieldWidth: 116
-                        text: root.backtestVm.takerFeeBps
-                        onEdited: function(value) { root.backtestVm.takerFeeBps = value }
-                    }
-                    CompactField {
-                        id: extraSessionsField
-                        caption: "Extra sessions"
+                    RecorderComboBox {
+                        id: secondarySessionBox
                         Layout.fillWidth: true
-                        fieldWidth: 220
-                        text: root.backtestVm.extraSessionIds
-                        onEdited: function(value) { root.backtestVm.extraSessionIds = value }
+                        Layout.preferredWidth: 260
+                        caption: "Second leg"
+                        textRole: "label"
+                        valueRole: "id"
+                        model: root.secondarySessionRows
+                        popupWidth: 720
+                        enabled: root.secondarySessionRows.length > 1 || root.firstExtraSessionId().length > 0
+                        opacity: enabled ? 1.0 : 0.55
+                        onActivated: root.backtestVm.setExtraSessionIds(currentValue)
+                        Component.onCompleted: root.syncSelections()
                     }
                     CompactField {
                         caption: "Sweep budget"
@@ -284,95 +315,133 @@ Pane {
                     ActionButton { visible: root.backtestVm.running; text: "Cancel"; enabledValue: root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.cancelBacktest() }
                 }
 
-                RowLayout {
+                Rectangle {
                     Layout.fillWidth: true
-                    spacing: 8
-                    Label {
-                        text: "Legs"
-                        color: root.mutedTextColor
-                        font.pixelSize: 12
-                        Layout.preferredWidth: 54
-                    }
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 6
+                    Layout.preferredHeight: Math.max(86, 30 + root.backtestVm.selectedSessionLegs.length * 34)
+                    Layout.leftMargin: 0
+                    Layout.rightMargin: 0
+                    color: "transparent"
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 4
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Label { text: "Leg"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 190 }
+                            Label { text: "Maker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 76 }
+                            Label { text: "Taker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 76 }
+                            Label { text: "MD base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                            Label { text: "MD jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                            Label { text: "Mkt base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
+                            Label { text: "Mkt jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
+                            Label { text: "Limit base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 86 }
+                            Label { text: "Limit jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 86 }
+                            CompactField {
+                                caption: "Seed"
+                                fieldWidth: 82
+                                text: root.backtestVm.latencySeed
+                                onEdited: function(value) { root.backtestVm.latencySeed = value }
+                            }
+                            Item { Layout.fillWidth: true }
+                        }
+
                         Repeater {
                             model: root.backtestVm.selectedSessionLegs
-                            delegate: Rectangle {
-                                width: Math.min(260, legLabel.implicitWidth + 18)
-                                height: 24
-                                radius: 6
-                                color: root.panelAltColor
-                                border.color: root.borderColor
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 8
                                 Label {
-                                    id: legLabel
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 9
-                                    anchors.rightMargin: 9
                                     text: modelData.label
                                     color: root.textColor
                                     font.pixelSize: 12
                                     elide: Text.ElideRight
-                                    verticalAlignment: Text.AlignVCenter
+                                    Layout.preferredWidth: 190
+                                }
+                                TextField {
+                                    text: modelData.makerFeeBps
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 76
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "maker_fee_bps", text)
+                                }
+                                TextField {
+                                    text: modelData.takerFeeBps
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 76
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "taker_fee_bps", text)
+                                }
+                                TextField {
+                                    text: modelData.marketDataLatencyUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 78
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_data_latency_us", text)
+                                }
+                                TextField {
+                                    text: modelData.marketDataJitterUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 78
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_data_jitter_us", text)
+                                }
+                                TextField {
+                                    text: modelData.marketOrderLatencyUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 82
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_order_latency_us", text)
+                                }
+                                TextField {
+                                    text: modelData.marketOrderJitterUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 82
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_order_jitter_us", text)
+                                }
+                                TextField {
+                                    text: modelData.limitOrderLatencyUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 86
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "limit_order_latency_us", text)
+                                }
+                                TextField {
+                                    text: modelData.limitOrderJitterUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 86
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "limit_order_jitter_us", text)
+                                }
+                                Label {
+                                    text: root.backtestVm.selectedSessionCount > 1 && !root.backtestVm.canRun ? root.backtestVm.statusText : ""
+                                    color: root.badColor
+                                    font.pixelSize: 12
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
                                 }
                             }
                         }
                     }
-                    Label {
-                        text: root.backtestVm.selectedSessionCount > 1 && !root.backtestVm.canRun ? root.backtestVm.statusText : ""
-                        color: root.badColor
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
-                        Layout.preferredWidth: 330
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    CompactField {
-                        caption: "MD base us"
-                        fieldWidth: 92
-                        text: root.backtestVm.marketDataLatencyUs
-                        onEdited: function(value) { root.backtestVm.marketDataLatencyUs = value }
-                    }
-                    CompactField {
-                        caption: "MD jitter us"
-                        fieldWidth: 96
-                        text: root.backtestVm.marketDataJitterUs
-                        onEdited: function(value) { root.backtestVm.marketDataJitterUs = value }
-                    }
-                    CompactField {
-                        caption: "Mkt base us"
-                        fieldWidth: 98
-                        text: root.backtestVm.marketOrderLatencyUs
-                        onEdited: function(value) { root.backtestVm.marketOrderLatencyUs = value }
-                    }
-                    CompactField {
-                        caption: "Mkt jitter us"
-                        fieldWidth: 102
-                        text: root.backtestVm.marketOrderJitterUs
-                        onEdited: function(value) { root.backtestVm.marketOrderJitterUs = value }
-                    }
-                    CompactField {
-                        caption: "Limit base us"
-                        fieldWidth: 108
-                        text: root.backtestVm.limitOrderLatencyUs
-                        onEdited: function(value) { root.backtestVm.limitOrderLatencyUs = value }
-                    }
-                    CompactField {
-                        caption: "Limit jitter us"
-                        fieldWidth: 112
-                        text: root.backtestVm.limitOrderJitterUs
-                        onEdited: function(value) { root.backtestVm.limitOrderJitterUs = value }
-                    }
-                    CompactField {
-                        caption: "Seed"
-                        fieldWidth: 84
-                        text: root.backtestVm.latencySeed
-                        onEdited: function(value) { root.backtestVm.latencySeed = value }
-                    }
-                    Item { Layout.fillWidth: true }
                 }
 
                 RowLayout {
@@ -658,6 +727,31 @@ Pane {
                         }
                     }
 
+                    Rectangle {
+                        visible: root.backtestVm.hasSelection
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 52
+                        color: root.panelDeepColor
+                        border.color: root.borderColor
+                        radius: 6
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Label { text: "Backtest parameters"; color: root.textColor; font.pixelSize: 13; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                                Label { text: root.backtestVm.selectedConfigText || root.backtestVm.selectedRunId; color: root.mutedTextColor; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                            }
+                            Label {
+                                text: root.backtestVm.selectedDetailsLoaded ? "Visual loaded" : (root.backtestVm.selectedDetailsLoading ? "Loading visual" : (root.backtestVm.selectedPreviewLoading ? "Loading preview" : "Visual optional"))
+                                color: root.mutedTextColor
+                                font.pixelSize: 11
+                            }
+                        }
+                    }
+
                     ColumnLayout {
                         visible: !root.backtestVm.selectedIsSweep
                         Layout.fillWidth: true
@@ -667,14 +761,14 @@ Pane {
                             Layout.fillWidth: true
                             Label { text: "Run metrics"; color: root.textColor; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true }
                             Label {
-                                text: root.backtestVm.selectedDetailsLoading ? "Loading visual data..." : (!root.backtestVm.selectedDetailsLoaded ? "Load visual to open metrics and chart" : (root.backtestVm.selectedResultMetrics.length > 0 ? "" : "Selected run has no metrics"))
+                                text: root.backtestVm.selectedDetailsLoading ? "Loading visual data..." : (root.backtestVm.selectedPreviewLoading ? "Loading PnL preview..." : (!root.backtestVm.selectedDetailsLoaded ? "Load visual to open chart" : (root.backtestVm.selectedResultMetrics.length > 0 ? "" : "Selected run has no metrics")))
                                 color: root.mutedTextColor
                                 font.pixelSize: 11
                                 visible: text !== ""
                             }
                         }
                         Flow {
-                            visible: root.backtestVm.selectedDetailsLoaded && root.backtestVm.selectedResultMetrics.length > 0
+                            visible: root.backtestVm.selectedResultMetrics.length > 0
                             Layout.fillWidth: true
                             Layout.preferredHeight: childrenRect.height
                             spacing: 8
@@ -685,6 +779,21 @@ Pane {
                                     selected: modelData.key === root.backtestVm.selectedResultMetricKey
                                     onClicked: function(key) { root.backtestVm.setSelectedResultMetricKey(key) }
                                 }
+                            }
+                        }
+                        Rectangle {
+                            visible: !root.backtestVm.selectedDetailsLoaded
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 220
+                            color: root.panelDeepColor
+                            border.color: root.borderColor
+                            radius: 6
+                            Label {
+                                anchors.centerIn: parent
+                                text: root.backtestVm.selectedDetailsLoading ? "Loading visual data..." : (root.backtestVm.selectedPreviewLoading ? "Loading PnL preview..." : "Load visual to open chart.")
+                                color: root.mutedTextColor
+                                font.pixelSize: 12
                             }
                         }
                         Rectangle {

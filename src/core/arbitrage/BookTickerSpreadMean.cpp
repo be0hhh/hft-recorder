@@ -15,23 +15,27 @@ std::vector<BookTickerSpreadMeanPoint> buildRollingBookTickerSpreadMean(
 
     std::size_t first = 0u;
     double sum = 0.0;
+    double internalPenaltySum = 0.0;
     for (std::size_t i = 0u; i < points.size(); ++i) {
         sum += points[i].spreadBps;
+        internalPenaltySum += points[i].internalPenaltyBps;
         const std::int64_t cutoff = points[i].tsNs - windowNs;
         while (first < i && points[first].tsNs < cutoff) {
             sum -= points[first].spreadBps;
+            internalPenaltySum -= points[first].internalPenaltyBps;
             ++first;
         }
 
         const double count = static_cast<double>(i - first + 1u);
         const double mean = sum / count;
+        const double internalPenaltyMean = internalPenaltySum / count;
         const double deviation = points[i].spreadBps - mean;
 
         BookTickerSpreadMeanPoint point{};
         point.tsNs = points[i].tsNs;
         point.meanBps = mean;
         point.deviationBps = deviation;
-        point.costBandBps = feePenaltyBps + points[i].internalPenaltyBps;
+        point.costBandBps = feePenaltyBps + internalPenaltyMean;
         point.edgeAfterCostBps = std::abs(deviation) - point.costBandBps;
         out.push_back(point);
     }

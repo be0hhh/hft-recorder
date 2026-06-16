@@ -235,7 +235,7 @@ Pane {
                     }
                     Label {
                         visible: root.backtestVm.selectedResultMetrics.length <= 0
-                        text: root.backtestVm.selectedDetailsLoading ? "Loading visual data..." : (!root.backtestVm.selectedDetailsLoaded ? "Load visual to show risk/execution KPIs" : "Selected run has no risk/execution KPIs")
+                        text: root.backtestVm.selectedDetailsLoading ? "Loading visual data..." : "Selected run has no risk/execution KPIs"
                         color: root.mutedTextColor
                         font.pixelSize: 12
                     }
@@ -246,7 +246,7 @@ Pane {
                         LegendChip { text: "Gross realized"; lineColor: root.grossColor; checked: true; onToggled: {} }
                         LegendChip { text: "Realized PnL"; lineColor: root.netColor; checked: true; onToggled: {} }
                         LegendChip { text: "Fees paid"; lineColor: root.feesColor; checked: true; onToggled: {} }
-                        ActionButton { text: root.effectivePercentMode() ? "PnL %" : "PnL $"; enabledValue: root.backtestVm.selectedDetailsLoaded && root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.pnlPercentMode = !root.pnlPercentMode; pnlCanvas.requestPaint(); hoverCanvas.requestPaint() } }
+                        ActionButton { text: root.effectivePercentMode() ? "PnL %" : "PnL $"; enabledValue: root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.pnlPercentMode = !root.pnlPercentMode; pnlCanvas.requestPaint(); hoverCanvas.requestPaint() } }
                         Item { Layout.fillWidth: true }
                     }
 
@@ -508,7 +508,7 @@ Pane {
                             anchors.centerIn: parent
                             visible: !root.backtestVm.hasEquityPoints
                             text: root.backtestVm.hasSelection
-                                  ? (root.backtestVm.selectedDetailsLoaded ? "Selected run has no equity data" : "Load visual to show equity chart")
+                                  ? (root.backtestVm.selectedPreviewLoading ? "Loading PnL preview..." : "Selected run has no equity data")
                                   : "No run selected"
                             color: root.mutedTextColor
                             font.pixelSize: 14
