@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <exception>
 #include <limits>
 #include <string>
 #include <utility>
@@ -124,40 +125,161 @@ QString metricDisplayValue(const QString& key, const QJsonValue& value) {
     return prettyJson(value).trimmed();
 }
 
-QString metricLabel(QString key) {
-    if (key == QStringLiteral("wallet_balance_e8")) return QStringLiteral("Final balance");
-    if (isE8Key(key)) key = key.left(key.size() - 3);
-    key.replace(QLatin1Char('_'), QLatin1Char(' '));
-    if (!key.isEmpty()) key[0] = key[0].toUpper();
-    return key;
+QString percentRatioText(qint64 numerator, qint64 denominator) {
+    if (denominator <= 0) return QStringLiteral("n/a");
+    const qint64 bps = (numerator * 10000) / denominator;
+    const QString sign = bps < 0 ? QStringLiteral("-") : QString{};
+    const qint64 absBps = bps < 0 ? -bps : bps;
+    return QStringLiteral("%1%2.%3%")
+        .arg(sign, QString::number(absBps / 100), QString::number(absBps % 100).rightJustified(2, QLatin1Char('0')));
 }
 
-QVariantList resultMetrics(const QJsonObject& summary) {
-    static constexpr const char* kKeys[] = {
-        "initial_balance_e8",
-        "wallet_balance_e8",
-        "total_pnl_e8",
-        "gross_realized_pnl_e8",
-        "fees_paid_e8",
-        "net_realized_pnl_e8",
-        "realized_pnl_e8",
-        "unrealized_pnl_e8",
-        "fills",
-        "reduce_only_orders",
-        "reduce_only_fills",
-        "strategy_closed",
-        "open_position_qty_e8",
-    };
+QVariantList resultMetrics(const QJsonObject& root, const QJsonObject& summary) {
+    (void)root;
     QVariantList out;
-    for (const char* rawKey : kKeys) {
-        const QString key = QString::fromUtf8(rawKey);
-        if (!summary.contains(key)) continue;
+    auto appendMetric = [&](const QString& key,
+                            const QString& label,
+                            const QString& value,
+                            const QString& group,
+                            bool primary,
+                            bool hasSeries,
+                            const QString& description,
+                            const QString& why,
+                            const QString& interpretation) {
+        if (value.trimmed().isEmpty()) return;
         QVariantMap row;
         row.insert(QStringLiteral("key"), key);
-        row.insert(QStringLiteral("label"), metricLabel(key));
-        row.insert(QStringLiteral("value"), metricDisplayValue(key, summary.value(key)));
+        row.insert(QStringLiteral("label"), label);
+        row.insert(QStringLiteral("value"), value);
+        row.insert(QStringLiteral("group"), group);
+        row.insert(QStringLiteral("primary"), primary);
+        row.insert(QStringLiteral("hasSeries"), hasSeries);
+        row.insert(QStringLiteral("description"), description);
+        row.insert(QStringLiteral("why"), why);
+        row.insert(QStringLiteral("interpretation"), interpretation);
         out.push_back(row);
+    };
+    auto appendSummary = [&](const char* rawKey,
+                             const QString& label,
+                             const QString& group,
+                             bool primary,
+                             bool hasSeries,
+                             const QString& description,
+                             const QString& why,
+                             const QString& interpretation) {
+        const QString key = QString::fromUtf8(rawKey);
+        if (!summary.contains(key)) return;
+        appendMetric(key, label, metricDisplayValue(key, summary.value(key)), group, primary, hasSeries, description, why, interpretation);
+    };
+    appendSummary("total_pnl_e8",
+                  QStringLiteral("Total PnL"),
+                  QStringLiteral("Return"),
+                  true,
+                  true,
+                  QStringLiteral("Итоговый PnL после комиссий. Это главный ответ: стратегия заработала или потеряла."),
+                  QStringLiteral("По графику видно, когда именно результат набирался или проседал."),
+                  QStringLiteral("Плавный рост лучше резких скачков. Долгая плоская линия значит, что стратегия мало торговала или не находила сигнал."));
+    appendSummary("fees_paid_e8",
+                  QStringLiteral("Fees paid"),
+                  QStringLiteral("Return"),
+                  true,
+                  true,
+                  QStringLiteral("Накопленная комиссия за исполнения."),
+                  QStringLiteral("Показывает, съедает ли оборот прибыль. Можно делить PnL на fees, чтобы увидеть окупаемость комиссии."),
+                  QStringLiteral("Если fees растут быстрее PnL, стратегия слишком много платит за входы/выходы."));
+    appendSummary("wallet_balance_e8",
+                  QStringLiteral("Final balance"),
+                  QStringLiteral("Return"),
+                  false,
+                  true,
+                  QStringLiteral("Баланс после всех реализованных PnL и комиссий."),
+                  QStringLiteral("Помогает сверить итог backtest с начальным балансом и PnL."),
+                  QStringLiteral("Финальный баланс должен совпадать с логикой Total PnL относительно initial balance."));
+    appendSummary("max_drawdown_e8",
+                  QStringLiteral("Max DD"),
+                  QStringLiteral("Risk"),
+                  true,
+                  true,
+                  QStringLiteral("Максимальная просадка от локального пика equity."),
+                  QStringLiteral("Показывает худший момент, который пришлось бы пережить во время бектеста."),
+                  QStringLiteral("Большой DD при маленьком PnL значит плохой risk/reward или нестабильное поведение."));
+    appendSummary("risk_stopped",
+                  QStringLiteral("Risk stop"),
+                  QStringLiteral("Risk"),
+                  true,
+                  false,
+                  QStringLiteral("Флаг срабатывания трейдерского risk guard."),
+                  QStringLiteral("Показывает, остановил ли backtest новые заявки по тому же порогу, что использует trader."),
+                  QStringLiteral("true значит, что дальнейшая торговля была остановлена, а позиция не была принудительно обнулена backtest-ликвидацией."));
+    appendSummary("risk_stop_equity_e8",
+                  QStringLiteral("Risk stop equity"),
+                  QStringLiteral("Risk"),
+                  false,
+                  false,
+                  QStringLiteral("Equity в момент срабатывания трейдерского risk guard."),
+                  QStringLiteral("Значение включает нереализованный PnL по открытой позиции."),
+                  QStringLiteral("Сверяй его с risk_stop_threshold_equity_e8, чтобы понять, на каком уровне произошла остановка."));
+    appendSummary("risk_stop_threshold_equity_e8",
+                  QStringLiteral("Risk threshold"),
+                  QStringLiteral("Risk"),
+                  false,
+                  false,
+                  QStringLiteral("Абсолютный equity-порог, рассчитанный из min_equity_pct и стартового баланса."),
+                  QStringLiteral("Это фактическая граница, ниже которой trader risk guard запрещает новые заявки."),
+                  QStringLiteral("Если initial_balance_e8 равен 200 USDT и min_equity_pct равен 60, порог будет 120 USDT."));
+    appendSummary("mfe_e8",
+                  QStringLiteral("MFE"),
+                  QStringLiteral("Risk"),
+                  false,
+                  true,
+                  QStringLiteral("Лучший достигнутый PnL по ходу прогона."),
+                  QStringLiteral("Показывает, сколько стратегия могла иметь в лучшей точке до финала."),
+                  QStringLiteral("Если MFE сильно выше финального PnL, стратегия отдает прибыль назад."));
+    appendSummary("mae_e8",
+                  QStringLiteral("MAE"),
+                  QStringLiteral("Risk"),
+                  false,
+                  true,
+                  QStringLiteral("Худший достигнутый PnL по ходу прогона."),
+                  QStringLiteral("Показывает глубину неблагоприятного движения equity."),
+                  QStringLiteral("Глубокий MAE говорит, что стратегия долго была в минусе или набирала риск против себя."));
+    appendSummary("orders",
+                  QStringLiteral("Orders"),
+                  QStringLiteral("Execution"),
+                  false,
+                  false,
+                  QStringLiteral("Всего отправленных заявок."),
+                  QStringLiteral("Оценка активности алгоритма: как часто он пытался действовать."),
+                  QStringLiteral("Много orders при малом fills может означать агрессивные перестановки или плохую достижимость цены."));
+    appendSummary("fills",
+                  QStringLiteral("Fills"),
+                  QStringLiteral("Execution"),
+                  true,
+                  true,
+                  QStringLiteral("Всего исполнений."),
+                  QStringLiteral("Показывает реальные сделки, а не только намерения алгоритма."),
+                  QStringLiteral("Скачки fills на графике помогают связать изменения PnL с моментами торговли."));
+    const qint64 orders = summary.value(QStringLiteral("orders")).toInteger();
+    const qint64 fills = summary.value(QStringLiteral("fills")).toInteger();
+    if (summary.contains(QStringLiteral("orders")) && summary.contains(QStringLiteral("fills")) && orders > 0) {
+        appendMetric(QStringLiteral("fill_rate"),
+                     QStringLiteral("Fill rate"),
+                     percentRatioText(fills, orders),
+                     QStringLiteral("Execution"),
+                     true,
+                     false,
+                     QStringLiteral("Доля заявок, которые дали исполнение."),
+                     QStringLiteral("Показывает, насколько часто выставленные заявки реально становятся сделками."),
+                     QStringLiteral("Слишком низкий fill rate может значить, что стратегия стоит далеко от рынка или слишком быстро отменяет заявки."));
     }
+    appendSummary("reduce_only_fills",
+                  QStringLiteral("Reduce-only fills"),
+                  QStringLiteral("Execution"),
+                  false,
+                  false,
+                  QStringLiteral("Исполнения, которые только уменьшали позицию."),
+                  QStringLiteral("Отделяет закрытия/снижение риска от обычного набора позиции."),
+                  QStringLiteral("Если reduce-only fills много, стратегия часто разгружалась или закрывала остатки."));
     return out;
 }
 
@@ -784,8 +906,8 @@ BacktestViewModel::BacktestViewModel(QObject* parent) : QObject(parent) {
     connect(&watcher_, &QFileSystemWatcher::directoryChanged, this, [this]() { scheduleRefresh_(); });
     connect(&watcher_, &QFileSystemWatcher::fileChanged, this, [this]() { scheduleRefresh_(); });
     loadPersistentConfig_();
-    const QVariantList rows = sessions();
-    if (!rows.empty()) selectedSessionId_ = rows.front().toMap().value(QStringLiteral("id")).toString();
+    sessions_ = loadSessions_();
+    if (!sessions_.empty()) selectedSessionId_ = sessions_.front().toMap().value(QStringLiteral("id")).toString();
     refresh();
 }
 
@@ -799,6 +921,10 @@ QString BacktestViewModel::recordingsRoot() const {
 }
 
 QVariantList BacktestViewModel::sessions() const {
+    return sessions_;
+}
+
+QVariantList BacktestViewModel::loadSessions_() const {
     QVariantList out;
     QDir recordingsDir(recordingsRoot());
     if (!recordingsDir.exists()) return out;
@@ -1078,6 +1204,92 @@ QVariantList BacktestViewModel::selectedResultMetrics() const {
     return record == nullptr ? QVariantList{} : record->resultMetrics;
 }
 
+QString BacktestViewModel::selectedResultMetricKey() const {
+    const auto* record = selectedRecord_();
+    if (record == nullptr || record->resultMetrics.empty()) return selectedResultMetricKey_;
+    for (const QVariant& value : record->resultMetrics) {
+        const QVariantMap row = value.toMap();
+        if (row.value(QStringLiteral("key")).toString() == selectedResultMetricKey_) return selectedResultMetricKey_;
+    }
+    return record->resultMetrics.front().toMap().value(QStringLiteral("key")).toString();
+}
+
+QVariantList BacktestViewModel::selectedResultMetricSeries() const {
+    const auto* record = selectedRecord_();
+    if (record == nullptr || record->equityPoints.size() < 2) return {};
+
+    const QString metricKey = selectedResultMetricKey();
+    const QString ratioKey = selectedResultMetricRatioKey_;
+    QVariantList out;
+    qint64 peakPnl = std::numeric_limits<qint64>::min();
+    qint64 bestPnl = std::numeric_limits<qint64>::min();
+    qint64 worstPnl = std::numeric_limits<qint64>::max();
+
+    auto valueFor = [](const QString& key, const QVariantMap& point, qint64 drawdown, qint64 mfe, qint64 mae, bool& ok) -> qint64 {
+        ok = true;
+        if (key == QStringLiteral("total_pnl_e8")) return point.value(QStringLiteral("totalPnlE8")).toLongLong();
+        if (key == QStringLiteral("fees_paid_e8")) return point.value(QStringLiteral("feesPaidE8")).toLongLong();
+        if (key == QStringLiteral("wallet_balance_e8")) return point.value(QStringLiteral("walletBalanceE8")).toLongLong();
+        if (key == QStringLiteral("max_drawdown_e8")) return drawdown;
+        if (key == QStringLiteral("mfe_e8")) return mfe;
+        if (key == QStringLiteral("mae_e8")) return mae;
+        if (key == QStringLiteral("fills")) return point.value(QStringLiteral("fillCount")).toLongLong();
+        ok = false;
+        return 0;
+    };
+
+    for (const QVariant& value : record->equityPoints) {
+        const QVariantMap point = value.toMap();
+        const QVariant totalPnlValue = point.value(QStringLiteral("totalPnlE8"));
+        const qint64 pnl = totalPnlValue.isValid()
+                                ? totalPnlValue.toLongLong()
+                                : point.value(QStringLiteral("netTotalPnlE8")).toLongLong();
+        peakPnl = peakPnl == std::numeric_limits<qint64>::min() ? pnl : std::max(peakPnl, pnl);
+        bestPnl = bestPnl == std::numeric_limits<qint64>::min() ? pnl : std::max(bestPnl, pnl);
+        worstPnl = worstPnl == std::numeric_limits<qint64>::max() ? pnl : std::min(worstPnl, pnl);
+        const qint64 drawdown = peakPnl - pnl;
+
+        bool hasValue = false;
+        const qint64 raw = valueFor(metricKey, point, drawdown, bestPnl, worstPnl, hasValue);
+        if (!hasValue) return {};
+
+        QVariantMap row;
+        row.insert(QStringLiteral("index"), out.size());
+        row.insert(QStringLiteral("tsNs"), point.value(QStringLiteral("tsNs")));
+        row.insert(QStringLiteral("valueRaw"), raw);
+        row.insert(QStringLiteral("valueText"), isE8Key(metricKey) ? e8DisplayString(raw) : QString::number(raw));
+        if (!ratioKey.isEmpty() && ratioKey != metricKey) {
+            bool hasDenominator = false;
+            const qint64 denominator = valueFor(ratioKey, point, drawdown, bestPnl, worstPnl, hasDenominator);
+            if (hasDenominator && denominator != 0) {
+                row.insert(QStringLiteral("denominatorRaw"), denominator);
+                row.insert(QStringLiteral("hasRatio"), true);
+            }
+        }
+        out.push_back(row);
+    }
+    return out;
+}
+
+QVariantList BacktestViewModel::resultMetricRatioChoices() const {
+    QVariantList out;
+    QVariantMap none;
+    none.insert(QStringLiteral("id"), QString{});
+    none.insert(QStringLiteral("label"), QStringLiteral("None"));
+    out.push_back(none);
+    const auto* record = selectedRecord_();
+    if (record == nullptr) return out;
+    for (const QVariant& value : record->resultMetrics) {
+        const QVariantMap metric = value.toMap();
+        if (!metric.value(QStringLiteral("hasSeries")).toBool()) continue;
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), metric.value(QStringLiteral("key")).toString());
+        row.insert(QStringLiteral("label"), metric.value(QStringLiteral("label")).toString());
+        out.push_back(row);
+    }
+    return out;
+}
+
 QVariantList BacktestViewModel::selectedSweepRows() const {
     const auto* record = selectedRecord_();
     if (record == nullptr || !record->sweep) return {};
@@ -1183,6 +1395,7 @@ bool BacktestViewModel::canRun() const {
 }
 
 void BacktestViewModel::reloadSessions() {
+    sessions_ = loadSessions_();
     emit sessionsChanged();
     emit multiSessionChanged();
     emit canRunChanged();
@@ -1386,6 +1599,14 @@ void BacktestViewModel::setInitialBalanceUsdt(const QString& value) {
     emit accountingChanged();
 }
 
+void BacktestViewModel::setRiskMinEquityPct(const QString& value) {
+    const QString next = value.trimmed();
+    if (riskMinEquityPct_ == next) return;
+    riskMinEquityPct_ = next;
+    savePersistentConfig_();
+    emit accountingChanged();
+}
+
 void BacktestViewModel::setMakerFeeBps(const QString& value) {
     const QString next = value.trimmed();
     if (makerFeeBps_ == next) return;
@@ -1499,6 +1720,7 @@ void BacktestViewModel::saveProfile() {
     out << "amend_latency_us=" << limitOrderLatencyUs_ << "\n";
     out << "cancel_latency_us=" << limitOrderLatencyUs_ << "\n";
     out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\n";
+    out << "risk_min_equity_pct=" << riskMinEquityPct_ << "\n";
     out << "maker_fee_bps=" << makerFeeBps_ << "\n";
     out << "taker_fee_bps=" << takerFeeBps_ << "\n";
     out << "sweep_budget=" << sweepBudget_ << "\n";
@@ -1533,6 +1755,7 @@ void BacktestViewModel::loadProfile() {
     const QString limitOrderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("limit_order_latency_us"));
     const QString limitOrderJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("limit_order_jitter_us"));
     const QString initialBalance = iniValue(text, QStringLiteral("backtest"), QStringLiteral("initial_balance_usdt"));
+    const QString riskMinEquity = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_min_equity_pct"));
     const QString makerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("maker_fee_bps"));
     const QString takerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("taker_fee_bps"));
     const QString sweepBudget = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_budget"));
@@ -1549,6 +1772,7 @@ void BacktestViewModel::loadProfile() {
     else if (!orderLatency.isEmpty()) limitOrderLatencyUs_ = orderLatency;
     if (!limitOrderJitter.isEmpty()) limitOrderJitterUs_ = limitOrderJitter;
     if (!initialBalance.isEmpty()) initialBalanceUsdt_ = initialBalance;
+    riskMinEquityPct_ = riskMinEquity;
     if (!makerFee.isEmpty()) makerFeeBps_ = makerFee;
     if (!takerFee.isEmpty()) takerFeeBps_ = takerFee;
     if (!sweepBudget.isEmpty()) sweepBudget_ = sweepBudget;
@@ -1654,12 +1878,30 @@ void BacktestViewModel::refresh() {
     }
     emit runsChanged();
     emit selectionChanged();
+    emit selectedResultMetricChanged();
 }
 
 void BacktestViewModel::selectRun(const QString& runId) {
     if (selectedRunId_ == runId) return;
     selectedRunId_ = runId;
     emit selectionChanged();
+    emit selectedResultMetricChanged();
+}
+
+void BacktestViewModel::setSelectedResultMetricKey(const QString& key) {
+    const QString next = key.trimmed();
+    if (selectedResultMetricKey_ == next) return;
+    selectedResultMetricKey_ = next;
+    if (selectedResultMetricRatioKey_ == selectedResultMetricKey_) selectedResultMetricRatioKey_.clear();
+    emit selectedResultMetricChanged();
+}
+
+void BacktestViewModel::setSelectedResultMetricRatioKey(const QString& key) {
+    QString next = key.trimmed();
+    if (next == selectedResultMetricKey()) next.clear();
+    if (selectedResultMetricRatioKey_ == next) return;
+    selectedResultMetricRatioKey_ = next;
+    emit selectedResultMetricChanged();
 }
 
 bool BacktestViewModel::deleteSelectedRun() {
@@ -1683,6 +1925,7 @@ bool BacktestViewModel::deleteSelectedRun() {
 
     selectedRunId_.clear();
     refresh();
+    reloadSessions();
     setStatusText_(QStringLiteral("Deleted backtest %1").arg(deletedRunId));
     return true;
 }
@@ -1726,6 +1969,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
     const QString indicatorProfile = selectedIndicatorProfile_;
     worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, orderLatency, amendLatency, cancelLatency, initialBalance, makerFee, takerFee] {
+        try {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPath.toStdString();
         if (sessionPaths.size() > 1) {
@@ -1781,9 +2025,27 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
             setRunning_(false);
             setProgress_(100, status);
             setStatusText_(status);
+            if (!selected.isEmpty()) selectedRunId_ = selected;
             refresh();
-            if (!selected.isEmpty()) selectRun(selected);
+            reloadSessions();
         }, Qt::QueuedConnection);
+        } catch (const std::exception& ex) {
+            const QString status = QStringLiteral("Backtest crashed: ") + QString::fromUtf8(ex.what());
+            QMetaObject::invokeMethod(this, [this, status] {
+                setRunning_(false);
+                setProgress_(100, status);
+                setStatusText_(status);
+                refresh();
+            }, Qt::QueuedConnection);
+        } catch (...) {
+            const QString status = QStringLiteral("Backtest crashed: unknown exception");
+            QMetaObject::invokeMethod(this, [this, status] {
+                setRunning_(false);
+                setProgress_(100, status);
+                setStatusText_(status);
+                refresh();
+            }, Qt::QueuedConnection);
+        }
     });
 }
 
@@ -1851,6 +2113,7 @@ void BacktestViewModel::startSweep() {
     const QString indicatorProfile = selectedIndicatorProfile_;
 
     worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, initialBalance, makerFee, takerFee, ranges = std::move(ranges)] {
+        try {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPath.toStdString();
         if (sessionPaths.size() > 1) {
@@ -1909,9 +2172,27 @@ void BacktestViewModel::startSweep() {
             setRunning_(false);
             setProgress_(100, status);
             setStatusText_(status);
+            if (!selected.isEmpty()) selectedRunId_ = selected;
             refresh();
-            if (!selected.isEmpty()) selectRun(selected);
+            reloadSessions();
         }, Qt::QueuedConnection);
+        } catch (const std::exception& ex) {
+            const QString status = QStringLiteral("Sweep crashed: ") + QString::fromUtf8(ex.what());
+            QMetaObject::invokeMethod(this, [this, status] {
+                setRunning_(false);
+                setProgress_(100, status);
+                setStatusText_(status);
+                refresh();
+            }, Qt::QueuedConnection);
+        } catch (...) {
+            const QString status = QStringLiteral("Sweep crashed: unknown exception");
+            QMetaObject::invokeMethod(this, [this, status] {
+                setRunning_(false);
+                setProgress_(100, status);
+                setStatusText_(status);
+                refresh();
+            }, Qt::QueuedConnection);
+        }
     });
 }
 
@@ -2071,7 +2352,7 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.totalPnlE8 = summary.value(QStringLiteral("total_pnl_e8")).toInteger();
     record.pnlText = pnlPercentText(record.totalPnlE8, record.initialBalanceE8);
     record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
-    record.resultMetrics = resultMetrics(summary);
+    record.resultMetrics = resultMetrics(object, summary);
     const QJsonObject streams = object.value(QStringLiteral("streams")).toObject();
     const QJsonObject equityStream = streams.value(QStringLiteral("equity")).toObject();
     const qint64 equityRows = equityStream.value(QStringLiteral("rows")).toInteger();
@@ -2205,6 +2486,7 @@ QString BacktestViewModel::configSummary_(const QHash<QString, QString>& overrid
     QString summary = configMode_.trimmed();
     if (!parts.empty()) summary += QStringLiteral(": ") + parts.join(QStringLiteral(", "));
     if (!selectedIndicatorProfile_.isEmpty()) summary += QStringLiteral(" | indicator=%1").arg(selectedIndicatorProfile_);
+    if (!riskMinEquityPct_.trimmed().isEmpty()) summary += QStringLiteral(" | min_equity=%1%").arg(riskMinEquityPct_.trimmed());
     return summary;
 }
 
@@ -2270,6 +2552,7 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (limitOrderJitterUs_.isEmpty()) limitOrderJitterUs_ = QStringLiteral("700");
     initialBalanceUsdt_ = settings_.value(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_).toString().trimmed();
     if (initialBalanceUsdt_.isEmpty()) initialBalanceUsdt_ = QStringLiteral("1000");
+    riskMinEquityPct_ = settings_.value(QStringLiteral("backtests/risk_min_equity_pct"), riskMinEquityPct_).toString().trimmed();
     makerFeeBps_ = settings_.value(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_).toString().trimmed();
     if (makerFeeBps_.isEmpty()) makerFeeBps_ = QStringLiteral("0");
     takerFeeBps_ = settings_.value(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_).toString().trimmed();
@@ -2320,6 +2603,7 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/limit_order_latency_us"), limitOrderLatencyUs_);
     settings_.setValue(QStringLiteral("backtests/limit_order_jitter_us"), limitOrderJitterUs_);
     settings_.setValue(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_);
+    settings_.setValue(QStringLiteral("backtests/risk_min_equity_pct"), riskMinEquityPct_);
     settings_.setValue(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/sweep_budget"), sweepBudget_);
@@ -2397,6 +2681,11 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         if (fixedOnly && paramModes_.value(key, QStringLiteral("fixed")) != QStringLiteral("fixed")) continue;
         const QString value = overrides.value(key, paramValues_.value(key)).trimmed();
         if (!value.isEmpty()) out << key << "=" << value << "\n";
+    }
+    if (!riskMinEquityPct_.trimmed().isEmpty()) {
+        out << "\n[risk]\n";
+        out << "enabled=true\n";
+        out << "min_equity_pct=" << riskMinEquityPct_.trimmed() << "\n";
     }
     for (const QString& venue : venueOrder) {
         out << "\n[venue." << venue << "]\n";

@@ -2,10 +2,12 @@
 
 #include <fstream>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iterator>
 
 #include "core/capture/CaptureCoordinator.hpp"
+#include "hft_trader/runtime/diagnostics/RuntimeTestHooks.hpp"
 
 namespace fs = std::filesystem;
 
@@ -14,6 +16,35 @@ namespace {
 using hftrec::Status;
 using hftrec::capture::CaptureConfig;
 using hftrec::capture::CaptureCoordinator;
+
+bool mockFetchMetadata(cxet::UnifiedRequestBuilder& builder,
+                       MessageBuffer&,
+                       ExchangeId,
+                       canon::MarketType,
+                       cxet::composite::InstrumentInfoRow* out,
+                       std::size_t cap,
+                       std::size_t* outCount,
+                       const char**) noexcept {
+    if (!out || cap == 0u || !outCount) return false;
+    out[0] = cxet::composite::InstrumentInfoRow{};
+    out[0].symbol = builder.symbol();
+    std::memcpy(out[0].tickSize, "0.1", 4u);
+    std::memcpy(out[0].stepSize, "0.001", 6u);
+    std::memcpy(out[0].lotSize, "0.001", 6u);
+    std::memcpy(out[0].contractBaseQty, "0.001", 6u);
+    *outCount = 1u;
+    return true;
+}
+
+struct RuntimeHooksGuard {
+    explicit RuntimeHooksGuard(const hft_trader::runtime::RuntimeTestHooks* hooks) noexcept {
+        hft_trader::runtime::setRuntimeTestHooks(hooks);
+    }
+
+    ~RuntimeHooksGuard() {
+        hft_trader::runtime::setRuntimeTestHooks(nullptr);
+    }
+};
 
 CaptureConfig makeValidConfig() {
     CaptureConfig config{};
@@ -73,6 +104,31 @@ TEST(CaptureCoordinator, WritesManifestAsSoonAsSessionIsEnsured) {
     ASSERT_TRUE(manifestStream.is_open());
     const std::string manifest((std::istreambuf_iterator<char>(manifestStream)), std::istreambuf_iterator<char>());
     EXPECT_NE(manifest.find("\"session_status\": \"recording\""), std::string::npos);
+
+    std::error_code ec;
+    coordinator.finalizeSession();
+    fs::remove_all(config.outputDir, ec);
+}
+
+TEST(CaptureCoordinator, WritesInstrumentMetadataFromTraderRuntime) {
+    hft_trader::runtime::RuntimeTestHooks hooks{};
+    hooks.fetchMetadata = mockFetchMetadata;
+    RuntimeHooksGuard guard{&hooks};
+
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+
+    ASSERT_EQ(coordinator.ensureSession(config), Status::Ok);
+
+    const auto metadataPath = coordinator.sessionDirCopy() / "instrument_metadata.json";
+    ASSERT_TRUE(fs::exists(metadataPath));
+    std::ifstream metadataStream(metadataPath);
+    ASSERT_TRUE(metadataStream.is_open());
+    const std::string metadata((std::istreambuf_iterator<char>(metadataStream)), std::istreambuf_iterator<char>());
+    EXPECT_NE(metadata.find("\"metadata_source\": \"hft_trader\""), std::string::npos);
+    EXPECT_NE(metadata.find("\"tick_size_e8\": 10000000"), std::string::npos);
+    EXPECT_NE(metadata.find("\"lot_size_e8\": 100000"), std::string::npos);
+    EXPECT_NE(metadata.find("\"contract_base_qty_e8\": 100000"), std::string::npos);
 
     std::error_code ec;
     coordinator.finalizeSession();

@@ -9,6 +9,7 @@ Pane {
     focus: true
     required property AppViewModel appVm
     required property CaptureViewModel captureVm
+    required property var backtestVm
     required property bool tabActive
 
     property color windowColor: "#161616"
@@ -78,9 +79,23 @@ Pane {
         root.syncBacktestComboIndex()
     }
 
+    function backtestPrimarySessionPath() {
+        if (root.compareMode)
+            return sourcesModel.sessionPath(root.selectedCompareSourceA)
+        if (root.selectedSourceId !== "" && sourcesModel.sourceKind(root.selectedSourceId) === "recorded")
+            return sourcesModel.sessionPath(root.selectedSourceId)
+        if (root.selectedCompareSourceA !== "" && sourcesModel.sourceKind(root.selectedCompareSourceA) === "recorded")
+            return sourcesModel.sessionPath(root.selectedCompareSourceA)
+        return ""
+    }
+
+    function backtestSecondarySessionPath() {
+        return root.compareMode ? sourcesModel.sessionPath(root.selectedCompareSourceB) : ""
+    }
+
     function refreshBacktestChoices() {
-        chart.refreshBacktestResults(sourcesModel.sessionPath(root.selectedCompareSourceA),
-                                     sourcesModel.sessionPath(root.selectedCompareSourceB))
+        chart.refreshBacktestResults(root.backtestPrimarySessionPath(),
+                                     root.backtestSecondarySessionPath())
         root.syncBacktestRows()
         compareChart.setBacktestResult(chart.selectedBacktestResult)
     }
@@ -108,7 +123,7 @@ Pane {
         }
         var row = root.backtestRows[index]
         if (row.sessionPath !== "" && chart.sessionDir !== row.sessionPath)
-            chart.loadSession(row.sessionPath)
+            chart.loadRecordedSession(row.sessionPath)
         if (row.selectable === false) {
             root.syncBacktestComboIndex()
             return
@@ -122,8 +137,30 @@ Pane {
         }
     }
 
+    function loadRecordedSource(sourceId) {
+        chart.loadRecordedSession(sourcesModel.sessionPath(sourceId))
+    }
+
+    function loadSelectedRecordedOrderbook() {
+        if (root.selectedSourceId === "" || sourcesModel.sourceKind(root.selectedSourceId) !== "recorded")
+            return
+        chart.loadRecordedOrderbook()
+    }
+
+    function preferChartStatusText() {
+        var text = chart.statusText
+        if (text === "")
+            return false
+        if (root.showOrderbookLayer && !chart.hasOrderbook)
+            return true
+        return text.indexOf("failed") !== -1
+            || text.indexOf("Failed") !== -1
+            || text.indexOf("No orderbook") !== -1
+            || text.indexOf("Orderbook load") !== -1
+    }
+
     function applySourceSelection(sourceId) {
-        if (sourceId !== "" && chart.currentSourceId === sourceId)
+        if (sourceId !== "" && chart.currentSourceId === sourceId && chart.loaded)
             return
         interaction.clearSelectionVisual()
         chart.clearSelection()
@@ -133,10 +170,12 @@ Pane {
             return
         }
         if (sourceKind === "recorded") {
-            chart.loadSession(sourcesModel.sessionPath(sourceId))
+            root.loadRecordedSource(sourceId)
+            Qt.callLater(root.refreshBacktestChoices)
             return
         }
         chart.resetSession()
+        Qt.callLater(root.refreshBacktestChoices)
     }
 
     function singleSelectedSourceId() {
@@ -163,6 +202,11 @@ Pane {
             root.userDisabledIndexPriceLayer = false
             root.userDisabledFundingLayer = false
             root.userDisabledPriceLimitLayer = false
+            root.showTradesLayer = false
+            root.showLiquidationsLayer = false
+            root.showCandlesLayer = false
+            root.showOrderbookLayer = false
+            root.showBookTickerLayer = true
             root.showMarkPriceLayer = false
             root.showIndexPriceLayer = false
             root.showFundingLayer = false
@@ -610,7 +654,11 @@ Pane {
         Qt.callLater(root.syncLiveUpdateMode)
         Qt.callLater(root.syncRenderWindow)
     }
-    onTabActiveChanged: chart.active = root.tabActive
+    onTabActiveChanged: {
+        chart.active = root.tabActive
+        if (root.tabActive)
+            Qt.callLater(root.refreshBacktestChoices)
+    }
     onUseDedicatedGpuPathChanged: root.syncRendererDiagnostics()
 
     onSelectedCompareIndexAChanged: if (compareComboA) compareComboA.currentIndex = root.selectedCompareIndexA
@@ -627,11 +675,18 @@ Pane {
         function onModelReset() {
             root.rebuildCompareSourceRows()
             Qt.callLater(root.ensureCompareSelection)
+            Qt.callLater(root.refreshBacktestChoices)
             }
         function onRowsInserted() {
             root.rebuildCompareSourceRows()
             Qt.callLater(root.ensureCompareSelection)
+            Qt.callLater(root.refreshBacktestChoices)
             }
+    }
+
+    Connections {
+        target: root.backtestVm
+        function onRunsChanged() { Qt.callLater(root.refreshBacktestChoices) }
     }
 
     Connections {
@@ -827,6 +882,7 @@ Pane {
                         implicitHeight: Math.min(contentItem.implicitHeight, 360)
                         padding: 1
                         onOpened: {
+                            root.refreshBacktestChoices()
                             backtestCombo.searchText = ""
                             backtestCombo.rebuildFilter()
                             backtestSearchField.forceActiveFocus()
@@ -965,11 +1021,6 @@ Pane {
                 var nextVisible = !root.showTradesLayer
                 root.showTradesLayer = nextVisible
                 root.userDisabledTradesLayer = !nextVisible
-                if (root.showTradesLayer && !chart.loaded && root.selectedSourceId !== "") {
-                    root.userHasExplicitLayerSelection = false
-                    root.applySourceSelection(root.selectedSourceId)
-                    root.userHasExplicitLayerSelection = true
-                }
             }
             onToggleCandles: {
                 root.userHasExplicitLayerSelection = true
@@ -988,6 +1039,7 @@ Pane {
                 var nextVisible = !root.showOrderbookLayer
                 root.showOrderbookLayer = nextVisible
                 root.userDisabledOrderbookLayer = !nextVisible
+                if (nextVisible) root.loadSelectedRecordedOrderbook()
             }
             onToggleBookTicker: {
                 root.userHasExplicitLayerSelection = true
@@ -1031,7 +1083,13 @@ Pane {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
-                text: root.tabActive && !root.compareMode && root.performanceDiagnosticsText !== "" ? root.performanceDiagnosticsText : root.compareMode ? "Top: combined bookTicker traces and routed backtest markers. Bottom: best-side spread in bps with rolling mean and cost band." : chart.selectedBacktestResult !== "" ? chart.statusText : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
+                text: root.compareMode
+                    ? "Top: combined bookTicker traces and routed backtest markers. Bottom: best-side spread in bps with rolling mean and cost band."
+                    : (chart.selectedBacktestResult !== "" || root.preferChartStatusText())
+                        ? chart.statusText
+                        : root.tabActive && root.performanceDiagnosticsText !== ""
+                            ? root.performanceDiagnosticsText
+                            : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
                 color: root.mutedTextColor
                 font.pixelSize: 12
                 elide: Text.ElideRight

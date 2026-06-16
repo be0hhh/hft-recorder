@@ -43,6 +43,38 @@ fs::path makeRunResult(const fs::path& parent,
 
 }  // namespace
 
+TEST(StrategyOverlay, AcceptsRunManifestWithUint64LatencySeed) {
+    const auto dir = makeTmpDir();
+    const fs::path resultPath = dir / "spread-seed";
+    fs::create_directories(resultPath);
+    writeFile(resultPath / "manifest.json",
+              "{\n"
+              "  \"type\": \"run.result.v2\",\n"
+              "  \"run_id\": \"spread-seed\",\n"
+              "  \"status\": \"complete\",\n"
+              "  \"strategy\": \"spread_maker1and2\",\n"
+              "  \"session_path\": \"/tmp/session-a\",\n"
+              "  \"execution\": {\"latency_seed\": 16501133602812054649},\n"
+              "  \"summary\": {},\n"
+              "  \"errors\": []\n"
+              "}\n");
+    writeFile(resultPath / "orders.jsonl",
+              "[1,0,900,1000,1000,1,1,1,3,9900000000,100000000,0]\n");
+    writeFile(resultPath / "fills.jsonl",
+              "[1,1000,1100,1,9900000000,100000000,0,0]\n");
+
+    hftrec::gui::viewer::StrategyOverlayData overlay;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
+    EXPECT_EQ(overlay.runId, QStringLiteral("spread-seed"));
+    EXPECT_EQ(overlay.strategy, QStringLiteral("spread_maker1and2"));
+    ASSERT_EQ(overlay.fillMarkers.size(), 1u);
+    EXPECT_EQ(overlay.fillMarkers[0].tsNs, 1100);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     const auto dir = makeTmpDir();
     const auto resultPath = makeRunResult(dir, "run-a",

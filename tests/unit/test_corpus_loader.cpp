@@ -5,6 +5,7 @@
 
 #include "core/capture/SessionManifest.hpp"
 #include "core/corpus/CorpusLoader.hpp"
+#include "core/corpus/InstrumentMetadata.hpp"
 #include "core/replay/SessionReplay.hpp"
 
 namespace fs = std::filesystem;
@@ -32,6 +33,28 @@ TEST(CorpusLoader, CleanFixtureLoadsAndUsesSeekIndex) {
     EXPECT_GE(corpus.bookTickerLines.size(), 1u);
     EXPECT_GE(corpus.depthLines.size(), 2u);
     EXPECT_EQ(corpus.snapshotDocuments.size(), 1u);
+}
+
+TEST(InstrumentMetadata, RoundTripsTraderBacktestGridFields) {
+    auto metadata = hftrec::corpus::makeInstrumentMetadata("binance", "futures", "BTCUSDT");
+    metadata.tickSizeE8 = 10000000;
+    metadata.lotSizeE8 = 100000;
+    metadata.contractBaseQtyE8 = 100000;
+    metadata.tickSizeSource = "hft_trader_exchange_info";
+    metadata.lotSizeSource = "hft_trader_exchange_info";
+    metadata.contractBaseQtySource = "hft_trader_exchange_info";
+    metadata.metadataSource = "hft_trader";
+
+    const auto document = hftrec::corpus::renderInstrumentMetadataJson(metadata);
+    EXPECT_NE(document.find("\"contract_base_qty_e8\": 100000"), std::string::npos);
+    EXPECT_NE(document.find("\"metadata_source\": \"hft_trader\""), std::string::npos);
+
+    hftrec::corpus::InstrumentMetadata parsed{};
+    ASSERT_EQ(hftrec::corpus::parseInstrumentMetadataJson(document, parsed), hftrec::Status::Ok);
+    ASSERT_TRUE(parsed.contractBaseQtyE8.has_value());
+    EXPECT_EQ(*parsed.contractBaseQtyE8, 100000);
+    EXPECT_EQ(parsed.contractBaseQtySource, "hft_trader_exchange_info");
+    EXPECT_EQ(parsed.metadataSource, "hft_trader");
 }
 
 TEST(CorpusLoader, CorruptJsonFixtureReportsArtifactAndLine) {

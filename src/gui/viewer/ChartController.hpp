@@ -139,6 +139,18 @@ class ChartController : public QObject {
     bool hasStrategyIndicator() const noexcept { return !strategyIndicator_.empty(); }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
+    Q_INVOKABLE bool loadSessionForLayers(const QString& dir,
+                                          bool tradesVisible,
+                                          bool liquidationsVisible,
+                                          bool candlesVisible,
+                                          bool orderbookVisible,
+                                          bool bookTickerVisible,
+                                          bool markPriceVisible,
+                                          bool indexPriceVisible,
+                                          bool fundingVisible,
+                                          bool priceLimitVisible);
+    Q_INVOKABLE bool loadRecordedSession(const QString& dir);
+    Q_INVOKABLE bool loadRecordedOrderbook();
     Q_INVOKABLE void setActive(bool active);
     Q_INVOKABLE bool activateLiveSource(const QString& sourceId, const QString& sessionPath = QString{});
     Q_INVOKABLE void activateLiveOnlyMode();

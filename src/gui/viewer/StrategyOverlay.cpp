@@ -33,12 +33,20 @@ struct FillRow {
     std::uint32_t legIndex{0};
 };
 
+struct RangeRow {
+    std::int64_t tsNs{0};
+    std::int64_t lowE8{0};
+    std::int64_t midE8{0};
+    std::int64_t highE8{0};
+};
+
 struct ParsedResult {
     std::string runId{};
     std::string strategy{};
     std::string sessionPath{};
     std::vector<OrderRow> orders{};
     std::vector<FillRow> fills{};
+    std::vector<RangeRow> ranges{};
 };
 
 bool readText(const std::filesystem::path& path, std::string& out) {
@@ -138,6 +146,17 @@ bool parseFillLine(std::string_view line, FillRow& out) noexcept {
     return parseOptionalLegIndexAndTrailingFields(parser, out.legIndex);
 }
 
+bool parseRangeLine(std::string_view line, RangeRow& out) noexcept {
+    out = RangeRow{};
+    hftrec::json::MiniJsonParser parser{line};
+    if (!parser.parseArrayStart()) return false;
+    if (!parser.parseInt64(out.tsNs) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.lowE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.midE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.highE8)) return false;
+    return skipOptionalTrailingFields(parser);
+}
+
 template <typename Row, typename ParseFn>
 bool loadJsonl(const std::filesystem::path& path, std::vector<Row>& out, ParseFn parse) {
     out.clear();
@@ -151,6 +170,14 @@ bool loadJsonl(const std::filesystem::path& path, std::vector<Row>& out, ParseFn
         out.push_back(row);
     }
     return in.eof();
+}
+
+template <typename Row, typename ParseFn>
+bool loadOptionalJsonl(const std::filesystem::path& path, std::vector<Row>& out, ParseFn parse) {
+    out.clear();
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec) || ec) return true;
+    return loadJsonl(path, out, parse);
 }
 
 bool sideBuy(std::uint8_t side) noexcept {
@@ -258,6 +285,16 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
         }
     }
 
+    for (const RangeRow& row : parsed.ranges) {
+        if (row.tsNs <= 0 || row.lowE8 <= 0 || row.highE8 <= row.lowE8) continue;
+        out.rangePoints.push_back(StrategyRangePoint{
+            row.tsNs,
+            row.lowE8,
+            row.midE8,
+            row.highE8,
+        });
+    }
+
     std::stable_sort(out.orderSegments.begin(), out.orderSegments.end(), [](const auto& lhs, const auto& rhs) noexcept {
         if (lhs.tsStartNs != rhs.tsStartNs) return lhs.tsStartNs < rhs.tsStartNs;
         return lhs.priceE8 < rhs.priceE8;
@@ -265,6 +302,10 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
     std::stable_sort(out.fillMarkers.begin(), out.fillMarkers.end(), [](const auto& lhs, const auto& rhs) noexcept {
         if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
         return lhs.priceE8 < rhs.priceE8;
+    });
+    std::stable_sort(out.rangePoints.begin(), out.rangePoints.end(), [](const auto& lhs, const auto& rhs) noexcept {
+        if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
+        return lhs.midE8 < rhs.midE8;
     });
 }
 
@@ -292,6 +333,10 @@ bool loadStrategyOverlayFromResult(const std::filesystem::path& path,
     }
     if (!loadJsonl(path / "fills.jsonl", parsed.fills, parseFillLine)) {
         error = "failed to parse backtest fills";
+        return false;
+    }
+    if (!loadOptionalJsonl(path / "strategy_range.jsonl", parsed.ranges, parseRangeLine)) {
+        error = "failed to parse strategy range";
         return false;
     }
     materialize(parsed, fallbackRunEndNs, out);

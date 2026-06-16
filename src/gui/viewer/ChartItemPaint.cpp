@@ -56,7 +56,7 @@ void paintSnapshotFrame(QPainter* painter,
         painter->setPen(axisTextColor());
         painter->drawText(QRectF{8, 8, snap.vp.w - 16, 24},
                           Qt::AlignLeft | Qt::AlignVCenter,
-                          QStringLiteral("Pick a session, then load Trades."));
+                          QStringLiteral("Pick a session to load market data."));
         return;
     }
     if (snap.vp.tMax <= snap.vp.tMin || snap.vp.pMax <= snap.vp.pMin) return;
@@ -274,7 +274,6 @@ void paintSnapshotLayers(QPainter* painter,
     if (layerSnap.candlesVisible) renderers::renderCandles(ctx);
     renderReferenceOverlays(painter, layerSnap, drawOverlay ? hover : HoverInfo{});
     if (layerSnap.tradesVisible || layerSnap.liquidationsVisible) renderers::renderTrades(ctx);
-    if (drawTrades) renderers::renderStrategyOverlay(ctx);
     if (drawOverlay) renderers::renderOverlay(ctx);
 }
 
@@ -1220,6 +1219,9 @@ void ChartItem::paint(QPainter* painter) {
         const HoverInfo hover = detail::buildHoverInfo(*this);
         renderFundingStrip(painter, snap, hover, false);
         RenderContext ctx{painter, snap, hover, dpr};
+        if (detail::shouldRenderStrategyOverlayInFinalPass(snap, interactiveMode_)) {
+            renderers::renderStrategyOverlay(ctx);
+        }
         renderers::renderOverlay(ctx);
         metrics::recordGuiOverlayRender(hftrec::timing::deltaNs(overlayRenderStart, hftrec::timing::captureTick()).raw);
     }

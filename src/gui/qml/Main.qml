@@ -30,7 +30,7 @@ ApplicationWindow {
 
     Item { id: inactiveTabStorage; visible: false; anchors.fill: parent }
     Component { id: captureComponent; CaptureView { captureVm: rootCaptureVm; tabActive: false } }
-    Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; tabActive: false } }
+    Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; backtestVm: rootBacktestVm; tabActive: false } }
     Component { id: compressComponent; CompressView { compressionVm: rootCompressionVm; tabActive: false } }
     Component { id: backtestsComponent; BacktestResultsView { backtestVm: rootBacktestVm; captureVm: rootCaptureVm; tabActive: false } }
     Component { id: resultsComponent; ResultsView { backtestVm: rootBacktestVm; tabActive: false } }

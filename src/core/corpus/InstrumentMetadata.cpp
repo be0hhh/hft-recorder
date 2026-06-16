@@ -141,8 +141,12 @@ std::string renderInstrumentMetadataJson(const InstrumentMetadata& metadata) {
     out << "  \"tick_size_source\": " << json::quote(metadata.tickSizeSource) << ",\n";
     appendOptionalI64(out, "lot_size_e8", metadata.lotSizeE8);
     out << "  \"lot_size_source\": " << json::quote(metadata.lotSizeSource) << ",\n";
+    appendOptionalI64(out, "contract_base_qty_e8", metadata.contractBaseQtyE8);
+    out << "  \"contract_base_qty_source\": " << json::quote(metadata.contractBaseQtySource) << ",\n";
     appendOptionalString(out, "instrument_status", metadata.instrumentStatus);
-    out << "  \"instrument_status_source\": " << json::quote(metadata.instrumentStatusSource) << '\n';
+    out << "  \"instrument_status_source\": " << json::quote(metadata.instrumentStatusSource) << ",\n";
+    out << "  \"metadata_source\": " << json::quote(metadata.metadataSource) << ",\n";
+    appendOptionalString(out, "metadata_warning", metadata.metadataWarning, false);
     out << "}\n";
     return out.str();
 }
@@ -201,10 +205,18 @@ Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata
                 if (!parseOptionalI64(parser, parsed.lotSizeE8)) return Status::CorruptData;
             } else if (key == "lot_size_source") {
                 if (!parser.parseString(parsed.lotSizeSource)) return Status::CorruptData;
+            } else if (key == "contract_base_qty_e8") {
+                if (!parseOptionalI64(parser, parsed.contractBaseQtyE8)) return Status::CorruptData;
+            } else if (key == "contract_base_qty_source") {
+                if (!parser.parseString(parsed.contractBaseQtySource)) return Status::CorruptData;
             } else if (key == "instrument_status") {
                 if (!parseOptionalString(parser, parsed.instrumentStatus)) return Status::CorruptData;
             } else if (key == "instrument_status_source") {
                 if (!parser.parseString(parsed.instrumentStatusSource)) return Status::CorruptData;
+            } else if (key == "metadata_source") {
+                if (!parser.parseString(parsed.metadataSource)) return Status::CorruptData;
+            } else if (key == "metadata_warning") {
+                if (!parseOptionalString(parser, parsed.metadataWarning)) return Status::CorruptData;
             } else {
                 if (!parser.skipValue()) return Status::CorruptData;
             }

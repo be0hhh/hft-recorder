@@ -80,11 +80,18 @@ void SessionReplay::finalize() noexcept {
     resetIntegrity_();
     rebuildEvents_();
     rebuildBuckets_();
+    restorePartialDepthIncident_();
     const bool depthValid = validateDepthStream_();
     const bool sequenceMetadataValid = validateSequenceMetadata_();
     markStaleLiveChannels_();
     refreshHealthSummary_();
-    if (!depthValid || !sequenceMetadataValid || integritySummary_.sessionHealth == SessionHealth::Corrupt) {
+    const bool renderablePartialDepth = partialDepthCorrupt_ && !depths_.empty()
+        && integritySummary_.depth.state == ChannelHealthState::Corrupt
+        && integritySummary_.trades.state != ChannelHealthState::Corrupt
+        && integritySummary_.liquidations.state != ChannelHealthState::Corrupt
+        && integritySummary_.bookTicker.state != ChannelHealthState::Corrupt
+        && integritySummary_.snapshot.state != ChannelHealthState::Corrupt;
+    if (!depthValid || !sequenceMetadataValid || (integritySummary_.sessionHealth == SessionHealth::Corrupt && !renderablePartialDepth)) {
         status_ = Status::CorruptData;
     }
 }

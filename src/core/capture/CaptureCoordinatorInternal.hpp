@@ -9,6 +9,10 @@
 #include "cxet.hpp"
 #endif
 
+namespace hftrec::corpus {
+struct InstrumentMetadata;
+}  // namespace hftrec::corpus
+
 namespace hftrec::capture::internal {
 
 void ensureCxetInitialized() noexcept;
@@ -29,6 +33,8 @@ bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
 
 #endif
 
+void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
+                                              corpus::InstrumentMetadata& metadata) noexcept;
 Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError);
 bool sessionConfigMatches(const CaptureConfig& lhs, const CaptureConfig& rhs) noexcept;
 

@@ -120,6 +120,24 @@ Pane {
         MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; onClicked: parent.toggled() }
     }
 
+    component KpiCard: Rectangle {
+        property var metric: ({})
+        visible: metric.primary === true
+        width: visible ? 136 : 0
+        height: visible ? 52 : 0
+        radius: 7
+        color: root.panelDeepColor
+        border.color: root.borderColor
+        border.width: 1
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 2
+            Label { text: metric.value || ""; color: root.textColor; font.pixelSize: 14; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
+            Label { text: metric.label || ""; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 10
@@ -197,6 +215,23 @@ Pane {
                         Layout.fillWidth: true
                         Label { text: "Realized PnL"; color: root.textColor; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
                         Label { text: root.backtestVm.hasEquityPoints ? root.realizedRangeText() : "no equity points"; color: root.mutedTextColor; font.pixelSize: 12 }
+                    }
+
+                    Flow {
+                        visible: root.backtestVm.selectedResultMetrics.length > 0
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: childrenRect.height
+                        spacing: 8
+                        Repeater {
+                            model: root.backtestVm.selectedResultMetrics
+                            delegate: KpiCard { metric: modelData }
+                        }
+                    }
+                    Label {
+                        visible: root.backtestVm.selectedResultMetrics.length <= 0
+                        text: "Select completed run to show risk/execution KPIs"
+                        color: root.mutedTextColor
+                        font.pixelSize: 12
                     }
 
                     RowLayout {

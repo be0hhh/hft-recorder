@@ -215,6 +215,7 @@ struct RenderSnapshot {
     std::vector<hftrec::replay::PriceLimitRow> priceLimits;
     std::vector<StrategyOrderSegment> strategyOrderSegments;
     std::vector<StrategyFillMarker> strategyFillMarkers;
+    std::vector<StrategyRangePoint> strategyRangePoints;
 
     // API-injected vertical markers for the active chart.
     std::vector<VerticalMarker> verticalMarkers;

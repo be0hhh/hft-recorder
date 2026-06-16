@@ -15,6 +15,7 @@ Pane {
     property color chromeColor: "#1b1d23"
     property color panelColor: "#22252d"
     property color panelDeepColor: "#15171c"
+    property color panelAltColor: "#2b303a"
     property color borderColor: "#343844"
     property color textColor: "#f1f4f8"
     property color mutedTextColor: "#a8afbd"
@@ -23,6 +24,7 @@ Pane {
     property color badColor: "#ef6f6c"
     property int selectedSweepPointId: -1
     property bool sweepPercentMode: false
+    property bool showRawSummary: false
     property var sweepPalette: ["#24c2cb", "#82d46b", "#f0b35a", "#ef6f6c", "#a98cf5", "#5ca9ff", "#d77ad9", "#8bd3dd", "#c4d76b", "#ff8a5b"]
 
     function e8Text(value) {
@@ -44,6 +46,25 @@ Pane {
         return root.e8Text(value)
     }
 
+    function selectedRunMetric() {
+        var metrics = root.backtestVm.selectedResultMetrics
+        var key = root.backtestVm.selectedResultMetricKey
+        for (var i = 0; i < metrics.length; ++i) {
+            if (metrics[i].key === key) return metrics[i]
+        }
+        return metrics.length > 0 ? metrics[0] : ({})
+    }
+
+    function selectedMetricField(field) {
+        var metric = selectedRunMetric()
+        return metric && metric[field] ? metric[field] : ""
+    }
+
+    function metricPointText(value, metricKey) {
+        if (root.backtestVm.selectedResultMetricRatioKey.length > 0) return Number(value).toFixed(4) + "x"
+        return metricKey.endsWith("_e8") ? root.e8Text(value) : String(Math.round(Number(value) * 1000) / 1000)
+    }
+
     function syncSelections() {
         sessionBox.currentIndex = sessionBox.indexOfValue(root.backtestVm.selectedSessionId)
         strategyBox.currentIndex = strategyBox.indexOfValue(root.backtestVm.selectedStrategy)
@@ -61,7 +82,7 @@ Pane {
         function onSelectedStrategyChanged() { root.syncSelections() }
         function onConfigChanged() { root.syncSelections() }
         function onIndicatorProfileChanged() { root.syncSelections() }
-        function onSelectionChanged() { root.selectedSweepPointId = -1; root.sweepPercentMode = false }
+        function onSelectionChanged() { root.selectedSweepPointId = -1; root.sweepPercentMode = false; root.showRawSummary = false }
     }
 
     component ActionButton: Rectangle {
@@ -81,6 +102,27 @@ Pane {
         opacity: enabledValue ? 1.0 : 0.5
         Text { id: label; anchors.centerIn: parent; width: parent.width - 12; text: parent.text; color: enabledValue ? root.textColor : root.mutedTextColor; font.pixelSize: 11; font.bold: true; elide: Text.ElideRight; horizontalAlignment: Text.AlignHCenter }
         MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; enabled: parent.enabledValue; onClicked: parent.clicked() }
+    }
+
+    component MetricCard: Rectangle {
+        property var metric: ({})
+        property bool selected: false
+        signal clicked(string key)
+        width: 146
+        height: 58
+        radius: 7
+        color: metricMouse.containsMouse ? root.panelColor : root.panelDeepColor
+        border.color: selected ? root.accentColor : (metric.primary ? "#4a9aa0" : root.borderColor)
+        border.width: selected ? 2 : 1
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 2
+            Label { text: metric.group || "Metric"; color: root.mutedTextColor; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+            Label { text: metric.value || ""; color: root.textColor; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
+            Label { text: metric.label || ""; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+        }
+        MouseArea { id: metricMouse; anchors.fill: parent; hoverEnabled: true; onClicked: parent.clicked(metric.key || "") }
     }
 
     component CompactField: Item {
@@ -197,6 +239,12 @@ Pane {
                         fieldWidth: 126
                         text: root.backtestVm.initialBalanceUsdt
                         onEdited: function(value) { root.backtestVm.initialBalanceUsdt = value }
+                    }
+                    CompactField {
+                        caption: "Min equity %"
+                        fieldWidth: 118
+                        text: root.backtestVm.riskMinEquityPct
+                        onEdited: function(value) { root.backtestVm.riskMinEquityPct = value }
                     }
                     CompactField {
                         caption: "Maker fee bps"
@@ -433,7 +481,7 @@ Pane {
                                 width: 88
                                 height: 24
                                 placeholderText: "min"
-                                text: modelData.min
+                                text: modelData.min || ""
                                 selectByMouse: true
                                 color: root.textColor
                                 font.pixelSize: 11
@@ -449,7 +497,7 @@ Pane {
                                 width: 88
                                 height: 24
                                 placeholderText: "max"
-                                text: modelData.max
+                                text: modelData.max || ""
                                 selectByMouse: true
                                 color: root.textColor
                                 font.pixelSize: 11
@@ -465,7 +513,7 @@ Pane {
                                 width: 88
                                 height: 24
                                 placeholderText: "step"
-                                text: modelData.step
+                                text: modelData.step || ""
                                 selectByMouse: true
                                 color: root.textColor
                                 font.pixelSize: 11
@@ -601,10 +649,219 @@ Pane {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         spacing: 8
-                        TextArea {
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: "Run metrics"; color: root.textColor; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true }
+                            Label {
+                                text: root.backtestVm.selectedResultMetrics.length > 0 ? "" : "Select completed run with manifest.json"
+                                color: root.mutedTextColor
+                                font.pixelSize: 11
+                                visible: text !== ""
+                            }
+                        }
+                        Flow {
+                            visible: root.backtestVm.selectedResultMetrics.length > 0
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: childrenRect.height
+                            spacing: 8
+                            Repeater {
+                                model: root.backtestVm.selectedResultMetrics
+                                delegate: MetricCard {
+                                    metric: modelData
+                                    selected: modelData.key === root.backtestVm.selectedResultMetricKey
+                                    onClicked: function(key) { root.backtestVm.setSelectedResultMetricKey(key) }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            visible: root.backtestVm.selectedResultMetrics.length > 0
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            Layout.preferredHeight: 320
+                            Layout.minimumHeight: 300
+                            color: root.panelDeepColor
+                            border.color: root.borderColor
+                            radius: 6
+                            clip: true
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: root.selectedMetricField("label"); color: root.textColor; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    Label { text: root.selectedMetricField("value"); color: root.textColor; font.pixelSize: 14; font.bold: true }
+                                    RecorderComboBox {
+                                        id: metricRatioBox
+                                        Layout.preferredWidth: 172
+                                        caption: "Divide by"
+                                        textRole: "label"
+                                        valueRole: "id"
+                                        model: root.backtestVm.resultMetricRatioChoices
+                                        popupWidth: 190
+                                        Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedResultMetricRatioKey)
+                                        onActivated: root.backtestVm.setSelectedResultMetricRatioKey(currentValue)
+                                        Connections {
+                                            target: root.backtestVm
+                                            function onSelectedResultMetricChanged() { metricRatioBox.currentIndex = metricRatioBox.indexOfValue(root.backtestVm.selectedResultMetricRatioKey) }
+                                            function onSelectionChanged() { metricRatioBox.currentIndex = metricRatioBox.indexOfValue(root.backtestVm.selectedResultMetricRatioKey) }
+                                        }
+                                    }
+                                }
+
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 3
+                                    columnSpacing: 10
+                                    rowSpacing: 4
+                                    Label { text: "Что это"; color: root.mutedTextColor; font.pixelSize: 10; Layout.fillWidth: true }
+                                    Label { text: "Зачем смотреть"; color: root.mutedTextColor; font.pixelSize: 10; Layout.fillWidth: true }
+                                    Label { text: "Как читать"; color: root.mutedTextColor; font.pixelSize: 10; Layout.fillWidth: true }
+                                    Label { text: root.selectedMetricField("description"); color: root.textColor; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                    Label { text: root.selectedMetricField("why"); color: root.textColor; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                    Label { text: root.selectedMetricField("interpretation"); color: root.textColor; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    Layout.minimumHeight: 170
+                                    color: root.windowColor
+                                    border.color: root.borderColor
+                                    radius: 5
+                                    clip: true
+
+                                    Canvas {
+                                        id: metricCanvas
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        property var points: root.backtestVm.selectedResultMetricSeries
+
+                                        Connections {
+                                            target: root.backtestVm
+                                            function onSelectedResultMetricChanged() { metricCanvas.requestPaint() }
+                                            function onSelectionChanged() { metricCanvas.requestPaint() }
+                                        }
+                                        onWidthChanged: requestPaint()
+                                        onHeightChanged: requestPaint()
+                                        onPointsChanged: requestPaint()
+
+                                        function seriesValue(point) {
+                                            if (root.backtestVm.selectedResultMetricRatioKey.length > 0) {
+                                                if (!point.hasRatio) return NaN
+                                                return Number(point.valueRaw) / Number(point.denominatorRaw)
+                                            }
+                                            return Number(point.valueRaw)
+                                        }
+
+                                        function paddedBounds(points) {
+                                            var has = false
+                                            var minValue = 0
+                                            var maxValue = 0
+                                            for (var i = 0; i < points.length; ++i) {
+                                                var value = seriesValue(points[i])
+                                                if (!isFinite(value)) continue
+                                                if (!has) { minValue = value; maxValue = value; has = true }
+                                                else { minValue = Math.min(minValue, value); maxValue = Math.max(maxValue, value) }
+                                            }
+                                            if (!has) return null
+                                            minValue = Math.min(minValue, 0)
+                                            maxValue = Math.max(maxValue, 0)
+                                            var span = maxValue - minValue
+                                            if (span <= 0) span = root.backtestVm.selectedResultMetricRatioKey.length > 0 ? 1.0 : 100000000
+                                            var pad = Math.max(span * 0.08, root.backtestVm.selectedResultMetricRatioKey.length > 0 ? 0.01 : 1000000)
+                                            return { "min": minValue - pad, "max": maxValue + pad }
+                                        }
+
+                                        function yFor(value, minValue, maxValue, plotY, plotH) {
+                                            return plotY + plotH - ((value - minValue) / (maxValue - minValue)) * plotH
+                                        }
+
+                                        function drawScale(ctx, bounds, plotX, plotY, plotW, plotH) {
+                                            ctx.font = "10px sans-serif"
+                                            ctx.textAlign = "right"
+                                            ctx.textBaseline = "middle"
+                                            for (var i = 0; i <= 4; ++i) {
+                                                var value = bounds.max - ((bounds.max - bounds.min) * i / 4)
+                                                var y = plotY + (plotH * i / 4)
+                                                ctx.strokeStyle = "#2f333d"
+                                                ctx.lineWidth = 1
+                                                ctx.beginPath()
+                                                ctx.moveTo(plotX, y)
+                                                ctx.lineTo(plotX + plotW, y)
+                                                ctx.stroke()
+                                                ctx.fillStyle = root.mutedTextColor
+                                                ctx.fillText(root.metricPointText(value, root.backtestVm.selectedResultMetricKey), plotX - 8, y)
+                                            }
+                                        }
+
+                                        onPaint: {
+                                            var ctx = getContext("2d")
+                                            ctx.clearRect(0, 0, width, height)
+                                            var points = root.backtestVm.selectedResultMetricSeries
+                                            if (points.length < 2) return
+                                            var plotX = 78
+                                            var plotY = 8
+                                            var plotW = Math.max(20, width - plotX - 10)
+                                            var plotH = Math.max(20, height - plotY - 24)
+                                            var bounds = paddedBounds(points)
+                                            if (bounds === null) return
+                                            drawScale(ctx, bounds, plotX, plotY, plotW, plotH)
+                                            if (bounds.min < 0 && bounds.max > 0) {
+                                                var zeroY = yFor(0, bounds.min, bounds.max, plotY, plotH)
+                                                ctx.strokeStyle = "#8a92a0"
+                                                ctx.lineWidth = 1
+                                                ctx.beginPath()
+                                                ctx.moveTo(plotX, zeroY)
+                                                ctx.lineTo(plotX + plotW, zeroY)
+                                                ctx.stroke()
+                                            }
+                                            ctx.strokeStyle = root.accentColor
+                                            ctx.lineWidth = 2
+                                            ctx.beginPath()
+                                            var started = false
+                                            for (var p = 0; p < points.length; ++p) {
+                                                var pointValue = seriesValue(points[p])
+                                                if (!isFinite(pointValue)) continue
+                                                var x = plotX + (p / (points.length - 1)) * plotW
+                                                var y = yFor(pointValue, bounds.min, bounds.max, plotY, plotH)
+                                                if (!started) { ctx.moveTo(x, y); started = true }
+                                                else ctx.lineTo(x, y)
+                                            }
+                                            if (started) ctx.stroke()
+                                            var lastValue = NaN
+                                            for (var last = points.length - 1; last >= 0; --last) {
+                                                lastValue = seriesValue(points[last])
+                                                if (isFinite(lastValue)) break
+                                            }
+                                            ctx.font = "11px sans-serif"
+                                            ctx.textAlign = "left"
+                                            ctx.textBaseline = "bottom"
+                                            ctx.fillStyle = root.textColor
+                                            if (isFinite(lastValue)) ctx.fillText(root.metricPointText(lastValue, root.backtestVm.selectedResultMetricKey), plotX, height - 2)
+                                        }
+                                    }
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        visible: root.backtestVm.selectedResultMetricSeries.length < 2
+                                        text: "Для этой карточки есть только итоговое значение, без временного ряда."
+                                        color: root.mutedTextColor
+                                        font.pixelSize: 12
+                                    }
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            ActionButton { text: root.showRawSummary ? "Hide details" : "Details"; onClicked: root.showRawSummary = !root.showRawSummary }
+                            Label { text: "Raw summary JSON"; color: root.mutedTextColor; font.pixelSize: 11; visible: root.showRawSummary }
+                        }
+                        TextArea {
+                            visible: root.showRawSummary
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 180
                             text: root.backtestVm.selectedSummaryJson
                             readOnly: true
                             selectByMouse: true

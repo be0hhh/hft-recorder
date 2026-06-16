@@ -341,7 +341,8 @@ Status CaptureCoordinator::writeManifestFile_() noexcept {
 
 Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
     if (config_.symbols.empty()) return Status::InvalidArgument;
-    const auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
+    auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
+    internal::enrichInstrumentMetadataFromExchangeInfo(config_, metadata);
     std::ofstream out(sessionDir_ / manifest_.instrumentMetadataPath, std::ios::out | std::ios::trunc);
     if (!out.is_open()) return Status::IoError;
     out << corpus::renderInstrumentMetadataJson(metadata);

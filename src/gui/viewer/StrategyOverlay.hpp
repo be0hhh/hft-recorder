@@ -35,14 +35,22 @@ struct StrategyFillMarker {
     StrategyFillShape shape{StrategyFillShape::BuyUp};
 };
 
+struct StrategyRangePoint {
+    std::int64_t tsNs{0};
+    std::int64_t lowE8{0};
+    std::int64_t midE8{0};
+    std::int64_t highE8{0};
+};
+
 struct StrategyOverlayData {
     QString runId{};
     QString strategy{};
     QString sourceSessionPath{};
     std::vector<StrategyOrderSegment> orderSegments{};
     std::vector<StrategyFillMarker> fillMarkers{};
+    std::vector<StrategyRangePoint> rangePoints{};
 
-    bool empty() const noexcept { return orderSegments.empty() && fillMarkers.empty(); }
+    bool empty() const noexcept { return orderSegments.empty() && fillMarkers.empty() && rangePoints.empty(); }
 };
 
 bool loadStrategyOverlayFromResult(const std::filesystem::path& path,

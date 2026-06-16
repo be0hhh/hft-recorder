@@ -33,8 +33,12 @@ struct InstrumentMetadata {
     std::string tickSizeSource{"unknown"};
     std::optional<std::int64_t> lotSizeE8{};
     std::string lotSizeSource{"unknown"};
+    std::optional<std::int64_t> contractBaseQtyE8{};
+    std::string contractBaseQtySource{"unknown"};
     std::optional<std::string> instrumentStatus{};
     std::string instrumentStatusSource{"unknown"};
+    std::string metadataSource{"recorder_inference"};
+    std::optional<std::string> metadataWarning{};
 };
 
 InstrumentMetadata makeInstrumentMetadata(std::string_view exchange,

@@ -6,6 +6,8 @@
 #include <string>
 #include <string_view>
 
+#include "core/corpus/InstrumentMetadata.hpp"
+
 #if HFTREC_WITH_CXET
 #include "api/dispatch/BuildDispatch.hpp"
 #include "api/env/CxetEnv.hpp"
@@ -14,6 +16,7 @@
 #include "canon/Subtypes.hpp"
 #include "composite/level_0/SubscribeObject.hpp"
 #include "cxet.hpp"
+#include "hft_trader/runtime/prep/SymbolMetadataRuntime.hpp"
 #include "primitives/buf/Symbol.hpp"
 #endif
 
@@ -126,6 +129,38 @@ Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexc
     (void)lastError;
 #endif
     return Status::Ok;
+}
+
+void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
+                                              corpus::InstrumentMetadata& metadata) noexcept {
+#if HFTREC_WITH_CXET
+    if (config.symbols.empty()) {
+        metadata.metadataWarning = "hft_trader_metadata_skipped_empty_symbol";
+        return;
+    }
+    hft_trader::runtime::SymbolMetadataResolveResult result{};
+    const bool ok = hft_trader::runtime::resolveSymbolMetadataOnce(exchangeIdFromConfig(config.exchange),
+                                                                   marketTypeFromConfig(config.market),
+                                                                   makeSymbol(config.symbols.front()),
+                                                                   result);
+    if (!ok) {
+        metadata.metadataWarning = std::string{"hft_trader_metadata_failed:"} + (result.error.empty() ? "unknown" : result.error);
+        return;
+    }
+    metadata.tickSizeE8 = result.instrumentSpec.tickSizeRaw;
+    metadata.tickSizeSource = "hft_trader_exchange_info";
+    metadata.lotSizeE8 = result.instrumentSpec.stepSizeRaw;
+    metadata.lotSizeSource = "hft_trader_exchange_info";
+    if (result.instrumentSpec.contractBaseQtyRaw > 0) {
+        metadata.contractBaseQtyE8 = result.instrumentSpec.contractBaseQtyRaw;
+        metadata.contractBaseQtySource = "hft_trader_exchange_info";
+    }
+    metadata.metadataSource = "hft_trader";
+    metadata.metadataWarning.reset();
+#else
+    (void)config;
+    metadata.metadataWarning = "hft_trader_metadata_unavailable_no_cxet";
+#endif
 }
 
 std::int64_t nowNs() noexcept {

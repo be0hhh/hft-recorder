@@ -178,7 +178,8 @@ Status loadDepthTapeSidecarJsonl(const std::filesystem::path& tapePath,
                                  const std::filesystem::path& sidecarPath,
                                  std::vector<DepthRow>& out,
                                  std::string& errorDetail,
-                                 std::size_t& lineNumberOut) noexcept {
+                                 std::size_t& lineNumberOut,
+                                 bool allowPartial) noexcept {
     const bool tapeExists = regularFileExists(tapePath);
     const bool sidecarExists = regularFileExists(sidecarPath);
     if (!tapeExists && !sidecarExists) return Status::Ok;
@@ -198,6 +199,7 @@ Status loadDepthTapeSidecarJsonl(const std::filesystem::path& tapePath,
     std::string tapeLine;
     std::string sidecarLine;
     std::size_t lineNumber = 0;
+    const std::size_t initialSize = out.size();
     while (true) {
         const bool haveTape = static_cast<bool>(std::getline(tape, tapeLine));
         const bool haveSidecar = static_cast<bool>(std::getline(sidecar, sidecarLine));
@@ -206,6 +208,7 @@ Status loadDepthTapeSidecarJsonl(const std::filesystem::path& tapePath,
         if (haveTape != haveSidecar) {
             errorDetail = "depth_tape/depth_sidecar line count mismatch at line " + std::to_string(lineNumber);
             lineNumberOut = lineNumber;
+            if (!allowPartial) out.resize(initialSize);
             return Status::CorruptData;
         }
         if (!tapeLine.empty() && tapeLine.back() == '\r') tapeLine.pop_back();
@@ -217,6 +220,7 @@ Status loadDepthTapeSidecarJsonl(const std::filesystem::path& tapePath,
             errorDetail = "failed to parse depth_tape/depth_sidecar line " + std::to_string(lineNumber)
                 + ": " + std::string{statusToString(st)};
             lineNumberOut = lineNumber;
+            if (!allowPartial) out.resize(initialSize);
             return st;
         }
         out.push_back(std::move(row));
@@ -251,6 +255,9 @@ void SessionReplay::reset() noexcept {
     sequenceValidationAvailable_ = false;
     parseFailureCount_ = 0;
     integrityFailureCount_ = 0;
+    partialDepthCorrupt_ = false;
+    partialDepthError_.clear();
+    partialDepthLine_ = 0;
     loadReport_ = hftrec::corpus::LoadReport{};
     manifestHints_ = ManifestHints{};
     sessionDir_.clear();
@@ -468,6 +475,14 @@ Status SessionReplay::addCandlesFile(const std::filesystem::path& path) noexcept
 }
 
 Status SessionReplay::addDepthFile(const std::filesystem::path& path) noexcept {
+    return addDepthFile_(path, false);
+}
+
+Status SessionReplay::addDepthFileAllowPartial(const std::filesystem::path& path) noexcept {
+    return addDepthFile_(path, true);
+}
+
+Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allowPartial) noexcept {
     if (path.empty()) {
         errorDetail_ = "depth path is empty";
         ++parseFailureCount_;
@@ -497,11 +512,11 @@ Status SessionReplay::addDepthFile(const std::filesystem::path& path) noexcept {
         : path.parent_path() / "depth_sidecar.jsonl";
 
     if (path.filename() == "depth_tape.jsonl" || path.filename() == "depth_sidecar.jsonl") {
-        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber);
+        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber, allowPartial);
     } else if (regularFileExists(path)) {
         st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber);
     } else if (regularFileExists(tapePath) || regularFileExists(sidecarPath)) {
-        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber);
+        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber, allowPartial);
     } else {
         st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber);
     }
@@ -523,6 +538,12 @@ Status SessionReplay::addDepthFile(const std::filesystem::path& path) noexcept {
             path.filename().string(),
             true
         });
+        if (allowPartial && !depths_.empty()) {
+            partialDepthCorrupt_ = true;
+            partialDepthError_ = errorDetail_;
+            partialDepthLine_ = lineNumber;
+        }
+        refreshHealthSummary_();
     }
     return st;
 }
@@ -883,6 +904,26 @@ ChannelIntegritySummary& SessionReplay::summaryFor_(IntegrityChannel channel) no
         case IntegrityChannel::Snapshot:   return integritySummary_.snapshot;
     }
     return integritySummary_.trades;
+}
+
+void SessionReplay::restorePartialDepthIncident_() noexcept {
+    if (!partialDepthCorrupt_) return;
+    if (errorDetail_.empty()) errorDetail_ = partialDepthError_;
+    auto& summary = summaryFor_(IntegrityChannel::Depth);
+    summary.state = ChannelHealthState::Corrupt;
+    summary.exactReplayEligible = false;
+    noteIncident_(IntegrityIncident{
+        IntegrityChannel::Depth,
+        IntegrityIncidentKind::ParseError,
+        IntegritySeverity::Error,
+        "parse_error",
+        partialDepthError_,
+        0,
+        partialDepthLine_,
+        {},
+        "depth_tape.jsonl+depth_sidecar.jsonl",
+        true
+    });
 }
 
 void SessionReplay::noteIncident_(const IntegrityIncident& incident) noexcept {

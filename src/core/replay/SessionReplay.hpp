@@ -65,6 +65,7 @@ class SessionReplay {
     Status addPriceLimitFile(const std::filesystem::path& path) noexcept;
     Status addCandlesFile(const std::filesystem::path& path) noexcept;
     Status addDepthFile(const std::filesystem::path& path) noexcept;
+    Status addDepthFileAllowPartial(const std::filesystem::path& path) noexcept;
     Status addSnapshotFile(const std::filesystem::path& path) noexcept;
     void   finalize() noexcept;
     Status status() const noexcept { return status_; }
@@ -142,6 +143,8 @@ class SessionReplay {
     void refreshHealthSummary_() noexcept;
     void noteIncident_(const IntegrityIncident& incident) noexcept;
     ChannelIntegritySummary& summaryFor_(IntegrityChannel channel) noexcept;
+    Status addDepthFile_(const std::filesystem::path& path, bool allowPartial) noexcept;
+    void restorePartialDepthIncident_() noexcept;
     bool loadManifestHints_(const std::filesystem::path& sessionDir) noexcept;
     void maybeWriteIntegrityReport_() noexcept;
 
@@ -169,6 +172,9 @@ class SessionReplay {
     bool             sequenceValidationAvailable_{false};
     std::size_t      parseFailureCount_{0};
     std::size_t      integrityFailureCount_{0};
+    bool             partialDepthCorrupt_{false};
+    std::string      partialDepthError_{};
+    std::size_t      partialDepthLine_{0};
     SessionIntegritySummary integritySummary_{};
     ManifestHints           manifestHints_{};
     std::filesystem::path   sessionDir_{};

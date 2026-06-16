@@ -30,6 +30,14 @@ constexpr std::int64_t kUsdScaleE8 = 100000000ll;
 constexpr double kBookMinSegmentWidthPxStatic = 2.0;
 constexpr double kBookMinSegmentWidthPxInteractive = 4.0;
 
+std::int64_t minPixelTimeSpanNs(const ViewportMap& vp) noexcept {
+    const std::int64_t spanNs = std::max<std::int64_t>(1, vp.tMax - vp.tMin);
+    const std::int64_t widthPx = std::max<std::int64_t>(
+        1,
+        static_cast<std::int64_t>(std::ceil(vp.w)));
+    return std::max<std::int64_t>(1, (spanNs + widthPx - 1) / widthPx);
+}
+
 std::int64_t ceilToStep(std::int64_t value, std::int64_t step) {
     if (step <= 0) return value;
     if (value >= 0) return ((value + step - 1) / step) * step;
@@ -308,11 +316,18 @@ void buildBookTickerTrace(RenderSnapshot& snap,
             return row.tsNs < ts;
         });
 
+    const auto lastInRange = std::upper_bound(
+        firstInRange,
+        tickers.end(),
+        renderMaxTs,
+        [](std::int64_t ts, const hftrec::replay::BookTickerRow& row) noexcept {
+            return ts < row.tsNs;
+        });
+    const auto visibleCount = static_cast<std::size_t>(std::distance(firstInRange, lastInRange));
     std::size_t index = static_cast<std::size_t>(std::distance(tickers.begin(), firstInRange));
     auto& trace = snap.bookTickerTrace;
-    trace.samples.reserve(std::max<std::size_t>(static_cast<std::size_t>(snap.vp.w / 4.0) + 2u,
-                                                static_cast<std::size_t>(std::distance(firstInRange, tickers.end()))));
-    trace.bidLines.reserve((static_cast<std::size_t>(std::distance(firstInRange, tickers.end())) + 1u) * 2u);
+    trace.samples.reserve(std::max<std::size_t>(static_cast<std::size_t>(snap.vp.w / 4.0) + 2u, visibleCount + 1u));
+    trace.bidLines.reserve((visibleCount + 2u) * 2u);
     trace.askLines.reserve(trace.bidLines.capacity());
 
     detail::BookTickerTraceBuildState state{};
@@ -718,6 +733,12 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             if (x < -12.0 || x > snap.vp.w + 12.0 || y < -12.0 || y > snap.vp.h + 12.0) continue;
             snap.strategyFillMarkers.push_back(marker);
         }
+        snap.strategyRangePoints.reserve(strategyOverlay_.rangePoints.size());
+        for (const auto& point : strategyOverlay_.rangePoints) {
+            if (point.tsNs < renderMinTs || point.tsNs > renderMaxTs) continue;
+            if (point.highE8 < snap.vp.pMin || point.lowE8 > snap.vp.pMax) continue;
+            snap.strategyRangePoints.push_back(point);
+        }
     }
 
     const auto minVisibleAmountE8 = usdToE8Min0(in.bookRenderDetail);
@@ -950,10 +971,19 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     const std::int64_t orderbookRenderMinTs = latestOnlyWindow
         ? orderbookLatestTsNs
         : (limitedRenderWindow_() ? effectiveRenderMinTs_(orderbookLatestTsNs) : snap.vp.tMin);
-    const std::int64_t coverageStart = std::max<std::int64_t>(
+    std::int64_t coverageStart = std::max<std::int64_t>(
         latestOnlyWindow ? orderbookLatestTsNs : orderbookRenderMinTs,
         replay_.firstTsNs());
-    const std::int64_t coverageEnd = std::min<std::int64_t>(snap.vp.tMax, latestOnlyWindow ? orderbookLatestTsNs + 1 : replay_.lastTsNs());
+    std::int64_t coverageEnd = std::min<std::int64_t>(snap.vp.tMax, latestOnlyWindow ? orderbookLatestTsNs + 1 : replay_.lastTsNs());
+    if (latestOnlyWindow && orderbookLatestTsNs > 0) {
+        const std::int64_t minSpanNs = minPixelTimeSpanNs(snap.vp);
+        coverageStart = std::max<std::int64_t>(
+            replay_.firstTsNs(),
+            std::max<std::int64_t>(snap.vp.tMin, orderbookLatestTsNs - minSpanNs));
+        coverageEnd = std::min<std::int64_t>(
+            snap.vp.tMax,
+            std::max<std::int64_t>(coverageEnd, orderbookLatestTsNs + minSpanNs));
+    }
     if (coverageEnd <= coverageStart) return snap;
 
     replay_.seek(coverageStart);

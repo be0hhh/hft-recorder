@@ -117,7 +117,7 @@ class GpuChartRenderer final : public QQuickFramebufferObject::Renderer {
             painter.setPen(axisTextColor());
             painter.drawText(QRectF{8, 8, snapshot_.vp.w - 16, 24},
                              Qt::AlignLeft | Qt::AlignVCenter,
-                             QStringLiteral("Pick a session, then load Trades."));
+                             QStringLiteral("Pick a session to load market data."));
         } else if (snapshot_.vp.tMax > snapshot_.vp.tMin && snapshot_.vp.pMax > snapshot_.vp.pMin) {
             RenderContext ctx{&painter, snapshot_, hover_, dpr_};
             renderers::renderBookTicker(ctx);

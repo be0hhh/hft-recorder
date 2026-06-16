@@ -399,7 +399,7 @@ TEST(BacktestViewModel, IgnoresPersistedDeletedStrategy) {
     EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("spread_maker1and2"));
 }
 
-TEST(BacktestViewModel, SessionRowsExposeBacktestCountAsRightText) {
+TEST(BacktestViewModel, SessionRowsAreCachedUntilExplicitReload) {
     isolateSettings(QStringLiteral("session_counter"));
 
     hftrec::gui::BacktestViewModel vm;
@@ -413,6 +413,17 @@ TEST(BacktestViewModel, SessionRowsExposeBacktestCountAsRightText) {
     writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-a/manifest.json")), QByteArrayLiteral("{}"));
     writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-a/manifest.json")), QByteArrayLiteral("{}"));
 
+    bool foundBeforeReload = false;
+    for (const QVariant& row : vm.sessions()) {
+        if (row.toMap().value(QStringLiteral("id")).toString() == sessionId) {
+            foundBeforeReload = true;
+            break;
+        }
+    }
+    EXPECT_FALSE(foundBeforeReload);
+
+    vm.reloadSessions();
+
     QVariantMap sessionRow;
     for (const QVariant& row : vm.sessions()) {
         const QVariantMap map = row.toMap();
@@ -425,7 +436,7 @@ TEST(BacktestViewModel, SessionRowsExposeBacktestCountAsRightText) {
 
     ASSERT_FALSE(sessionRow.isEmpty());
     EXPECT_EQ(sessionRow.value(QStringLiteral("backtestCount")).toInt(), 2);
-    EXPECT_EQ(sessionRow.value(QStringLiteral("rightText")).toString(), QStringLiteral("2"));
+    EXPECT_TRUE(sessionRow.value(QStringLiteral("rightText")).toString().contains(QStringLiteral("BT 2")));
 }
 
 TEST(BacktestViewModel, ExplainsWhenSelectedStrategyDoesNotSupportExtraSessions) {

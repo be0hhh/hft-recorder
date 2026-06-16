@@ -175,6 +175,35 @@ TEST(SessionReplay, RejectsMalformedMinimalTradeLine) {
     fs::remove_all(dir, ec);
 }
 
+TEST(SessionReplay, PartialDepthTapeSidecarLoadKeepsValidPrefix) {
+    const auto dir = makeTmpDir();
+    fs::create_directories(dir / "jsonl");
+    writeManifest(dir, false, false, true, 0u, 0u, 3u, 0u);
+
+    writeFile(dir / "jsonl" / "depth_tape.jsonl",
+              "[10936540037604775808,30000,10,30001,20]\n"
+              "[10936540037704775808,30002,30]\n"
+              "[10936540037804775808,30003,40]\n");
+    writeFile(dir / "jsonl" / "depth_sidecar.jsonl",
+              "[10936540037604775808,0,1,1,1]\n"
+              "[10936540037704775808,0,1]\n");
+
+    SessionReplay replay{};
+    EXPECT_EQ(replay.addDepthFileAllowPartial(dir / "jsonl" / "depth_tape.jsonl"), Status::CorruptData);
+    EXPECT_NE(std::string{replay.errorDetail()}.find("line count mismatch at line 3"), std::string::npos);
+    EXPECT_EQ(replay.depths().size(), 2u);
+    EXPECT_EQ(replay.integritySummary().depth.state, hftrec::ChannelHealthState::Corrupt);
+    EXPECT_FALSE(replay.integritySummary().depth.exactReplayEligible);
+
+    replay.finalize();
+    EXPECT_EQ(replay.status(), Status::Ok);
+    EXPECT_EQ(replay.depths().size(), 2u);
+    EXPECT_EQ(replay.events().size(), 2u);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(SessionReplay, RejectsLegacyExtendedTradeRows) {
     const auto dir = makeTmpDir();
     writeManifest(dir, true, false, false, 1u, 0u, 0u, 0u);

@@ -1568,7 +1568,6 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                                             static_cast<std::uint64_t>(internal::nowNs()));
         } else if (event.stream == cxet::api::market::PublicMarketDataStream::Orderbook) {
                 if (!event.depth || !event.depthSides) continue;
-                depthCount_.fetch_add(1, std::memory_order_acq_rel);
                 TscTick bridgeStartTsc{};
                 if (captureMetrics) bridgeStartTsc = cxet::probes::captureTsc();
                 const auto capturedDepth = cxet_bridge::CxetCaptureBridge::captureOrderBook(*event.depth, *event.depthSides, meta);
@@ -1598,6 +1597,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                     marketDataStop_.store(true, std::memory_order_release);
                     break;
                 }
+                depthCount_.fetch_add(1, std::memory_order_acq_rel);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                 metrics::recordCaptureEvent("depth", capturedDepth.tsNs,
                                             static_cast<std::uint64_t>(tapeLine.size() + sidecarLine.size() + 2u),

@@ -206,10 +206,8 @@ class MiniJsonParser {
                 return consumeLiteral_("false");
             case 'n':
                 return consumeLiteral_("null");
-            default: {
-                std::int64_t ignored = 0;
-                return parseInt64(ignored);
-            }
+            default:
+                return skipNumber_();
         }
     }
 
@@ -254,6 +252,50 @@ class MiniJsonParser {
             if (peek(']')) break;
         } while (parseComma());
         return parseArrayEnd();
+    }
+
+    bool skipNumber_() noexcept {
+        skipWs_();
+        if (pos_ >= json_.size()) return false;
+        if (json_[pos_] == '-') ++pos_;
+        if (pos_ >= json_.size()) return false;
+
+        if (json_[pos_] == '0') {
+            ++pos_;
+            if (pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9') return false;
+        } else if (json_[pos_] >= '1' && json_[pos_] <= '9') {
+            do {
+                ++pos_;
+            } while (pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9');
+        } else {
+            return false;
+        }
+
+        if (pos_ < json_.size() && json_[pos_] == '.') {
+            ++pos_;
+            if (pos_ >= json_.size() || json_[pos_] < '0' || json_[pos_] > '9') return false;
+            do {
+                ++pos_;
+            } while (pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9');
+        }
+
+        if (pos_ < json_.size() && (json_[pos_] == 'e' || json_[pos_] == 'E')) {
+            ++pos_;
+            if (pos_ < json_.size() && (json_[pos_] == '+' || json_[pos_] == '-')) ++pos_;
+            if (pos_ >= json_.size() || json_[pos_] < '0' || json_[pos_] > '9') return false;
+            do {
+                ++pos_;
+            } while (pos_ < json_.size() && json_[pos_] >= '0' && json_[pos_] <= '9');
+        }
+
+        if (pos_ < json_.size()) {
+            const char next = json_[pos_];
+            if (next != ' ' && next != '\t' && next != '\n' && next != '\r'
+                && next != ',' && next != ']' && next != '}') {
+                return false;
+            }
+        }
+        return true;
     }
 
     std::string_view json_{};

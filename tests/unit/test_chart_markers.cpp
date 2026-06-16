@@ -8,6 +8,7 @@
 #include <QString>
 
 #include "gui/viewer/ChartController.hpp"
+#include "gui/viewer/ChartItemInternal.hpp"
 #include "gui/viewer/hit_test/HoverDetection.hpp"
 
 namespace fs = std::filesystem;
@@ -145,6 +146,23 @@ TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
 
     std::error_code ec;
     fs::remove_all(dir, ec);
+}
+
+TEST(ChartStrategyOverlay, FinalOverlayPassDoesNotDependOnTradesLayer) {
+    hftrec::gui::viewer::RenderSnapshot snap{};
+    snap.strategyFillMarkers.push_back(hftrec::gui::viewer::StrategyFillMarker{
+        1600,
+        e8(101),
+        e8(1),
+        0,
+        true,
+        false,
+        false,
+        hftrec::gui::viewer::StrategyFillShape::BuyUp,
+    });
+
+    EXPECT_TRUE(hftrec::gui::viewer::detail::shouldRenderStrategyOverlayInFinalPass(snap, false));
+    EXPECT_FALSE(hftrec::gui::viewer::detail::shouldRenderStrategyOverlayInFinalPass(snap, true));
 }
 
 TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
