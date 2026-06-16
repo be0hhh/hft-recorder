@@ -95,7 +95,8 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
         "[6000,6500,11200000000,100000000,0,0,0]\n",
         "[3,3000,3500,0,10500000000,200000000,0,0]\n"
         "[4,4000,4100,1,10100000000,300000000,0,1]\n"
-        "[7,6000,6500,0,11200000000,100000000,0,0]\n");
+        "[7,6000,6500,0,11200000000,100000000,0,0]\n"
+        "[8,7000,7100,0,11300000000,100000000,0,1]\n");
 
     hftrec::gui::viewer::StrategyOverlayData overlay;
     std::string error;
@@ -124,7 +125,7 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_FALSE(overlay.orderSegments[3].sideBuy);
     EXPECT_FALSE(overlay.orderSegments[3].openEnded);
 
-    ASSERT_EQ(overlay.fillMarkers.size(), 3u);
+    ASSERT_EQ(overlay.fillMarkers.size(), 4u);
     EXPECT_EQ(overlay.fillMarkers[0].tsNs, 3500);
     EXPECT_EQ(overlay.fillMarkers[0].priceE8, e8(105));
     EXPECT_FALSE(overlay.fillMarkers[0].sideBuy);
@@ -135,13 +136,21 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_EQ(overlay.fillMarkers[1].priceE8, e8(101));
     EXPECT_TRUE(overlay.fillMarkers[1].sideBuy);
     EXPECT_FALSE(overlay.fillMarkers[1].marketOrder);
-    EXPECT_EQ(overlay.fillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
+    EXPECT_TRUE(overlay.fillMarkers[1].reduceOnly);
+    EXPECT_EQ(overlay.fillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
 
     EXPECT_EQ(overlay.fillMarkers[2].tsNs, 6500);
     EXPECT_EQ(overlay.fillMarkers[2].priceE8, e8(112));
     EXPECT_FALSE(overlay.fillMarkers[2].sideBuy);
     EXPECT_FALSE(overlay.fillMarkers[2].marketOrder);
+    EXPECT_FALSE(overlay.fillMarkers[2].reduceOnly);
     EXPECT_EQ(overlay.fillMarkers[2].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
+
+    EXPECT_EQ(overlay.fillMarkers[3].tsNs, 7100);
+    EXPECT_EQ(overlay.fillMarkers[3].priceE8, e8(113));
+    EXPECT_FALSE(overlay.fillMarkers[3].sideBuy);
+    EXPECT_TRUE(overlay.fillMarkers[3].reduceOnly);
+    EXPECT_EQ(overlay.fillMarkers[3].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
 
     std::error_code ec;
     fs::remove_all(dir, ec);
@@ -167,6 +176,30 @@ TEST(StrategyOverlay, LoadsStrategyRangeRows) {
     EXPECT_EQ(overlay.rangePoints[1].lowE8, 9950000000ll);
     EXPECT_EQ(overlay.rangePoints[1].midE8, 10050000000ll);
     EXPECT_EQ(overlay.rangePoints[1].highE8, 10150000000ll);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(StrategyOverlay, LoadsStrategySpreadRows) {
+    const auto dir = makeTmpDir();
+    const auto resultPath = makeRunResult(dir, "run-spread", "", "");
+    writeFile(resultPath / "strategy_spread.jsonl",
+              "[1000,100000000,90000000,10000000,5000000,5000000,1,3,0]\n"
+              "[2000,92000000,91000000,1000000,5000000,-4000000,1,6,0]\n");
+
+    hftrec::gui::viewer::StrategyOverlayData overlay;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
+
+    ASSERT_EQ(overlay.spreadPoints.size(), 2u);
+    EXPECT_EQ(overlay.spreadPoints[0].tsNs, 1000);
+    EXPECT_EQ(overlay.spreadPoints[0].spreadBpsE8, 100000000);
+    EXPECT_EQ(overlay.spreadPoints[0].emaBpsE8, 90000000);
+    EXPECT_EQ(overlay.spreadPoints[0].costBandBpsE8, 5000000);
+    EXPECT_EQ(overlay.spreadPoints[0].direction, 1u);
+    EXPECT_EQ(overlay.spreadPoints[0].decisionKind, 3u);
+    EXPECT_EQ(overlay.spreadPoints[1].decisionKind, 6u);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

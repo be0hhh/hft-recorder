@@ -27,6 +27,7 @@
 #include "hft_backtest/backtest.hpp"
 #include "hft_backtest/backtest_sweep.hpp"
 #include "core/common/Status.hpp"
+#include "gui/models/BacktestSessionSummary.hpp"
 
 namespace hftrec::gui {
 namespace {
@@ -444,21 +445,15 @@ QString resolveRecordingsRoot() {
     return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
 }
 
-QString formatSessionStartedAt(qint64 startedAtNs) {
-    if (startedAtNs < 1000000000000000ll) return {};
-    return QDateTime::fromMSecsSinceEpoch(startedAtNs / 1000000).toLocalTime().toString(QStringLiteral("dd.MM.yy hh:mm"));
-}
-
-QString sessionSourceSummary(const QString& sessionPath, int backtestCount) {
+QString sessionSourceSummary(const QString& sessionPath, const BacktestLegCounts& backtestCounts) {
     QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
-    if (!file.open(QIODevice::ReadOnly)) return QStringLiteral("L1 0 | BT %1").arg(backtestCount);
+    if (!file.open(QIODevice::ReadOnly)) return sessionBacktestSummaryText(0, backtestCounts, 0);
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     const QJsonObject manifest = doc.object();
     const QJsonObject bookTicker = manifest.value(QStringLiteral("channels")).toObject().value(QStringLiteral("bookticker")).toObject();
-    QString summary = QStringLiteral("L1 %1 | BT %2").arg(bookTicker.value(QStringLiteral("declared_event_count")).toInt()).arg(backtestCount);
-    const QString startedAt = formatSessionStartedAt(manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
-    if (!startedAt.isEmpty()) summary += QStringLiteral(" | %1").arg(startedAt);
-    return summary;
+    return sessionBacktestSummaryText(bookTicker.value(QStringLiteral("declared_event_count")).toInt(),
+                                      backtestCounts,
+                                      manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
 }
 
 QString statusTextFor(hft_backtest::Status status) {
@@ -995,27 +990,17 @@ QVariantList BacktestViewModel::loadSessions_() const {
         if (entry == QStringLiteral("backtest_profiles")) continue;
         const QString path = recordingsDir.absoluteFilePath(entry);
         const QDir backtestsDir(QDir(path).absoluteFilePath(QStringLiteral("backtests")));
-        int backtestCount = 0;
-        if (backtestsDir.exists()) {
-            const QFileInfoList runDirs = backtestsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
-            for (const QFileInfo& runDir : runDirs) {
-                if (runDir.fileName() == QStringLiteral("sweeps")) continue;
-                if (QFileInfo::exists(QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++backtestCount;
-            }
-            const QDir sweepsDir(backtestsDir.absoluteFilePath(QStringLiteral("sweeps")));
-            const QFileInfoList sweepDirs = sweepsDir.exists() ? sweepsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot) : QFileInfoList{};
-            for (const QFileInfo& sweepDir : sweepDirs) {
-                if (QFileInfo::exists(QDir(sweepDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++backtestCount;
-            }
-        }
+        const BacktestLegCounts backtestCounts = backtestLegCountsForSession(recordingsRoot(), entry);
         QVariantMap row;
         row.insert(QStringLiteral("id"), entry);
         row.insert(QStringLiteral("label"), entry);
         row.insert(QStringLiteral("path"), path);
         row.insert(QStringLiteral("hasManifest"), QFileInfo::exists(QDir(path).absoluteFilePath(QStringLiteral("manifest.json"))));
         row.insert(QStringLiteral("hasBacktests"), backtestsDir.exists());
-        row.insert(QStringLiteral("backtestCount"), backtestCount);
-        QString rightText = sessionSourceSummary(path, backtestCount);
+        row.insert(QStringLiteral("backtestCount"), backtestCounts.firstLeg);
+        row.insert(QStringLiteral("firstLegBacktestCount"), backtestCounts.firstLeg);
+        row.insert(QStringLiteral("secondLegBacktestCount"), backtestCounts.secondLeg);
+        QString rightText = sessionSourceSummary(path, backtestCounts);
         row.insert(QStringLiteral("rightText"), rightText);
         out.push_back(row);
     }
@@ -1585,6 +1570,7 @@ void BacktestViewModel::setExtraSessionIds(const QString& sessionIds) {
     if (!strategyChanged) emit selectedStrategyChanged();
     emit canRunChanged();
     refreshSessionGateStatus_();
+    refresh();
 }
 
 void BacktestViewModel::setSelectedSymbol(const QString& symbol) {
@@ -2012,10 +1998,14 @@ void BacktestViewModel::refresh() {
     const QString dirPath = backtestsDirectory();
     QStringList filesToWatch;
     if (!dirPath.isEmpty()) {
+        const QStringList selectedPaths = selectedSessionPaths_();
+        const QString primarySessionId = selectedPaths.empty() ? QString{} : sessionIdFromPathText(selectedPaths.at(0));
+        const QString secondarySessionId = selectedPaths.size() > 1 ? sessionIdFromPathText(selectedPaths.at(1)) : QString{};
         auto addRunDir = [&](const QFileInfo& runDir) {
             const QDir candidateDir(runDir.absoluteFilePath());
             const QString manifestPath = candidateDir.absoluteFilePath(QStringLiteral("manifest.json"));
             if (!QFileInfo::exists(manifestPath)) return;
+            if (!backtestManifestMatchesLegs(manifestPath, primarySessionId, secondarySessionId)) return;
             const RunRecord* cached = recordForPath_(runDir.absoluteFilePath());
             RunRecord record = loadRecord_(runDir.absoluteFilePath(), RecordLoadMode::MetadataOnly);
             const bool metadataMatches = cached != nullptr

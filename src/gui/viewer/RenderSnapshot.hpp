@@ -171,6 +171,14 @@ struct HoverInfo {
     std::int64_t bookTsNs{0};
     std::int64_t bookTsStartNs{0};
     std::int64_t bookTsEndNs{0};
+
+    // Funding hit-test result.
+    bool         fundingHit{false};
+    std::int64_t fundingEventTsNs{0};
+    std::int64_t fundingRateE8{0};
+    std::int64_t fundingTsNs{0};
+    std::int64_t nextFundingTsNs{0};
+    std::int64_t fundingCadenceNs{0};
 };
 
 // Everything renderers need to draw one frame. Plain POD; owned by whoever
@@ -219,6 +227,10 @@ struct RenderSnapshot {
 
     // API-injected vertical markers for the active chart.
     std::vector<VerticalMarker> verticalMarkers;
+
+    QString sourceExchange{};
+    QString sourceMarket{};
+    QString sourceSymbol{};
 
     HoverInfo hover{};
 };

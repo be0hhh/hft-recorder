@@ -179,6 +179,12 @@ class ChartItem : public QQuickPaintedItem {
     std::int64_t hoveredBookTsNs_{0};
     std::int64_t hoveredBookTsStartNs_{0};
     std::int64_t hoveredBookTsEndNs_{0};
+    bool hoveredFunding_{false};
+    std::int64_t hoveredFundingEventTsNs_{0};
+    std::int64_t hoveredFundingRateE8_{0};
+    std::int64_t hoveredFundingTsNs_{0};
+    std::int64_t hoveredNextFundingTsNs_{0};
+    std::int64_t hoveredFundingCadenceNs_{0};
     bool tradesVisible_{true};
     bool liquidationsVisible_{true};
     bool candlesVisible_{false};

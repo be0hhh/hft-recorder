@@ -85,6 +85,8 @@ class BookTickerCompareController : public QObject {
     Q_INVOKABLE void panSpread(double fraction);
     Q_INVOKABLE void zoomPrice(double factor);
     Q_INVOKABLE void zoomSpread(double factor);
+    Q_INVOKABLE void zoomPriceAt(double factor, double anchorFraction);
+    Q_INVOKABLE void zoomSpreadAt(double factor, double anchorFraction);
     Q_INVOKABLE void resetValueScale();
 
   signals:

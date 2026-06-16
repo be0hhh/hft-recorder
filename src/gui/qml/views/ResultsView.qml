@@ -23,6 +23,7 @@ Pane {
     property color netColor: "#9b78d6"
     property color feesColor: "#ff8f5c"
     property bool pnlPercentMode: false
+    property int resultLegMode: root.backtestVm.selectedSessionCount > 1 ? 2 : 1
 
     function e8Text(value) {
         var negative = value < 0
@@ -69,7 +70,39 @@ Pane {
 
     function syncSelections() {
         sessionBox.currentIndex = sessionBox.indexOfValue(root.backtestVm.selectedSessionId)
+        secondarySessionBox.currentIndex = secondarySessionBox.indexOfValue(root.secondarySessionId())
         runBox.currentIndex = runBox.indexOfValue(root.backtestVm.selectedRunId)
+    }
+
+    function secondarySessionId() {
+        var text = String(root.backtestVm.extraSessionIds || "").trim()
+        if (text === "") return ""
+        var parts = text.split(/[,\;\n]+/)
+        for (var i = 0; i < parts.length; ++i) {
+            var part = String(parts[i]).trim()
+            if (part !== "") return part
+        }
+        return ""
+    }
+
+    function fallbackSecondarySessionId() {
+        var primary = String(root.backtestVm.selectedSessionId || "").trim()
+        var rows = root.backtestVm.sessions || []
+        for (var i = 0; i < rows.length; ++i) {
+            var id = String(rows[i].id || "").trim()
+            if (id !== "" && id !== primary) return id
+        }
+        return ""
+    }
+
+    function setResultLegMode(count) {
+        root.resultLegMode = count
+        if (count <= 1) {
+            root.backtestVm.setExtraSessionIds("")
+        } else if (root.secondarySessionId() === "" || root.secondarySessionId() === root.backtestVm.selectedSessionId) {
+            root.backtestVm.setExtraSessionIds(root.fallbackSecondarySessionId())
+        }
+        Qt.callLater(root.syncSelections)
     }
     background: Rectangle { color: root.windowColor }
 
@@ -77,6 +110,10 @@ Pane {
         target: root.backtestVm
         function onSessionsChanged() { root.syncSelections() }
         function onSelectedSessionChanged() { root.syncSelections() }
+        function onMultiSessionChanged() {
+            root.resultLegMode = root.backtestVm.selectedSessionCount > 1 ? 2 : root.resultLegMode
+            root.syncSelections()
+        }
         function onRunsChanged() { root.syncSelections() }
         function onSelectionChanged() { root.syncSelections() }
     }
@@ -95,6 +132,22 @@ Pane {
         opacity: enabledValue ? 1.0 : 0.5
         Text { id: label; anchors.centerIn: parent; width: parent.width - 12; text: parent.text; color: enabledValue ? root.textColor : root.mutedTextColor; font.pixelSize: 11; font.bold: true; elide: Text.ElideRight; horizontalAlignment: Text.AlignHCenter }
         MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; enabled: parent.enabledValue; onClicked: parent.clicked() }
+    }
+
+    component SegmentButton: Rectangle {
+        property string text: ""
+        property bool checked: false
+        signal clicked()
+        radius: 5
+        implicitWidth: 52
+        implicitHeight: 30
+        Layout.preferredWidth: implicitWidth
+        Layout.preferredHeight: implicitHeight
+        color: checked ? "#26333a" : (mouse.containsMouse ? "#2b303a" : root.panelDeepColor)
+        border.color: checked ? root.accentColor : root.borderColor
+        border.width: 1
+        Text { anchors.centerIn: parent; text: parent.text; color: checked ? root.textColor : root.mutedTextColor; font.pixelSize: 11; font.bold: true }
+        MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; onClicked: parent.clicked() }
     }
 
     component LegendChip: Rectangle {
@@ -159,16 +212,44 @@ Pane {
                     Label { text: "Backtest Results"; color: root.textColor; font.pixelSize: 17; font.bold: true }
                     Label { text: root.backtestVm.selectedRunId === "" ? "Select or run a backtest" : root.backtestVm.selectedRunId + " / " + root.backtestVm.selectedStrategy; color: root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
                 }
+                RowLayout {
+                    Layout.fillWidth: false
+                    spacing: 4
+                    SegmentButton { text: "1 leg"; checked: root.resultLegMode === 1; onClicked: root.setResultLegMode(1) }
+                    SegmentButton { text: "2 legs"; checked: root.resultLegMode === 2; onClicked: root.setResultLegMode(2) }
+                }
                 RecorderComboBox {
                     id: sessionBox
                     Layout.fillWidth: false
-                    Layout.preferredWidth: 360
-                    caption: "Session"
+                    Layout.preferredWidth: root.resultLegMode === 2 ? 280 : 360
+                    caption: root.resultLegMode === 2 ? "Leg 1" : "Session"
                     textRole: "label"
                     valueRole: "id"
                     model: root.backtestVm.sessions
                     popupWidth: 640
-                    onActivated: root.backtestVm.setSelectedSessionId(currentValue)
+                    onActivated: {
+                        root.backtestVm.setSelectedSessionId(currentValue)
+                        if (root.resultLegMode === 2 && root.secondarySessionId() === currentValue)
+                            root.backtestVm.setExtraSessionIds(root.fallbackSecondarySessionId())
+                        Qt.callLater(root.syncSelections)
+                    }
+                    Component.onCompleted: root.syncSelections()
+                }
+                RecorderComboBox {
+                    id: secondarySessionBox
+                    visible: root.resultLegMode === 2
+                    Layout.fillWidth: false
+                    Layout.preferredWidth: visible ? 280 : 0
+                    caption: "Leg 2"
+                    textRole: "label"
+                    valueRole: "id"
+                    model: root.backtestVm.sessions
+                    popupWidth: 640
+                    onActivated: {
+                        if (currentValue !== root.backtestVm.selectedSessionId)
+                            root.backtestVm.setExtraSessionIds(currentValue)
+                        Qt.callLater(root.syncSelections)
+                    }
                     Component.onCompleted: root.syncSelections()
                 }
                 RecorderComboBox {
@@ -220,7 +301,13 @@ Pane {
                     RowLayout {
                         Layout.fillWidth: true
                         Label { text: "Realized PnL"; color: root.textColor; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
-                        Label { text: root.backtestVm.hasEquityPoints ? root.realizedRangeText() : "no equity points"; color: root.mutedTextColor; font.pixelSize: 12 }
+                        Label {
+                            text: root.backtestVm.hasEquityPoints ? root.realizedRangeText() : "no equity points"
+                            color: root.mutedTextColor
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                            Layout.maximumWidth: 720
+                        }
                     }
 
                     Flow {

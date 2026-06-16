@@ -181,6 +181,28 @@ TEST(ChartStrategyOverlay, FinalOverlayPassDoesNotDependOnTradesLayer) {
     EXPECT_FALSE(hftrec::gui::viewer::detail::shouldRenderStrategyOverlayInFinalPass(rangeOnly, false));
 }
 
+TEST(ChartFundingOverlay, ContextHoverSelectsNearestFundingMarker) {
+    hftrec::gui::viewer::RenderSnapshot snap{};
+    snap.loaded = true;
+    snap.fundingVisible = true;
+    snap.vp = hftrec::gui::viewer::ViewportMap{0, 3000, e8(90), e8(110), 800.0, 600.0};
+    snap.fundings.push_back(hftrec::replay::FundingRow{1000, 25000, 900, 1100});
+    snap.fundings.push_back(hftrec::replay::FundingRow{2000, -12500, 1900, 2100});
+
+    hftrec::gui::viewer::HoverInfo hover{};
+    hftrec::gui::viewer::hit_test::computeHover(snap,
+                                                QPointF{snap.vp.toX(2000), 582.0},
+                                                true,
+                                                hover);
+
+    EXPECT_TRUE(hover.fundingHit);
+    EXPECT_EQ(hover.fundingEventTsNs, 2000);
+    EXPECT_EQ(hover.fundingRateE8, -12500);
+    EXPECT_EQ(hover.fundingTsNs, 1900);
+    EXPECT_EQ(hover.nextFundingTsNs, 2100);
+    EXPECT_EQ(hover.fundingCadenceNs, 200);
+}
+
 TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
     ChartController chart;
     const auto dir = makeTmpDir();

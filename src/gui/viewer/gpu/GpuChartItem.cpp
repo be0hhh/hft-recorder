@@ -396,7 +396,9 @@ void GpuChartItem::activateContextPoint(qreal x, qreal y) {
     hoverActive_ = true;
     contextActive_ = true;
     updateHover_();
-    if (hoveredTradeIndex_ < 0 && hoveredBookKind_ == 0 && (!hoverInfo_ || (!hoverInfo_->liquidationHit && !hoverInfo_->strategyFillHit))) {
+    if (hoveredTradeIndex_ < 0
+        && hoveredBookKind_ == 0
+        && (!hoverInfo_ || (!hoverInfo_->liquidationHit && !hoverInfo_->strategyFillHit && !hoverInfo_->fundingHit))) {
         clearHover();
         return;
     }
@@ -404,7 +406,11 @@ void GpuChartItem::activateContextPoint(qreal x, qreal y) {
 }
 
 void GpuChartItem::clearHover() {
-    const bool hadHoverState = hoverActive_ || contextActive_ || hoveredTradeIndex_ >= 0 || hoveredBookKind_ != 0 || (hoverInfo_ && hoverInfo_->strategyFillHit);
+    const bool hadHoverState = hoverActive_
+        || contextActive_
+        || hoveredTradeIndex_ >= 0
+        || hoveredBookKind_ != 0
+        || (hoverInfo_ && (hoverInfo_->strategyFillHit || hoverInfo_->fundingHit));
     hoverActive_ = false;
     contextActive_ = false;
     hoveredTradeIndex_ = -1;

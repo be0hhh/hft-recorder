@@ -703,6 +703,9 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
     snap.bookDepthWindowPct = std::clamp<qreal>(in.bookDepthWindowPct, 1.0, 25.0);
     const bool buildGpuOrderbookVertices = in.gpuOrderbookVertices;
     snap.verticalMarkers = verticalMarkers_;
+    snap.sourceExchange = sourceExchange_;
+    snap.sourceMarket = sourceMarket_;
+    snap.sourceSymbol = sourceSymbol_;
 
     if (!snap.loaded || widthPx <= 0.0 || heightPx <= 0.0) return snap;
     if (snap.vp.tMax <= snap.vp.tMin || snap.vp.pMax <= snap.vp.pMin) return snap;

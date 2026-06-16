@@ -1,10 +1,13 @@
 #include "gui/viewer/renderers/OverlayRenderer.hpp"
 
 #include <algorithm>
+#include <cstdint>
 
 #include <QColor>
+#include <QDateTime>
 #include <QFont>
 #include <QFontMetrics>
+#include <QLatin1Char>
 #include <QPainter>
 #include <QPen>
 #include <QPointF>
@@ -79,6 +82,51 @@ void renderObjectCard(QPainter* painter,
     drawTextCard(painter, card, accent, lines);
 }
 
+qreal fundingStripY(const RenderSnapshot& snap) noexcept {
+    if (snap.vp.h <= 36.0) return std::max<qreal>(8.0, snap.vp.h * 0.5);
+    return std::clamp<qreal>(snap.vp.h - 18.0, 18.0, snap.vp.h - 8.0);
+}
+
+QString formatCompactTimeNs(std::int64_t tsNs) {
+    if (tsNs <= 0) return QStringLiteral("-");
+    return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(tsNs / 1000000ll), Qt::UTC)
+        .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss 'UTC'"));
+}
+
+QString formatFundingRatePercent(std::int64_t rateE8) {
+    const bool negative = rateE8 < 0;
+    const std::uint64_t magnitude = negative
+        ? static_cast<std::uint64_t>(-(rateE8 + 1)) + 1u
+        : static_cast<std::uint64_t>(rateE8);
+    constexpr std::uint64_t kScale = 1000000u;
+    const std::uint64_t whole = magnitude / kScale;
+    const std::uint64_t frac = magnitude % kScale;
+    return QStringLiteral("%1%2.%3%")
+        .arg(negative ? QStringLiteral("-") : QString())
+        .arg(static_cast<qulonglong>(whole))
+        .arg(static_cast<qulonglong>(frac), 6, 10, QLatin1Char('0'));
+}
+
+QString formatCadence(std::int64_t cadenceNs) {
+    if (cadenceNs <= 0) return {};
+    constexpr std::int64_t kNsPerMinute = 60ll * 1000000000ll;
+    const std::int64_t totalMinutes = (cadenceNs + kNsPerMinute / 2) / kNsPerMinute;
+    if (totalMinutes <= 0) return {};
+    const std::int64_t hours = totalMinutes / 60;
+    const std::int64_t minutes = totalMinutes % 60;
+    if (hours > 0 && minutes > 0) return QStringLiteral("~%1h %2m").arg(hours).arg(minutes);
+    if (hours > 0) return QStringLiteral("~%1h").arg(hours);
+    return QStringLiteral("~%1m").arg(minutes);
+}
+
+QString sourceLabel(const RenderSnapshot& snap) {
+    QStringList parts;
+    if (!snap.sourceExchange.isEmpty()) parts << snap.sourceExchange;
+    if (!snap.sourceMarket.isEmpty()) parts << snap.sourceMarket;
+    if (!snap.sourceSymbol.isEmpty()) parts << snap.sourceSymbol;
+    return parts.isEmpty() ? QStringLiteral("unknown") : parts.join(QLatin1Char(' '));
+}
+
 
 void renderVerticalMarkers(const RenderContext& ctx) {
     const auto& snap = ctx.s;
@@ -112,6 +160,39 @@ void renderVerticalMarkers(const RenderContext& ctx) {
         }
     }
 }
+
+void renderFundingOverlay(const RenderContext& ctx) {
+    const auto& snap = ctx.s;
+    const auto& hov = ctx.hov;
+    if (!hov.contextActive || !snap.fundingVisible || !hov.fundingHit) return;
+    if (hov.tradeHit || hov.liquidationHit || hov.strategyFillHit || hov.bookKind != 0) return;
+    if (hov.fundingEventTsNs < snap.vp.tMin || hov.fundingEventTsNs > snap.vp.tMax) return;
+
+    const QColor accent{255, 214, 51};
+    const qreal x = std::clamp<qreal>(snap.vp.toX(hov.fundingEventTsNs), 0.0, snap.vp.w);
+    const qreal y = fundingStripY(snap);
+
+    QPen focusPen(accent);
+    focusPen.setWidthF(1.5);
+    focusPen.setCosmetic(true);
+    ctx.p->setPen(focusPen);
+    ctx.p->setBrush(Qt::NoBrush);
+    ctx.p->drawLine(QPointF{x, std::max<qreal>(0.0, y - 12.0)}, QPointF{x, std::min<qreal>(snap.vp.h, y + 12.0)});
+    ctx.p->drawEllipse(QPointF{x, y}, 5.0, 5.0);
+
+    QStringList lines;
+    lines << QStringLiteral("Funding");
+    lines << QStringLiteral("Venue  %1").arg(sourceLabel(snap));
+    lines << QStringLiteral("Rate   %1").arg(formatFundingRatePercent(hov.fundingRateE8));
+    lines << QStringLiteral("Event  %1").arg(formatCompactTimeNs(hov.fundingEventTsNs));
+    lines << QStringLiteral("Time   %1").arg(formatCompactTimeNs(hov.fundingTsNs));
+    lines << QStringLiteral("Next   %1").arg(formatCompactTimeNs(hov.nextFundingTsNs));
+    const QString cadence = formatCadence(hov.fundingCadenceNs);
+    if (!cadence.isEmpty()) lines << QStringLiteral("Every  %1").arg(cadence);
+
+    renderObjectCard(ctx.p, lines, accent, x, y, snap.vp.w, snap.vp.h);
+}
+
 void renderBookOverlay(const RenderContext& ctx) {
     const auto& snap = ctx.s;
     const auto& hov  = ctx.hov;
@@ -308,6 +389,7 @@ void renderTradeOverlay(const RenderContext& ctx) {
 
 void renderOverlay(const RenderContext& ctx) {
     renderVerticalMarkers(ctx);
+    renderFundingOverlay(ctx);
     renderBookOverlay(ctx);
     renderLiquidationOverlay(ctx);
     renderStrategyFillOverlay(ctx);

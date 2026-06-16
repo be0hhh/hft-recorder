@@ -381,12 +381,12 @@ TEST(BacktestViewModel, ExposesOnlyMetadataParameterKeys) {
     vm.setSelectedStrategy(QStringLiteral("spread_maker1and2"));
 
     EXPECT_EQ(vm.configMode(), QStringLiteral("fixed"));
+    EXPECT_EQ(vm.strategyParameters().size(), 6);
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_bps")));
     EXPECT_EQ(metricLabelValue(vm.strategyParameters(), QStringLiteral("distance_bps")), QStringLiteral("distance_bps"));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("trigger_bps")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("refresh_ms")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("close_delay_us")));
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("start_ms")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("sizing_mode")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("amount_qty")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("order_qty")));

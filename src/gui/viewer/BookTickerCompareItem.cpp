@@ -50,6 +50,10 @@ struct LayoutRects {
     QRectF spreadScaleRect{};
 };
 
+double bpsFromE8(std::int64_t value) noexcept {
+    return static_cast<double>(value) / kE8;
+}
+
 void absorbPrice(const hftrec::replay::BookTickerRow& row, Ranges& ranges, bool& hasPrice) noexcept {
     if (row.bidPriceE8 <= 0 || row.askPriceE8 <= 0) return;
     if (!hasPrice) {
@@ -88,6 +92,7 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
                      const std::vector<hftrec::replay::BookTickerRow>& b,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreads,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& means,
+                     const StrategyOverlayData& overlay,
                      std::int64_t tsMin,
                      std::int64_t tsMax,
                      std::int64_t currentTs,
@@ -117,57 +122,83 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
         absorbPrice(row, ranges, hasPrice);
     }
     bool hasSpread = false;
+    if (!overlay.spreadPoints.empty()) {
+        double emaSum = 0.0;
+        std::size_t emaCount = 0u;
+        for (const auto& point : overlay.spreadPoints) {
+            if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+            const double spread = bpsFromE8(point.spreadBpsE8);
+            const double ema = bpsFromE8(point.emaBpsE8);
+            const double cost = bpsFromE8(point.costBandBpsE8);
+            if (!hasSpread) {
+                ranges.spreadMin = std::min(spread, ema - cost);
+                ranges.spreadMax = std::max(spread, ema + cost);
+                hasSpread = true;
+            } else {
+                ranges.spreadMin = std::min(ranges.spreadMin, std::min(spread, ema - cost));
+                ranges.spreadMax = std::max(ranges.spreadMax, std::max(spread, ema + cost));
+            }
+            emaSum += ema;
+            ranges.costBandMax = std::max(ranges.costBandMax, cost);
+            ranges.deviationAbsMax = std::max(ranges.deviationAbsMax, std::abs(bpsFromE8(point.deviationBpsE8)));
+            ranges.edgeAfterCostMax = std::max(ranges.edgeAfterCostMax, bpsFromE8(point.edgeAfterCostBpsE8));
+            ++emaCount;
+        }
+        if (emaCount > 0u) ranges.meanAvg = emaSum / static_cast<double>(emaCount);
+    }
     double penaltySum = 0.0;
     double feePenaltySum = 0.0;
     std::size_t penaltyCount = 0u;
-    const hftrec::arbitrage::BookTickerSpreadPoint* carrySpread = nullptr;
-    for (const auto& point : spreads) {
-        if (point.tsNs > ranges.tsMin) break;
-        carrySpread = &point;
-    }
-    if (carrySpread != nullptr) {
-        ranges.spreadMin = std::min(0.0, carrySpread->spreadBps);
-        ranges.spreadMax = std::max(1.0, carrySpread->spreadBps);
-        ranges.rawSpreadMax = carrySpread->rawSpreadBps;
-        hasSpread = true;
-    }
-    for (const auto& point : spreads) {
-        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
-        if (!hasSpread) {
-            ranges.spreadMin = std::min(0.0, point.spreadBps);
-            ranges.spreadMax = std::max(1.0, point.spreadBps);
-            ranges.rawSpreadMax = point.rawSpreadBps;
-            hasSpread = true;
-        } else {
-            ranges.spreadMin = std::min(ranges.spreadMin, point.spreadBps);
-            ranges.spreadMax = std::max(ranges.spreadMax, point.spreadBps);
-            ranges.rawSpreadMax = std::max(ranges.rawSpreadMax, point.rawSpreadBps);
+    if (overlay.spreadPoints.empty()) {
+        const hftrec::arbitrage::BookTickerSpreadPoint* carrySpread = nullptr;
+        for (const auto& point : spreads) {
+            if (point.tsNs > ranges.tsMin) break;
+            carrySpread = &point;
         }
-        penaltySum += point.internalPenaltyBps;
-        feePenaltySum += point.feePenaltyBps;
-        ++penaltyCount;
-    }
-    if (penaltyCount > 0u) ranges.internalPenaltyAvg = penaltySum / static_cast<double>(penaltyCount);
-    if (penaltyCount > 0u) ranges.feePenaltyAvg = feePenaltySum / static_cast<double>(penaltyCount);
-    double meanSum = 0.0;
-    std::size_t meanCount = 0u;
-    for (const auto& point : means) {
-        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
-        if (!hasSpread) {
-            ranges.spreadMin = std::min(point.meanBps - point.costBandBps, point.meanBps);
-            ranges.spreadMax = std::max(point.meanBps + point.costBandBps, point.meanBps);
+        if (carrySpread != nullptr) {
+            ranges.spreadMin = std::min(0.0, carrySpread->spreadBps);
+            ranges.spreadMax = std::max(1.0, carrySpread->spreadBps);
+            ranges.rawSpreadMax = carrySpread->rawSpreadBps;
             hasSpread = true;
-        } else {
-            ranges.spreadMin = std::min(ranges.spreadMin, point.meanBps - point.costBandBps);
-            ranges.spreadMax = std::max(ranges.spreadMax, point.meanBps + point.costBandBps);
         }
-        meanSum += point.meanBps;
-        ranges.costBandMax = std::max(ranges.costBandMax, point.costBandBps);
-        ranges.deviationAbsMax = std::max(ranges.deviationAbsMax, std::abs(point.deviationBps));
-        ranges.edgeAfterCostMax = std::max(ranges.edgeAfterCostMax, point.edgeAfterCostBps);
-        ++meanCount;
+        for (const auto& point : spreads) {
+            if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+            if (!hasSpread) {
+                ranges.spreadMin = std::min(0.0, point.spreadBps);
+                ranges.spreadMax = std::max(1.0, point.spreadBps);
+                ranges.rawSpreadMax = point.rawSpreadBps;
+                hasSpread = true;
+            } else {
+                ranges.spreadMin = std::min(ranges.spreadMin, point.spreadBps);
+                ranges.spreadMax = std::max(ranges.spreadMax, point.spreadBps);
+                ranges.rawSpreadMax = std::max(ranges.rawSpreadMax, point.rawSpreadBps);
+            }
+            penaltySum += point.internalPenaltyBps;
+            feePenaltySum += point.feePenaltyBps;
+            ++penaltyCount;
+        }
+        if (penaltyCount > 0u) ranges.internalPenaltyAvg = penaltySum / static_cast<double>(penaltyCount);
+        if (penaltyCount > 0u) ranges.feePenaltyAvg = feePenaltySum / static_cast<double>(penaltyCount);
+        double meanSum = 0.0;
+        std::size_t meanCount = 0u;
+        for (const auto& point : means) {
+            if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+            if (!hasSpread) {
+                ranges.spreadMin = std::min(point.meanBps - point.costBandBps, point.meanBps);
+                ranges.spreadMax = std::max(point.meanBps + point.costBandBps, point.meanBps);
+                hasSpread = true;
+            } else {
+                ranges.spreadMin = std::min(ranges.spreadMin, point.meanBps - point.costBandBps);
+                ranges.spreadMax = std::max(ranges.spreadMax, point.meanBps + point.costBandBps);
+            }
+            meanSum += point.meanBps;
+            ranges.costBandMax = std::max(ranges.costBandMax, point.costBandBps);
+            ranges.deviationAbsMax = std::max(ranges.deviationAbsMax, std::abs(point.deviationBps));
+            ranges.edgeAfterCostMax = std::max(ranges.edgeAfterCostMax, point.edgeAfterCostBps);
+            ++meanCount;
+        }
+        if (meanCount > 0u) ranges.meanAvg = meanSum / static_cast<double>(meanCount);
     }
-    if (meanCount > 0u) ranges.meanAvg = meanSum / static_cast<double>(meanCount);
     if (!hasPrice) {
         for (const auto& row : a) absorbPrice(row, ranges, hasPrice);
         for (const auto& row : b) absorbPrice(row, ranges, hasPrice);
@@ -244,6 +275,10 @@ void drawPolyline(QPainter& painter, const QPolygonF& points, const QColor& colo
     painter.setPen(pen);
     painter.setBrush(Qt::NoBrush);
     painter.drawPolyline(points);
+}
+
+QColor spreadDirectionColor(std::uint8_t direction) noexcept {
+    return direction == 1u ? QColor{58, 150, 255} : QColor{255, 82, 96};
 }
 
 void drawFundingMarkers(QPainter& painter,
@@ -421,6 +456,72 @@ void drawMeanBands(QPainter& painter,
     painter.drawPolyline(meanLine);
 }
 
+void drawStrategySpreadTrace(QPainter& painter,
+                             const std::vector<StrategySpreadPoint>& points,
+                             const Ranges& ranges,
+                             const QRectF& rect) {
+    if (points.empty()) return;
+    QPolygonF spreadLine;
+    QPolygonF emaLine;
+    QPolygonF upperBand;
+    QPolygonF lowerBand;
+    std::vector<std::uint8_t> spreadDirections;
+    spreadLine.reserve(static_cast<int>(std::min<std::size_t>(points.size(), 1000000)));
+    emaLine.reserve(spreadLine.capacity());
+    upperBand.reserve(spreadLine.capacity());
+    lowerBand.reserve(spreadLine.capacity());
+    spreadDirections.reserve(points.size());
+    for (const auto& point : points) {
+        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+        const double x = xFor(point.tsNs, ranges, rect);
+        const double spread = bpsFromE8(point.spreadBpsE8);
+        const double ema = bpsFromE8(point.emaBpsE8);
+        const double cost = bpsFromE8(point.costBandBpsE8);
+        spreadLine.push_back(QPointF{x, spreadYFor(spread, ranges, rect)});
+        spreadDirections.push_back(point.direction);
+        emaLine.push_back(QPointF{x, spreadYFor(ema, ranges, rect)});
+        upperBand.push_back(QPointF{x, spreadYFor(ema + cost, ranges, rect)});
+        lowerBand.push_back(QPointF{x, spreadYFor(ema - cost, ranges, rect)});
+    }
+    QPen bandPen{QColor{145, 145, 150}};
+    bandPen.setWidth(1);
+    bandPen.setStyle(Qt::DashLine);
+    painter.setPen(bandPen);
+    painter.drawPolyline(upperBand);
+    painter.drawPolyline(lowerBand);
+    drawPolyline(painter, emaLine, QColor{255, 214, 84});
+    for (int i = 1; i < spreadLine.size(); ++i) {
+        const std::uint8_t currentDirection = spreadDirections[static_cast<std::size_t>(i)];
+        const std::uint8_t previousDirection = spreadDirections[static_cast<std::size_t>(i - 1)];
+        const std::uint8_t direction = currentDirection != 0u ? currentDirection : previousDirection;
+        QPen pen{spreadDirectionColor(direction)};
+        pen.setWidth(1);
+        pen.setCapStyle(Qt::SquareCap);
+        pen.setJoinStyle(Qt::MiterJoin);
+        painter.setPen(pen);
+        painter.drawLine(spreadLine.at(i - 1), spreadLine.at(i));
+    }
+
+    for (const auto& point : points) {
+        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+        if (point.decisionKind != 3u && point.decisionKind != 6u) continue;
+        const qreal x = xFor(point.tsNs, ranges, rect);
+        const qreal y = spreadYFor(bpsFromE8(point.spreadBpsE8), ranges, rect);
+        const qreal r = point.decisionKind == 3u ? 5.5 : 4.5;
+        const bool directionUp = point.direction != 2u;
+        const bool arrowUp = point.decisionKind == 6u ? !directionUp : directionUp;
+        QPolygonF triangle;
+        if (arrowUp) {
+            triangle << QPointF{x, y - r} << QPointF{x - r, y + r} << QPointF{x + r, y + r};
+        } else {
+            triangle << QPointF{x, y + r} << QPointF{x - r, y - r} << QPointF{x + r, y - r};
+        }
+        painter.setPen(QPen{QColor{18, 18, 21}, 1});
+        painter.setBrush(point.decisionKind == 3u ? QColor{245, 245, 245} : QColor{145, 145, 150});
+        painter.drawPolygon(triangle);
+    }
+}
+
 QColor overlayColor(std::uint32_t legIndex, bool buy) noexcept {
     if (legIndex == 1u) return buy ? QColor{76, 212, 126} : QColor{179, 102, 255};
     return buy ? QColor{36, 194, 203} : QColor{218, 37, 54};
@@ -488,6 +589,21 @@ const hftrec::arbitrage::BookTickerSpreadMeanPoint* nearestMeanPoint(
     const auto* left = &*(it - 1);
     return (ts - left->tsNs) <= (right->tsNs - ts) ? left : right;
 }
+
+const StrategySpreadPoint* nearestStrategySpreadPoint(
+    const std::vector<StrategySpreadPoint>& points,
+    std::int64_t ts) noexcept {
+    if (points.empty()) return nullptr;
+    auto it = std::lower_bound(points.begin(), points.end(), ts, [](const auto& point, std::int64_t value) {
+        return point.tsNs < value;
+    });
+    if (it == points.begin()) return &*it;
+    if (it == points.end()) return &points.back();
+    const auto* right = &*it;
+    const auto* left = &*(it - 1);
+    return (ts - left->tsNs) <= (right->tsNs - ts) ? left : right;
+}
+
 QString formatPrice(std::int64_t priceE8) {
     const double value = static_cast<double>(priceE8) / kE8;
     const int decimals = value >= 1000.0 ? 2 : 6;
@@ -632,6 +748,30 @@ void BookTickerCompareItem::clearMeasure() {
     update();
 }
 
+bool BookTickerCompareItem::isPricePanelPoint(qreal x, qreal y) const {
+    const LayoutRects layout = makeLayout(boundingRect());
+    return layout.primaryRect.contains(QPointF{x, y}) || layout.primaryScaleRect.contains(QPointF{x, y});
+}
+
+bool BookTickerCompareItem::isSpreadPanelPoint(qreal x, qreal y) const {
+    const LayoutRects layout = makeLayout(boundingRect());
+    return layout.spreadRect.contains(QPointF{x, y}) || layout.spreadScaleRect.contains(QPointF{x, y});
+}
+
+double BookTickerCompareItem::priceAnchorFraction(qreal y) const {
+    const LayoutRects layout = makeLayout(boundingRect());
+    const qreal height = std::max<qreal>(1.0, layout.primaryRect.height());
+    const double fraction = static_cast<double>((layout.primaryRect.bottom() - y) / height);
+    return std::clamp(fraction, 0.0, 1.0);
+}
+
+double BookTickerCompareItem::spreadAnchorFraction(qreal y) const {
+    const LayoutRects layout = makeLayout(boundingRect());
+    const qreal height = std::max<qreal>(1.0, layout.spreadRect.height());
+    const double fraction = static_cast<double>((layout.spreadRect.bottom() - y) / height);
+    return std::clamp(fraction, 0.0, 1.0);
+}
+
 void BookTickerCompareItem::paint(QPainter* painter) {
     if (painter == nullptr) return;
     painter->fillRect(boundingRect(), QColor{32, 32, 34});
@@ -647,7 +787,8 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     const auto& secondaryFunding = controller_->secondaryFundingRows();
     const auto& spreads = controller_->spreadPoints();
     const auto& means = controller_->meanPoints();
-    Ranges ranges = computeRanges(primary, secondary, spreads, means, controller_->tsMin(), controller_->tsMax(), controller_->currentTs(), controller_->totalFeePenaltyBps());
+    const StrategyOverlayData& overlay = controller_->strategyOverlay();
+    Ranges ranges = computeRanges(primary, secondary, spreads, means, overlay, controller_->tsMin(), controller_->tsMax(), controller_->currentTs(), controller_->totalFeePenaltyBps());
     applyControllerScale(ranges, *controller_);
     const LayoutRects layout = makeLayout(boundingRect());
 
@@ -674,31 +815,53 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     drawFundingMarkers(*painter, primaryFunding, ranges, layout.primaryRect, QColor{255, 214, 51, 180}, QStringLiteral("A"));
     drawFundingMarkers(*painter, secondaryFunding, ranges, layout.primaryRect, QColor{255, 142, 64, 180}, QStringLiteral("B"));
 
-    drawMeanBands(*painter, means, ranges, layout.spreadRect);
-    drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);
-    drawStrategyOverlay(*painter, controller_->strategyOverlay(), ranges, layout.primaryRect);
+    if (!overlay.spreadPoints.empty()) {
+        drawStrategySpreadTrace(*painter, overlay.spreadPoints, ranges, layout.spreadRect);
+    } else {
+        drawMeanBands(*painter, means, ranges, layout.spreadRect);
+        drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);
+    }
+    drawStrategyOverlay(*painter, overlay, ranges, layout.primaryRect);
 
     painter->setFont(QFont{painter->font().family(), 9});
     painter->setPen(QColor{245, 245, 245});
     painter->drawText(layout.primaryRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
                       QStringLiteral("A: bid cyan / ask red   B: bid green / ask purple"));
+    const QString meanLabel = overlay.spreadPoints.empty() ? QStringLiteral("mean avg") : QStringLiteral("EMA avg");
     painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("Spread: min %1   max %2   mean avg %3   max cost band +/- %4   max deviation %5   max edge %6")
-                          .arg(formatBps(ranges.spreadMin), formatBps(ranges.spreadMax), formatBps(ranges.meanAvg), formatBps(ranges.costBandMax), formatBps(ranges.deviationAbsMax), formatBps(ranges.edgeAfterCostMax)));
+                      QStringLiteral("Spread: min %1   max %2   %3 %4   max cost band +/- %5   max deviation %6   max edge %7")
+                          .arg(formatBps(ranges.spreadMin),
+                               formatBps(ranges.spreadMax),
+                               meanLabel,
+                               formatBps(ranges.meanAvg),
+                               formatBps(ranges.costBandMax),
+                               formatBps(ranges.deviationAbsMax),
+                               formatBps(ranges.edgeAfterCostMax)));
 
     const QRectF chartBounds = boundingRect().adjusted(4, 4, -4, -4);
     if (hoverActive_ && layout.spreadRect.contains(hoverPoint_)) {
         const auto ts = tsForX(hoverPoint_.x(), ranges, layout.spreadRect);
-        const auto* spread = nearestSpreadPoint(spreads, ts);
-        const auto* mean = nearestMeanPoint(means, ts);
-        if (spread != nullptr && mean != nullptr) {
-            const QString label = QStringLiteral("spread %1  mean %2  dev %3  cost %4  edge %5")
-                                      .arg(formatBps(spread->spreadBps),
-                                           formatBps(mean->meanBps),
-                                           formatBps(mean->deviationBps),
-                                           formatBps(mean->costBandBps),
-                                           formatBps(mean->edgeAfterCostBps));
+        const auto* strategySpread = nearestStrategySpreadPoint(overlay.spreadPoints, ts);
+        if (strategySpread != nullptr) {
+            const QString label = QStringLiteral("spread %1  EMA %2  dev %3  cost %4  edge %5")
+                                      .arg(formatBps(bpsFromE8(strategySpread->spreadBpsE8)),
+                                           formatBps(bpsFromE8(strategySpread->emaBpsE8)),
+                                           formatBps(bpsFromE8(strategySpread->deviationBpsE8)),
+                                           formatBps(bpsFromE8(strategySpread->costBandBpsE8)),
+                                           formatBps(bpsFromE8(strategySpread->edgeAfterCostBpsE8)));
             drawLabel(*painter, hoverPoint_, label, chartBounds);
+        } else {
+            const auto* spread = nearestSpreadPoint(spreads, ts);
+            const auto* mean = nearestMeanPoint(means, ts);
+            if (spread != nullptr && mean != nullptr) {
+                const QString label = QStringLiteral("spread %1  mean %2  dev %3  cost %4  edge %5")
+                                          .arg(formatBps(spread->spreadBps),
+                                               formatBps(mean->meanBps),
+                                               formatBps(mean->deviationBps),
+                                               formatBps(mean->costBandBps),
+                                               formatBps(mean->edgeAfterCostBps));
+                drawLabel(*painter, hoverPoint_, label, chartBounds);
+            }
         }
     }
     if (measureVisible_) {

@@ -51,6 +51,18 @@ struct RangeRow {
     std::int64_t highE8{0};
 };
 
+struct SpreadRow {
+    std::int64_t tsNs{0};
+    std::int64_t spreadBpsE8{0};
+    std::int64_t emaBpsE8{0};
+    std::int64_t deviationBpsE8{0};
+    std::int64_t costBandBpsE8{0};
+    std::int64_t edgeAfterCostBpsE8{0};
+    std::uint8_t direction{0};
+    std::uint8_t decisionKind{0};
+    std::uint8_t reasonRaw{0};
+};
+
 struct ParsedResult {
     std::string runId{};
     std::string strategy{};
@@ -59,6 +71,7 @@ struct ParsedResult {
     std::vector<LegacyOrderRow> legacyOrders{};
     std::vector<FillRow> fills{};
     std::vector<RangeRow> ranges{};
+    std::vector<SpreadRow> spreads{};
 };
 
 bool readText(const std::filesystem::path& path, std::string& out) {
@@ -178,6 +191,22 @@ bool parseRangeLine(std::string_view line, RangeRow& out) noexcept {
     if (!parser.parseInt64(out.lowE8) || !parser.parseComma()) return false;
     if (!parser.parseInt64(out.midE8) || !parser.parseComma()) return false;
     if (!parser.parseInt64(out.highE8)) return false;
+    return skipOptionalTrailingFields(parser);
+}
+
+bool parseSpreadLine(std::string_view line, SpreadRow& out) noexcept {
+    out = SpreadRow{};
+    hftrec::json::MiniJsonParser parser{line};
+    if (!parser.parseArrayStart()) return false;
+    if (!parser.parseInt64(out.tsNs) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.spreadBpsE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.emaBpsE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.deviationBpsE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.costBandBpsE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.edgeAfterCostBpsE8) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.direction) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.decisionKind) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.reasonRaw)) return false;
     return skipOptionalTrailingFields(parser);
 }
 
@@ -328,6 +357,7 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
     for (const FillRow& fill : parsed.fills) {
         if (fill.exitTsNs <= 0 || fill.priceE8 <= 0 || fill.qtyE8 <= 0) continue;
         const bool buy = sideBuy(fill.side);
+        const bool arrowUp = fill.reduceOnly ? !buy : buy;
         out.fillMarkers.push_back(StrategyFillMarker{
             fill.exitTsNs,
             fill.priceE8,
@@ -336,7 +366,7 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
             buy,
             false,
             fill.reduceOnly,
-            buy ? StrategyFillShape::BuyUp : StrategyFillShape::SellDown,
+            arrowUp ? StrategyFillShape::BuyUp : StrategyFillShape::SellDown,
         });
     }
 
@@ -347,6 +377,21 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
             row.lowE8,
             row.midE8,
             row.highE8,
+        });
+    }
+
+    for (const SpreadRow& row : parsed.spreads) {
+        if (row.tsNs <= 0) continue;
+        out.spreadPoints.push_back(StrategySpreadPoint{
+            row.tsNs,
+            row.spreadBpsE8,
+            row.emaBpsE8,
+            row.deviationBpsE8,
+            row.costBandBpsE8,
+            row.edgeAfterCostBpsE8,
+            row.direction,
+            row.decisionKind,
+            row.reasonRaw,
         });
     }
 
@@ -361,6 +406,9 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
     std::stable_sort(out.rangePoints.begin(), out.rangePoints.end(), [](const auto& lhs, const auto& rhs) noexcept {
         if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
         return lhs.midE8 < rhs.midE8;
+    });
+    std::stable_sort(out.spreadPoints.begin(), out.spreadPoints.end(), [](const auto& lhs, const auto& rhs) noexcept {
+        return lhs.tsNs < rhs.tsNs;
     });
 }
 
@@ -400,6 +448,10 @@ bool loadStrategyOverlayFromResult(const std::filesystem::path& path,
     }
     if (!loadOptionalJsonl(path / "strategy_range.jsonl", parsed.ranges, parseRangeLine)) {
         error = "failed to parse strategy range";
+        return false;
+    }
+    if (!loadOptionalJsonl(path / "strategy_spread.jsonl", parsed.spreads, parseSpreadLine)) {
+        error = "failed to parse strategy spread";
         return false;
     }
     materialize(parsed, fallbackRunEndNs, out);

@@ -354,6 +354,19 @@ TEST(ViewerBookTickerCompare, ValueScaleZoomPanAndAutoFitReset) {
     fs::remove_all(dirB, ec);
 }
 
+TEST(ViewerBookTickerCompare, ValueScaleZoomAnchorsAtCursorFraction) {
+    BookTickerCompareController compare;
+
+    compare.zoomPriceAt(2.0, 1.0);
+    EXPECT_DOUBLE_EQ(compare.priceZoom(), 2.0);
+    EXPECT_NEAR(compare.pricePan(), 0.25, 0.000001);
+
+    compare.resetValueScale();
+    compare.zoomSpreadAt(2.0, 0.0);
+    EXPECT_DOUBLE_EQ(compare.spreadZoom(), 2.0);
+    EXPECT_NEAR(compare.spreadPan(), -0.25, 0.000001);
+}
+
 TEST(ViewerBookTickerCompare, PersistsMeanWindowSeconds) {
     isolateViewerSettings(QStringLiteral("mean_window"));
 

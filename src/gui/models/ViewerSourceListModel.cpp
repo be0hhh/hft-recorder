@@ -1,7 +1,6 @@
 ﻿#include "gui/models/ViewerSourceListModel.hpp"
 
 #include <QCoreApplication>
-#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -10,6 +9,7 @@
 #include <QStringList>
 #include <QVariantMap>
 
+#include "gui/models/BacktestSessionSummary.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
 
 namespace hftrec::gui {
@@ -61,18 +61,6 @@ struct RecordedIdentity {
     qint64 startedAtNs{0};
 };
 
-QString formatStartedAt(qint64 startedAtNs) {
-    if (startedAtNs < 1000000000000000ll) return {};
-    return QDateTime::fromMSecsSinceEpoch(startedAtNs / 1000000).toLocalTime().toString(QStringLiteral("dd.MM.yy hh:mm"));
-}
-
-QString buildSourceSummary(int bookTickerCount, int backtestCount, qint64 startedAtNs) {
-    QString summary = QStringLiteral("L1 %1 | BT %2").arg(bookTickerCount).arg(backtestCount);
-    const QString startedAt = formatStartedAt(startedAtNs);
-    if (!startedAt.isEmpty()) summary += QStringLiteral(" | %1").arg(startedAt);
-    return summary;
-}
-
 RecordedIdentity readRecordedIdentity(const QString& sessionPath) {
     RecordedIdentity out{};
     QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
@@ -89,23 +77,6 @@ RecordedIdentity readRecordedIdentity(const QString& sessionPath) {
     const auto bookTicker = channels.value(QStringLiteral("bookticker")).toObject();
     out.bookTickerCount = bookTicker.value(QStringLiteral("declared_event_count")).toInt();
     return out;
-}
-
-int countBacktestResults(const QString& sessionPath) {
-    const QDir backtestsDir(QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests")));
-    if (!backtestsDir.exists()) return 0;
-    int count = 0;
-    const QFileInfoList runDirs = backtestsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
-    for (const QFileInfo& runDir : runDirs) {
-        if (runDir.fileName() == QStringLiteral("sweeps")) continue;
-        if (QFileInfo::exists(QDir(runDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++count;
-    }
-    const QDir sweepsDir(backtestsDir.absoluteFilePath(QStringLiteral("sweeps")));
-    const QFileInfoList sweepDirs = sweepsDir.exists() ? sweepsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot) : QFileInfoList{};
-    for (const QFileInfo& sweepDir : sweepDirs) {
-        if (QFileInfo::exists(QDir(sweepDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json")))) ++count;
-    }
-    return count;
 }
 
 }  // namespace
@@ -291,7 +262,7 @@ void ViewerSourceListModel::rebuildEntries_() {
         entry.sessionPath = source.value(QStringLiteral("sessionPath")).toString();
         entry.liveAvailable = source.value(QStringLiteral("liveAvailable"), true).toBool();
         entry.bookTickerCount = source.value(QStringLiteral("bookTickerCount"), 0).toInt();
-        entry.sourceSummary = buildSourceSummary(entry.bookTickerCount, entry.backtestCount, source.value(QStringLiteral("startedAtNs"), 0).toLongLong());
+        entry.sourceSummary = sessionBacktestSummaryText(entry.bookTickerCount, {}, source.value(QStringLiteral("startedAtNs"), 0).toLongLong());
         entry.label = source.value(QStringLiteral("label")).toString();
         if (entry.label.isEmpty()) entry.label = buildLiveLabel(entry.exchange, entry.market, entry.symbol);
         if (!entry.id.isEmpty()) nextEntries.push_back(std::move(entry));
@@ -309,12 +280,13 @@ void ViewerSourceListModel::rebuildEntries_() {
             entry.groupTitle = QStringLiteral("Recorded");
             entry.sourceKind = QStringLiteral("recorded");
             entry.sessionPath = recordingsDir.absoluteFilePath(recordedId);
-            entry.backtestCount = countBacktestResults(entry.sessionPath);
+            const BacktestLegCounts backtestCounts = backtestLegCountsForSession(recordingsRoot(), recordedId);
+            entry.backtestCount = backtestCounts.firstLeg;
             const auto identity = readRecordedIdentity(entry.sessionPath);
             entry.exchange = identity.exchange;
             entry.market = identity.market;
             entry.bookTickerCount = identity.bookTickerCount;
-            entry.sourceSummary = buildSourceSummary(entry.bookTickerCount, entry.backtestCount, identity.startedAtNs);
+            entry.sourceSummary = sessionBacktestSummaryText(entry.bookTickerCount, backtestCounts, identity.startedAtNs);
             nextEntries.push_back(std::move(entry));
         }
     }

@@ -25,6 +25,10 @@ class BookTickerCompareItem : public QQuickPaintedItem {
     Q_INVOKABLE void updateMeasure(qreal x, qreal y);
     Q_INVOKABLE void endMeasure();
     Q_INVOKABLE void clearMeasure();
+    Q_INVOKABLE bool isPricePanelPoint(qreal x, qreal y) const;
+    Q_INVOKABLE bool isSpreadPanelPoint(qreal x, qreal y) const;
+    Q_INVOKABLE double priceAnchorFraction(qreal y) const;
+    Q_INVOKABLE double spreadAnchorFraction(qreal y) const;
 
   signals:
     void controllerChanged();

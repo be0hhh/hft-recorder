@@ -162,7 +162,7 @@ void renderFundingStrip(QPainter* painter, const RenderSnapshot& snap, const Hov
         }
     }
 
-    if (!fundingStripContextHit(snap, hover, y)) {
+    if (hover.fundingHit || !fundingStripContextHit(snap, hover, y)) {
         painter->restore();
         return;
     }

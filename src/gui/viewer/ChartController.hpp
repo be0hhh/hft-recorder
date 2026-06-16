@@ -303,6 +303,9 @@ class ChartController : public QObject {
     QString sessionDir_{};
     QString currentSourceId_{};
     QString currentSourceKind_{};
+    QString sourceExchange_{};
+    QString sourceMarket_{};
+    QString sourceSymbol_{};
     QString statusText_{"No session loaded"};
     bool loaded_{false};
     bool active_{false};

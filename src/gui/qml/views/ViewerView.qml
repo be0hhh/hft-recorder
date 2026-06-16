@@ -76,7 +76,6 @@ Pane {
         var seen = {}
         for (var i = 0; i < chart.backtestResults.length; ++i)
             root.appendBacktestRow(rows, seen, chart.backtestResults[i])
-        root.appendBacktestVmRows(rows, seen)
         root.backtestRows = rows
         root.syncBacktestComboIndex()
     }
@@ -86,32 +85,6 @@ Pane {
             return
         seen[row.path] = true
         rows.push(row)
-    }
-
-    function appendBacktestVmRows(rows, seen) {
-        var sourceId = root.singleSelectedSourceId()
-        var selectedSessionId = String(root.backtestVm.selectedSessionId || "").trim()
-        if (sourceId === "" || selectedSessionId === "" || sourceId !== "recorded:" + selectedSessionId)
-            return
-        var sessionPath = root.backtestPrimarySessionPath()
-        if (sessionPath === "")
-            return
-        var runs = root.backtestVm.runs || []
-        for (var i = 0; i < runs.length; ++i) {
-            var run = runs[i]
-            var path = String(run.filePath || "")
-            if (path === "" || seen[path])
-                continue
-            root.appendBacktestRow(rows, seen, {
-                "sessionPath": sessionPath,
-                "path": path,
-                "label": "A " + String(run.fileName || run.runId || run.label || path),
-                "pnlText": String(run.pnlText || ""),
-                "rightText": String(run.rightText || run.pnlText || ""),
-                "type": run.sweep ? "sweep.result.v1" : "run.result.v2",
-                "selectable": !run.sweep
-            })
-        }
     }
 
     function backtestPrimarySessionPath() {
@@ -125,6 +98,11 @@ Pane {
 
     function backtestSecondarySessionPath() {
         return root.compareMode ? sourcesModel.sessionPath(root.selectedCompareSourceB) : ""
+    }
+
+    function selectedBacktestCountHint() {
+        var sourceId = root.compareMode ? root.selectedCompareSourceA : root.singleSelectedSourceId()
+        return sourceId === "" ? 0 : sourcesModel.backtestCount(sourceId)
     }
 
     function refreshBacktestChoices() {
@@ -846,7 +824,7 @@ Pane {
                 ComboBox {
                     id: backtestCombo
                     Layout.preferredWidth: 220
-                    enabled: root.backtestRows.length > 1
+                    enabled: root.backtestRows.length > 1 || root.selectedBacktestCountHint() > 0
                     model: root.backtestRows
                     textRole: "label"
                     valueRole: "path"
@@ -1157,6 +1135,7 @@ Pane {
                 property real lastY: 0
                 property real pressX: 0
                 property bool dragActive: false
+                property string dragValuePanel: "none"
                 property bool measureActive: false
                 property bool measureStarted: false
                 property real pressY: 0
@@ -1166,6 +1145,7 @@ Pane {
                     pressX = mouse.x
                     pressY = mouse.y
                     dragActive = false
+                    dragValuePanel = compareSurface.isPricePanelPoint(mouse.x, mouse.y) ? "price" : (compareSurface.isSpreadPanelPoint(mouse.x, mouse.y) ? "spread" : "none")
                     measureStarted = false
                     measureActive = (mouse.button === Qt.MiddleButton) || ((mouse.button === Qt.LeftButton) && (mouse.modifiers & Qt.ShiftModifier))
                     if (mouse.button === Qt.RightButton) {
@@ -1173,9 +1153,12 @@ Pane {
                         mouse.accepted = true
                         return
                     }
+                    if (!measureActive) {
+                        interaction.plotDragging = true
+                        compareSurface.clearHover()
+                    }
                 }
                 onPositionChanged: function(mouse) {
-                    compareSurface.setHoverPoint(mouse.x, mouse.y)
                     if (measureActive) {
                         if (!measureStarted) {
                             if (Math.abs(mouse.x - pressX) < 3 && Math.abs(mouse.y - pressY) < 3)
@@ -1191,41 +1174,62 @@ Pane {
                         dragActive = true
                         var dy = mouse.y - lastY
                         lastY = mouse.y
-                        if (pressY < height * 0.67)
+                        if (dragValuePanel === "price")
                             compareChart.panPrice(dy / Math.max(1, height))
-                        else
+                        else if (dragValuePanel === "spread")
                             compareChart.panSpread(dy / Math.max(1, height))
                         return
                     }
-                    if (!(mouse.buttons & Qt.LeftButton)) return
-                    if (!dragActive && Math.abs(mouse.x - pressX) < 3) return
-                    dragActive = true
+                    if (!(mouse.buttons & Qt.LeftButton)) {
+                        compareSurface.setHoverPoint(mouse.x, mouse.y)
+                        return
+                    }
+                    if (!dragActive && Math.abs(mouse.x - pressX) + Math.abs(mouse.y - pressY) < 4) return
+                    if (!dragActive) {
+                        dragActive = true
+                        interaction.startInteractiveMode(interactiveModeTimer)
+                        compareSurface.clearHover()
+                    }
                     var dx = mouse.x - lastX
+                    var ldy = mouse.y - lastY
                     lastX = mouse.x
+                    lastY = mouse.y
                     compareChart.panTime(-dx / Math.max(1, width))
+                    if (dragValuePanel === "price")
+                        compareChart.panPrice(ldy / Math.max(1, height))
+                    else if (dragValuePanel === "spread")
+                        compareChart.panSpread(ldy / Math.max(1, height))
                 }
                 onReleased: function(mouse) {
                     if (measureActive && measureStarted)
                         compareSurface.endMeasure()
                     measureStarted = false
                     measureActive = false
+                    interaction.plotDragging = false
+                    if (dragActive) interaction.stopInteractiveModeSoon(interactiveModeTimer)
                     dragActive = false
+                    dragValuePanel = "none"
                 }
                 onCanceled: {
                     if (measureActive && measureStarted)
                         compareSurface.endMeasure()
                     measureStarted = false
                     measureActive = false
+                    interaction.plotDragging = false
+                    if (dragActive) interaction.stopInteractiveModeSoon(interactiveModeTimer)
                     dragActive = false
+                    dragValuePanel = "none"
                 }
                 onExited: compareSurface.clearHover()
                 onWheel: function(wheel) {
                     var factor = wheel.angleDelta.y > 0 ? 1.3 : (1.0 / 1.3)
                     if (wheel.modifiers & Qt.ControlModifier) {
-                        if (wheel.y < height * 0.67)
-                            compareChart.zoomPrice(factor)
+                        var overPricePanel = compareSurface.isPricePanelPoint(wheel.x, wheel.y)
+                        var overSpreadPanel = compareSurface.isSpreadPanelPoint(wheel.x, wheel.y)
+                        if (overPricePanel || (!overSpreadPanel && wheel.y < height * 0.67))
+                            compareChart.zoomPriceAt(factor, compareSurface.priceAnchorFraction(wheel.y))
                         else
-                            compareChart.zoomSpread(factor)
+                            compareChart.zoomSpreadAt(factor, compareSurface.spreadAnchorFraction(wheel.y))
                     } else {
                         compareChart.zoomTimeAt(factor, Math.max(0, Math.min(1, wheel.x / Math.max(1, width))))
                     }

@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStringList>
@@ -17,6 +18,7 @@
 
 #include "core/metrics/Metrics.hpp"
 #include "core/replay/CxetReplaySessionLoader.hpp"
+#include "gui/models/BacktestSessionSummary.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -56,6 +58,44 @@ bool hasRows(const LiveDataBatch& batch) noexcept {
 QString recordedSourceIdFromPath(const QString& dir) {
     const auto sessionName = QFileInfo(dir).fileName();
     return sessionName.isEmpty() ? QStringLiteral("recorded") : QStringLiteral("recorded:%1").arg(sessionName);
+}
+
+struct SourceIdentity {
+    QString exchange{};
+    QString market{};
+    QString symbol{};
+};
+
+QJsonObject readSessionManifestObject(const std::filesystem::path& sessionPath);
+
+SourceIdentity sourceIdentityFromManifest(const QJsonObject& manifest) {
+    SourceIdentity out{};
+    const QJsonObject identity = manifest.value(QStringLiteral("identity")).toObject();
+    out.exchange = identity.value(QStringLiteral("exchange")).toString();
+    out.market = identity.value(QStringLiteral("market")).toString();
+    const QJsonArray symbols = identity.value(QStringLiteral("symbols")).toArray();
+    if (!symbols.isEmpty()) out.symbol = symbols.at(0).toString();
+    if (out.exchange.isEmpty()) out.exchange = manifest.value(QStringLiteral("exchange")).toString();
+    if (out.market.isEmpty()) out.market = manifest.value(QStringLiteral("market")).toString();
+    if (out.symbol.isEmpty()) out.symbol = manifest.value(QStringLiteral("symbol")).toString();
+    return out;
+}
+
+SourceIdentity sourceIdentityFromSessionPath(const std::filesystem::path& path) {
+    return sourceIdentityFromManifest(readSessionManifestObject(path));
+}
+
+SourceIdentity sourceIdentityFromLiveRegistry(const QString& sourceId) {
+    const std::string id = sourceId.toStdString();
+    for (const auto& source : LiveDataRegistry::instance().snapshotSources()) {
+        if (source.viewerSourceId != id) continue;
+        return SourceIdentity{
+            QString::fromStdString(source.exchange),
+            QString::fromStdString(source.market),
+            QString::fromStdString(source.symbol),
+        };
+    }
+    return {};
 }
 
 std::filesystem::path existingPathOrEmpty(const std::filesystem::path& path) noexcept {
@@ -183,6 +223,8 @@ CachedManifestSummary readManifestSummary(const std::filesystem::path& manifestP
 void appendResultDirs(const QString& sessionPath,
                       QStringView prefix,
                       const std::filesystem::path& dir,
+                      const QString& primarySessionId,
+                      const QString& secondarySessionId,
                       QVariantList& rows) {
     std::error_code ec;
     if (!std::filesystem::exists(dir, ec) || ec || !std::filesystem::is_directory(dir, ec) || ec) return;
@@ -198,7 +240,9 @@ void appendResultDirs(const QString& sessionPath,
     std::sort(resultDirs.begin(), resultDirs.end());
 
     for (const auto& path : resultDirs) {
-        const CachedManifestSummary summary = readManifestSummary(path / "manifest.json");
+        const auto manifestPath = path / "manifest.json";
+        if (!hftrec::gui::backtestManifestMatchesLegs(QString::fromStdString(manifestPath.string()), primarySessionId, secondarySessionId)) continue;
+        const CachedManifestSummary summary = readManifestSummary(manifestPath);
         if (!summary.valid) continue;
         QVariantMap row;
         row.insert(QStringLiteral("sessionPath"), sessionPath);
@@ -212,11 +256,15 @@ void appendResultDirs(const QString& sessionPath,
     }
 }
 
-void appendBacktestResultRows(const QString& sessionPath, QStringView prefix, QVariantList& rows) {
+void appendBacktestResultRows(const QString& sessionPath,
+                              QStringView prefix,
+                              const QString& primarySessionId,
+                              const QString& secondarySessionId,
+                              QVariantList& rows) {
     if (sessionPath.trimmed().isEmpty()) return;
     const std::filesystem::path dir = std::filesystem::path(stripFileUrl(sessionPath)) / "backtests";
-    appendResultDirs(sessionPath, prefix, dir, rows);
-    appendResultDirs(sessionPath, prefix, dir / "sweeps", rows);
+    appendResultDirs(sessionPath, prefix, dir, primarySessionId, secondarySessionId, rows);
+    appendResultDirs(sessionPath, prefix, dir / "sweeps", primarySessionId, secondarySessionId, rows);
 }
 
 }  // namespace
@@ -249,8 +297,10 @@ void ChartController::clearStrategyOverlay_() noexcept {
 
 void ChartController::refreshBacktestResults(const QString& primarySessionPath, const QString& secondarySessionPath) {
     QVariantList rows;
-    appendBacktestResultRows(primarySessionPath, QStringLiteral("A"), rows);
-    appendBacktestResultRows(secondarySessionPath, QStringLiteral("B"), rows);
+    const QString primarySessionId = hftrec::gui::sessionIdFromSessionPathText(primarySessionPath);
+    const QString secondarySessionId = hftrec::gui::sessionIdFromSessionPathText(secondarySessionPath);
+    appendBacktestResultRows(primarySessionPath, QStringLiteral("A"), primarySessionId, secondarySessionId, rows);
+    appendBacktestResultRows(secondarySessionPath, QStringLiteral("B"), primarySessionId, secondarySessionId, rows);
 
     QVariantList deduped;
     QStringList seen;
@@ -536,6 +586,14 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
     sessionDir_ = sessionPath;
     currentSourceId_ = normalizedSourceId;
     currentSourceKind_ = QStringLiteral("live");
+    SourceIdentity identity = sourceIdentityFromLiveRegistry(normalizedSourceId);
+    const auto path = std::filesystem::path(stripFileUrl(sessionPath));
+    if (identity.exchange.isEmpty() && !sessionPath.trimmed().isEmpty()) {
+        identity = sourceIdentityFromSessionPath(path);
+    }
+    sourceExchange_ = identity.exchange;
+    sourceMarket_ = identity.market;
+    sourceSymbol_ = identity.symbol;
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
     selectionActive_ = false;
@@ -545,7 +603,6 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
         emit markersChanged();
     }
 
-    const auto path = std::filesystem::path(stripFileUrl(sessionPath));
     if (!sessionPath.trimmed().isEmpty()) {
         const auto st = replay_.open(path);
         if (isOk(st)) {
@@ -573,6 +630,9 @@ void ChartController::activateLiveOnlyMode() {
     currentSourceId_.clear();
     liveProviderSourceId_.clear();
     currentSourceKind_ = QStringLiteral("live");
+    sourceExchange_.clear();
+    sourceMarket_.clear();
+    sourceSymbol_.clear();
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
     selectionActive_ = false;
@@ -597,6 +657,9 @@ void ChartController::resetSession() {
     currentSourceId_.clear();
     liveProviderSourceId_.clear();
     currentSourceKind_.clear();
+    sourceExchange_.clear();
+    sourceMarket_.clear();
+    sourceSymbol_.clear();
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
     selectionActive_ = false;
@@ -779,6 +842,10 @@ bool ChartController::loadSessionForLayers(const QString& dir,
 
     const auto path = std::filesystem::path(stripFileUrl(dir));
     const QJsonObject manifest = readSessionManifestObject(path);
+    const SourceIdentity identity = sourceIdentityFromManifest(manifest);
+    sourceExchange_ = identity.exchange;
+    sourceMarket_ = identity.market;
+    sourceSymbol_ = identity.symbol;
     Status st = Status::Ok;
     bool loadedAnyChannel = false;
 
@@ -944,6 +1011,10 @@ bool ChartController::loadSession(const QString& dir) {
     }
 
     const auto path = std::filesystem::path(stripFileUrl(dir));
+    const SourceIdentity identity = sourceIdentityFromSessionPath(path);
+    sourceExchange_ = identity.exchange;
+    sourceMarket_ = identity.market;
+    sourceSymbol_ = identity.symbol;
     std::string cxetReplayError;
     const hftrec::replay::CxetReplaySessionLoader cxetLoader{};
     const auto st = cxetLoader.loadRenderOnce(path, replay_, cxetReplayError);

@@ -98,6 +98,16 @@ double clampPan(double pan, double zoom) noexcept {
     return std::clamp(pan, -limit, limit);
 }
 
+void zoomAt(double factor, double anchorFraction, double& zoom, double& pan) noexcept {
+    if (factor <= 0.0) return;
+    anchorFraction = std::clamp(anchorFraction, 0.0, 1.0);
+    const double prevZoom = clampZoom(zoom);
+    const double nextZoom = clampZoom(prevZoom * factor);
+    pan += (anchorFraction - 0.5) * ((1.0 / prevZoom) - (1.0 / nextZoom));
+    zoom = nextZoom;
+    pan = clampPan(pan, zoom);
+}
+
 }  // namespace
 
 BookTickerCompareController::BookTickerCompareController(QObject* parent)
@@ -304,6 +314,18 @@ void BookTickerCompareController::zoomPrice(double factor) {
 void BookTickerCompareController::zoomSpread(double factor) {
     spreadZoom_ = clampZoom(spreadZoom_ * factor);
     spreadPan_ = clampPan(spreadPan_, spreadZoom_);
+    emit viewportChanged();
+    emit dataChanged();
+}
+
+void BookTickerCompareController::zoomPriceAt(double factor, double anchorFraction) {
+    zoomAt(factor, anchorFraction, priceZoom_, pricePan_);
+    emit viewportChanged();
+    emit dataChanged();
+}
+
+void BookTickerCompareController::zoomSpreadAt(double factor, double anchorFraction) {
+    zoomAt(factor, anchorFraction, spreadZoom_, spreadPan_);
     emit viewportChanged();
     emit dataChanged();
 }

@@ -108,6 +108,67 @@ const BookTickerSample* nearestBookTickerSample(const RenderSnapshot& snap, qrea
     return bestDistancePx <= 6.0 ? best : nullptr;
 }
 
+qreal fundingStripY(const RenderSnapshot& snap) noexcept {
+    if (snap.vp.h <= 36.0) return std::max<qreal>(8.0, snap.vp.h * 0.5);
+    return std::clamp<qreal>(snap.vp.h - 18.0, 18.0, snap.vp.h - 8.0);
+}
+
+void computeFundingHover(const RenderSnapshot& snap, const QPointF& point, HoverInfo& out) {
+    if (!snap.fundingVisible || snap.fundings.empty()) return;
+    constexpr qreal kStripHitPx = 12.0;
+    constexpr qreal kMarkerHitPx = 8.0;
+    constexpr qreal kAxisReserveRight = 88.0;
+    const qreal stripLeft = 8.0;
+    const qreal stripRight = std::max<qreal>(stripLeft, snap.vp.w - kAxisReserveRight);
+    const qreal y = fundingStripY(snap);
+    if (point.x() < stripLeft - kStripHitPx || point.x() > stripRight + kStripHitPx) return;
+    if (std::abs(point.y() - y) > kStripHitPx) return;
+
+    const std::int64_t targetTs = timestampAtX(snap.vp, point.x());
+    const auto& rows = snap.fundings;
+    const auto it = std::lower_bound(
+        rows.begin(),
+        rows.end(),
+        targetTs,
+        [](const hftrec::replay::FundingRow& row, std::int64_t target) noexcept {
+            return row.tsNs < target;
+        });
+
+    const hftrec::replay::FundingRow* best = nullptr;
+    std::size_t bestIndex = 0;
+    qreal bestDistancePx = kMarkerHitPx;
+    auto consider = [&](const hftrec::replay::FundingRow* row, std::size_t index) {
+        if (row == nullptr || row->tsNs < snap.vp.tMin || row->tsNs > snap.vp.tMax) return;
+        const qreal x = snap.vp.toX(row->tsNs);
+        if (x < stripLeft || x > stripRight) return;
+        const qreal distancePx = std::abs(x - point.x());
+        if (distancePx <= bestDistancePx) {
+            bestDistancePx = distancePx;
+            best = row;
+            bestIndex = index;
+        }
+    };
+    if (it != rows.end()) consider(&*it, static_cast<std::size_t>(it - rows.begin()));
+    if (it != rows.begin()) {
+        const auto prev = std::prev(it);
+        consider(&*prev, static_cast<std::size_t>(prev - rows.begin()));
+    }
+    if (best == nullptr) return;
+
+    out.fundingHit = true;
+    out.fundingEventTsNs = best->tsNs;
+    out.fundingRateE8 = best->fundingRateE8;
+    out.fundingTsNs = best->fundingTsNs;
+    out.nextFundingTsNs = best->nextFundingTsNs;
+    if (best->fundingTsNs > 0 && best->nextFundingTsNs > best->fundingTsNs) {
+        out.fundingCadenceNs = best->nextFundingTsNs - best->fundingTsNs;
+    } else if (bestIndex > 0u && best->tsNs > rows[bestIndex - 1u].tsNs) {
+        out.fundingCadenceNs = best->tsNs - rows[bestIndex - 1u].tsNs;
+    } else if ((bestIndex + 1u) < rows.size() && rows[bestIndex + 1u].tsNs > best->tsNs) {
+        out.fundingCadenceNs = rows[bestIndex + 1u].tsNs - best->tsNs;
+    }
+}
+
 }  // namespace
 
 void computeHover(const RenderSnapshot& snap,
@@ -128,6 +189,8 @@ void computeHover(const RenderSnapshot& snap,
         out.active = false;
         return;
     }
+
+    if (contextActive) computeFundingHover(snap, point, out);
 
     if (snap.bookTickerVisible) {
         if (const auto* sample = nearestBookTickerSample(snap, point.x()); sample != nullptr) {

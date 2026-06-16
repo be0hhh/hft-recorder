@@ -42,6 +42,18 @@ struct StrategyRangePoint {
     std::int64_t highE8{0};
 };
 
+struct StrategySpreadPoint {
+    std::int64_t tsNs{0};
+    std::int64_t spreadBpsE8{0};
+    std::int64_t emaBpsE8{0};
+    std::int64_t deviationBpsE8{0};
+    std::int64_t costBandBpsE8{0};
+    std::int64_t edgeAfterCostBpsE8{0};
+    std::uint8_t direction{0};
+    std::uint8_t decisionKind{0};
+    std::uint8_t reasonRaw{0};
+};
+
 struct StrategyOverlayData {
     QString runId{};
     QString strategy{};
@@ -49,8 +61,9 @@ struct StrategyOverlayData {
     std::vector<StrategyOrderSegment> orderSegments{};
     std::vector<StrategyFillMarker> fillMarkers{};
     std::vector<StrategyRangePoint> rangePoints{};
+    std::vector<StrategySpreadPoint> spreadPoints{};
 
-    bool empty() const noexcept { return orderSegments.empty() && fillMarkers.empty() && rangePoints.empty(); }
+    bool empty() const noexcept { return orderSegments.empty() && fillMarkers.empty() && rangePoints.empty() && spreadPoints.empty(); }
 };
 
 bool loadStrategyOverlayFromResult(const std::filesystem::path& path,

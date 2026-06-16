@@ -6,6 +6,7 @@ endif()
 qt_add_executable(hft-recorder-gui
     app/main.cpp
     ../app/metrics_bootstrap.cpp
+    models/BacktestSessionSummary.cpp
     models/SessionListModel.cpp
     models/ViewerSourceListModel.cpp
     viewmodels/AppViewModel.cpp
