@@ -35,7 +35,7 @@ QString makeRunDir(const QString& session, const QString& runId, const QByteArra
     QDir().mkpath(dir);
     writeFile(QDir(dir).absoluteFilePath(QStringLiteral("manifest.json")), manifest);
     writeFile(QDir(dir).absoluteFilePath(QStringLiteral("equity.jsonl")), equity);
-    writeFile(QDir(dir).absoluteFilePath(QStringLiteral("orders.jsonl")), QByteArray{});
+    writeFile(QDir(dir).absoluteFilePath(QStringLiteral("order_lifetimes.jsonl")), QByteArray{});
     writeFile(QDir(dir).absoluteFilePath(QStringLiteral("fills.jsonl")), QByteArray{});
     return dir;
 }

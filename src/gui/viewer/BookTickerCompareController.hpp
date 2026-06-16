@@ -33,6 +33,8 @@ class BookTickerCompareController : public QObject {
     Q_PROPERTY(double meanWindowSeconds READ meanWindowSeconds WRITE setMeanWindowSeconds NOTIFY meanChanged)
     Q_PROPERTY(qint64 tsMin READ tsMin NOTIFY viewportChanged)
     Q_PROPERTY(qint64 tsMax READ tsMax NOTIFY viewportChanged)
+    Q_PROPERTY(double priceZoom READ priceZoom NOTIFY viewportChanged)
+    Q_PROPERTY(double spreadZoom READ spreadZoom NOTIFY viewportChanged)
 
   public:
     explicit BookTickerCompareController(QObject* parent = nullptr);
@@ -52,9 +54,15 @@ class BookTickerCompareController : public QObject {
     qint64 tsMin() const noexcept { return tsMin_; }
     qint64 tsMax() const noexcept { return tsMax_; }
     qint64 currentTs() const noexcept { return fullTsMax_; }
+    double priceZoom() const noexcept { return priceZoom_; }
+    double pricePan() const noexcept { return pricePan_; }
+    double spreadZoom() const noexcept { return spreadZoom_; }
+    double spreadPan() const noexcept { return spreadPan_; }
 
     const std::vector<hftrec::replay::BookTickerRow>& primaryRows() const noexcept { return primaryRows_; }
     const std::vector<hftrec::replay::BookTickerRow>& secondaryRows() const noexcept { return secondaryRows_; }
+    const std::vector<hftrec::replay::FundingRow>& primaryFundingRows() const noexcept { return primaryFundingRows_; }
+    const std::vector<hftrec::replay::FundingRow>& secondaryFundingRows() const noexcept { return secondaryFundingRows_; }
     const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreadPoints() const noexcept { return spreadPoints_; }
     const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& meanPoints() const noexcept { return meanPoints_; }
     const StrategyOverlayData& strategyOverlay() const noexcept { return strategyOverlay_; }
@@ -73,6 +81,11 @@ class BookTickerCompareController : public QObject {
     Q_INVOKABLE void panTime(double fraction);
     Q_INVOKABLE void zoomTime(double factor);
     Q_INVOKABLE void zoomTimeAt(double factor, double anchorFraction);
+    Q_INVOKABLE void panPrice(double fraction);
+    Q_INVOKABLE void panSpread(double fraction);
+    Q_INVOKABLE void zoomPrice(double factor);
+    Q_INVOKABLE void zoomSpread(double factor);
+    Q_INVOKABLE void resetValueScale();
 
   signals:
     void sourcesChanged();
@@ -90,6 +103,7 @@ class BookTickerCompareController : public QObject {
         std::unique_ptr<ILiveDataProvider> liveProvider{};
         std::uint64_t nextBatchId{1};
         std::vector<hftrec::replay::BookTickerRow> rows{};
+        std::vector<hftrec::replay::FundingRow> fundings{};
     };
 
     bool setSource_(SourceState& state, const QString& sourceId, const QString& sourceKind, const QString& sessionPath);
@@ -99,6 +113,7 @@ class BookTickerCompareController : public QObject {
     void updateFullRange_() noexcept;
     void initializeViewportIfNeeded_() noexcept;
     void setStatus_(const QString& statusText);
+    void resetValueScale_() noexcept;
 
     SourceState primary_{};
     SourceState secondary_{};
@@ -107,6 +122,8 @@ class BookTickerCompareController : public QObject {
     QString statusText_{QStringLiteral("Select two bookTicker sessions")};
     std::vector<hftrec::replay::BookTickerRow> primaryRows_{};
     std::vector<hftrec::replay::BookTickerRow> secondaryRows_{};
+    std::vector<hftrec::replay::FundingRow> primaryFundingRows_{};
+    std::vector<hftrec::replay::FundingRow> secondaryFundingRows_{};
     std::vector<hftrec::arbitrage::BookTickerSpreadPoint> spreadPoints_{};
     std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint> meanPoints_{};
     QString selectedBacktestResult_{};
@@ -118,6 +135,10 @@ class BookTickerCompareController : public QObject {
     qint64 fullTsMax_{1};
     qint64 tsMin_{0};
     qint64 tsMax_{1};
+    double priceZoom_{1.0};
+    double pricePan_{0.0};
+    double spreadZoom_{1.0};
+    double spreadPan_{0.0};
     bool viewportInitialized_{false};
     bool userViewportControl_{false};
     QTimer liveTimer_{};

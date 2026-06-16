@@ -30,12 +30,23 @@ void writeFile(const fs::path& path, const std::string& data) {
 
 fs::path makeRunResult(const fs::path& parent,
                        const std::string& runId,
-                       const std::string& ordersJsonl,
+                       const std::string& lifetimesJsonl,
                        const std::string& fillsJsonl) {
     const fs::path resultPath = parent / runId;
     fs::create_directories(resultPath);
     writeFile(resultPath / "manifest.json", std::string{"{\"type\":\"run.result.v2\",\"run_id\":\""} + runId + "\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
-    writeFile(resultPath / "orders.jsonl", ordersJsonl);
+    writeFile(resultPath / "order_lifetimes.jsonl", lifetimesJsonl);
+    writeFile(resultPath / "fills.jsonl", fillsJsonl);
+    writeFile(resultPath / "equity.jsonl", "");
+    return resultPath;
+}
+
+fs::path makeRunResultWithoutLifetimes(const fs::path& parent,
+                                       const std::string& runId,
+                                       const std::string& fillsJsonl) {
+    const fs::path resultPath = parent / runId;
+    fs::create_directories(resultPath);
+    writeFile(resultPath / "manifest.json", std::string{"{\"type\":\"run.result.v2\",\"run_id\":\""} + runId + "\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
     writeFile(resultPath / "fills.jsonl", fillsJsonl);
     writeFile(resultPath / "equity.jsonl", "");
     return resultPath;
@@ -58,8 +69,8 @@ TEST(StrategyOverlay, AcceptsRunManifestWithUint64LatencySeed) {
               "  \"summary\": {},\n"
               "  \"errors\": []\n"
               "}\n");
-    writeFile(resultPath / "orders.jsonl",
-              "[1,0,900,1000,1000,1,1,1,3,9900000000,100000000,0]\n");
+    writeFile(resultPath / "order_lifetimes.jsonl",
+              "[1000,1100,9900000000,100000000,1,0]\n");
     writeFile(resultPath / "fills.jsonl",
               "[1,1000,1100,1,9900000000,100000000,0,0]\n");
 
@@ -78,13 +89,10 @@ TEST(StrategyOverlay, AcceptsRunManifestWithUint64LatencySeed) {
 TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     const auto dir = makeTmpDir();
     const auto resultPath = makeRunResult(dir, "run-a",
-        "[1,0,900,1000,1000,1,1,1,2,9900000000,100000000,0]\n"
-        "[2,1,1900,2000,2000,3,0,0,2,0,0,0]\n"
-        "[3,0,2900,3000,3000,1,0,1,3,10500000000,200000000,0]\n"
-        "[4,0,3900,4000,4000,1,1,2,3,0,300000000,0]\n"
-        "[5,0,4900,5000,5000,1,0,1,2,11000000000,100000000,0]\n"
-        "[7,5,5900,6000,6000,3,0,0,2,0,0,0]\n"
-        "[7,5,5900,6000,6000,1,0,1,3,11200000000,100000000,0]\n",
+        "[1000,2000,9900000000,100000000,1,0,0]\n"
+        "[3000,3500,10500000000,200000000,0,0,0]\n"
+        "[5000,6000,11000000000,100000000,0,0,0]\n"
+        "[6000,6500,11200000000,100000000,0,0,0]\n",
         "[3,3000,3500,0,10500000000,200000000,0,0]\n"
         "[4,4000,4100,1,10100000000,300000000,0,1]\n"
         "[7,6000,6500,0,11200000000,100000000,0,0]\n");
@@ -126,7 +134,7 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_EQ(overlay.fillMarkers[1].tsNs, 4100);
     EXPECT_EQ(overlay.fillMarkers[1].priceE8, e8(101));
     EXPECT_TRUE(overlay.fillMarkers[1].sideBuy);
-    EXPECT_TRUE(overlay.fillMarkers[1].marketOrder);
+    EXPECT_FALSE(overlay.fillMarkers[1].marketOrder);
     EXPECT_EQ(overlay.fillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
 
     EXPECT_EQ(overlay.fillMarkers[2].tsNs, 6500);
@@ -167,7 +175,7 @@ TEST(StrategyOverlay, LoadsStrategyRangeRows) {
 TEST(StrategyOverlay, AcceptsBacktestRowsWithTrailingLegIndex) {
     const auto dir = makeTmpDir();
     const auto resultPath = makeRunResult(dir, "run-leg-index",
-        "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0,1]\n",
+        "[1000,1100,9900000000,100000000,1,0,1]\n",
         "[10,1000,1100,1,9900000000,100000000,0,0,1]\n");
 
     hftrec::gui::viewer::StrategyOverlayData overlay;
@@ -189,7 +197,7 @@ TEST(StrategyOverlay, AcceptsBacktestRowsWithTrailingLegIndex) {
 TEST(StrategyOverlay, DefaultsMissingTrailingLegIndexToPrimaryLeg) {
     const auto dir = makeTmpDir();
     const auto resultPath = makeRunResult(dir, "run-legacy-leg-index",
-        "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0]\n",
+        "[1000,1100,9900000000,100000000,1,0]\n",
         "[10,1000,1100,1,9900000000,100000000,0,0]\n");
 
     hftrec::gui::viewer::StrategyOverlayData overlay;
@@ -205,10 +213,10 @@ TEST(StrategyOverlay, DefaultsMissingTrailingLegIndexToPrimaryLeg) {
     fs::remove_all(dir, ec);
 }
 
-TEST(StrategyOverlay, DoesNotStretchInstantFilledLimitToRunEnd) {
+TEST(StrategyOverlay, IgnoresInvalidZeroLengthLifetimes) {
     const auto dir = makeTmpDir();
-    const auto resultPath = makeRunResult(dir, "run-instant-fill",
-        "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0]\n",
+    const auto resultPath = makeRunResult(dir, "run-zero-length",
+        "[1000,1000,9900000000,100000000,1,0]\n",
         "[10,1000,1000,1,9900000000,100000000,0,0]\n");
 
     hftrec::gui::viewer::StrategyOverlayData overlay;
@@ -225,46 +233,62 @@ TEST(StrategyOverlay, DoesNotStretchInstantFilledLimitToRunEnd) {
     fs::remove_all(dir, ec);
 }
 
-TEST(StrategyOverlay, DoesNotTreatFilledLimitWithoutFillRowAsOpenEnded) {
+TEST(StrategyOverlay, LoadsFillsWhenOrderLifetimesAreMissing) {
     const auto dir = makeTmpDir();
-    const auto resultPath = makeRunResult(dir, "run-filled-without-fill",
-        "[20,0,900,1000,1000,1,0,1,3,10500000000,200000000,0]\n",
-        "");
+    const auto resultPath = makeRunResultWithoutLifetimes(dir, "run-fills-only",
+        "[10,1000,1100,1,9900000000,100000000,0,0]\n");
 
     hftrec::gui::viewer::StrategyOverlayData overlay;
     std::string error;
     ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
 
     EXPECT_TRUE(overlay.orderSegments.empty());
-    EXPECT_TRUE(overlay.fillMarkers.empty());
+    ASSERT_EQ(overlay.fillMarkers.size(), 1u);
+    EXPECT_EQ(overlay.fillMarkers[0].tsNs, 1100);
+    EXPECT_EQ(overlay.fillMarkers[0].priceE8, e8(99));
 
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
 
-TEST(StrategyOverlay, DoesNotTreatCancelledLimitWithoutEndAsOpenEnded) {
+TEST(StrategyOverlay, MaterializesLegacyOrdersWhenLifetimesAreMissing) {
     const auto dir = makeTmpDir();
-    const auto resultPath = makeRunResult(dir, "run-cancelled-without-end",
-        "[21,0,900,1000,1000,1,0,1,4,10500000000,200000000,0]\n",
-        "");
+    const fs::path resultPath = dir / "run-legacy-orders";
+    fs::create_directories(resultPath);
+    writeFile(resultPath / "manifest.json",
+              "{\"type\":\"run.result.v2\",\"run_id\":\"run-legacy-orders\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
+    writeFile(resultPath / "orders.jsonl",
+              "[10,0,900,1000,1000,1,1,1,2,9900000000,100000000,0,0]\n"
+              "[11,10,1900,2000,2000,3,0,0,2,0,0,0,0]\n"
+              "[12,0,2900,3000,3000,1,0,1,3,10500000000,200000000,0,1]\n");
+    writeFile(resultPath / "fills.jsonl",
+              "[12,3000,3500,0,10500000000,200000000,0,0,1]\n");
+    writeFile(resultPath / "equity.jsonl", "");
 
     hftrec::gui::viewer::StrategyOverlayData overlay;
     std::string error;
     ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
 
-    EXPECT_TRUE(overlay.orderSegments.empty());
-    EXPECT_TRUE(overlay.fillMarkers.empty());
+    ASSERT_EQ(overlay.orderSegments.size(), 2u);
+    EXPECT_EQ(overlay.orderSegments[0].tsStartNs, 1000);
+    EXPECT_EQ(overlay.orderSegments[0].tsEndNs, 2000);
+    EXPECT_EQ(overlay.orderSegments[0].priceE8, e8(99));
+    EXPECT_TRUE(overlay.orderSegments[0].sideBuy);
+    EXPECT_EQ(overlay.orderSegments[1].tsStartNs, 3000);
+    EXPECT_EQ(overlay.orderSegments[1].tsEndNs, 3500);
+    EXPECT_EQ(overlay.orderSegments[1].priceE8, e8(105));
+    EXPECT_EQ(overlay.orderSegments[1].legIndex, 1u);
+    ASSERT_EQ(overlay.fillMarkers.size(), 1u);
+    EXPECT_EQ(overlay.fillMarkers[0].legIndex, 1u);
 
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
 
-TEST(StrategyOverlay, DoesNotStretchSameTimestampReplaceToRunEnd) {
+TEST(StrategyOverlay, AcceptsOpenEndedLifetimeFlag) {
     const auto dir = makeTmpDir();
-    const auto resultPath = makeRunResult(dir, "run-same-timestamp-replace",
-        "[30,0,900,1000,1000,1,0,1,2,10500000000,200000000,0]\n"
-        "[31,30,950,1000,1000,3,0,0,2,0,0,0]\n"
-        "[31,30,950,1000,1000,1,0,1,2,10600000000,200000000,0]\n",
+    const auto resultPath = makeRunResult(dir, "run-open-ended",
+        "[1000,9000,10500000000,200000000,0,1]\n",
         "");
 
     hftrec::gui::viewer::StrategyOverlayData overlay;
@@ -273,8 +297,30 @@ TEST(StrategyOverlay, DoesNotStretchSameTimestampReplaceToRunEnd) {
 
     ASSERT_EQ(overlay.orderSegments.size(), 1u);
     EXPECT_EQ(overlay.orderSegments[0].tsStartNs, 1000);
-    EXPECT_EQ(overlay.orderSegments[0].priceE8, e8(106));
+    EXPECT_EQ(overlay.orderSegments[0].tsEndNs, 9000);
     EXPECT_TRUE(overlay.orderSegments[0].openEnded);
+    EXPECT_TRUE(overlay.fillMarkers.empty());
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(StrategyOverlay, SortsOrderLifetimesByStartTimestamp) {
+    const auto dir = makeTmpDir();
+    const auto resultPath = makeRunResult(dir, "run-sorted",
+        "[3000,4000,10600000000,200000000,0,0]\n"
+        "[1000,2000,10500000000,200000000,0,0]\n",
+        "");
+
+    hftrec::gui::viewer::StrategyOverlayData overlay;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
+
+    ASSERT_EQ(overlay.orderSegments.size(), 2u);
+    EXPECT_EQ(overlay.orderSegments[0].tsStartNs, 1000);
+    EXPECT_EQ(overlay.orderSegments[0].priceE8, e8(105));
+    EXPECT_EQ(overlay.orderSegments[1].tsStartNs, 3000);
+    EXPECT_EQ(overlay.orderSegments[1].priceE8, e8(106));
 
     std::error_code ec;
     fs::remove_all(dir, ec);

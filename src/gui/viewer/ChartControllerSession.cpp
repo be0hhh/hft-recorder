@@ -140,12 +140,10 @@ CachedManifestSummary readManifestSummary(const std::filesystem::path& manifestP
 
     QFile file(QString::fromStdString(manifestPath.string()));
     if (!file.open(QIODevice::ReadOnly)) {
-        cache[key] = summary;
         return summary;
     }
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     if (!doc.isObject()) {
-        cache[key] = summary;
         return summary;
     }
 
@@ -156,7 +154,6 @@ CachedManifestSummary readManifestSummary(const std::filesystem::path& manifestP
     summary.selectable = type == QStringLiteral("run.result.v2");
     if (type == QStringLiteral("sweep.result.v1")) summary.rightText = QStringLiteral("sweep");
     if (!summary.valid) {
-        cache[key] = summary;
         return summary;
     }
 

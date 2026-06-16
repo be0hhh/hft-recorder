@@ -40,7 +40,7 @@ std::string renderManifestJson(const BacktestRunResult& result) {
     out << "  \"strategy\": " << json::quote(result.strategy) << ",\n";
     out << "  \"session_path\": " << json::quote(result.sessionPath.generic_string()) << ",\n";
     out << "  \"streams\": {\n";
-    out << "    \"orders\": {\"path\": \"orders.jsonl\", \"rows\": 0},\n";
+    out << "    \"order_lifetimes\": {\"path\": \"order_lifetimes.jsonl\", \"rows\": 0},\n";
     out << "    \"fills\": {\"path\": \"fills.jsonl\", \"rows\": 0},\n";
     out << "    \"equity\": {\"path\": \"equity.jsonl\", \"rows\": 0}\n";
     out << "  },\n";
@@ -75,7 +75,7 @@ Status writeResult(BacktestRunResult& result) noexcept {
         return Status::IoError;
     }
 
-    static constexpr const char* kStreamFiles[] = {"orders.jsonl", "fills.jsonl", "equity.jsonl"};
+    static constexpr const char* kStreamFiles[] = {"order_lifetimes.jsonl", "fills.jsonl", "equity.jsonl"};
     for (const char* name : kStreamFiles) {
         std::ofstream stream(result.resultPath / name, std::ios::out | std::ios::trunc);
         if (!stream.is_open() || !stream.good()) {

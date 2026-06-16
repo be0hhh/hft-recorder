@@ -4,22 +4,20 @@
 #include <fstream>
 #include <sstream>
 #include <string_view>
+#include <unordered_map>
 
 #include "core/common/MiniJsonParser.hpp"
 
 namespace hftrec::gui::viewer {
 namespace {
 
-struct OrderRow {
-    std::uint64_t id{0};
-    std::uint64_t targetId{0};
-    std::int64_t activeTsNs{0};
-    std::uint8_t action{0};
-    std::uint8_t side{0};
-    std::uint8_t type{0};
-    std::uint8_t status{0};
+struct OrderLifetimeRow {
+    std::int64_t tsStartNs{0};
+    std::int64_t tsEndNs{0};
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
+    std::uint8_t side{0};
+    bool openEnded{false};
     std::uint32_t legIndex{0};
 };
 
@@ -30,6 +28,19 @@ struct FillRow {
     std::int64_t priceE8{0};
     std::int64_t qtyE8{0};
     bool reduceOnly{false};
+    std::uint32_t legIndex{0};
+};
+
+struct LegacyOrderRow {
+    std::uint64_t id{0};
+    std::uint64_t targetId{0};
+    std::int64_t activeTsNs{0};
+    std::uint8_t action{0};
+    std::uint8_t side{0};
+    std::uint8_t type{0};
+    std::uint8_t status{0};
+    std::int64_t priceE8{0};
+    std::int64_t qtyE8{0};
     std::uint32_t legIndex{0};
 };
 
@@ -44,7 +55,8 @@ struct ParsedResult {
     std::string runId{};
     std::string strategy{};
     std::string sessionPath{};
-    std::vector<OrderRow> orders{};
+    std::vector<OrderLifetimeRow> lifetimes{};
+    std::vector<LegacyOrderRow> legacyOrders{};
     std::vector<FillRow> fills{};
     std::vector<RangeRow> ranges{};
 };
@@ -109,13 +121,26 @@ bool parseOptionalLegIndexAndTrailingFields(hftrec::json::MiniJsonParser& parser
     return skipOptionalTrailingFields(parser);
 }
 
-bool parseOrderLine(std::string_view line, OrderRow& out) noexcept {
-    out = OrderRow{};
+bool parseOrderLifetimeLine(std::string_view line, OrderLifetimeRow& out) noexcept {
+    out = OrderLifetimeRow{};
     hftrec::json::MiniJsonParser parser{line};
     if (!parser.parseArrayStart()) return false;
+    if (!parser.parseInt64(out.tsStartNs) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.tsEndNs) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.priceE8) || !parser.parseComma()) return false;
+    if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
+    if (!parseByte(parser, out.side) || !parser.parseComma()) return false;
+    if (!parseBoolByte(parser, out.openEnded)) return false;
+    return parseOptionalLegIndexAndTrailingFields(parser, out.legIndex);
+}
+
+bool parseLegacyOrderLine(std::string_view line, LegacyOrderRow& out) noexcept {
+    out = LegacyOrderRow{};
+    hftrec::json::MiniJsonParser parser{line};
+    if (!parser.parseArrayStart()) return false;
+    std::int64_t ignored = 0;
     if (!parser.parseUInt64(out.id) || !parser.parseComma()) return false;
     if (!parser.parseUInt64(out.targetId) || !parser.parseComma()) return false;
-    std::int64_t ignored = 0;
     if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
     if (!parser.parseInt64(out.activeTsNs) || !parser.parseComma()) return false;
     if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
@@ -125,8 +150,7 @@ bool parseOrderLine(std::string_view line, OrderRow& out) noexcept {
     if (!parseByte(parser, out.status) || !parser.parseComma()) return false;
     if (!parser.parseInt64(out.priceE8) || !parser.parseComma()) return false;
     if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
-    bool ignoredBool = false;
-    if (!parseBoolByte(parser, ignoredBool)) return false;
+    if (!parser.parseInt64(ignored)) return false;
     return parseOptionalLegIndexAndTrailingFields(parser, out.legIndex);
 }
 
@@ -184,56 +208,96 @@ bool sideBuy(std::uint8_t side) noexcept {
     return side == 1u;
 }
 
-bool isLiveCommand(std::uint8_t action) noexcept {
-    return action == 1u || action == 2u;
-}
-
-bool isMarketType(std::uint8_t type) noexcept {
-    return type == 2u;
-}
-
-bool isLimitType(std::uint8_t type) noexcept {
-    return type == 1u;
-}
-
-bool isEffectiveCommandStatus(std::uint8_t status) noexcept {
+bool legacyStatusEffective(std::uint8_t status) noexcept {
     return status == 2u || status == 3u || status == 4u;
 }
 
-bool isOpenCommandStatus(std::uint8_t status) noexcept {
+bool legacyStatusOpen(std::uint8_t status) noexcept {
     return status == 2u;
 }
 
-const FillRow* findFill(const std::vector<FillRow>& fills, std::uint64_t orderId) noexcept {
-    const FillRow* best = nullptr;
+std::vector<OrderLifetimeRow> materializeLegacyLifetimes(const std::vector<LegacyOrderRow>& orders,
+                                                         const std::vector<FillRow>& fills,
+                                                         std::int64_t fallbackRunEndNs) {
+    std::unordered_map<std::uint64_t, const FillRow*> fillByOrderId;
+    fillByOrderId.reserve(fills.size());
     for (const FillRow& fill : fills) {
-        if (fill.orderId != orderId || fill.exitTsNs <= 0 || fill.priceE8 <= 0) continue;
-        if (best == nullptr || fill.exitTsNs < best->exitTsNs) best = &fill;
+        if (fill.exitTsNs <= 0 || fill.priceE8 <= 0) continue;
+        auto [it, inserted] = fillByOrderId.emplace(fill.orderId, &fill);
+        if (!inserted && fill.exitTsNs < it->second->exitTsNs) it->second = &fill;
     }
-    return best;
-}
 
-std::int64_t findCommandEndTs(const std::vector<OrderRow>& orders,
-                              std::uint64_t orderId,
-                              std::int64_t startTsNs) noexcept {
-    std::int64_t best = 0;
-    for (const OrderRow& order : orders) {
-        if (order.targetId != orderId || order.activeTsNs <= startTsNs) continue;
+    std::unordered_map<std::uint64_t, std::vector<const LegacyOrderRow*>> commandsByTargetId;
+    commandsByTargetId.reserve(orders.size() / 2u + 1u);
+    for (const LegacyOrderRow& order : orders) {
+        if (order.targetId == 0 || order.activeTsNs <= 0) continue;
         if (order.action != 2u && order.action != 3u) continue;
-        if (!isEffectiveCommandStatus(order.status)) continue;
-        if (best == 0 || order.activeTsNs < best) best = order.activeTsNs;
+        if (!legacyStatusEffective(order.status)) continue;
+        commandsByTargetId[order.targetId].push_back(&order);
     }
-    return best;
-}
+    for (auto& row : commandsByTargetId) {
+        std::stable_sort(row.second.begin(), row.second.end(), [](const LegacyOrderRow* lhs, const LegacyOrderRow* rhs) noexcept {
+            if (lhs->activeTsNs != rhs->activeTsNs) return lhs->activeTsNs < rhs->activeTsNs;
+            return lhs->id < rhs->id;
+        });
+    }
 
-bool hasSameTimestampReplaceEnd(const std::vector<OrderRow>& orders,
-                                  std::uint64_t orderId,
-                                  std::int64_t startTsNs) noexcept {
-    for (const OrderRow& order : orders) {
-        if (order.targetId != orderId || order.activeTsNs != startTsNs) continue;
-        if ((order.action == 2u || order.action == 3u) && isEffectiveCommandStatus(order.status)) return true;
+    std::vector<OrderLifetimeRow> out;
+    out.reserve(fills.size() + 16u);
+    for (const LegacyOrderRow& order : orders) {
+        if (order.action != 1u || order.type != 1u) continue;
+        if (!legacyStatusEffective(order.status)) continue;
+        if (order.activeTsNs <= 0 || order.priceE8 <= 0 || order.qtyE8 <= 0) continue;
+
+        const auto commandIt = commandsByTargetId.find(order.id);
+        const auto* commands = commandIt == commandsByTargetId.end() ? nullptr : &commandIt->second;
+        if (commands != nullptr) {
+            const auto sameTimestamp = std::lower_bound(commands->begin(), commands->end(), order.activeTsNs,
+                                                        [](const LegacyOrderRow* row, std::int64_t tsNs) noexcept {
+                                                            return row->activeTsNs < tsNs;
+                                                        });
+            if (sameTimestamp != commands->end() && (*sameTimestamp)->activeTsNs == order.activeTsNs) continue;
+        }
+
+        std::int64_t endTs = 0;
+        if (commands != nullptr) {
+            const auto command = std::upper_bound(commands->begin(), commands->end(), order.activeTsNs,
+                                                  [](std::int64_t tsNs, const LegacyOrderRow* row) noexcept {
+                                                      return tsNs < row->activeTsNs;
+                                                  });
+            if (command != commands->end()) endTs = (*command)->activeTsNs;
+        }
+
+        const auto fillIt = fillByOrderId.find(order.id);
+        const FillRow* fill = fillIt == fillByOrderId.end() ? nullptr : fillIt->second;
+        if (fill != nullptr && (endTs == 0 || fill->exitTsNs < endTs)) endTs = fill->exitTsNs;
+
+        bool openEnded = false;
+        if (endTs <= order.activeTsNs) {
+            if (fill != nullptr) {
+                endTs = order.activeTsNs;
+            } else if (legacyStatusOpen(order.status)) {
+                endTs = fallbackRunEndNs > order.activeTsNs ? fallbackRunEndNs : order.activeTsNs;
+                openEnded = endTs > order.activeTsNs;
+            }
+        }
+        if (endTs <= order.activeTsNs) continue;
+        out.push_back(OrderLifetimeRow{
+            order.activeTsNs,
+            endTs,
+            order.priceE8,
+            order.qtyE8,
+            order.side,
+            openEnded,
+            order.legIndex,
+        });
     }
-    return false;
+
+    std::stable_sort(out.begin(), out.end(), [](const OrderLifetimeRow& lhs, const OrderLifetimeRow& rhs) noexcept {
+        if (lhs.tsStartNs != rhs.tsStartNs) return lhs.tsStartNs < rhs.tsStartNs;
+        return lhs.priceE8 < rhs.priceE8;
+    });
+    return out;
 }
 
 void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, StrategyOverlayData& out) {
@@ -241,48 +305,39 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
     out.runId = QString::fromStdString(parsed.runId);
     out.strategy = QString::fromStdString(parsed.strategy);
     out.sourceSessionPath = QString::fromStdString(parsed.sessionPath);
+    const std::vector<OrderLifetimeRow> legacyLifetimes = parsed.lifetimes.empty() && !parsed.legacyOrders.empty()
+        ? materializeLegacyLifetimes(parsed.legacyOrders, parsed.fills, fallbackRunEndNs)
+        : std::vector<OrderLifetimeRow>{};
+    const std::vector<OrderLifetimeRow>& lifetimes = parsed.lifetimes.empty() ? legacyLifetimes : parsed.lifetimes;
+    out.orderSegments.reserve(lifetimes.size());
+    out.fillMarkers.reserve(parsed.fills.size());
 
-    for (const OrderRow& order : parsed.orders) {
-        if (!isLiveCommand(order.action) || !isEffectiveCommandStatus(order.status)) continue;
-        const FillRow* fill = findFill(parsed.fills, order.id);
-        const bool replacedAtStart = order.action == 1u && hasSameTimestampReplaceEnd(parsed.orders, order.id, order.activeTsNs);
-        if (!replacedAtStart && isLimitType(order.type) && order.activeTsNs > 0 && order.priceE8 > 0) {
-            std::int64_t endTs = findCommandEndTs(parsed.orders, order.id, order.activeTsNs);
-            if (fill != nullptr && (endTs == 0 || fill->exitTsNs < endTs)) endTs = fill->exitTsNs;
-            bool openEnded = false;
-            if (endTs <= order.activeTsNs) {
-                if (fill != nullptr) {
-                    endTs = order.activeTsNs;
-                } else if (isOpenCommandStatus(order.status)) {
-                    endTs = fallbackRunEndNs;
-                    openEnded = true;
-                }
-            }
-            if (endTs > order.activeTsNs) {
-                out.orderSegments.push_back(StrategyOrderSegment{
-                    order.activeTsNs,
-                    endTs,
-                    order.priceE8,
-                    order.qtyE8,
-                    order.legIndex,
-                    sideBuy(order.side),
-                    openEnded,
-                });
-            }
-        }
-        if (fill != nullptr) {
-            const bool buy = sideBuy(fill->side);
-            out.fillMarkers.push_back(StrategyFillMarker{
-                fill->exitTsNs,
-                fill->priceE8,
-                fill->qtyE8,
-                fill->legIndex,
-                buy,
-                isMarketType(order.type),
-                fill->reduceOnly,
-                buy ? StrategyFillShape::BuyUp : StrategyFillShape::SellDown,
-            });
-        }
+    for (const OrderLifetimeRow& row : lifetimes) {
+        if (row.tsEndNs <= row.tsStartNs || row.priceE8 <= 0 || row.qtyE8 <= 0) continue;
+        out.orderSegments.push_back(StrategyOrderSegment{
+            row.tsStartNs,
+            row.tsEndNs,
+            row.priceE8,
+            row.qtyE8,
+            row.legIndex,
+            sideBuy(row.side),
+            row.openEnded,
+        });
+    }
+
+    for (const FillRow& fill : parsed.fills) {
+        if (fill.exitTsNs <= 0 || fill.priceE8 <= 0 || fill.qtyE8 <= 0) continue;
+        const bool buy = sideBuy(fill.side);
+        out.fillMarkers.push_back(StrategyFillMarker{
+            fill.exitTsNs,
+            fill.priceE8,
+            fill.qtyE8,
+            fill.legIndex,
+            buy,
+            false,
+            fill.reduceOnly,
+            buy ? StrategyFillShape::BuyUp : StrategyFillShape::SellDown,
+        });
     }
 
     for (const RangeRow& row : parsed.ranges) {
@@ -327,13 +382,21 @@ bool loadStrategyOverlayFromResult(const std::filesystem::path& path,
         error = "failed to parse backtest manifest";
         return false;
     }
-    if (!loadJsonl(path / "orders.jsonl", parsed.orders, parseOrderLine)) {
-        error = "failed to parse backtest orders";
+    if (!loadOptionalJsonl(path / "order_lifetimes.jsonl", parsed.lifetimes, parseOrderLifetimeLine)) {
+        error = "failed to parse order lifetimes";
         return false;
     }
     if (!loadJsonl(path / "fills.jsonl", parsed.fills, parseFillLine)) {
         error = "failed to parse backtest fills";
         return false;
+    }
+    std::error_code ordersEc;
+    const std::filesystem::path legacyOrdersPath = path / "orders.jsonl";
+    if (parsed.lifetimes.empty() && std::filesystem::is_regular_file(legacyOrdersPath, ordersEc) && !ordersEc) {
+        if (!loadJsonl(legacyOrdersPath, parsed.legacyOrders, parseLegacyOrderLine)) {
+            error = "failed to parse legacy backtest orders";
+            return false;
+        }
     }
     if (!loadOptionalJsonl(path / "strategy_range.jsonl", parsed.ranges, parseRangeLine)) {
         error = "failed to parse strategy range";

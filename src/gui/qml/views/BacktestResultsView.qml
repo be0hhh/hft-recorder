@@ -317,7 +317,8 @@ Pane {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(86, 30 + root.backtestVm.selectedSessionLegs.length * 34)
+                    Layout.preferredHeight: Math.max(66, 30 + root.backtestVm.selectedSessionLegs.length * 34)
+                    Layout.maximumHeight: Layout.preferredHeight
                     Layout.leftMargin: 0
                     Layout.rightMargin: 0
                     color: "transparent"
@@ -457,11 +458,10 @@ Pane {
 
         Rectangle {
             property int parameterCount: root.backtestVm.strategyParameters ? root.backtestVm.strategyParameters.length : 0
-            property int parameterColumns: Math.max(1, Math.floor((width - 16 + 10) / (292 + 10)))
-            property int parameterRows: Math.ceil(parameterCount / parameterColumns)
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(108, parameterRows * 92 + Math.max(0, parameterRows - 1) * 10 + 16)
+            Layout.preferredHeight: Math.max(78, paramsFlow.childrenRect.height + 16)
             Layout.minimumHeight: Layout.preferredHeight
+            Layout.maximumHeight: Layout.preferredHeight
             Layout.leftMargin: 10
             Layout.rightMargin: 10
             color: root.panelColor

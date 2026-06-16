@@ -61,6 +61,14 @@ std::string bookTickerLine(std::int64_t tsNs,
         + "]\n";
 }
 
+std::string fundingLine(std::int64_t tsNs, std::int64_t rateE8) {
+    return "[" + std::to_string(tsNs)
+        + "," + std::to_string(rateE8)
+        + "," + std::to_string(tsNs)
+        + "," + std::to_string(tsNs + 8LL * 60LL * 60LL * 1000000000LL)
+        + "]\n";
+}
+
 hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
                                   std::int64_t captureSeq,
                                   std::int64_t priceE8,
@@ -291,13 +299,55 @@ TEST(ViewerBookTickerCompare, RecordedSourceUsesBookTickerWithoutFullSessionRepl
     writeFile(dirA / "jsonl" / "depth_sidecar.jsonl", "[9223372036854776808,0,1]\n");
     writeFile(dirB / "jsonl" / "depth_tape.jsonl", "[9223372036854776808,100,2]\n[9223372036854777808,101,2]\n");
     writeFile(dirB / "jsonl" / "depth_sidecar.jsonl", "[9223372036854776808,0,1]\n");
+    writeFile(dirA / "jsonl" / "funding.jsonl", fundingLine(1500, 1000));
+    writeFile(dirB / "jsonl" / "funding.jsonl", fundingLine(1700, -2000));
 
     BookTickerCompareController compare;
     ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
     ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
     EXPECT_EQ(compare.primaryCount(), 2);
     EXPECT_EQ(compare.secondaryCount(), 2);
+    ASSERT_EQ(compare.primaryFundingRows().size(), 1u);
+    ASSERT_EQ(compare.secondaryFundingRows().size(), 1u);
+    EXPECT_EQ(compare.primaryFundingRows().front().tsNs, 1500);
+    EXPECT_EQ(compare.secondaryFundingRows().front().fundingRateE8, -2000);
     EXPECT_TRUE(compare.ready());
+
+    std::error_code ec;
+    fs::remove_all(dirA, ec);
+    fs::remove_all(dirB, ec);
+}
+
+TEST(ViewerBookTickerCompare, ValueScaleZoomPanAndAutoFitReset) {
+    const auto dirA = makeTmpDir();
+    const auto dirB = makeTmpDir();
+    writeFile(
+        dirA / "bookticker.jsonl",
+        bookTickerLine(1000, 1, e8(10000), e8(10010))
+            + bookTickerLine(2000, 2, e8(10020), e8(10030)));
+    writeFile(
+        dirB / "bookticker.jsonl",
+        bookTickerLine(1000, 1, e8(10005), e8(10015))
+            + bookTickerLine(2000, 2, e8(10025), e8(10035)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
+
+    compare.zoomPrice(2.0);
+    compare.panPrice(0.10);
+    compare.zoomSpread(3.0);
+    compare.panSpread(-0.10);
+    EXPECT_GT(compare.priceZoom(), 1.0);
+    EXPECT_NE(compare.pricePan(), 0.0);
+    EXPECT_GT(compare.spreadZoom(), 1.0);
+    EXPECT_NE(compare.spreadPan(), 0.0);
+
+    compare.autoFit();
+    EXPECT_DOUBLE_EQ(compare.priceZoom(), 1.0);
+    EXPECT_DOUBLE_EQ(compare.pricePan(), 0.0);
+    EXPECT_DOUBLE_EQ(compare.spreadZoom(), 1.0);
+    EXPECT_DOUBLE_EQ(compare.spreadPan(), 0.0);
 
     std::error_code ec;
     fs::remove_all(dirA, ec);

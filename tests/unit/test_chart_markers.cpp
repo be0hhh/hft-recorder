@@ -105,9 +105,8 @@ TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
     const auto resultPath = dir / "backtests" / "run-a";
     fs::create_directories(resultPath);
     writeFile(resultPath / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","strategy":"test","session_path":"session","summary":{},"errors":[]})json");
-    writeFile(resultPath / "orders.jsonl",
-              "[1,0,0,1200,0,1,1,1,2,9900000000,100000000,0]\n"
-              "[2,0,0,1500,0,1,0,2,2,0,100000000,0]\n");
+    writeFile(resultPath / "order_lifetimes.jsonl",
+              "[1200,1800,9900000000,100000000,1,0]\n");
     writeFile(resultPath / "fills.jsonl",
               "[1,1200,1800,1,9900000000,100000000,0,0]\n"
               "[2,1500,1600,0,10100000000,100000000,0,1]\n");

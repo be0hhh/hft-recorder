@@ -149,7 +149,7 @@ TEST(ViewerBacktestResults, SelectsDiscoveredRunResultWithoutTreatingSweepAsRun)
     fs::create_directories(runDir);
     fs::create_directories(sweepDir);
     writeFile(runDir / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","strategy":"spread_maker1and2","session_path":"/tmp/session-a","summary":{},"errors":[]})json");
-    writeFile(runDir / "orders.jsonl", "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0,0]\n");
+    writeFile(runDir / "order_lifetimes.jsonl", "[1000,1100,9900000000,100000000,1,0,0]\n");
     writeFile(runDir / "fills.jsonl", "[10,1000,1100,1,9900000000,100000000,0,0,0]\n");
     writeFile(sweepDir / "manifest.json", R"json({"type":"sweep.result.v1","sweep_id":"sweep-a","summary":{},"errors":[]})json");
 
@@ -175,7 +175,7 @@ TEST(ViewerBacktestResults, SelectingDetailRunReportsLoadedOverlay) {
     const auto runDir = session / "backtests" / "run-a-detail";
     fs::create_directories(runDir);
     writeFile(runDir / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a-detail","strategy":"spread_maker1and2","session_path":"/tmp/session-a","summary":{},"errors":[]})json");
-    writeFile(runDir / "orders.jsonl", "[10,0,900,1000,1000,1,1,1,3,9900000000,100000000,0,0]\n");
+    writeFile(runDir / "order_lifetimes.jsonl", "[1000,1100,9900000000,100000000,1,0,0]\n");
     writeFile(runDir / "fills.jsonl", "[10,1000,1100,1,9900000000,100000000,0,0,0]\n");
 
     hftrec::gui::viewer::ChartController chart;

@@ -75,6 +75,29 @@ std::filesystem::path recordedBookTickerPath(const std::filesystem::path& sessio
     return existingFileOrEmpty(sessionPath / "bookticker.jsonl");
 }
 
+std::filesystem::path recordedFundingPath(const std::filesystem::path& sessionPath) {
+    const QJsonObject manifest = readSessionManifestObject(sessionPath);
+    const QJsonObject channels = manifest.value(QStringLiteral("channels")).toObject();
+    const QString manifestPath = channels.value(QStringLiteral("funding")).toObject().value(QStringLiteral("path")).toString();
+    if (!manifestPath.isEmpty()) {
+        if (const auto path = existingFileOrEmpty(sessionPath / manifestPath.toStdString()); !path.empty()) return path;
+    }
+    if (const auto path = existingFileOrEmpty(sessionPath / "jsonl" / "funding.jsonl"); !path.empty()) return path;
+    return existingFileOrEmpty(sessionPath / "funding.jsonl");
+}
+
+double clampZoom(double value) noexcept {
+    if (!std::isfinite(value) || value < 1.0) return 1.0;
+    if (value > 4096.0) return 4096.0;
+    return value;
+}
+
+double clampPan(double pan, double zoom) noexcept {
+    zoom = clampZoom(zoom);
+    const double limit = zoom <= 1.0 ? 0.0 : (1.0 - (1.0 / zoom)) * 0.5;
+    return std::clamp(pan, -limit, limit);
+}
+
 }  // namespace
 
 BookTickerCompareController::BookTickerCompareController(QObject* parent)
@@ -133,6 +156,8 @@ void BookTickerCompareController::clear() {
     secondarySourceId_.clear();
     primaryRows_.clear();
     secondaryRows_.clear();
+    primaryFundingRows_.clear();
+    secondaryFundingRows_.clear();
     spreadPoints_.clear();
     meanPoints_.clear();
     selectedBacktestResult_.clear();
@@ -143,6 +168,7 @@ void BookTickerCompareController::clear() {
     tsMax_ = 1;
     viewportInitialized_ = false;
     userViewportControl_ = false;
+    resetValueScale_();
     liveTimer_.stop();
     setStatus_(QStringLiteral("Select two bookTicker sessions"));
     emit sourcesChanged();
@@ -213,6 +239,7 @@ void BookTickerCompareController::autoFit() {
     tsMax_ = fullTsMax_;
     viewportInitialized_ = true;
     userViewportControl_ = false;
+    resetValueScale_();
     emit viewportChanged();
     emit dataChanged();
 }
@@ -255,6 +282,38 @@ void BookTickerCompareController::zoomTimeAt(double factor, double anchorFractio
     emit dataChanged();
 }
 
+void BookTickerCompareController::panPrice(double fraction) {
+    pricePan_ = clampPan(pricePan_ + fraction / priceZoom_, priceZoom_);
+    emit viewportChanged();
+    emit dataChanged();
+}
+
+void BookTickerCompareController::panSpread(double fraction) {
+    spreadPan_ = clampPan(spreadPan_ + fraction / spreadZoom_, spreadZoom_);
+    emit viewportChanged();
+    emit dataChanged();
+}
+
+void BookTickerCompareController::zoomPrice(double factor) {
+    priceZoom_ = clampZoom(priceZoom_ * factor);
+    pricePan_ = clampPan(pricePan_, priceZoom_);
+    emit viewportChanged();
+    emit dataChanged();
+}
+
+void BookTickerCompareController::zoomSpread(double factor) {
+    spreadZoom_ = clampZoom(spreadZoom_ * factor);
+    spreadPan_ = clampPan(spreadPan_, spreadZoom_);
+    emit viewportChanged();
+    emit dataChanged();
+}
+
+void BookTickerCompareController::resetValueScale() {
+    resetValueScale_();
+    emit viewportChanged();
+    emit dataChanged();
+}
+
 void BookTickerCompareController::setLiveUpdateIntervalMs(int intervalMs) {
     if (intervalMs < 16) intervalMs = 16;
     liveTimer_.setInterval(intervalMs);
@@ -271,6 +330,7 @@ bool BookTickerCompareController::setSource_(SourceState& state,
     state.nextBatchId = 1;
     viewportInitialized_ = false;
     userViewportControl_ = false;
+    resetValueScale_();
 
     if (sourceId.trimmed().isEmpty()) {
         state.rows.clear();
@@ -300,6 +360,7 @@ bool BookTickerCompareController::setSource_(SourceState& state,
 
 void BookTickerCompareController::reloadRecorded_(SourceState& state) {
     state.rows.clear();
+    state.fundings.clear();
     const auto bookTickerPath = recordedBookTickerPath(state.sessionPath);
     if (bookTickerPath.empty()) {
         setStatus_(QStringLiteral("bookTicker file is missing for recorded session"));
@@ -315,6 +376,17 @@ void BookTickerCompareController::reloadRecorded_(SourceState& state) {
     replay.finalize();
     state.rows = replay.bookTickers();
     std::sort(state.rows.begin(), state.rows.end(), rowsLessTs);
+
+    const auto fundingPath = recordedFundingPath(state.sessionPath);
+    if (!fundingPath.empty()) {
+        hftrec::replay::SessionReplay fundingReplay{};
+        if (isOk(fundingReplay.addFundingFile(fundingPath))) {
+            state.fundings = fundingReplay.fundings();
+            std::sort(state.fundings.begin(), state.fundings.end(), [](const auto& lhs, const auto& rhs) noexcept {
+                return lhs.tsNs < rhs.tsNs;
+            });
+        }
+    }
 }
 
 void BookTickerCompareController::pollLive_() {
@@ -331,6 +403,13 @@ void BookTickerCompareController::pollLive_() {
             std::sort(state.rows.begin(), state.rows.end(), rowsLessTs);
             changed = true;
         }
+        if (!result.batch.fundings.empty()) {
+            state.fundings.insert(state.fundings.end(), result.batch.fundings.begin(), result.batch.fundings.end());
+            std::sort(state.fundings.begin(), state.fundings.end(), [](const auto& lhs, const auto& rhs) noexcept {
+                return lhs.tsNs < rhs.tsNs;
+            });
+            changed = true;
+        }
     };
 
     pollOne(primary_);
@@ -342,6 +421,8 @@ void BookTickerCompareController::pollLive_() {
 void BookTickerCompareController::rebuild_() {
     primaryRows_ = primary_.rows;
     secondaryRows_ = secondary_.rows;
+    primaryFundingRows_ = primary_.fundings;
+    secondaryFundingRows_ = secondary_.fundings;
     spreadPoints_ = hftrec::arbitrage::buildBestSideBookTickerSpread(primaryRows_, secondaryRows_, totalFeePenaltyBps());
     meanPoints_ = hftrec::arbitrage::buildRollingBookTickerSpreadMean(spreadPoints_, meanWindowNs(meanWindowSeconds_), totalFeePenaltyBps());
     updateFullRange_();
@@ -357,6 +438,13 @@ void BookTickerCompareController::rebuild_() {
         setStatus_(QStringLiteral("BookTicker comparison ready"));
     }
     emit dataChanged();
+}
+
+void BookTickerCompareController::resetValueScale_() noexcept {
+    priceZoom_ = 1.0;
+    pricePan_ = 0.0;
+    spreadZoom_ = 1.0;
+    spreadPan_ = 0.0;
 }
 
 void BookTickerCompareController::updateFullRange_() noexcept {

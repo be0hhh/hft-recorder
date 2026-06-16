@@ -73,19 +73,53 @@ Pane {
 
     function syncBacktestRows() {
         var rows = [{ path: "", sessionPath: "", label: "Backtest" }]
+        var seen = {}
         for (var i = 0; i < chart.backtestResults.length; ++i)
-            rows.push(chart.backtestResults[i])
+            root.appendBacktestRow(rows, seen, chart.backtestResults[i])
+        root.appendBacktestVmRows(rows, seen)
         root.backtestRows = rows
         root.syncBacktestComboIndex()
+    }
+
+    function appendBacktestRow(rows, seen, row) {
+        if (!row || !row.path || row.path === "" || seen[row.path])
+            return
+        seen[row.path] = true
+        rows.push(row)
+    }
+
+    function appendBacktestVmRows(rows, seen) {
+        var sourceId = root.singleSelectedSourceId()
+        var selectedSessionId = String(root.backtestVm.selectedSessionId || "").trim()
+        if (sourceId === "" || selectedSessionId === "" || sourceId !== "recorded:" + selectedSessionId)
+            return
+        var sessionPath = root.backtestPrimarySessionPath()
+        if (sessionPath === "")
+            return
+        var runs = root.backtestVm.runs || []
+        for (var i = 0; i < runs.length; ++i) {
+            var run = runs[i]
+            var path = String(run.filePath || "")
+            if (path === "" || seen[path])
+                continue
+            root.appendBacktestRow(rows, seen, {
+                "sessionPath": sessionPath,
+                "path": path,
+                "label": "A " + String(run.fileName || run.runId || run.label || path),
+                "pnlText": String(run.pnlText || ""),
+                "rightText": String(run.rightText || run.pnlText || ""),
+                "type": run.sweep ? "sweep.result.v1" : "run.result.v2",
+                "selectable": !run.sweep
+            })
+        }
     }
 
     function backtestPrimarySessionPath() {
         if (root.compareMode)
             return sourcesModel.sessionPath(root.selectedCompareSourceA)
-        if (root.selectedSourceId !== "" && sourcesModel.sourceKind(root.selectedSourceId) === "recorded")
-            return sourcesModel.sessionPath(root.selectedSourceId)
-        if (root.selectedCompareSourceA !== "" && sourcesModel.sourceKind(root.selectedCompareSourceA) === "recorded")
-            return sourcesModel.sessionPath(root.selectedCompareSourceA)
+        var sourceId = root.singleSelectedSourceId()
+        if (sourceId !== "" && sourcesModel.sourceKind(sourceId) === "recorded")
+            return sourcesModel.sessionPath(sourceId)
         return ""
     }
 
@@ -94,8 +128,11 @@ Pane {
     }
 
     function refreshBacktestChoices() {
-        chart.refreshBacktestResults(root.backtestPrimarySessionPath(),
-                                     root.backtestSecondarySessionPath())
+        var primarySessionPath = root.backtestPrimarySessionPath()
+        var secondarySessionPath = root.backtestSecondarySessionPath()
+        if (!root.compareMode && primarySessionPath !== "" && root.backtestVm.sessionPath !== primarySessionPath)
+            root.backtestVm.setSessionPath(primarySessionPath)
+        chart.refreshBacktestResults(primarySessionPath, secondarySessionPath)
         root.syncBacktestRows()
         compareChart.setBacktestResult(chart.selectedBacktestResult)
     }
@@ -185,6 +222,8 @@ Pane {
             return root.selectedCompareSourceA
         if (root.selectedCompareSourceB !== "")
             return root.selectedCompareSourceB
+        if (root.selectedSourceId !== "")
+            return root.selectedSourceId
         return ""
     }
 
@@ -675,18 +714,20 @@ Pane {
         function onModelReset() {
             root.rebuildCompareSourceRows()
             Qt.callLater(root.ensureCompareSelection)
-            Qt.callLater(root.refreshBacktestChoices)
+            if (root.tabActive)
+                Qt.callLater(root.refreshBacktestChoices)
             }
         function onRowsInserted() {
             root.rebuildCompareSourceRows()
             Qt.callLater(root.ensureCompareSelection)
-            Qt.callLater(root.refreshBacktestChoices)
+            if (root.tabActive)
+                Qt.callLater(root.refreshBacktestChoices)
             }
     }
 
     Connections {
         target: root.backtestVm
-        function onRunsChanged() { Qt.callLater(root.refreshBacktestChoices) }
+        function onRunsChanged() { if (root.tabActive) Qt.callLater(root.refreshBacktestChoices) }
     }
 
     Connections {
@@ -1113,6 +1154,7 @@ Pane {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                 cursorShape: Qt.ArrowCursor
                 property real lastX: 0
+                property real lastY: 0
                 property real pressX: 0
                 property bool dragActive: false
                 property bool measureActive: false
@@ -1120,6 +1162,7 @@ Pane {
                 property real pressY: 0
                 onPressed: function(mouse) {
                     lastX = mouse.x
+                    lastY = mouse.y
                     pressX = mouse.x
                     pressY = mouse.y
                     dragActive = false
@@ -1143,7 +1186,18 @@ Pane {
                         compareSurface.updateMeasure(mouse.x, mouse.y)
                         return
                     }
-                    if (!(mouse.buttons & Qt.LeftButton) && !(mouse.buttons & Qt.RightButton)) return
+                    if (mouse.buttons & Qt.RightButton) {
+                        if (!dragActive && Math.abs(mouse.y - pressY) < 3) return
+                        dragActive = true
+                        var dy = mouse.y - lastY
+                        lastY = mouse.y
+                        if (pressY < height * 0.67)
+                            compareChart.panPrice(dy / Math.max(1, height))
+                        else
+                            compareChart.panSpread(dy / Math.max(1, height))
+                        return
+                    }
+                    if (!(mouse.buttons & Qt.LeftButton)) return
                     if (!dragActive && Math.abs(mouse.x - pressX) < 3) return
                     dragActive = true
                     var dx = mouse.x - lastX
@@ -1166,8 +1220,15 @@ Pane {
                 }
                 onExited: compareSurface.clearHover()
                 onWheel: function(wheel) {
-                    var factor = wheel.angleDelta.y > 0 ? 1.22 : 0.82
-                    compareChart.zoomTimeAt(factor, Math.max(0, Math.min(1, wheel.x / Math.max(1, width))))
+                    var factor = wheel.angleDelta.y > 0 ? 1.3 : (1.0 / 1.3)
+                    if (wheel.modifiers & Qt.ControlModifier) {
+                        if (wheel.y < height * 0.67)
+                            compareChart.zoomPrice(factor)
+                        else
+                            compareChart.zoomSpread(factor)
+                    } else {
+                        compareChart.zoomTimeAt(factor, Math.max(0, Math.min(1, wheel.x / Math.max(1, width))))
+                    }
                     compareSurface.setHoverPoint(wheel.x, wheel.y)
                     wheel.accepted = true
                 }

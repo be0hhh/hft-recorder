@@ -62,6 +62,28 @@ void absorbPrice(const hftrec::replay::BookTickerRow& row, Ranges& ranges, bool&
     ranges.priceMax = std::max(ranges.priceMax, std::max(row.bidPriceE8, row.askPriceE8));
 }
 
+void applyScaledIntRange(std::int64_t& minValue, std::int64_t& maxValue, double zoom, double pan) noexcept {
+    if (maxValue <= minValue) maxValue = minValue + 1;
+    if (!std::isfinite(zoom) || zoom < 1.0) zoom = 1.0;
+    const double span = static_cast<double>(maxValue - minValue);
+    const double nextSpan = std::max(1.0, span / zoom);
+    const double center = (static_cast<double>(minValue) + static_cast<double>(maxValue)) * 0.5 + pan * span;
+    minValue = static_cast<std::int64_t>(center - nextSpan * 0.5);
+    maxValue = static_cast<std::int64_t>(center + nextSpan * 0.5);
+    if (maxValue <= minValue) maxValue = minValue + 1;
+}
+
+void applyScaledDoubleRange(double& minValue, double& maxValue, double zoom, double pan) noexcept {
+    if (maxValue <= minValue) maxValue = minValue + 1.0;
+    if (!std::isfinite(zoom) || zoom < 1.0) zoom = 1.0;
+    const double span = maxValue - minValue;
+    const double nextSpan = std::max(0.000001, span / zoom);
+    const double center = (minValue + maxValue) * 0.5 + pan * span;
+    minValue = center - nextSpan * 0.5;
+    maxValue = center + nextSpan * 0.5;
+    if (maxValue <= minValue) maxValue = minValue + 1.0;
+}
+
 Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
                      const std::vector<hftrec::replay::BookTickerRow>& b,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreads,
@@ -163,6 +185,11 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     return ranges;
 }
 
+void applyControllerScale(Ranges& ranges, const BookTickerCompareController& controller) noexcept {
+    applyScaledIntRange(ranges.priceMin, ranges.priceMax, controller.priceZoom(), controller.pricePan());
+    applyScaledDoubleRange(ranges.spreadMin, ranges.spreadMax, controller.spreadZoom(), controller.spreadPan());
+}
+
 LayoutRects makeLayout(const QRectF& bounds) noexcept {
     const QRectF full = bounds.adjusted(kLeftMargin, kTopMargin, -12.0, -10.0);
     const qreal plotRight = full.right() - kRightScaleWidth;
@@ -217,6 +244,46 @@ void drawPolyline(QPainter& painter, const QPolygonF& points, const QColor& colo
     painter.setPen(pen);
     painter.setBrush(Qt::NoBrush);
     painter.drawPolyline(points);
+}
+
+void drawFundingMarkers(QPainter& painter,
+                        const std::vector<hftrec::replay::FundingRow>& rows,
+                        const Ranges& ranges,
+                        const QRectF& rect,
+                        const QColor& color,
+                        const QString& labelPrefix) {
+    if (rows.empty()) return;
+    QPen pen{color};
+    pen.setWidth(1);
+    pen.setCosmetic(true);
+    painter.setPen(pen);
+    painter.setBrush(color);
+
+    QFont labelFont = painter.font();
+    labelFont.setPixelSize(10);
+    painter.setFont(labelFont);
+    const QFontMetricsF metrics(labelFont);
+
+    bool labelDrawn = false;
+    for (const auto& row : rows) {
+        if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
+        const qreal x = xFor(row.tsNs, ranges, rect);
+        if (x < rect.left() || x > rect.right()) continue;
+        painter.drawLine(QPointF{x, rect.top()}, QPointF{x, rect.bottom()});
+        const qreal markerY = row.fundingRateE8 < 0 ? rect.bottom() - 7.0 : rect.top() + 7.0;
+        const QPolygonF tri{
+            QPointF{x, markerY},
+            QPointF{x - 4.0, row.fundingRateE8 < 0 ? markerY - 6.0 : markerY + 6.0},
+            QPointF{x + 4.0, row.fundingRateE8 < 0 ? markerY - 6.0 : markerY + 6.0},
+        };
+        painter.drawPolygon(tri);
+        if (!labelDrawn) {
+            const QString text = QStringLiteral("%1 funding").arg(labelPrefix);
+            qreal tx = std::clamp<qreal>(x + 5.0, rect.left() + 4.0, rect.right() - metrics.horizontalAdvance(text) - 4.0);
+            painter.drawText(QPointF{tx, rect.top() + 18.0}, text);
+            labelDrawn = true;
+        }
+    }
 }
 
 void appendTickerStepPoints(const std::vector<hftrec::replay::BookTickerRow>& rows,
@@ -576,9 +643,12 @@ void BookTickerCompareItem::paint(QPainter* painter) {
 
     const auto& primary = controller_->primaryRows();
     const auto& secondary = controller_->secondaryRows();
+    const auto& primaryFunding = controller_->primaryFundingRows();
+    const auto& secondaryFunding = controller_->secondaryFundingRows();
     const auto& spreads = controller_->spreadPoints();
     const auto& means = controller_->meanPoints();
-    const Ranges ranges = computeRanges(primary, secondary, spreads, means, controller_->tsMin(), controller_->tsMax(), controller_->currentTs(), controller_->totalFeePenaltyBps());
+    Ranges ranges = computeRanges(primary, secondary, spreads, means, controller_->tsMin(), controller_->tsMax(), controller_->currentTs(), controller_->totalFeePenaltyBps());
+    applyControllerScale(ranges, *controller_);
     const LayoutRects layout = makeLayout(boundingRect());
 
     painter->setRenderHint(QPainter::Antialiasing, false);
@@ -601,6 +671,8 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     drawPolyline(*painter, points, QColor{76, 212, 126});
     appendTickerStepPoints(secondary, false, ranges, layout.primaryRect, points);
     drawPolyline(*painter, points, QColor{179, 102, 255});
+    drawFundingMarkers(*painter, primaryFunding, ranges, layout.primaryRect, QColor{255, 214, 51, 180}, QStringLiteral("A"));
+    drawFundingMarkers(*painter, secondaryFunding, ranges, layout.primaryRect, QColor{255, 142, 64, 180}, QStringLiteral("B"));
 
     drawMeanBands(*painter, means, ranges, layout.spreadRect);
     drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);

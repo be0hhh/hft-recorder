@@ -55,7 +55,8 @@ TEST(BacktestRunner, WritesSkeletonRunResultFromSessionReplay) {
     EXPECT_EQ(result.strategy, "spread_maker1and2");
     EXPECT_GT(result.events, 0u);
     EXPECT_TRUE(fs::is_directory(result.resultPath));
-    EXPECT_TRUE(fs::exists(result.resultPath / "orders.jsonl"));
+    EXPECT_FALSE(fs::exists(result.resultPath / "orders.jsonl"));
+    EXPECT_TRUE(fs::exists(result.resultPath / "order_lifetimes.jsonl"));
     EXPECT_TRUE(fs::exists(result.resultPath / "fills.jsonl"));
     EXPECT_TRUE(fs::exists(result.resultPath / "equity.jsonl"));
 
@@ -63,4 +64,5 @@ TEST(BacktestRunner, WritesSkeletonRunResultFromSessionReplay) {
     EXPECT_NE(json.find("\"type\": \"run.result.v2\""), std::string::npos);
     EXPECT_NE(json.find("\"status\": \"complete\""), std::string::npos);
     EXPECT_NE(json.find("\"strategy\": \"spread_maker1and2\""), std::string::npos);
+    EXPECT_NE(json.find("\"order_lifetimes\""), std::string::npos);
 }
