@@ -830,26 +830,27 @@ QString normalizedParamMode(QString mode) {
 }
 
 bool isSweepKey(const QString& key) {
-    return key == QStringLiteral("distance_bps") || key == QStringLiteral("trigger_bps") || key == QStringLiteral("close_delay_us");
+    return key == QStringLiteral("distance_bps") || key == QStringLiteral("trigger_bps") ||
+           key == QStringLiteral("trigger_edge_bps") || key == QStringLiteral("close_delay_us");
 }
 
 QString defaultRangeMin(const QString& key, const QString& value) {
     if (key == QStringLiteral("distance_bps")) return QStringLiteral("10");
-    if (key == QStringLiteral("trigger_bps")) return QStringLiteral("1");
+    if (key == QStringLiteral("trigger_bps") || key == QStringLiteral("trigger_edge_bps")) return QStringLiteral("1");
     if (key == QStringLiteral("close_delay_us")) return QStringLiteral("0");
     return value;
 }
 
 QString defaultRangeMax(const QString& key, const QString& value) {
     if (key == QStringLiteral("distance_bps")) return QStringLiteral("1000");
-    if (key == QStringLiteral("trigger_bps")) return QStringLiteral("100");
+    if (key == QStringLiteral("trigger_bps") || key == QStringLiteral("trigger_edge_bps")) return QStringLiteral("100");
     if (key == QStringLiteral("close_delay_us")) return QStringLiteral("10000000");
     return value;
 }
 
 QString defaultRangeStep(const QString& key) {
     if (key == QStringLiteral("distance_bps")) return QStringLiteral("10");
-    if (key == QStringLiteral("trigger_bps")) return QStringLiteral("1");
+    if (key == QStringLiteral("trigger_bps") || key == QStringLiteral("trigger_edge_bps")) return QStringLiteral("1");
     if (key == QStringLiteral("close_delay_us")) return QStringLiteral("500000");
     return QStringLiteral("1");
 }

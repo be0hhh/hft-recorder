@@ -507,14 +507,21 @@ TEST(BacktestViewModel, ExposesTemplateStrategyParameters) {
     hftrec::gui::BacktestViewModel vm;
     vm.setSelectedStrategy(QStringLiteral("stat_arb_band"));
 
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("pending_timeout_ms")));
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_quote_age_ms")));
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_leg_skew_ms")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("ema_window_ms")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("entry_edge_bps")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("exit_edge_bps")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("amount_qty")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("pending_timeout_ms")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_quote_age_ms")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_leg_skew_ms")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("type")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("enabled")));
 
-    vm.setStrategyParameter(QStringLiteral("pending_timeout_ms"), QStringLiteral("123"));
-    EXPECT_EQ(metricValue(vm.strategyParameters(), QStringLiteral("pending_timeout_ms")), QStringLiteral("123"));
+    vm.setSelectedStrategy(QStringLiteral("stat_arb_boundary_maker"));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("entry_edge_bps")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("trigger_edge_bps")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("exit_edge_bps")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("maker_entry_edge_bps")));
 }
 
 TEST(BacktestViewModel, HidesUndeclaredIndicatorProfiles) {
