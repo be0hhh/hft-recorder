@@ -357,7 +357,6 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
     for (const FillRow& fill : parsed.fills) {
         if (fill.exitTsNs <= 0 || fill.priceE8 <= 0 || fill.qtyE8 <= 0) continue;
         const bool buy = sideBuy(fill.side);
-        const bool arrowUp = fill.reduceOnly ? !buy : buy;
         out.fillMarkers.push_back(StrategyFillMarker{
             fill.exitTsNs,
             fill.priceE8,
@@ -366,7 +365,7 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
             buy,
             false,
             fill.reduceOnly,
-            arrowUp ? StrategyFillShape::BuyUp : StrategyFillShape::SellDown,
+            buy ? StrategyFillShape::BuyUp : StrategyFillShape::SellDown,
         });
     }
 

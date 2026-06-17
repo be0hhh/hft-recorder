@@ -137,7 +137,7 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_TRUE(overlay.fillMarkers[1].sideBuy);
     EXPECT_FALSE(overlay.fillMarkers[1].marketOrder);
     EXPECT_TRUE(overlay.fillMarkers[1].reduceOnly);
-    EXPECT_EQ(overlay.fillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
+    EXPECT_EQ(overlay.fillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
 
     EXPECT_EQ(overlay.fillMarkers[2].tsNs, 6500);
     EXPECT_EQ(overlay.fillMarkers[2].priceE8, e8(112));
@@ -150,7 +150,7 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_EQ(overlay.fillMarkers[3].priceE8, e8(113));
     EXPECT_FALSE(overlay.fillMarkers[3].sideBuy);
     EXPECT_TRUE(overlay.fillMarkers[3].reduceOnly);
-    EXPECT_EQ(overlay.fillMarkers[3].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
+    EXPECT_EQ(overlay.fillMarkers[3].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

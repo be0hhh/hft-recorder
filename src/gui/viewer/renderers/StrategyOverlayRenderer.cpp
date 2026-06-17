@@ -52,7 +52,7 @@ void renderStrategyOverlay(const RenderContext& ctx) {
         fill.setAlpha(255);
         ctx.p->setBrush(fill);
         QPolygonF triangle;
-        if (marker.shape == StrategyFillShape::BuyUp) {
+        if (marker.sideBuy) {
             triangle << QPointF{x, y} << QPointF{x - 5.0, y + 9.0} << QPointF{x + 5.0, y + 9.0};
         } else {
             triangle << QPointF{x, y} << QPointF{x - 5.0, y - 9.0} << QPointF{x + 5.0, y - 9.0};

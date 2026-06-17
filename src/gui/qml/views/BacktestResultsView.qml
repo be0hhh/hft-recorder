@@ -485,6 +485,11 @@ Pane {
                             property bool fixedRow: modelData.mode === "fixed"
                             width: 292
                             height: choiceRow || fixedRow ? 62 : 92
+                            ToolTip.visible: paramHover.hovered && String(modelData.description || "").length > 0
+                            ToolTip.text: modelData.description || ""
+                            ToolTip.delay: 350
+
+                            HoverHandler { id: paramHover }
 
                             Label {
                                 x: 0

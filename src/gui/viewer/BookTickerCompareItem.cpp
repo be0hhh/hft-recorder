@@ -502,29 +502,23 @@ void drawStrategySpreadTrace(QPainter& painter,
         painter.drawLine(spreadLine.at(i - 1), spreadLine.at(i));
     }
 
-    for (const auto& point : points) {
-        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
-        if (point.decisionKind != 3u && point.decisionKind != 6u) continue;
-        const qreal x = xFor(point.tsNs, ranges, rect);
-        const qreal y = spreadYFor(bpsFromE8(point.spreadBpsE8), ranges, rect);
-        const qreal r = point.decisionKind == 3u ? 5.5 : 4.5;
-        const bool directionUp = point.direction != 2u;
-        const bool arrowUp = point.decisionKind == 6u ? !directionUp : directionUp;
-        QPolygonF triangle;
-        if (arrowUp) {
-            triangle << QPointF{x, y - r} << QPointF{x - r, y + r} << QPointF{x + r, y + r};
-        } else {
-            triangle << QPointF{x, y + r} << QPointF{x - r, y - r} << QPointF{x + r, y - r};
-        }
-        painter.setPen(QPen{QColor{18, 18, 21}, 1});
-        painter.setBrush(point.decisionKind == 3u ? QColor{245, 245, 245} : QColor{145, 145, 150});
-        painter.drawPolygon(triangle);
-    }
 }
 
 QColor overlayColor(std::uint32_t legIndex, bool buy) noexcept {
     if (legIndex == 1u) return buy ? QColor{76, 212, 126} : QColor{179, 102, 255};
     return buy ? QColor{36, 194, 203} : QColor{218, 37, 54};
+}
+
+void drawSideTriangle(QPainter& painter, qreal x, qreal y, qreal r, bool buy, const QColor& fill) {
+    QPolygonF triangle;
+    if (buy) {
+        triangle << QPointF{x, y - r} << QPointF{x - r, y + r} << QPointF{x + r, y + r};
+    } else {
+        triangle << QPointF{x, y + r} << QPointF{x - r, y - r} << QPointF{x + r, y - r};
+    }
+    painter.setPen(QPen{QColor{18, 18, 21}, 1});
+    painter.setBrush(fill);
+    painter.drawPolygon(triangle);
 }
 
 void drawStrategyOverlay(QPainter& painter,
@@ -550,15 +544,7 @@ void drawStrategyOverlay(QPainter& painter,
         const qreal x = xFor(marker.tsNs, ranges, rect);
         const qreal y = priceYFor(marker.priceE8, ranges, rect);
         const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
-        QPolygonF triangle;
-        if (marker.shape == StrategyFillShape::BuyUp) {
-            triangle << QPointF{x, y - r} << QPointF{x - r, y + r} << QPointF{x + r, y + r};
-        } else {
-            triangle << QPointF{x, y + r} << QPointF{x - r, y - r} << QPointF{x + r, y - r};
-        }
-        painter.setPen(QPen{QColor{18, 18, 21}, 1});
-        painter.setBrush(overlayColor(marker.legIndex, marker.sideBuy));
-        painter.drawPolygon(triangle);
+        drawSideTriangle(painter, x, y, r, marker.sideBuy, overlayColor(marker.legIndex, marker.sideBuy));
     }
 }
 
@@ -602,6 +588,35 @@ const StrategySpreadPoint* nearestStrategySpreadPoint(
     const auto* right = &*it;
     const auto* left = &*(it - 1);
     return (ts - left->tsNs) <= (right->tsNs - ts) ? left : right;
+}
+
+void drawStrategySpreadFillMarkers(QPainter& painter,
+                                   const StrategyOverlayData& overlay,
+                                   const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreads,
+                                   const Ranges& ranges,
+                                   const QRectF& rect) {
+    if (overlay.fillMarkers.empty()) return;
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    for (const auto& marker : overlay.fillMarkers) {
+        if (marker.tsNs < ranges.tsMin || marker.tsNs > ranges.tsMax) continue;
+        double spreadBps = 0.0;
+        if (!overlay.spreadPoints.empty()) {
+            const auto* point = nearestStrategySpreadPoint(overlay.spreadPoints, marker.tsNs);
+            if (point == nullptr) continue;
+            spreadBps = bpsFromE8(point->spreadBpsE8);
+        } else {
+            const auto* point = nearestSpreadPoint(spreads, marker.tsNs);
+            if (point == nullptr) continue;
+            spreadBps = point->spreadBps;
+        }
+
+        const qreal x = xFor(marker.tsNs, ranges, rect);
+        const qreal y = spreadYFor(spreadBps, ranges, rect);
+        if (x < rect.left() - 12.0 || x > rect.right() + 12.0 || y < rect.top() - 12.0 || y > rect.bottom() + 12.0) continue;
+        const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
+        drawSideTriangle(painter, x, y, r, marker.sideBuy, overlayColor(marker.legIndex, marker.sideBuy));
+    }
+    painter.setRenderHint(QPainter::Antialiasing, false);
 }
 
 QString formatPrice(std::int64_t priceE8) {
@@ -821,6 +836,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
         drawMeanBands(*painter, means, ranges, layout.spreadRect);
         drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);
     }
+    drawStrategySpreadFillMarkers(*painter, overlay, spreads, ranges, layout.spreadRect);
     drawStrategyOverlay(*painter, overlay, ranges, layout.primaryRect);
 
     painter->setFont(QFont{painter->font().family(), 9});

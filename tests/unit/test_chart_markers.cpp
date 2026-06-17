@@ -128,8 +128,10 @@ TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
     EXPECT_EQ(snap.strategyOrderSegments.front().tsEndNs, 1800);
     EXPECT_TRUE(snap.strategyOrderSegments.front().sideBuy);
     ASSERT_EQ(snap.strategyFillMarkers.size(), 2u);
+    EXPECT_FALSE(snap.strategyFillMarkers[0].sideBuy);
     EXPECT_EQ(snap.strategyFillMarkers[0].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
     EXPECT_TRUE(snap.strategyFillMarkers[0].reduceOnly);
+    EXPECT_TRUE(snap.strategyFillMarkers[1].sideBuy);
     EXPECT_EQ(snap.strategyFillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
     EXPECT_FALSE(snap.strategyFillMarkers[1].reduceOnly);
     ASSERT_EQ(snap.strategyRangePoints.size(), 2u);

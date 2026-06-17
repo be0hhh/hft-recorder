@@ -22,6 +22,7 @@
 #include <exception>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "hft_backtest/backtest.hpp"
@@ -456,16 +457,24 @@ QString sessionSourceSummary(const QString& sessionPath, const BacktestLegCounts
                                       manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
 }
 
-QString statusTextFor(hft_backtest::Status status) {
+QString statusTextFor(hft_backtest::Status status, const std::string& error = {}) {
     if (status == hft_backtest::Status::Ok) return QStringLiteral("Backtest complete");
     if (status == hft_backtest::Status::Cancelled) return QStringLiteral("Backtest cancelled");
-    return QStringLiteral("Backtest failed: %1").arg(QString::fromUtf8(hft_backtest::statusToString(status).data(), static_cast<qsizetype>(hft_backtest::statusToString(status).size())));
+    const std::string_view statusText = hft_backtest::statusToString(status);
+    QString message = QStringLiteral("Backtest failed: %1")
+        .arg(QString::fromUtf8(statusText.data(), static_cast<qsizetype>(statusText.size())));
+    if (!error.empty()) message += QStringLiteral(": ") + QString::fromStdString(error);
+    return message;
 }
 
-QString sweepStatusTextFor(hft_backtest::Status status) {
+QString sweepStatusTextFor(hft_backtest::Status status, const std::string& error = {}) {
     if (status == hft_backtest::Status::Ok) return QStringLiteral("Sweep complete");
     if (status == hft_backtest::Status::Cancelled) return QStringLiteral("Sweep cancelled");
-    return QStringLiteral("Sweep failed: %1").arg(QString::fromUtf8(hft_backtest::statusToString(status).data(), static_cast<qsizetype>(hft_backtest::statusToString(status).size())));
+    const std::string_view statusText = hft_backtest::statusToString(status);
+    QString message = QStringLiteral("Sweep failed: %1")
+        .arg(QString::fromUtf8(statusText.data(), static_cast<qsizetype>(statusText.size())));
+    if (!error.empty()) message += QStringLiteral(": ") + QString::fromStdString(error);
+    return message;
 }
 
 bool progressCallback(const hft_backtest::BacktestProgress& progress, void* userData) noexcept {
@@ -1239,7 +1248,7 @@ QVariantList BacktestViewModel::strategyParameters() const {
         QVariantMap row;
         row.insert(QStringLiteral("key"), key);
         row.insert(QStringLiteral("label"), key);
-        row.insert(QStringLiteral("description"), QStringLiteral("Strategy runtime parameter."));
+        row.insert(QStringLiteral("description"), qString(param->descriptionRu));
         row.insert(QStringLiteral("value"), paramValues_.value(key));
         row.insert(QStringLiteral("mode"), paramModes_.value(key, QStringLiteral("fixed")));
         row.insert(QStringLiteral("min"), paramMinValues_.value(key));
@@ -1586,6 +1595,14 @@ void BacktestViewModel::setSelectedStrategy(const QString& strategy) {
     if (selectedStrategy_ == next || next.isEmpty()) return;
     if (!isDiscoveredStrategy(next)) return;
     savePersistentConfig_();
+    if (RunRecord* oldRecord = mutableRecordForRunId_(selectedRunId_)) clearRecordDetails_(*oldRecord);
+    ++previewLoadGeneration_;
+    ++detailsLoadGeneration_;
+    pendingDetailsRunId_.clear();
+    selectedDetailsErrorText_.clear();
+    selectedRunId_.clear();
+    setPreviewLoading_(false);
+    setDetailsLoading_(false);
     selectedStrategy_ = next;
     configMode_ = QStringLiteral("fixed");
     loadStrategyDefaults_();
@@ -1598,7 +1615,11 @@ void BacktestViewModel::setSelectedStrategy(const QString& strategy) {
     emit configChanged();
     emit strategyParametersChanged();
     emit canRunChanged();
+    emit selectionChanged();
+    emit selectedResultMetricChanged();
+    emit detailsLoadingChanged();
     refreshSessionGateStatus_();
+    refresh();
 }
 
 void BacktestViewModel::setSelectedIndicatorProfile(const QString& profile) {
@@ -1999,8 +2020,8 @@ void BacktestViewModel::refresh() {
     QStringList filesToWatch;
     if (!dirPath.isEmpty()) {
         const QStringList selectedPaths = selectedSessionPaths_();
-        const QString primarySessionId = selectedPaths.empty() ? QString{} : sessionIdFromPathText(selectedPaths.at(0));
-        const QString secondarySessionId = selectedPaths.size() > 1 ? sessionIdFromPathText(selectedPaths.at(1)) : QString{};
+        const QString primarySessionId = selectedPaths.empty() ? QString{} : sessionIdFromPath_(selectedPaths.at(0));
+        const QString secondarySessionId = selectedPaths.size() > 1 ? sessionIdFromPath_(selectedPaths.at(1)) : QString{};
         auto addRunDir = [&](const QFileInfo& runDir) {
             const QDir candidateDir(runDir.absoluteFilePath());
             const QString manifestPath = candidateDir.absoluteFilePath(QStringLiteral("manifest.json"));
@@ -2008,6 +2029,7 @@ void BacktestViewModel::refresh() {
             if (!backtestManifestMatchesLegs(manifestPath, primarySessionId, secondarySessionId)) return;
             const RunRecord* cached = recordForPath_(runDir.absoluteFilePath());
             RunRecord record = loadRecord_(runDir.absoluteFilePath(), RecordLoadMode::MetadataOnly);
+            if (!record.strategy.isEmpty() && record.strategy != selectedStrategy_) return;
             const bool metadataMatches = cached != nullptr
                 && cached->manifestPath == manifestPath
                 && fileStampMatches_(manifestPath, cached->manifestModifiedMs, cached->manifestSize);
@@ -2266,8 +2288,9 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPath.toStdString();
         if (sessionPaths.size() > 1) {
-            request.sessions.reserve(static_cast<std::size_t>(sessionPaths.size()));
-            for (const QString& path : sessionPaths) {
+            request.sessions.reserve(static_cast<std::size_t>(sessionPaths.size() - 1));
+            for (qsizetype i = 1; i < sessionPaths.size(); ++i) {
+                const QString& path = sessionPaths.at(i);
                 hft_backtest::BacktestSessionRequest leg{};
                 leg.path = path.toStdString();
                 leg.venue = venueSectionForSession(path).toStdString();
@@ -2298,7 +2321,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.outputPath = (QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();
 
         const auto result = hft_backtest::runBacktest(request, progressCallback, this);
-        const QString status = statusTextFor(result.status);
+        const QString status = statusTextFor(result.status, result.error);
         const QString selected = QString::fromStdString(result.runId);
         QMetaObject::invokeMethod(this, [this, status, selected] {
             setRunning_(false);
@@ -2422,8 +2445,9 @@ void BacktestViewModel::startSweep() {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPath.toStdString();
         if (sessionPaths.size() > 1) {
-            request.baseRun.sessions.reserve(static_cast<std::size_t>(sessionPaths.size()));
-            for (const QString& path : sessionPaths) {
+            request.baseRun.sessions.reserve(static_cast<std::size_t>(sessionPaths.size() - 1));
+            for (qsizetype i = 1; i < sessionPaths.size(); ++i) {
+                const QString& path = sessionPaths.at(i);
                 hft_backtest::BacktestSessionRequest leg{};
                 leg.path = path.toStdString();
                 leg.venue = venueSectionForSession(path).toStdString();
@@ -2457,7 +2481,7 @@ void BacktestViewModel::startSweep() {
         request.ranges = ranges;
 
         const auto result = hft_backtest::runBacktestSweep(request, progressCallback, this);
-        const QString status = sweepStatusTextFor(result.status);
+        const QString status = sweepStatusTextFor(result.status, result.error);
         const QString selected = QString::fromStdString(result.sweepId);
         QMetaObject::invokeMethod(this, [this, status, selected] {
             setRunning_(false);
@@ -3142,7 +3166,6 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
     if (legRefs.size() > 1) {
         out << "\n[portfolio.recorder]\n";
         out << "legs=" << legRefs.join(QLatin1Char(',')) << "\n";
-        out << "primary=" << legRefs.front() << "\n";
     }
     return path;
 }

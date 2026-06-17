@@ -104,9 +104,14 @@ bool backtestManifestMatchesLegs(const QString& manifestPath, const QString& pri
     const QJsonObject manifest = readManifestObject(manifestPath);
     if (!isBacktestResultManifest(manifest)) return false;
 
-    if (resultLegSessionId(manifest, 0) != primaryId) return false;
-    if (secondaryId.isEmpty()) return true;
-    return resultLegSessionId(manifest, 1) == secondaryId;
+    const QString firstLegId = resultLegSessionId(manifest, 0);
+    const QString secondLegId = resultLegSessionId(manifest, 1);
+    if (secondaryId.isEmpty()) {
+        return firstLegId.isEmpty() || firstLegId == primaryId;
+    }
+    if (firstLegId.isEmpty() || secondLegId.isEmpty()) return false;
+    return (firstLegId == primaryId && secondLegId == secondaryId)
+        || (firstLegId == secondaryId && secondLegId == primaryId);
 }
 
 }  // namespace hftrec::gui

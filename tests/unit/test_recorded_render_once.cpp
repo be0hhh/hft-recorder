@@ -142,6 +142,35 @@ TEST(ViewerBacktestResults, DiscoversRunDirectoriesAndVisibleSweepsOnly) {
     fs::remove_all(session, ec);
 }
 
+TEST(ViewerBacktestResults, DiscoversTwoLegRunWhenSelectedSessionsAreSwapped) {
+    const auto sessionA = makeTmpDir("hftrec_viewer_backtest_pair_a");
+    const auto sessionB = makeTmpDir("hftrec_viewer_backtest_pair_b");
+    const auto runDir = sessionA / "backtests" / "run-ab";
+    fs::create_directories(runDir);
+    const QString manifest = QStringLiteral(R"json({
+        "type":"run.result.v2",
+        "run_id":"run-ab",
+        "strategy":"two_leg_probe",
+        "summary":{},
+        "errors":[],
+        "legs":[
+            {"leg_index":0,"session_path":"%1"},
+            {"leg_index":1,"session_path":"%2"}
+        ]
+    })json").arg(QString::fromStdString(sessionA.string()), QString::fromStdString(sessionB.string()));
+    writeFile(runDir / "manifest.json", manifest.toStdString());
+
+    hftrec::gui::viewer::ChartController chart;
+    chart.refreshBacktestResults(QString::fromStdString(sessionB.string()), QString::fromStdString(sessionA.string()));
+
+    ASSERT_EQ(chart.backtestResults().size(), 1);
+    EXPECT_TRUE(chart.backtestResults().at(0).toMap().value(QStringLiteral("path")).toString().endsWith(QStringLiteral("run-ab")));
+
+    std::error_code ec;
+    fs::remove_all(sessionA, ec);
+    fs::remove_all(sessionB, ec);
+}
+
 TEST(ViewerBacktestResults, SelectsDiscoveredRunResultWithoutTreatingSweepAsRun) {
     const auto session = makeTmpDir("hftrec_viewer_backtest_select_run");
     const auto runDir = session / "backtests" / "run-a";
