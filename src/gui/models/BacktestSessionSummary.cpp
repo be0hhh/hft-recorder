@@ -107,7 +107,7 @@ bool backtestManifestMatchesLegs(const QString& manifestPath, const QString& pri
     const QString firstLegId = resultLegSessionId(manifest, 0);
     const QString secondLegId = resultLegSessionId(manifest, 1);
     if (secondaryId.isEmpty()) {
-        return firstLegId.isEmpty() || firstLegId == primaryId;
+        return firstLegId.isEmpty() || (firstLegId == primaryId && secondLegId.isEmpty());
     }
     if (firstLegId.isEmpty() || secondLegId.isEmpty()) return false;
     return (firstLegId == primaryId && secondLegId == secondaryId)

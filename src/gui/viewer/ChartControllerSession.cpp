@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStringList>
+#include <QUrl>
 #include <QVariantMap>
 #include <algorithm>
 #include <cstdint>
@@ -18,16 +19,17 @@
 
 #include "core/metrics/Metrics.hpp"
 #include "core/replay/CxetReplaySessionLoader.hpp"
-#include "gui/models/BacktestSessionSummary.hpp"
 
 namespace hftrec::gui::viewer {
 
 namespace {
 
 std::string stripFileUrl(const QString& path) {
-    QString p = path;
-    if (p.startsWith(QStringLiteral("file:///"))) p.remove(0, 8);
-    else if (p.startsWith(QStringLiteral("file://"))) p.remove(0, 7);
+    const QString p = path.trimmed();
+    if (p.startsWith(QStringLiteral("file://"))) {
+        const QUrl url(p);
+        if (url.isLocalFile()) return url.toLocalFile().toStdString();
+    }
     return p.toStdString();
 }
 
@@ -220,12 +222,10 @@ CachedManifestSummary readManifestSummary(const std::filesystem::path& manifestP
     return summary;
 }
 
-void appendResultDirs(const QString& sessionPath,
-                      QStringView prefix,
-                      const std::filesystem::path& dir,
-                      const QString& primarySessionId,
-                      const QString& secondarySessionId,
-                      QVariantList& rows) {
+void appendResultDirsDirect(const QString& sessionPath,
+                            QStringView prefix,
+                            const std::filesystem::path& dir,
+                            QVariantList& rows) {
     std::error_code ec;
     if (!std::filesystem::exists(dir, ec) || ec || !std::filesystem::is_directory(dir, ec) || ec) return;
 
@@ -241,7 +241,6 @@ void appendResultDirs(const QString& sessionPath,
 
     for (const auto& path : resultDirs) {
         const auto manifestPath = path / "manifest.json";
-        if (!hftrec::gui::backtestManifestMatchesLegs(QString::fromStdString(manifestPath.string()), primarySessionId, secondarySessionId)) continue;
         const CachedManifestSummary summary = readManifestSummary(manifestPath);
         if (!summary.valid) continue;
         QVariantMap row;
@@ -256,15 +255,13 @@ void appendResultDirs(const QString& sessionPath,
     }
 }
 
-void appendBacktestResultRows(const QString& sessionPath,
-                              QStringView prefix,
-                              const QString& primarySessionId,
-                              const QString& secondarySessionId,
-                              QVariantList& rows) {
+void appendBacktestResultRowsDirect(const QString& sessionPath,
+                                    QStringView prefix,
+                                    QVariantList& rows) {
     if (sessionPath.trimmed().isEmpty()) return;
     const std::filesystem::path dir = std::filesystem::path(stripFileUrl(sessionPath)) / "backtests";
-    appendResultDirs(sessionPath, prefix, dir, primarySessionId, secondarySessionId, rows);
-    appendResultDirs(sessionPath, prefix, dir / "sweeps", primarySessionId, secondarySessionId, rows);
+    appendResultDirsDirect(sessionPath, prefix, dir, rows);
+    appendResultDirsDirect(sessionPath, prefix, dir / "sweeps", rows);
 }
 
 }  // namespace
@@ -297,10 +294,8 @@ void ChartController::clearStrategyOverlay_() noexcept {
 
 void ChartController::refreshBacktestResults(const QString& primarySessionPath, const QString& secondarySessionPath) {
     QVariantList rows;
-    const QString primarySessionId = hftrec::gui::sessionIdFromSessionPathText(primarySessionPath);
-    const QString secondarySessionId = hftrec::gui::sessionIdFromSessionPathText(secondarySessionPath);
-    appendBacktestResultRows(primarySessionPath, QStringLiteral("A"), primarySessionId, secondarySessionId, rows);
-    appendBacktestResultRows(secondarySessionPath, QStringLiteral("B"), primarySessionId, secondarySessionId, rows);
+    appendBacktestResultRowsDirect(primarySessionPath, QStringLiteral("A"), rows);
+    appendBacktestResultRowsDirect(secondarySessionPath, QStringLiteral("B"), rows);
 
     QVariantList deduped;
     QStringList seen;

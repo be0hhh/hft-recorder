@@ -74,10 +74,17 @@ Pane {
     function syncBacktestRows() {
         var rows = [{ path: "", sessionPath: "", label: "Backtest" }]
         var seen = {}
-        for (var i = 0; i < chart.backtestResults.length; ++i)
-            root.appendBacktestRow(rows, seen, chart.backtestResults[i])
+        var primarySourceId = root.compareMode ? root.effectiveCompareSourceA() : root.singleSelectedSourceId()
+        if (primarySourceId === "")
+            primarySourceId = root.effectiveCompareSourceA()
+        var secondarySourceId = root.compareMode ? root.effectiveCompareSourceB() : ""
+        var resultRows = sourcesModel.backtestResultRows(primarySourceId, secondarySourceId)
+        for (var i = 0; i < resultRows.length; ++i)
+            root.appendBacktestRow(rows, seen, resultRows[i])
         root.backtestRows = rows
         root.syncBacktestComboIndex()
+        if (backtestCombo)
+            backtestCombo.rebuildFilter()
     }
 
     function appendBacktestRow(rows, seen, row) {
@@ -87,27 +94,57 @@ Pane {
         rows.push(row)
     }
 
+    function compareComboSourceId(combo) {
+        if (!combo)
+            return ""
+        var index = combo.currentIndex
+        if (index <= 0 || index >= root.compareSourceRows.length)
+            return ""
+        var row = root.compareSourceRows[index]
+        return row && row.id ? row.id : ""
+    }
+
+    function effectiveCompareSourceA() {
+        return root.selectedCompareSourceA !== "" ? root.selectedCompareSourceA : root.compareComboSourceId(compareComboA)
+    }
+
+    function effectiveCompareSourceB() {
+        return root.selectedCompareSourceB !== "" ? root.selectedCompareSourceB : root.compareComboSourceId(compareComboB)
+    }
+
     function backtestPrimarySessionPath() {
         if (root.compareMode)
-            return sourcesModel.sessionPath(root.selectedCompareSourceA)
+            return sourcesModel.sessionPath(root.effectiveCompareSourceA())
         var sourceId = root.singleSelectedSourceId()
+        if (sourceId === "")
+            sourceId = root.effectiveCompareSourceA()
         if (sourceId !== "" && sourcesModel.sourceKind(sourceId) === "recorded")
             return sourcesModel.sessionPath(sourceId)
+        if (chart.currentSourceKind === "recorded" && chart.sessionDir !== "")
+            return chart.sessionDir
         return ""
     }
 
     function backtestSecondarySessionPath() {
-        return root.compareMode ? sourcesModel.sessionPath(root.selectedCompareSourceB) : ""
+        return root.compareMode ? sourcesModel.sessionPath(root.effectiveCompareSourceB()) : ""
     }
 
     function selectedBacktestCountHint() {
-        var sourceId = root.compareMode ? root.selectedCompareSourceA : root.singleSelectedSourceId()
+        var sourceId = root.compareMode ? root.effectiveCompareSourceA() : root.singleSelectedSourceId()
+        if (sourceId === "")
+            sourceId = root.effectiveCompareSourceA()
         return sourceId === "" ? 0 : sourcesModel.backtestCount(sourceId)
     }
 
     function refreshBacktestChoices() {
         var primarySessionPath = root.backtestPrimarySessionPath()
         var secondarySessionPath = root.backtestSecondarySessionPath()
+        if (primarySessionPath === "") {
+            chart.refreshBacktestResults("", "")
+            root.syncBacktestRows()
+            compareChart.setBacktestResult("")
+            return
+        }
         if (!root.compareMode && primarySessionPath !== "" && root.backtestVm.sessionPath !== primarySessionPath)
             root.backtestVm.setSessionPath(primarySessionPath)
         chart.refreshBacktestResults(primarySessionPath, secondarySessionPath)
@@ -712,7 +749,7 @@ Pane {
         target: chart
         function onSessionChanged() { Qt.callLater(root.ensureVisibleLayerSelection) }
         function onLiveDataChanged() { Qt.callLater(root.ensureVisibleLayerSelection) }
-        function onBacktestResultsChanged() { Qt.callLater(root.syncBacktestRows) }
+        function onBacktestResultsChanged() { root.syncBacktestRows() }
         function onBacktestResultChanged() { Qt.callLater(root.syncBacktestComboIndex) }
     }
 
@@ -1006,8 +1043,9 @@ Pane {
                     }
                     onClicked: {
                         sourcesModel.reload()
-                        Qt.callLater(root.rebuildCompareSourceRows)
-                        Qt.callLater(root.ensureCompareSelection)
+                        root.rebuildCompareSourceRows()
+                        root.ensureCompareSelection()
+                        root.refreshBacktestChoices()
                     }
                 }
             }

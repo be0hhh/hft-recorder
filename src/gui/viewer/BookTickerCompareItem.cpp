@@ -66,6 +66,18 @@ void absorbPrice(const hftrec::replay::BookTickerRow& row, Ranges& ranges, bool&
     ranges.priceMax = std::max(ranges.priceMax, std::max(row.bidPriceE8, row.askPriceE8));
 }
 
+void absorbOverlayPrice(std::int64_t priceE8, Ranges& ranges, bool& hasPrice) noexcept {
+    if (priceE8 <= 0) return;
+    if (!hasPrice) {
+        ranges.priceMin = priceE8;
+        ranges.priceMax = priceE8;
+        hasPrice = true;
+        return;
+    }
+    ranges.priceMin = std::min(ranges.priceMin, priceE8);
+    ranges.priceMax = std::max(ranges.priceMax, priceE8);
+}
+
 void applyScaledIntRange(std::int64_t& minValue, std::int64_t& maxValue, double zoom, double pan) noexcept {
     if (maxValue <= minValue) maxValue = minValue + 1;
     if (!std::isfinite(zoom) || zoom < 1.0) zoom = 1.0;
@@ -120,6 +132,14 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     for (const auto& row : b) {
         if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
         absorbPrice(row, ranges, hasPrice);
+    }
+    for (const auto& segment : overlay.orderSegments) {
+        if (segment.tsEndNs < ranges.tsMin || segment.tsStartNs > ranges.tsMax) continue;
+        absorbOverlayPrice(segment.priceE8, ranges, hasPrice);
+    }
+    for (const auto& marker : overlay.fillMarkers) {
+        if (marker.tsNs < ranges.tsMin || marker.tsNs > ranges.tsMax) continue;
+        absorbOverlayPrice(marker.priceE8, ranges, hasPrice);
     }
     bool hasSpread = false;
     if (!overlay.spreadPoints.empty()) {
@@ -509,6 +529,11 @@ QColor overlayColor(std::uint32_t legIndex, bool buy) noexcept {
     return buy ? QColor{36, 194, 203} : QColor{218, 37, 54};
 }
 
+QColor overlayMarkerColor(std::uint32_t legIndex, bool buy) noexcept {
+    if (legIndex == 1u) return buy ? QColor{36, 194, 203} : QColor{218, 37, 54};
+    return buy ? QColor{76, 212, 126} : QColor{179, 102, 255};
+}
+
 void drawSideTriangle(QPainter& painter, qreal x, qreal y, qreal r, bool buy, const QColor& fill) {
     QPolygonF triangle;
     if (buy) {
@@ -544,7 +569,7 @@ void drawStrategyOverlay(QPainter& painter,
         const qreal x = xFor(marker.tsNs, ranges, rect);
         const qreal y = priceYFor(marker.priceE8, ranges, rect);
         const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
-        drawSideTriangle(painter, x, y, r, marker.sideBuy, overlayColor(marker.legIndex, marker.sideBuy));
+        drawSideTriangle(painter, x, y, r, marker.sideBuy, overlayMarkerColor(marker.legIndex, marker.sideBuy));
     }
 }
 
@@ -614,7 +639,7 @@ void drawStrategySpreadFillMarkers(QPainter& painter,
         const qreal y = spreadYFor(spreadBps, ranges, rect);
         if (x < rect.left() - 12.0 || x > rect.right() + 12.0 || y < rect.top() - 12.0 || y > rect.bottom() + 12.0) continue;
         const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
-        drawSideTriangle(painter, x, y, r, marker.sideBuy, overlayColor(marker.legIndex, marker.sideBuy));
+        drawSideTriangle(painter, x, y, r, marker.sideBuy, overlayMarkerColor(marker.legIndex, marker.sideBuy));
     }
     painter.setRenderHint(QPainter::Antialiasing, false);
 }

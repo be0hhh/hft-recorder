@@ -84,6 +84,14 @@ QString metricLabelValue(const QVariantList& rows, const QString& key) {
     return {};
 }
 
+QString scopeLabelValue(const QVariantList& rows, const QString& id) {
+    for (const QVariant& row : rows) {
+        const QVariantMap map = row.toMap();
+        if (map.value(QStringLiteral("id")).toString() == id) return map.value(QStringLiteral("label")).toString();
+    }
+    return {};
+}
+
 void waitForDetailsLoad(hftrec::gui::BacktestViewModel& vm) {
     QElapsedTimer timer;
     timer.start();
@@ -324,6 +332,98 @@ TEST(BacktestViewModel, DefersEquityPointsAndMetricsUntilDetailsLoad) {
     EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("fills")), QStringLiteral("2"));
 }
 
+TEST(BacktestViewModel, ExposesPortfolioAndLegResultScopes) {
+    isolateSettings(QStringLiteral("result_scopes"));
+    const QString session = makeTempSessionDir();
+    const QString runDir = makeRunDir(session, QStringLiteral("run-legs"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-legs",
+      "status":"complete",
+      "strategy":"two_leg_probe",
+      "streams":{"equity":{"rows":2}},
+      "summary":{"orders":4,"fills":4,"initial_balance_e8":30000000000,"gross_realized_pnl_e8":90000000,"fees_paid_e8":30000000,"net_realized_pnl_e8":60000000,"total_pnl_e8":70000000,"realized_pnl_e8":60000000,"unrealized_pnl_e8":10000000,"wallet_balance_e8":30060000000},
+      "legs":[
+        {"leg_index":0,"exchange":"binance","market":"futures","symbol":"BTCUSDT","initial_balance_e8":10000000000,"wallet_balance_e8":10025000000,"gross_realized_pnl_e8":40000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":25000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":30000000,"orders":2,"fills":2,"equity":{"path":"legs/0/equity.jsonl","rows":2}},
+        {"leg_index":1,"exchange":"okx","market":"futures","symbol":"ETHUSDT","initial_balance_e8":20000000000,"wallet_balance_e8":20035000000,"gross_realized_pnl_e8":50000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":35000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":40000000,"orders":2,"fills":2,"equity":{"path":"legs/1/equity.jsonl","rows":2}}
+      ],
+      "errors":[]
+    })json", QByteArrayLiteral(
+        "[100,0,0,0,0,0,0,0,30000000000,0,0]\n"
+        "[200,90000000,60000000,10000000,100000000,70000000,70000000,30000000,30060000000,0,4]\n"));
+    QDir().mkpath(QDir(runDir).absoluteFilePath(QStringLiteral("legs/0")));
+    QDir().mkpath(QDir(runDir).absoluteFilePath(QStringLiteral("legs/1")));
+    writeFile(QDir(runDir).absoluteFilePath(QStringLiteral("legs/0/equity.jsonl")), QByteArrayLiteral(
+        "[100,0,0,0,0,0,0,0,10000000000,0,0]\n"
+        "[200,40000000,25000000,5000000,45000000,30000000,30000000,15000000,10025000000,0,2]\n"));
+    writeFile(QDir(runDir).absoluteFilePath(QStringLiteral("legs/1/equity.jsonl")), QByteArrayLiteral(
+        "[100,0,0,0,0,0,0,0,20000000000,0,0]\n"
+        "[200,50000000,35000000,5000000,55000000,40000000,40000000,15000000,20035000000,0,2]\n"));
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSessionPath(session);
+    vm.loadSelectedRunDetails();
+    waitForDetailsLoad(vm);
+
+    const QVariantList scopes = vm.resultScopeChoices();
+    ASSERT_EQ(scopes.size(), 3);
+    EXPECT_EQ(scopeLabelValue(scopes, QStringLiteral("portfolio")), QStringLiteral("Portfolio"));
+    EXPECT_TRUE(scopeLabelValue(scopes, QStringLiteral("leg_0")).contains(QStringLiteral("binance")));
+    EXPECT_TRUE(scopeLabelValue(scopes, QStringLiteral("leg_1")).contains(QStringLiteral("okx")));
+    EXPECT_EQ(vm.selectedResultScope(), QStringLiteral("portfolio"));
+    EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("total_pnl_e8")), QStringLiteral("0.7"));
+
+    vm.setSelectedResultScope(QStringLiteral("leg_1"));
+
+    EXPECT_EQ(vm.selectedResultScope(), QStringLiteral("leg_1"));
+    EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("total_pnl_e8")), QStringLiteral("0.4"));
+    EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("wallet_balance_e8")), QStringLiteral("200.35"));
+    const QVariantList points = vm.selectedEquityPoints();
+    ASSERT_EQ(points.size(), 2);
+    EXPECT_EQ(points.at(1).toMap().value(QStringLiteral("totalPnlE8")).toLongLong(), 40000000ll);
+    EXPECT_EQ(points.at(1).toMap().value(QStringLiteral("walletBalanceE8")).toLongLong(), 20035000000ll);
+}
+
+TEST(BacktestViewModel, SynthesizesPortfolioEquityFromLegStreamsWhenAggregateHasOnlyFinalPoint) {
+    isolateSettings(QStringLiteral("portfolio_from_legs"));
+    const QString session = makeTempSessionDir();
+    const QString runDir = makeRunDir(session, QStringLiteral("run-leg-series"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-leg-series",
+      "status":"complete",
+      "strategy":"two_leg_probe",
+      "streams":{"equity":{"rows":1}},
+      "summary":{"fills":4,"initial_balance_e8":30000000000,"gross_realized_pnl_e8":90000000,"fees_paid_e8":30000000,"net_realized_pnl_e8":60000000,"total_pnl_e8":70000000,"realized_pnl_e8":60000000,"unrealized_pnl_e8":10000000,"wallet_balance_e8":30060000000},
+      "legs":[
+        {"leg_index":0,"exchange":"binance","market":"futures","symbol":"BTCUSDT","initial_balance_e8":10000000000,"wallet_balance_e8":10025000000,"gross_realized_pnl_e8":40000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":25000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":30000000,"fills":2,"equity":{"path":"legs/0/equity.jsonl","rows":2}},
+        {"leg_index":1,"exchange":"okx","market":"futures","symbol":"ETHUSDT","initial_balance_e8":20000000000,"wallet_balance_e8":20035000000,"gross_realized_pnl_e8":50000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":35000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":40000000,"fills":2,"equity":{"path":"legs/1/equity.jsonl","rows":2}}
+      ],
+      "errors":[]
+    })json", QByteArrayLiteral(
+        "[200,90000000,60000000,10000000,100000000,70000000,70000000,30000000,30060000000,0,4]\n"));
+    QDir().mkpath(QDir(runDir).absoluteFilePath(QStringLiteral("legs/0")));
+    QDir().mkpath(QDir(runDir).absoluteFilePath(QStringLiteral("legs/1")));
+    writeFile(QDir(runDir).absoluteFilePath(QStringLiteral("legs/0/equity.jsonl")), QByteArrayLiteral(
+        "[100,0,0,0,0,0,0,0,10000000000,0,0]\n"
+        "[200,40000000,25000000,5000000,45000000,30000000,30000000,15000000,10025000000,0,2]\n"));
+    writeFile(QDir(runDir).absoluteFilePath(QStringLiteral("legs/1/equity.jsonl")), QByteArrayLiteral(
+        "[100,0,0,0,0,0,0,0,20000000000,0,0]\n"
+        "[200,50000000,35000000,5000000,55000000,40000000,40000000,15000000,20035000000,0,2]\n"));
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSessionPath(session);
+    vm.loadSelectedRunDetails();
+    waitForDetailsLoad(vm);
+
+    ASSERT_TRUE(vm.selectedDetailsLoaded());
+    ASSERT_EQ(vm.selectedResultScope(), QStringLiteral("portfolio"));
+    const QVariantList points = vm.selectedEquityPoints();
+    ASSERT_EQ(points.size(), 2);
+    EXPECT_EQ(points.at(0).toMap().value(QStringLiteral("walletBalanceE8")).toLongLong(), 30000000000ll);
+    EXPECT_EQ(points.at(1).toMap().value(QStringLiteral("totalPnlE8")).toLongLong(), 70000000ll);
+    EXPECT_EQ(points.at(1).toMap().value(QStringLiteral("feesPaidE8")).toLongLong(), 30000000ll);
+    EXPECT_EQ(points.at(1).toMap().value(QStringLiteral("fillCount")).toLongLong(), 4);
+}
+
 TEST(BacktestViewModel, ClearsLoadedDetailsWhenRunChanges) {
     isolateSettings(QStringLiteral("clear_details"));
     const QString session = makeTempSessionDir();
@@ -399,6 +499,22 @@ TEST(BacktestViewModel, ExposesOnlyMetadataParameterKeys) {
     vm.setConfigMode(QStringLiteral("natr"));
     EXPECT_EQ(vm.configMode(), QStringLiteral("fixed"));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("distance_natr_pct")));
+}
+
+TEST(BacktestViewModel, ExposesTemplateStrategyParameters) {
+    isolateSettings(QStringLiteral("template_params"));
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSelectedStrategy(QStringLiteral("stat_arb_band"));
+
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("pending_timeout_ms")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_quote_age_ms")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_leg_skew_ms")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("type")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("enabled")));
+
+    vm.setStrategyParameter(QStringLiteral("pending_timeout_ms"), QStringLiteral("123"));
+    EXPECT_EQ(metricValue(vm.strategyParameters(), QStringLiteral("pending_timeout_ms")), QStringLiteral("123"));
 }
 
 TEST(BacktestViewModel, HidesUndeclaredIndicatorProfiles) {
@@ -676,11 +792,13 @@ TEST(BacktestViewModel, ExposesSweepDistributionBarsGroupedBySelectedParameter) 
       "errors":[]
     })json");
     writeFile(QDir(sweepDir).absoluteFilePath(QStringLiteral("sweep_results.jsonl")), QByteArrayLiteral(
-        "{\"point_id\":1,\"params\":{\"close_delay_us\":100,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":-100000000}\n"
-        "{\"point_id\":2,\"params\":{\"close_delay_us\":100,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":300000000}\n"
-        "{\"point_id\":3,\"params\":{\"close_delay_us\":200,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":200000000}\n"
-        "{\"point_id\":4,\"params\":{\"close_delay_us\":200,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":-50000000}\n"));
-    writeFile(QDir(sweepDir).absoluteFilePath(QStringLiteral("sweep_curves.jsonl")), QByteArray{});
+        "{\"point_id\":1,\"params\":{\"close_delay_us\":100,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":-100000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":50000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":-150000000}]}\n"
+        "{\"point_id\":2,\"params\":{\"close_delay_us\":100,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":300000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":100000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":200000000}]}\n"
+        "{\"point_id\":3,\"params\":{\"close_delay_us\":200,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":200000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":-200000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":400000000}]}\n"
+        "{\"point_id\":4,\"params\":{\"close_delay_us\":200,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":-50000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":0},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":-50000000}]}\n"));
+    writeFile(QDir(sweepDir).absoluteFilePath(QStringLiteral("sweep_curves.jsonl")), QByteArrayLiteral(
+        "{\"point_id\":2,\"params\":{\"close_delay_us\":100,\"distance_bps\":20},\"status\":\"Ok\",\"initial_balance_e8\":30000000000,\"total_pnl_e8\":300000000,\"curve_e8\":[0,300000000],\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":100000000,\"curve_e8\":[0,100000000]},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":200000000,\"curve_e8\":[0,200000000]}]}\n"
+        "{\"point_id\":3,\"params\":{\"close_delay_us\":200,\"distance_bps\":10},\"status\":\"Ok\",\"initial_balance_e8\":30000000000,\"total_pnl_e8\":200000000,\"curve_e8\":[0,200000000],\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":-200000000,\"curve_e8\":[0,-200000000]},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":400000000,\"curve_e8\":[0,400000000]}]}\n"));
 
     hftrec::gui::BacktestViewModel vm;
     vm.setSessionPath(session);
@@ -696,6 +814,8 @@ TEST(BacktestViewModel, ExposesSweepDistributionBarsGroupedBySelectedParameter) 
     waitForDetailsLoad(vm);
 
     ASSERT_TRUE(vm.selectedDetailsLoaded());
+    EXPECT_TRUE(hasChoiceId(vm.sweepMetricChoices(), QStringLiteral("leg_0_total_pnl_e8")));
+    EXPECT_TRUE(hasChoiceId(vm.sweepMetricChoices(), QStringLiteral("leg_1_total_pnl_e8")));
     ASSERT_EQ(vm.selectedSweepDistributionParamChoices().size(), 2);
     EXPECT_EQ(vm.selectedSweepDistributionParamChoices().at(0).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("close_delay_us"));
     EXPECT_EQ(vm.selectedSweepDistributionParam(), QStringLiteral("close_delay_us"));
@@ -712,6 +832,21 @@ TEST(BacktestViewModel, ExposesSweepDistributionBarsGroupedBySelectedParameter) 
     EXPECT_EQ(bars.at(3).toMap().value(QStringLiteral("pointId")).toInt(), 4);
     EXPECT_EQ(bars.at(3).toMap().value(QStringLiteral("metricText")).toString(), QStringLiteral("-0.5"));
 
+    vm.setSelectedSweepMetric(QStringLiteral("leg_1_total_pnl_e8"));
+
+    const QVariantList legRows = vm.selectedSweepRows();
+    ASSERT_EQ(legRows.size(), 4);
+    EXPECT_EQ(legRows.at(0).toMap().value(QStringLiteral("pointId")).toInt(), 3);
+    EXPECT_EQ(legRows.at(0).toMap().value(QStringLiteral("metricRaw")).toLongLong(), 400000000ll);
+    EXPECT_TRUE(legRows.at(0).toMap().value(QStringLiteral("metricLabel")).toString().contains(QStringLiteral("okx")));
+    const QVariantList legCurves = vm.selectedSweepCurves();
+    ASSERT_EQ(legCurves.size(), 2);
+    EXPECT_EQ(legCurves.at(0).toMap().value(QStringLiteral("pointId")).toInt(), 3);
+    EXPECT_EQ(legCurves.at(0).toMap().value(QStringLiteral("totalPnlE8")).toLongLong(), 400000000ll);
+    EXPECT_EQ(legCurves.at(0).toMap().value(QStringLiteral("initialBalanceE8")).toLongLong(), 20000000000ll);
+    EXPECT_EQ(legCurves.at(0).toMap().value(QStringLiteral("curve")).toList().at(1).toLongLong(), 400000000ll);
+
+    vm.setSelectedSweepMetric(QStringLiteral("total_pnl_e8"));
     vm.setSelectedSweepDistributionParam(QStringLiteral("distance_bps"));
     const QVariantList distanceBars = vm.selectedSweepDistributionBars();
     ASSERT_EQ(distanceBars.size(), 4);

@@ -68,6 +68,16 @@ Pane {
         return "range " + root.chartText(minPnl) + " .. " + root.chartText(maxPnl)
     }
 
+    function hasDrawableSeries() {
+        return root.backtestVm.selectedEquityPoints.length >= 2
+    }
+
+    function loadOrReloadVisual() {
+        if (root.backtestVm.selectedDetailsLoaded && !root.hasDrawableSeries())
+            root.backtestVm.unloadSelectedRunDetails()
+        root.backtestVm.loadSelectedRunDetails()
+    }
+
     function syncSelections() {
         sessionBox.currentIndex = sessionBox.indexOfValue(root.backtestVm.selectedSessionId)
         secondarySessionBox.currentIndex = secondarySessionBox.indexOfValue(root.secondarySessionId())
@@ -103,7 +113,18 @@ Pane {
             root.backtestVm.setExtraSessionIds(root.fallbackSecondarySessionId())
         }
         Qt.callLater(root.syncSelections)
+        Qt.callLater(root.requestChartPaint)
     }
+
+    function requestChartPaint() {
+        if (pnlCanvas !== null && pnlCanvas !== undefined) {
+            pnlCanvas.clearHover()
+            pnlCanvas.requestPaint()
+        }
+        if (hoverCanvas !== null && hoverCanvas !== undefined)
+            hoverCanvas.requestPaint()
+    }
+
     background: Rectangle { color: root.windowColor }
 
     Connections {
@@ -114,8 +135,11 @@ Pane {
             root.resultLegMode = root.backtestVm.selectedSessionCount > 1 ? 2 : root.resultLegMode
             root.syncSelections()
         }
-        function onRunsChanged() { root.syncSelections() }
-        function onSelectionChanged() { root.syncSelections() }
+        function onRunsChanged() { root.syncSelections(); Qt.callLater(root.requestChartPaint) }
+        function onSelectionChanged() { root.syncSelections(); Qt.callLater(root.requestChartPaint) }
+        function onPreviewLoadingChanged() { Qt.callLater(root.requestChartPaint) }
+        function onDetailsLoadingChanged() { Qt.callLater(root.requestChartPaint) }
+        function onSelectedResultScopeChanged() { Qt.callLater(root.requestChartPaint) }
     }
     component ActionButton: Rectangle {
         property string text: ""
@@ -269,10 +293,10 @@ Pane {
                 }
                 ActionButton { text: "Refresh"; onClicked: root.backtestVm.refreshResults() }
                 ActionButton {
-                    text: root.backtestVm.selectedDetailsLoading ? "Loading" : (root.backtestVm.selectedDetailsLoaded ? "Visual loaded" : "Load visual")
+                    text: root.backtestVm.selectedDetailsLoading ? "Loading" : (root.hasDrawableSeries() ? "Visual loaded" : (root.backtestVm.selectedDetailsLoaded ? "Reload visual" : "Load visual"))
                     visible: root.backtestVm.hasSelection
-                    enabledValue: !root.backtestVm.selectedDetailsLoading && !root.backtestVm.selectedDetailsLoaded
-                    onClicked: root.backtestVm.loadSelectedRunDetails()
+                    enabledValue: !root.backtestVm.selectedDetailsLoading && !root.hasDrawableSeries()
+                    onClicked: root.loadOrReloadVisual()
                 }
                 ActionButton { visible: false; text: "Raw"; enabledValue: false }
             }
@@ -302,7 +326,7 @@ Pane {
                         Layout.fillWidth: true
                         Label { text: "Realized PnL"; color: root.textColor; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
                         Label {
-                            text: root.backtestVm.hasEquityPoints ? root.realizedRangeText() : "no equity points"
+                            text: root.hasDrawableSeries() ? root.realizedRangeText() : "no drawable series"
                             color: root.mutedTextColor
                             font.pixelSize: 12
                             elide: Text.ElideRight
@@ -330,6 +354,24 @@ Pane {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
+                        RecorderComboBox {
+                            id: resultScopeBox
+                            visible: root.backtestVm.resultScopeChoices.length > 1
+                            enabled: root.backtestVm.resultScopeChoices.length > 1
+                            Layout.preferredWidth: 260
+                            caption: "Scope"
+                            textRole: "label"
+                            valueRole: "id"
+                            model: root.backtestVm.resultScopeChoices
+                            popupWidth: 360
+                            Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedResultScope)
+                            onActivated: root.backtestVm.setSelectedResultScope(currentValue)
+                            Connections {
+                                target: root.backtestVm
+                                function onSelectedResultScopeChanged() { resultScopeBox.currentIndex = resultScopeBox.indexOfValue(root.backtestVm.selectedResultScope) }
+                                function onSelectionChanged() { resultScopeBox.currentIndex = resultScopeBox.indexOfValue(root.backtestVm.selectedResultScope) }
+                            }
+                        }
                         LegendChip { text: "Gross realized"; lineColor: root.grossColor; checked: true; onToggled: {} }
                         LegendChip { text: "Realized PnL"; lineColor: root.netColor; checked: true; onToggled: {} }
                         LegendChip { text: "Fees paid"; lineColor: root.feesColor; checked: true; onToggled: {} }
@@ -593,9 +635,9 @@ Pane {
 
                         Label {
                             anchors.centerIn: parent
-                            visible: !root.backtestVm.hasEquityPoints
+                            visible: !root.hasDrawableSeries()
                             text: root.backtestVm.hasSelection
-                                  ? (root.backtestVm.selectedPreviewLoading ? "Loading PnL preview..." : "Selected run has no equity data")
+                                  ? (root.backtestVm.selectedPreviewLoading ? "Loading PnL preview..." : (root.backtestVm.selectedDetailsLoaded ? "Selected run has no drawable equity series" : "Selected run has no equity data"))
                                   : "No run selected"
                             color: root.mutedTextColor
                             font.pixelSize: 14

@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStringList>
+#include <QVariantList>
 #include <QVariantMap>
 
 #include "gui/models/BacktestSessionSummary.hpp"
@@ -77,6 +78,93 @@ RecordedIdentity readRecordedIdentity(const QString& sessionPath) {
     const auto bookTicker = channels.value(QStringLiteral("bookticker")).toObject();
     out.bookTickerCount = bookTicker.value(QStringLiteral("declared_event_count")).toInt();
     return out;
+}
+
+struct BacktestResultSummary {
+    bool valid{false};
+    bool selectable{false};
+    QString type{};
+    QString pnlText{};
+    QString rightText{};
+};
+
+BacktestResultSummary readBacktestResultSummary(const QString& manifestPath) {
+    BacktestResultSummary summary{};
+    QFile file(manifestPath);
+    if (!file.open(QIODevice::ReadOnly)) return summary;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) return summary;
+
+    const QJsonObject root = doc.object();
+    const QString type = root.value(QStringLiteral("type")).toString();
+    summary.type = type;
+    summary.valid = type == QStringLiteral("run.result.v2") || type == QStringLiteral("sweep.result.v1");
+    summary.selectable = type == QStringLiteral("run.result.v2");
+    if (type == QStringLiteral("sweep.result.v1")) summary.rightText = QStringLiteral("sweep");
+    if (!summary.valid) return summary;
+
+    const QJsonObject summaryObject = root.value(QStringLiteral("summary")).toObject();
+    const qint64 initial = summaryObject.value(QStringLiteral("initial_balance_e8")).toInteger();
+    const qint64 pnl = summaryObject.value(QStringLiteral("total_pnl_e8")).toInteger();
+    if (initial <= 0) return summary;
+
+    const qint64 bps = (pnl * 10000) / initial;
+    const QString sign = bps > 0 ? QStringLiteral("+") : (bps < 0 ? QStringLiteral("-") : QString{});
+    const qint64 absBps = bps < 0 ? -bps : bps;
+    summary.pnlText = QStringLiteral("%1%2.%3%")
+                          .arg(sign,
+                               QString::number(absBps / 100),
+                               QString::number(absBps % 100).rightJustified(2, QLatin1Char('0')));
+    const qint64 maxDrawdown = summaryObject.value(QStringLiteral("max_drawdown_e8")).toInteger();
+    const qint64 ddBps = maxDrawdown > 0 ? (maxDrawdown * 10000) / initial : 0;
+    const qint64 fills = summaryObject.value(QStringLiteral("fills")).toInteger();
+    summary.rightText = QStringLiteral("%1 | DD %2.%3% | F %4")
+                            .arg(summary.pnlText,
+                                 QString::number(ddBps / 100),
+                                 QString::number(ddBps % 100).rightJustified(2, QLatin1Char('0')),
+                                 QString::number(fills));
+    return summary;
+}
+
+void appendBacktestResultRowsForDir(const QString& sessionPath,
+                                    const QString& prefix,
+                                    const QDir& dir,
+                                    QStringList& seen,
+                                    QVariantList& rows) {
+    if (!dir.exists()) return;
+    const QFileInfoList resultDirs = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QFileInfo& resultDir : resultDirs) {
+        if (resultDir.fileName() == QStringLiteral("sweeps")) continue;
+        const QDir result(resultDir.absoluteFilePath());
+        const QString manifestPath = result.absoluteFilePath(QStringLiteral("manifest.json"));
+        if (!QFileInfo::exists(manifestPath)) continue;
+        const BacktestResultSummary summary = readBacktestResultSummary(manifestPath);
+        if (!summary.valid) continue;
+
+        const QString resultPath = QDir::cleanPath(resultDir.absoluteFilePath());
+        if (seen.contains(resultPath)) continue;
+        seen.push_back(resultPath);
+
+        QVariantMap row;
+        row.insert(QStringLiteral("sessionPath"), sessionPath);
+        row.insert(QStringLiteral("path"), resultPath);
+        row.insert(QStringLiteral("label"), prefix + QLatin1Char(' ') + resultDir.fileName());
+        row.insert(QStringLiteral("pnlText"), summary.pnlText);
+        row.insert(QStringLiteral("rightText"), summary.rightText.isEmpty() ? summary.pnlText : summary.rightText);
+        row.insert(QStringLiteral("type"), summary.type);
+        row.insert(QStringLiteral("selectable"), summary.selectable);
+        rows.push_back(row);
+    }
+}
+
+void appendBacktestResultRowsForSession(const QString& sessionPath,
+                                        const QString& prefix,
+                                        QStringList& seen,
+                                        QVariantList& rows) {
+    if (sessionPath.trimmed().isEmpty()) return;
+    const QDir backtestsDir(QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests")));
+    appendBacktestResultRowsForDir(sessionPath, prefix, backtestsDir, seen, rows);
+    appendBacktestResultRowsForDir(sessionPath, prefix, QDir(backtestsDir.absoluteFilePath(QStringLiteral("sweeps"))), seen, rows);
 }
 
 }  // namespace
@@ -170,6 +258,14 @@ int ViewerSourceListModel::backtestCount(const QString& sourceId) const {
         if (entry.id == sourceId) return entry.backtestCount;
     }
     return 0;
+}
+
+QVariantList ViewerSourceListModel::backtestResultRows(const QString& primarySourceId, const QString& secondarySourceId) const {
+    QVariantList rows;
+    QStringList seen;
+    appendBacktestResultRowsForSession(sessionPath(primarySourceId), QStringLiteral("A"), seen, rows);
+    appendBacktestResultRowsForSession(sessionPath(secondarySourceId), QStringLiteral("B"), seen, rows);
+    return rows;
 }
 
 QString ViewerSourceListModel::recordingsRoot() const {

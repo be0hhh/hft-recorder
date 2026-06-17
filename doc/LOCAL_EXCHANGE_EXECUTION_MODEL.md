@@ -60,7 +60,7 @@ V1 supports:
 Future:
 
 - cancel;
-- replace/amend;
+- replace via cancel plus new limit order;
 - post-only;
 - IOC/FOK/GTX/GTD fidelity;
 - exchange-specific order flags.

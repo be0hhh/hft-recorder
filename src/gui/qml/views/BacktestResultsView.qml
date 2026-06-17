@@ -61,6 +61,19 @@ Pane {
         return metric && metric[field] ? metric[field] : ""
     }
 
+    function hasSelectedVisualData() {
+        if (!root.backtestVm.selectedDetailsLoaded) return false
+        if (root.backtestVm.selectedIsSweep)
+            return root.backtestVm.selectedSweepCurves.length > 0 || root.backtestVm.selectedSweepRows.length > 0
+        return root.backtestVm.selectedEquityPoints.length >= 2
+    }
+
+    function loadOrReloadVisual() {
+        if (root.backtestVm.selectedDetailsLoaded && !root.hasSelectedVisualData())
+            root.backtestVm.unloadSelectedRunDetails()
+        root.backtestVm.loadSelectedRunDetails()
+    }
+
     function metricPointText(value, metricKey) {
         if (root.backtestVm.selectedResultMetricRatioKey.length > 0) return Number(value).toFixed(4) + "x"
         return metricKey.endsWith("_e8") ? root.e8Text(value) : String(Math.round(Number(value) * 1000) / 1000)
@@ -331,14 +344,15 @@ Pane {
                             Layout.fillWidth: true
                             spacing: 8
                             Label { text: "Leg"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 190 }
-                            Label { text: "Maker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 76 }
-                            Label { text: "Taker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 76 }
-                            Label { text: "MD base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
-                            Label { text: "MD jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
-                            Label { text: "Mkt base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
-                            Label { text: "Mkt jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
-                            Label { text: "Limit base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 86 }
-                            Label { text: "Limit jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 86 }
+                            Label { text: "Balance"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
+                            Label { text: "Maker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 64 }
+                            Label { text: "Taker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 64 }
+                            Label { text: "MD base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
+                            Label { text: "MD jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
+                            Label { text: "Mkt base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
+                            Label { text: "Mkt jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
+                            Label { text: "Limit base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                            Label { text: "Limit jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
                             CompactField {
                                 caption: "Seed"
                                 fieldWidth: 82
@@ -362,11 +376,20 @@ Pane {
                                     Layout.preferredWidth: 190
                                 }
                                 TextField {
+                                    text: modelData.initialBalanceUsdt
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 82
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "initial_balance_usdt", text)
+                                }
+                                TextField {
                                     text: modelData.makerFeeBps
                                     selectByMouse: true
                                     color: root.textColor
                                     font.pixelSize: 12
-                                    Layout.preferredWidth: 76
+                                    Layout.preferredWidth: 64
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "maker_fee_bps", text)
                                 }
@@ -375,7 +398,7 @@ Pane {
                                     selectByMouse: true
                                     color: root.textColor
                                     font.pixelSize: 12
-                                    Layout.preferredWidth: 76
+                                    Layout.preferredWidth: 64
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "taker_fee_bps", text)
                                 }
@@ -384,7 +407,7 @@ Pane {
                                     selectByMouse: true
                                     color: root.textColor
                                     font.pixelSize: 12
-                                    Layout.preferredWidth: 78
+                                    Layout.preferredWidth: 70
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_data_latency_us", text)
                                 }
@@ -393,7 +416,7 @@ Pane {
                                     selectByMouse: true
                                     color: root.textColor
                                     font.pixelSize: 12
-                                    Layout.preferredWidth: 78
+                                    Layout.preferredWidth: 70
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_data_jitter_us", text)
                                 }
@@ -402,7 +425,7 @@ Pane {
                                     selectByMouse: true
                                     color: root.textColor
                                     font.pixelSize: 12
-                                    Layout.preferredWidth: 82
+                                    Layout.preferredWidth: 74
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_order_latency_us", text)
                                 }
@@ -411,7 +434,7 @@ Pane {
                                     selectByMouse: true
                                     color: root.textColor
                                     font.pixelSize: 12
-                                    Layout.preferredWidth: 82
+                                    Layout.preferredWidth: 74
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_order_jitter_us", text)
                                 }
@@ -420,7 +443,7 @@ Pane {
                                     selectByMouse: true
                                     color: root.textColor
                                     font.pixelSize: 12
-                                    Layout.preferredWidth: 86
+                                    Layout.preferredWidth: 78
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "limit_order_latency_us", text)
                                 }
@@ -429,7 +452,7 @@ Pane {
                                     selectByMouse: true
                                     color: root.textColor
                                     font.pixelSize: 12
-                                    Layout.preferredWidth: 86
+                                    Layout.preferredWidth: 78
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "limit_order_jitter_us", text)
                                 }
@@ -690,13 +713,13 @@ Pane {
                             onActivated: root.backtestVm.setSelectedSweepCurveLimit(currentValue)
                         }
                         RecorderComboBox {
-                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded && root.backtestVm.selectedSweepView === "distribution"
-                            Layout.preferredWidth: 116
+                            visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded
+                            Layout.preferredWidth: 170
                             caption: "Metric"
                             textRole: "label"
                             valueRole: "id"
                             model: root.backtestVm.sweepMetricChoices
-                            popupWidth: 140
+                            popupWidth: 220
                             Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedSweepMetric)
                             onActivated: root.backtestVm.setSelectedSweepMetric(currentValue)
                         }
@@ -712,11 +735,11 @@ Pane {
                             onActivated: root.backtestVm.setSelectedSweepDistributionParam(currentValue)
                         }
                         ActionButton {
-                            text: root.backtestVm.selectedDetailsLoading ? "Loading" : (root.backtestVm.selectedDetailsLoaded ? "Visual loaded" : "Load visual")
+                            text: root.backtestVm.selectedDetailsLoading ? "Loading" : (root.hasSelectedVisualData() ? "Visual loaded" : (root.backtestVm.selectedDetailsLoaded ? "Reload visual" : "Load visual"))
                             visible: root.backtestVm.hasSelection
-                            enabledValue: !root.backtestVm.selectedDetailsLoading && !root.backtestVm.selectedDetailsLoaded
+                            enabledValue: !root.backtestVm.selectedDetailsLoading && !root.hasSelectedVisualData()
                             accent: root.goodColor
-                            onClicked: root.backtestVm.loadSelectedRunDetails()
+                            onClicked: root.loadOrReloadVisual()
                         }
                         ActionButton { text: root.sweepPercentMode ? "PnL %" : "PnL $"; visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded; enabledValue: root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.sweepPercentMode = !root.sweepPercentMode; sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint(); distributionCanvas.requestPaint(); distributionHoverCanvas.requestPaint() } }
                         ActionButton { text: "Apply"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedDetailsLoaded && root.selectedSweepPointId >= 0 && !root.backtestVm.running; onClicked: root.backtestVm.applySweepPointById(root.selectedSweepPointId) }
@@ -750,7 +773,7 @@ Pane {
                                 Label { text: root.backtestVm.selectedConfigText || root.backtestVm.selectedRunId; color: root.mutedTextColor; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                             }
                             Label {
-                                text: root.backtestVm.selectedDetailsLoaded ? "Visual loaded" : (root.backtestVm.selectedDetailsLoading ? "Loading visual" : (root.backtestVm.selectedPreviewLoading ? "Loading preview" : "Visual optional"))
+                                text: root.hasSelectedVisualData() ? "Visual loaded" : (root.backtestVm.selectedDetailsLoading ? "Loading visual" : (root.backtestVm.selectedPreviewLoading ? "Loading preview" : (root.backtestVm.selectedDetailsLoaded ? "Visual data missing" : "Visual optional")))
                                 color: root.mutedTextColor
                                 font.pixelSize: 11
                             }
@@ -765,6 +788,24 @@ Pane {
                         RowLayout {
                             Layout.fillWidth: true
                             Label { text: "Run metrics"; color: root.textColor; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true }
+                            RecorderComboBox {
+                                id: resultScopeBox
+                                Layout.preferredWidth: 220
+                                caption: "Scope"
+                                textRole: "label"
+                                valueRole: "id"
+                                model: root.backtestVm.resultScopeChoices
+                                popupWidth: 280
+                                visible: root.backtestVm.resultScopeChoices.length > 1
+                                enabled: root.backtestVm.resultScopeChoices.length > 1
+                                Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedResultScope)
+                                onActivated: root.backtestVm.setSelectedResultScope(currentValue)
+                                Connections {
+                                    target: root.backtestVm
+                                    function onSelectedResultScopeChanged() { resultScopeBox.currentIndex = resultScopeBox.indexOfValue(root.backtestVm.selectedResultScope) }
+                                    function onSelectionChanged() { resultScopeBox.currentIndex = resultScopeBox.indexOfValue(root.backtestVm.selectedResultScope) }
+                                }
+                            }
                             Label {
                                 text: root.backtestVm.selectedDetailsLoading ? "Loading visual data..." : (root.backtestVm.selectedPreviewLoading ? "Loading PnL preview..." : (!root.backtestVm.selectedDetailsLoaded ? "Load visual to open chart" : (root.backtestVm.selectedResultMetrics.length > 0 ? "" : "Selected run has no metrics")))
                                 color: root.mutedTextColor
@@ -1089,7 +1130,7 @@ Pane {
                                 }
 
                                 function sweepStateCacheKey(curves) {
-                                    var key = root.backtestVm.selectedRunId + ":" + root.backtestVm.selectedSweepCurveLimit + ":" + root.sweepPercentMode + ":" + curves.length
+                                    var key = root.backtestVm.selectedRunId + ":" + root.backtestVm.selectedSweepMetric + ":" + root.backtestVm.selectedSweepCurveLimit + ":" + root.sweepPercentMode + ":" + curves.length
                                     if (curves.length > 0) {
                                         var first = curves[0]
                                         var last = curves[curves.length - 1]
@@ -1254,7 +1295,7 @@ Pane {
                                     ctx.fillStyle = root.textColor
                                     ctx.fillText("#" + curve.pointId + " step " + (hoverStep + 1), cardX + 10, cardY + 8)
                                     ctx.fillStyle = Number(curve.totalPnlE8) < 0 ? root.badColor : root.goodColor
-                                    ctx.fillText("Total PnL " + root.sweepText(value, curve.initialBalanceE8), cardX + 10, cardY + 28)
+                                    ctx.fillText((curve.metricLabel || "PnL") + " " + root.sweepText(value, curve.initialBalanceE8), cardX + 10, cardY + 28)
                                     ctx.fillStyle = root.mutedTextColor
                                     ctx.fillText(curve.label || "", cardX + 10, cardY + 50)
                                 }
@@ -1367,7 +1408,7 @@ Pane {
                                 onWidthChanged: requestPaint()
                                 onHeightChanged: requestPaint()
 
-                                function barValue(bar) { return root.sweepValue(bar.metricRaw, root.backtestVm.selectedInitialBalanceE8) }
+                                function barValue(bar) { return root.sweepValue(bar.metricRaw, bar.initialBalanceE8 || root.backtestVm.selectedInitialBalanceE8) }
 
                                 function stateCacheKey(rows) {
                                     var key = root.backtestVm.selectedRunId + ":" + root.backtestVm.selectedSweepMetric + ":" + root.backtestVm.selectedSweepDistributionParam + ":" + root.sweepPercentMode + ":" + rows.length

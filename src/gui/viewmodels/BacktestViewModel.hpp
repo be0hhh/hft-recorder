@@ -50,7 +50,6 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString makerFeeBps READ makerFeeBps WRITE setMakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString takerFeeBps READ takerFeeBps WRITE setTakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString orderLatencyUs READ orderLatencyUs WRITE setOrderLatencyUs NOTIFY latencyChanged)
-    Q_PROPERTY(QString amendLatencyUs READ amendLatencyUs WRITE setAmendLatencyUs NOTIFY latencyChanged)
     Q_PROPERTY(QString cancelLatencyUs READ cancelLatencyUs WRITE setCancelLatencyUs NOTIFY latencyChanged)
     Q_PROPERTY(QString sweepBudget READ sweepBudget WRITE setSweepBudget NOTIFY sweepConfigChanged)
     Q_PROPERTY(QString sweepSeed READ sweepSeed WRITE setSweepSeed NOTIFY sweepConfigChanged)
@@ -58,7 +57,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedSweepCurveLimit READ selectedSweepCurveLimit WRITE setSelectedSweepCurveLimit NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList sweepViewChoices READ sweepViewChoices CONSTANT)
     Q_PROPERTY(QString selectedSweepView READ selectedSweepView WRITE setSelectedSweepView NOTIFY selectionChanged)
-    Q_PROPERTY(QVariantList sweepMetricChoices READ sweepMetricChoices CONSTANT)
+    Q_PROPERTY(QVariantList sweepMetricChoices READ sweepMetricChoices NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedSweepMetric READ selectedSweepMetric WRITE setSelectedSweepMetric NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedSweepDistributionParamChoices READ selectedSweepDistributionParamChoices NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedSweepDistributionParam READ selectedSweepDistributionParam WRITE setSelectedSweepDistributionParam NOTIFY selectionChanged)
@@ -70,6 +69,8 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedConfigText READ selectedConfigText NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedErrorText READ selectedErrorText NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedEquityPoints READ selectedEquityPoints NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList resultScopeChoices READ resultScopeChoices NOTIFY selectionChanged)
+    Q_PROPERTY(QString selectedResultScope READ selectedResultScope WRITE setSelectedResultScope NOTIFY selectedResultScopeChanged)
     Q_PROPERTY(QVariantList selectedResultMetrics READ selectedResultMetrics NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedResultMetricKey READ selectedResultMetricKey WRITE setSelectedResultMetricKey NOTIFY selectedResultMetricChanged)
     Q_PROPERTY(QString selectedResultMetricRatioKey READ selectedResultMetricRatioKey WRITE setSelectedResultMetricRatioKey NOTIFY selectedResultMetricChanged)
@@ -129,7 +130,6 @@ class BacktestViewModel : public QObject {
     QString makerFeeBps() const { return makerFeeBps_; }
     QString takerFeeBps() const { return takerFeeBps_; }
     QString orderLatencyUs() const { return marketOrderLatencyUs_; }
-    QString amendLatencyUs() const { return limitOrderLatencyUs_; }
     QString cancelLatencyUs() const { return limitOrderLatencyUs_; }
     QString sweepBudget() const { return sweepBudget_; }
     QString sweepSeed() const { return sweepSeed_; }
@@ -149,6 +149,8 @@ class BacktestViewModel : public QObject {
     QString selectedConfigText() const;
     QString selectedErrorText() const;
     QVariantList selectedEquityPoints() const;
+    QVariantList resultScopeChoices() const;
+    QString selectedResultScope() const;
     QVariantList selectedResultMetrics() const;
     QString selectedResultMetricKey() const;
     QString selectedResultMetricRatioKey() const { return selectedResultMetricRatioKey_; }
@@ -198,7 +200,6 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setMakerFeeBps(const QString& value);
     Q_INVOKABLE void setTakerFeeBps(const QString& value);
     Q_INVOKABLE void setOrderLatencyUs(const QString& value);
-    Q_INVOKABLE void setAmendLatencyUs(const QString& value);
     Q_INVOKABLE void setCancelLatencyUs(const QString& value);
     Q_INVOKABLE void setSweepBudget(const QString& value);
     Q_INVOKABLE void setSweepSeed(const QString& value);
@@ -215,6 +216,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void selectRun(const QString& runId);
     Q_INVOKABLE void loadSelectedRunDetails();
     Q_INVOKABLE void unloadSelectedRunDetails();
+    Q_INVOKABLE void setSelectedResultScope(const QString& scope);
     Q_INVOKABLE void setSelectedResultMetricKey(const QString& key);
     Q_INVOKABLE void setSelectedResultMetricRatioKey(const QString& key);
     Q_INVOKABLE bool deleteSelectedRun();
@@ -245,6 +247,7 @@ class BacktestViewModel : public QObject {
     void runsChanged();
     void selectionChanged();
     void selectedResultMetricChanged();
+    void selectedResultScopeChanged();
     void previewLoadingChanged();
     void statusTextChanged();
     void runningChanged();
@@ -276,7 +279,13 @@ class BacktestViewModel : public QObject {
         QString sweepRowsPath{};
         QString sweepCurvesPath{};
         QVariantList equityPoints{};
+        QVariantList resultScopes{};
         QVariantList resultMetrics{};
+        QHash<QString, QVariantList> scopedEquityPoints{};
+        QHash<QString, QVariantList> scopedResultMetrics{};
+        QHash<QString, qint64> scopedInitialBalanceE8{};
+        QHash<QString, qint64> scopedPnlMinE8{};
+        QHash<QString, qint64> scopedPnlMaxE8{};
         QVariantList sweepRows{};
         QVariantList sweepCurves{};
         QStringList sweepParamKeys{};
@@ -339,6 +348,7 @@ class BacktestViewModel : public QObject {
     quint64 latencyValue_(const QString& value, quint64 fallback) const noexcept;
     QString venueExecutionValue_(const QString& venueKey, const QString& field, const QString& fallback) const;
     std::vector<QVariantMap> venueExecutionRows_() const;
+    QString effectiveResultScopeId_(const RunRecord& record) const;
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
 
     QFileSystemWatcher watcher_{};
@@ -371,6 +381,7 @@ class BacktestViewModel : public QObject {
     QString selectedSweepView_{QStringLiteral("curves")};
     QString selectedSweepMetric_{QStringLiteral("total_pnl_e8")};
     QString selectedSweepDistributionParam_{};
+    QString selectedResultScope_{QStringLiteral("portfolio")};
     QString selectedResultMetricKey_{QStringLiteral("total_pnl_e8")};
     QString selectedResultMetricRatioKey_{};
     QString statusText_{QStringLiteral("Select a session and strategy")};

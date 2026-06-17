@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 #include <chrono>
+#include <QUrl>
 
 #include "core/metrics/Metrics.hpp"
 
@@ -22,9 +23,11 @@ constexpr std::int64_t kMinimumRecordedWindowNs = 180000000000ll;
 namespace {
 
 std::filesystem::path providerSessionPath(const QString& path) {
-    QString p = path;
-    if (p.startsWith(QStringLiteral("file:///"))) p.remove(0, 8);
-    else if (p.startsWith(QStringLiteral("file://"))) p.remove(0, 7);
+    const QString p = path.trimmed();
+    if (p.startsWith(QStringLiteral("file://"))) {
+        const QUrl url(p);
+        if (url.isLocalFile()) return std::filesystem::path{url.toLocalFile().toStdString()};
+    }
     return std::filesystem::path{p.toStdString()};
 }
 
