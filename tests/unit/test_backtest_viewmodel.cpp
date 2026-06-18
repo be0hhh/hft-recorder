@@ -339,7 +339,7 @@ TEST(BacktestViewModel, ExposesPortfolioAndLegResultScopes) {
       "type":"run.result.v2",
       "run_id":"run-legs",
       "status":"complete",
-      "strategy":"two_leg_probe",
+      "strategy":"stat_arb_band_ladder",
       "streams":{"equity":{"rows":2}},
       "summary":{"orders":4,"fills":4,"initial_balance_e8":30000000000,"gross_realized_pnl_e8":90000000,"fees_paid_e8":30000000,"net_realized_pnl_e8":60000000,"total_pnl_e8":70000000,"realized_pnl_e8":60000000,"unrealized_pnl_e8":10000000,"wallet_balance_e8":30060000000},
       "legs":[
@@ -390,7 +390,7 @@ TEST(BacktestViewModel, SynthesizesPortfolioEquityFromLegStreamsWhenAggregateHas
       "type":"run.result.v2",
       "run_id":"run-leg-series",
       "status":"complete",
-      "strategy":"two_leg_probe",
+      "strategy":"stat_arb_band_ladder",
       "streams":{"equity":{"rows":1}},
       "summary":{"fills":4,"initial_balance_e8":30000000000,"gross_realized_pnl_e8":90000000,"fees_paid_e8":30000000,"net_realized_pnl_e8":60000000,"total_pnl_e8":70000000,"realized_pnl_e8":60000000,"unrealized_pnl_e8":10000000,"wallet_balance_e8":30060000000},
       "legs":[
@@ -505,23 +505,19 @@ TEST(BacktestViewModel, ExposesTemplateStrategyParameters) {
     isolateSettings(QStringLiteral("template_params"));
 
     hftrec::gui::BacktestViewModel vm;
-    vm.setSelectedStrategy(QStringLiteral("stat_arb_band"));
+    vm.setSelectedStrategy(QStringLiteral("stat_arb_band_ladder"));
 
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("ema_window_ms")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("entry_edge_bps")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("ladder_step_bps")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("exit_edge_bps")));
+    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_ladder_levels")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("amount_qty")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("pending_timeout_ms")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_quote_age_ms")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_leg_skew_ms")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("type")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("enabled")));
-
-    vm.setSelectedStrategy(QStringLiteral("stat_arb_boundary_maker"));
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("entry_edge_bps")));
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("trigger_edge_bps")));
-    EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("exit_edge_bps")));
-    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("maker_entry_edge_bps")));
 }
 
 TEST(BacktestViewModel, HidesUndeclaredIndicatorProfiles) {
@@ -532,34 +528,63 @@ TEST(BacktestViewModel, HidesUndeclaredIndicatorProfiles) {
 
     EXPECT_TRUE(vm.indicatorProfileChoices().empty());
     EXPECT_TRUE(vm.selectedIndicatorProfile().isEmpty());
-    vm.setSelectedIndicatorProfile(QStringLiteral("trade_range"));
+    vm.setSelectedIndicatorProfile(QStringLiteral("trend_score"));
     EXPECT_TRUE(vm.selectedIndicatorProfile().isEmpty());
 }
 
-TEST(BacktestViewModel, ExposesBacktestProbeWithoutStrategyParams) {
-    isolateSettings(QStringLiteral("backtest_probe"));
+TEST(BacktestViewModel, ExposesTrendProbeIndicatorWithoutStrategyParams) {
+    isolateSettings(QStringLiteral("trend_probe"));
 
     hftrec::gui::BacktestViewModel vm;
 
-    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("backtest_probe")));
-    vm.setSelectedStrategy(QStringLiteral("backtest_probe"));
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("trend_probe")));
+    vm.setSelectedStrategy(QStringLiteral("trend_probe"));
     EXPECT_TRUE(vm.strategyParameters().empty());
     EXPECT_EQ(vm.configModeChoices().size(), 1);
     const QVariantList indicators = vm.indicatorProfileChoices();
-    ASSERT_EQ(indicators.size(), 2);
-    EXPECT_EQ(choiceLabel(indicators, QStringLiteral("trade_range")), QStringLiteral("Trade range"));
-    EXPECT_EQ(choiceLabel(indicators, QStringLiteral("rolling_volume")), QStringLiteral("Rolling volume"));
-    EXPECT_EQ(vm.selectedIndicatorProfile(), QStringLiteral("trade_range"));
+    ASSERT_EQ(indicators.size(), 1);
+    EXPECT_EQ(choiceLabel(indicators, QStringLiteral("trend_score")), QStringLiteral("Trend score"));
+    EXPECT_EQ(vm.selectedIndicatorProfile(), QStringLiteral("trend_score"));
 }
 
-TEST(BacktestViewModel, ExposesTwoLegProbeWithoutStrategyParams) {
-    isolateSettings(QStringLiteral("two_leg_probe"));
+TEST(BacktestViewModel, ExposesVolatilityProbeIndicatorWithoutStrategyParams) {
+    isolateSettings(QStringLiteral("volatility_probe"));
 
     hftrec::gui::BacktestViewModel vm;
-    const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(QStringLiteral("hftrec_two_leg_probe_primary_%1_%2")
+
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("volatility_probe")));
+    vm.setSelectedStrategy(QStringLiteral("volatility_probe"));
+    EXPECT_TRUE(vm.strategyParameters().empty());
+    EXPECT_EQ(vm.configModeChoices().size(), 1);
+    const QVariantList indicators = vm.indicatorProfileChoices();
+    ASSERT_EQ(indicators.size(), 1);
+    EXPECT_EQ(choiceLabel(indicators, QStringLiteral("volatility_bps")), QStringLiteral("Volatility"));
+    EXPECT_EQ(vm.selectedIndicatorProfile(), QStringLiteral("volatility_bps"));
+}
+
+TEST(BacktestViewModel, ExposesToxicFlowProbeIndicatorWithoutStrategyParams) {
+    isolateSettings(QStringLiteral("toxic_flow_probe"));
+
+    hftrec::gui::BacktestViewModel vm;
+
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("toxic_flow_probe")));
+    vm.setSelectedStrategy(QStringLiteral("toxic_flow_probe"));
+    EXPECT_TRUE(vm.strategyParameters().empty());
+    EXPECT_EQ(vm.configModeChoices().size(), 1);
+    const QVariantList indicators = vm.indicatorProfileChoices();
+    ASSERT_EQ(indicators.size(), 1);
+    EXPECT_EQ(choiceLabel(indicators, QStringLiteral("toxic_flow")), QStringLiteral("Toxic flow"));
+    EXPECT_EQ(vm.selectedIndicatorProfile(), QStringLiteral("toxic_flow"));
+}
+
+TEST(BacktestViewModel, ExposesStatArbBandLadderForTwoSessions) {
+    isolateSettings(QStringLiteral("stat_arb_band_ladder"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(QStringLiteral("hftrec_stat_arb_primary_%1_%2")
                                                                            .arg(QCoreApplication::applicationPid())
                                                                            .arg(std::rand()));
-    const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(QStringLiteral("hftrec_two_leg_probe_secondary_%1_%2")
+    const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(QStringLiteral("hftrec_stat_arb_secondary_%1_%2")
                                                                              .arg(QCoreApplication::applicationPid())
                                                                              .arg(std::rand()));
     QDir().mkpath(primary);
@@ -573,10 +598,10 @@ TEST(BacktestViewModel, ExposesTwoLegProbeWithoutStrategyParams) {
     vm.setExtraSessionIds(secondary);
 
     EXPECT_EQ(vm.selectedSessionCount(), 2);
-    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("two_leg_probe")));
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("stat_arb_band_ladder")));
     EXPECT_FALSE(hasChoiceId(vm.strategyChoices(), QStringLiteral("spread_maker1and2")));
-    EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("two_leg_probe"));
-    EXPECT_TRUE(vm.strategyParameters().empty());
+    EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("stat_arb_band_ladder"));
+    EXPECT_FALSE(vm.strategyParameters().empty());
     EXPECT_EQ(vm.configModeChoices().size(), 1);
     EXPECT_TRUE(vm.indicatorProfileChoices().empty());
     EXPECT_TRUE(vm.selectedIndicatorProfile().isEmpty());
@@ -592,10 +617,14 @@ TEST(BacktestViewModel, ExposesStrategyChoicesFromBacktestMetadata) {
     const QVariantList choices = vm.strategyChoices();
 
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("spread_maker1and2")));
-    EXPECT_EQ(choiceLabel(choices, QStringLiteral("spread_maker1and2")), QStringLiteral("spread_maker1and2"));
-    EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("backtest_probe")));
-    EXPECT_EQ(choiceLabel(choices, QStringLiteral("backtest_probe")), QStringLiteral("backtest_probe"));
-    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("two_leg_probe")));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("spread_maker1and2")), QStringLiteral("Спред-мейкер 1/2"));
+    EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("trend_probe")));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("trend_probe")), QStringLiteral("Диагностика тренда"));
+    EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("volatility_probe")));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("volatility_probe")), QStringLiteral("Диагностика волатильности"));
+    EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("toxic_flow_probe")));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("toxic_flow_probe")), QStringLiteral("Диагностика toxic flow"));
+    EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("removed_strategy")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("strategyMD")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("horizontal_levels")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("iceberg_detector")));
@@ -687,8 +716,8 @@ TEST(BacktestViewModel, ExplainsWhenSelectedStrategyDoesNotSupportExtraSessions)
     QDir(secondary).removeRecursively();
 }
 
-TEST(BacktestViewModel, AllowsTwoLegProbeOnlyForTwoSessions) {
-    isolateSettings(QStringLiteral("two_leg_gate"));
+TEST(BacktestViewModel, AllowsStatArbBandLadderOnlyForTwoSessions) {
+    isolateSettings(QStringLiteral("stat_arb_gate"));
 
     hftrec::gui::BacktestViewModel vm;
     const QString primaryId = QStringLiteral("hftrec_primary_%1_%2")
@@ -710,14 +739,14 @@ TEST(BacktestViewModel, AllowsTwoLegProbeOnlyForTwoSessions) {
 
     EXPECT_EQ(vm.selectedSessionCount(), 1);
     EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("spread_maker1and2")));
-    EXPECT_FALSE(hasChoiceId(vm.strategyChoices(), QStringLiteral("two_leg_probe")));
+    EXPECT_FALSE(hasChoiceId(vm.strategyChoices(), QStringLiteral("stat_arb_band_ladder")));
 
     vm.setExtraSessionIds(secondary);
 
     EXPECT_EQ(vm.selectedSessionCount(), 2);
-    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("two_leg_probe")));
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("stat_arb_band_ladder")));
     EXPECT_FALSE(hasChoiceId(vm.strategyChoices(), QStringLiteral("spread_maker1and2")));
-    EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("two_leg_probe"));
+    EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("stat_arb_band_ladder"));
     EXPECT_TRUE(vm.canRun());
     EXPECT_FALSE(vm.statusText().contains(QStringLiteral("strategy supports")));
     const QVariantList legs = vm.selectedSessionLegs();

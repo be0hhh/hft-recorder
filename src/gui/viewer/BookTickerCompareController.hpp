@@ -12,7 +12,9 @@
 #include "core/arbitrage/BookTickerSpread.hpp"
 #include "core/arbitrage/BookTickerSpreadMean.hpp"
 #include "core/replay/EventRows.hpp"
+#include "gui/viewer/CompareLowerPane.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
+#include "gui/viewer/StrategyIndicator.hpp"
 #include "gui/viewer/StrategyOverlay.hpp"
 
 namespace hftrec::gui::viewer {
@@ -26,6 +28,8 @@ class BookTickerCompareController : public QObject {
     Q_PROPERTY(int primaryCount READ primaryCount NOTIFY dataChanged)
     Q_PROPERTY(int secondaryCount READ secondaryCount NOTIFY dataChanged)
     Q_PROPERTY(int spreadCount READ spreadCount NOTIFY dataChanged)
+    Q_PROPERTY(QString lowerPaneMode READ lowerPaneMode NOTIFY dataChanged)
+    Q_PROPERTY(QString lowerPaneTitle READ lowerPaneTitle NOTIFY dataChanged)
     Q_PROPERTY(QString selectedBacktestResult READ selectedBacktestResult NOTIFY dataChanged)
     Q_PROPERTY(double primaryFeeActionBps READ primaryFeeActionBps WRITE setPrimaryFeeActionBps NOTIFY feesChanged)
     Q_PROPERTY(double secondaryFeeActionBps READ secondaryFeeActionBps WRITE setSecondaryFeeActionBps NOTIFY feesChanged)
@@ -42,10 +46,12 @@ class BookTickerCompareController : public QObject {
     QString primarySourceId() const { return primarySourceId_; }
     QString secondarySourceId() const { return secondarySourceId_; }
     QString statusText() const { return statusText_; }
-    bool ready() const noexcept { return !primaryRows_.empty() && !secondaryRows_.empty() && !spreadPoints_.empty(); }
+    bool ready() const noexcept { return !primaryRows_.empty() && !secondaryRows_.empty() && lowerPaneState_.hasData; }
     int primaryCount() const noexcept { return static_cast<int>(primaryRows_.size()); }
     int secondaryCount() const noexcept { return static_cast<int>(secondaryRows_.size()); }
     int spreadCount() const noexcept { return static_cast<int>(spreadPoints_.size()); }
+    QString lowerPaneMode() const { return compareLowerPaneKindId(lowerPaneState_.kind); }
+    QString lowerPaneTitle() const { return lowerPaneState_.title; }
     QString selectedBacktestResult() const { return selectedBacktestResult_; }
     double primaryFeeActionBps() const noexcept { return primaryFeeActionBps_; }
     double secondaryFeeActionBps() const noexcept { return secondaryFeeActionBps_; }
@@ -66,6 +72,8 @@ class BookTickerCompareController : public QObject {
     const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreadPoints() const noexcept { return spreadPoints_; }
     const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& meanPoints() const noexcept { return meanPoints_; }
     const StrategyOverlayData& strategyOverlay() const noexcept { return strategyOverlay_; }
+    const StrategyIndicatorData& strategyIndicator() const noexcept { return strategyIndicator_; }
+    CompareLowerPaneKind lowerPaneKind() const noexcept { return lowerPaneState_.kind; }
 
     Q_INVOKABLE bool setPrimarySource(const QString& sourceId, const QString& sourceKind, const QString& sessionPath);
     Q_INVOKABLE bool setSecondarySource(const QString& sourceId, const QString& sourceKind, const QString& sessionPath);
@@ -112,6 +120,7 @@ class BookTickerCompareController : public QObject {
     void reloadRecorded_(SourceState& state);
     void pollLive_();
     void rebuild_();
+    void updateLowerPane_();
     void updateFullRange_() noexcept;
     void initializeViewportIfNeeded_() noexcept;
     void setStatus_(const QString& statusText);
@@ -130,6 +139,8 @@ class BookTickerCompareController : public QObject {
     std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint> meanPoints_{};
     QString selectedBacktestResult_{};
     StrategyOverlayData strategyOverlay_{};
+    StrategyIndicatorData strategyIndicator_{};
+    CompareLowerPaneState lowerPaneState_{};
     double primaryFeeActionBps_{0.0};
     double secondaryFeeActionBps_{0.0};
     double meanWindowSeconds_{5.0};

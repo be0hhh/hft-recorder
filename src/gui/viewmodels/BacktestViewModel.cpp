@@ -558,8 +558,11 @@ QString sessionSourceSummary(const QString& sessionPath, const BacktestLegCounts
                                       manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
 }
 
-QString statusTextFor(hft_backtest::Status status, const std::string& error = {}) {
-    if (status == hft_backtest::Status::Ok) return QStringLiteral("Backtest complete");
+QString statusTextFor(hft_backtest::Status status, const std::string& error = {}, const std::vector<std::string>& warnings = {}) {
+    if (status == hft_backtest::Status::Ok) {
+        if (!warnings.empty()) return QStringLiteral("Backtest complete: warning: ") + QString::fromStdString(warnings.front());
+        return QStringLiteral("Backtest complete");
+    }
     if (status == hft_backtest::Status::Cancelled) return QStringLiteral("Backtest cancelled");
     const std::string_view statusText = hft_backtest::statusToString(status);
     QString message = QStringLiteral("Backtest failed: %1")
@@ -2603,7 +2606,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.outputPath = (QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();
 
         const auto result = hft_backtest::runBacktest(request, progressCallback, this);
-        const QString status = statusTextFor(result.status, result.error);
+        const QString status = statusTextFor(result.status, result.error, result.warnings);
         const QString selected = QString::fromStdString(result.runId);
         QMetaObject::invokeMethod(this, [this, status, selected] {
             setRunning_(false);

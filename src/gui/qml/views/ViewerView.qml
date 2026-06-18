@@ -1141,7 +1141,7 @@ Pane {
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 text: root.compareMode
-                    ? "Top: combined bookTicker traces and routed backtest markers. Bottom: best-side spread in bps with rolling mean and cost band."
+                    ? "Top: combined bookTicker traces and routed backtest markers. Bottom: " + compareChart.lowerPaneTitle + "."
                     : (chart.selectedBacktestResult !== "" || root.preferChartStatusText())
                         ? chart.statusText
                         : root.tabActive && root.performanceDiagnosticsText !== ""

@@ -150,7 +150,7 @@ TEST(ViewerBacktestResults, DiscoversTwoLegRunWhenSelectedSessionsAreSwapped) {
     const QString manifest = QStringLiteral(R"json({
         "type":"run.result.v2",
         "run_id":"run-ab",
-        "strategy":"two_leg_probe",
+        "strategy":"stat_arb_band_ladder",
         "summary":{},
         "errors":[],
         "legs":[
@@ -183,7 +183,7 @@ TEST(ViewerBacktestResults, HidesTwoLegSiblingRunUntilBothSessionsAreSelected) {
     const QString manifest = QStringLiteral(R"json({
         "type":"run.result.v2",
         "run_id":"run-ab",
-        "strategy":"two_leg_probe",
+        "strategy":"stat_arb_band_ladder",
         "summary":{},
         "errors":[],
         "legs":[

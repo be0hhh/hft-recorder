@@ -32,7 +32,9 @@ struct Ranges {
     std::int64_t priceMax{0};
     double spreadMin{0.0};
     double spreadMax{1.0};
+    double rawSpreadMin{0.0};
     double rawSpreadMax{0.0};
+    bool hasRawSpreadRange{false};
     double internalPenaltyAvg{0.0};
     double feePenaltyAvg{0.0};
     double meanAvg{0.0};
@@ -49,6 +51,12 @@ struct LayoutRects {
     QRectF primaryScaleRect{};
     QRectF spreadScaleRect{};
 };
+
+QString indicatorRawLabel(const StrategyIndicatorData& indicator) {
+    if (!indicator.auxLabel.isEmpty()) return indicator.auxLabel;
+    if (!indicator.valueLabel.isEmpty()) return indicator.valueLabel;
+    return QStringLiteral("value");
+}
 
 double bpsFromE8(std::int64_t value) noexcept {
     return static_cast<double>(value) / kE8;
@@ -105,6 +113,8 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreads,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& means,
                      const StrategyOverlayData& overlay,
+                     const StrategyIndicatorData& indicator,
+                     CompareLowerPaneKind lowerPaneKind,
                      std::int64_t tsMin,
                      std::int64_t tsMax,
                      std::int64_t currentTs,
@@ -142,7 +152,7 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
         absorbOverlayPrice(marker.priceE8, ranges, hasPrice);
     }
     bool hasSpread = false;
-    if (!overlay.spreadPoints.empty()) {
+    if (lowerPaneKind == CompareLowerPaneKind::StrategySpread && !overlay.spreadPoints.empty()) {
         double emaSum = 0.0;
         std::size_t emaCount = 0u;
         for (const auto& point : overlay.spreadPoints) {
@@ -150,6 +160,14 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
             const double spread = bpsFromE8(point.spreadBpsE8);
             const double ema = bpsFromE8(point.emaBpsE8);
             const double cost = bpsFromE8(point.costBandBpsE8);
+            if (!ranges.hasRawSpreadRange) {
+                ranges.rawSpreadMin = spread;
+                ranges.rawSpreadMax = spread;
+                ranges.hasRawSpreadRange = true;
+            } else {
+                ranges.rawSpreadMin = std::min(ranges.rawSpreadMin, spread);
+                ranges.rawSpreadMax = std::max(ranges.rawSpreadMax, spread);
+            }
             if (!hasSpread) {
                 ranges.spreadMin = std::min(spread, ema - cost);
                 ranges.spreadMax = std::max(spread, ema + cost);
@@ -166,10 +184,29 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
         }
         if (emaCount > 0u) ranges.meanAvg = emaSum / static_cast<double>(emaCount);
     }
+    if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator && !indicator.points.empty()) {
+        double rawSum = 0.0;
+        std::size_t rawCount = 0u;
+        for (const auto& point : indicator.points) {
+            if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+            const double raw = static_cast<double>(point.auxRaw);
+            if (!hasSpread) {
+                ranges.spreadMin = raw;
+                ranges.spreadMax = raw;
+                hasSpread = true;
+            } else {
+                ranges.spreadMin = std::min(ranges.spreadMin, raw);
+                ranges.spreadMax = std::max(ranges.spreadMax, raw);
+            }
+            rawSum += raw;
+            ++rawCount;
+        }
+        if (rawCount > 0u) ranges.meanAvg = rawSum / static_cast<double>(rawCount);
+    }
     double penaltySum = 0.0;
     double feePenaltySum = 0.0;
     std::size_t penaltyCount = 0u;
-    if (overlay.spreadPoints.empty()) {
+    if (lowerPaneKind == CompareLowerPaneKind::DefaultSpread) {
         const hftrec::arbitrage::BookTickerSpreadPoint* carrySpread = nullptr;
         for (const auto& point : spreads) {
             if (point.tsNs > ranges.tsMin) break;
@@ -178,7 +215,9 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
         if (carrySpread != nullptr) {
             ranges.spreadMin = std::min(0.0, carrySpread->spreadBps);
             ranges.spreadMax = std::max(1.0, carrySpread->spreadBps);
+            ranges.rawSpreadMin = carrySpread->rawSpreadBps;
             ranges.rawSpreadMax = carrySpread->rawSpreadBps;
+            ranges.hasRawSpreadRange = true;
             hasSpread = true;
         }
         for (const auto& point : spreads) {
@@ -186,12 +225,16 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
             if (!hasSpread) {
                 ranges.spreadMin = std::min(0.0, point.spreadBps);
                 ranges.spreadMax = std::max(1.0, point.spreadBps);
+                ranges.rawSpreadMin = point.rawSpreadBps;
                 ranges.rawSpreadMax = point.rawSpreadBps;
+                ranges.hasRawSpreadRange = true;
                 hasSpread = true;
             } else {
                 ranges.spreadMin = std::min(ranges.spreadMin, point.spreadBps);
                 ranges.spreadMax = std::max(ranges.spreadMax, point.spreadBps);
+                ranges.rawSpreadMin = std::min(ranges.rawSpreadMin, point.rawSpreadBps);
                 ranges.rawSpreadMax = std::max(ranges.rawSpreadMax, point.rawSpreadBps);
+                ranges.hasRawSpreadRange = true;
             }
             penaltySum += point.internalPenaltyBps;
             feePenaltySum += point.feePenaltyBps;
@@ -231,8 +274,10 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     const double spreadPad = std::max(0.25, (ranges.spreadMax - ranges.spreadMin) * 0.10);
     ranges.spreadMin -= spreadPad;
     ranges.spreadMax += spreadPad;
-    ranges.spreadMin = std::min(ranges.spreadMin, 0.0);
-    ranges.spreadMax = std::max(ranges.spreadMax, 1.0);
+    if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator) {
+        ranges.spreadMin = std::min(ranges.spreadMin, 0.0);
+        ranges.spreadMax = std::max(ranges.spreadMax, 1.0);
+    }
     return ranges;
 }
 
@@ -297,8 +342,29 @@ void drawPolyline(QPainter& painter, const QPolygonF& points, const QColor& colo
     painter.drawPolyline(points);
 }
 
+QColor sourceColor(std::uint32_t legIndex) noexcept {
+    return legIndex == 1u ? QColor{255, 92, 112} : QColor{88, 200, 255};
+}
+
+QColor oppositeSourceColor(std::uint32_t legIndex) noexcept {
+    return legIndex == 1u ? sourceColor(0u) : sourceColor(1u);
+}
+
+QColor marketBidColor(std::uint32_t legIndex) noexcept {
+    return legIndex == 1u ? QColor{176, 48, 62} : QColor{35, 119, 214};
+}
+
+QColor marketAskColor(std::uint32_t legIndex) noexcept {
+    return legIndex == 1u ? QColor{255, 92, 112} : QColor{88, 200, 255};
+}
+
+QColor orderColor(std::uint32_t legIndex, bool buy) noexcept {
+    if (legIndex == 1u) return buy ? QColor{184, 137, 24} : QColor{255, 211, 77};
+    return buy ? QColor{36, 158, 90} : QColor{86, 215, 135};
+}
+
 QColor spreadDirectionColor(std::uint8_t direction) noexcept {
-    return direction == 1u ? QColor{58, 150, 255} : QColor{255, 82, 96};
+    return direction == 1u ? sourceColor(0u) : sourceColor(1u);
 }
 
 void drawFundingMarkers(QPainter& painter,
@@ -399,8 +465,8 @@ void drawSpreadSegments(QPainter& painter,
 
     auto drawSegment = [&](const QPointF& from, const QPointF& to, hftrec::arbitrage::SpreadDirection direction) {
         const QColor color = direction == hftrec::arbitrage::SpreadDirection::BuyAAskSellBBid
-                                 ? QColor{58, 150, 255}
-                                 : QColor{255, 82, 96};
+                                 ? sourceColor(0u)
+                                 : sourceColor(1u);
         QPen pen{color};
         pen.setWidth(1);
         pen.setCapStyle(Qt::SquareCap);
@@ -509,29 +575,36 @@ void drawStrategySpreadTrace(QPainter& painter,
     painter.setPen(bandPen);
     painter.drawPolyline(upperBand);
     painter.drawPolyline(lowerBand);
-    drawPolyline(painter, emaLine, QColor{255, 214, 84});
     for (int i = 1; i < spreadLine.size(); ++i) {
         const std::uint8_t currentDirection = spreadDirections[static_cast<std::size_t>(i)];
         const std::uint8_t previousDirection = spreadDirections[static_cast<std::size_t>(i - 1)];
         const std::uint8_t direction = currentDirection != 0u ? currentDirection : previousDirection;
-        QPen pen{spreadDirectionColor(direction)};
+        QColor color = spreadDirectionColor(direction);
+        color.setAlpha(155);
+        QPen pen{color};
         pen.setWidth(1);
         pen.setCapStyle(Qt::SquareCap);
         pen.setJoinStyle(Qt::MiterJoin);
         painter.setPen(pen);
         painter.drawLine(spreadLine.at(i - 1), spreadLine.at(i));
     }
+    drawPolyline(painter, emaLine, QColor{255, 214, 84}, 2);
 
 }
 
-QColor overlayColor(std::uint32_t legIndex, bool buy) noexcept {
-    if (legIndex == 1u) return buy ? QColor{76, 212, 126} : QColor{179, 102, 255};
-    return buy ? QColor{36, 194, 203} : QColor{218, 37, 54};
-}
-
-QColor overlayMarkerColor(std::uint32_t legIndex, bool buy) noexcept {
-    if (legIndex == 1u) return buy ? QColor{36, 194, 203} : QColor{218, 37, 54};
-    return buy ? QColor{76, 212, 126} : QColor{179, 102, 255};
+void drawStrategyIndicatorTrace(QPainter& painter,
+                                const StrategyIndicatorData& indicator,
+                                const Ranges& ranges,
+                                const QRectF& rect) {
+    if (indicator.points.empty()) return;
+    QPolygonF rawLine;
+    rawLine.reserve(static_cast<int>(std::min<std::size_t>(indicator.points.size(), 1000000)));
+    for (const auto& point : indicator.points) {
+        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+        const double x = xFor(point.tsNs, ranges, rect);
+        rawLine.push_back(QPointF{x, spreadYFor(static_cast<double>(point.auxRaw), ranges, rect)});
+    }
+    drawPolyline(painter, rawLine, QColor{36, 194, 203}, 2);
 }
 
 void drawSideTriangle(QPainter& painter, qreal x, qreal y, qreal r, bool buy, const QColor& fill) {
@@ -556,8 +629,8 @@ void drawStrategyOverlay(QPainter& painter,
         const qreal x0 = xFor(std::max<std::int64_t>(segment.tsStartNs, ranges.tsMin), ranges, rect);
         const qreal x1 = xFor(std::min<std::int64_t>(segment.tsEndNs, ranges.tsMax), ranges, rect);
         const qreal y = priceYFor(segment.priceE8, ranges, rect);
-        QPen pen{overlayColor(segment.legIndex, segment.sideBuy)};
-        pen.setWidth(segment.legIndex == 1u ? 2 : 1);
+        QPen pen{orderColor(segment.legIndex, segment.sideBuy)};
+        pen.setWidth(2);
         if (segment.openEnded) pen.setStyle(Qt::DashLine);
         painter.setPen(pen);
         painter.drawLine(QPointF{x0, y}, QPointF{x1, y});
@@ -569,7 +642,7 @@ void drawStrategyOverlay(QPainter& painter,
         const qreal x = xFor(marker.tsNs, ranges, rect);
         const qreal y = priceYFor(marker.priceE8, ranges, rect);
         const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
-        drawSideTriangle(painter, x, y, r, marker.sideBuy, overlayMarkerColor(marker.legIndex, marker.sideBuy));
+        drawSideTriangle(painter, x, y, r, marker.sideBuy, oppositeSourceColor(marker.legIndex));
     }
 }
 
@@ -615,6 +688,20 @@ const StrategySpreadPoint* nearestStrategySpreadPoint(
     return (ts - left->tsNs) <= (right->tsNs - ts) ? left : right;
 }
 
+const StrategyIndicatorPoint* nearestStrategyIndicatorPoint(
+    const std::vector<StrategyIndicatorPoint>& points,
+    std::int64_t ts) noexcept {
+    if (points.empty()) return nullptr;
+    auto it = std::lower_bound(points.begin(), points.end(), ts, [](const auto& point, std::int64_t value) {
+        return point.tsNs < value;
+    });
+    if (it == points.begin()) return &*it;
+    if (it == points.end()) return &points.back();
+    const auto* right = &*it;
+    const auto* left = &*(it - 1);
+    return (ts - left->tsNs) <= (right->tsNs - ts) ? left : right;
+}
+
 void drawStrategySpreadFillMarkers(QPainter& painter,
                                    const StrategyOverlayData& overlay,
                                    const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreads,
@@ -639,7 +726,7 @@ void drawStrategySpreadFillMarkers(QPainter& painter,
         const qreal y = spreadYFor(spreadBps, ranges, rect);
         if (x < rect.left() - 12.0 || x > rect.right() + 12.0 || y < rect.top() - 12.0 || y > rect.bottom() + 12.0) continue;
         const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
-        drawSideTriangle(painter, x, y, r, marker.sideBuy, overlayMarkerColor(marker.legIndex, marker.sideBuy));
+        drawSideTriangle(painter, x, y, r, marker.sideBuy, oppositeSourceColor(marker.legIndex));
     }
     painter.setRenderHint(QPainter::Antialiasing, false);
 }
@@ -665,7 +752,12 @@ QString formatTimeOffset(std::int64_t ts, const Ranges& ranges) {
     return QStringLiteral("+") + formatDurationNs(ts - ranges.tsMin);
 }
 
-void drawAxisTicks(QPainter& painter, const QRectF& plotRect, const QRectF& scaleRect, const Ranges& ranges, bool priceAxis) {
+void drawAxisTicks(QPainter& painter,
+                   const QRectF& plotRect,
+                   const QRectF& scaleRect,
+                   const Ranges& ranges,
+                   bool priceAxis,
+                   const QString& lowerAxisLabel = QStringLiteral("bps")) {
     const int ticks = priceAxis ? 5 : 4;
     painter.setFont(QFont{painter.font().family(), 10});
     const QColor grid{58, 58, 64};
@@ -691,7 +783,9 @@ void drawAxisTicks(QPainter& painter, const QRectF& plotRect, const QRectF& scal
         painter.drawText(labelRect, Qt::AlignLeft | Qt::AlignTop, label);
     }
     painter.setPen(tick);
-    painter.drawText(scaleRect.adjusted(10, 4, -2, -2), Qt::AlignLeft | Qt::AlignTop, priceAxis ? QStringLiteral("price") : QStringLiteral("bps"));
+    painter.drawText(scaleRect.adjusted(10, 4, -2, -2),
+                     Qt::AlignLeft | Qt::AlignTop,
+                     priceAxis ? QStringLiteral("price") : lowerAxisLabel);
 }
 
 void drawTimeTicks(QPainter& painter, const QRectF& plotRect, const QRectF& timeRect, const Ranges& ranges) {
@@ -828,9 +922,24 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     const auto& spreads = controller_->spreadPoints();
     const auto& means = controller_->meanPoints();
     const StrategyOverlayData& overlay = controller_->strategyOverlay();
-    Ranges ranges = computeRanges(primary, secondary, spreads, means, overlay, controller_->tsMin(), controller_->tsMax(), controller_->currentTs(), controller_->totalFeePenaltyBps());
+    const StrategyIndicatorData& indicator = controller_->strategyIndicator();
+    const CompareLowerPaneKind lowerPaneKind = controller_->lowerPaneKind();
+    Ranges ranges = computeRanges(primary,
+                                  secondary,
+                                  spreads,
+                                  means,
+                                  overlay,
+                                  indicator,
+                                  lowerPaneKind,
+                                  controller_->tsMin(),
+                                  controller_->tsMax(),
+                                  controller_->currentTs(),
+                                  controller_->totalFeePenaltyBps());
     applyControllerScale(ranges, *controller_);
     const LayoutRects layout = makeLayout(boundingRect());
+    const QString lowerAxisLabel = lowerPaneKind == CompareLowerPaneKind::StrategyIndicator
+        ? (!indicator.unit.isEmpty() ? indicator.unit : indicatorRawLabel(indicator))
+        : QStringLiteral("bps");
 
     painter->setRenderHint(QPainter::Antialiasing, false);
     painter->setPen(QColor{73, 73, 79});
@@ -840,51 +949,82 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     painter->drawRect(layout.spreadScaleRect);
 
     drawAxisTicks(*painter, layout.primaryRect, layout.primaryScaleRect, ranges, true);
-    drawAxisTicks(*painter, layout.spreadRect, layout.spreadScaleRect, ranges, false);
+    drawAxisTicks(*painter, layout.spreadRect, layout.spreadScaleRect, ranges, false, lowerAxisLabel);
     drawTimeTicks(*painter, layout.spreadRect, layout.timeRect, ranges);
 
     QPolygonF points;
     appendTickerStepPoints(primary, true, ranges, layout.primaryRect, points);
-    drawPolyline(*painter, points, QColor{36, 194, 203});
+    drawPolyline(*painter, points, marketBidColor(0u));
     appendTickerStepPoints(primary, false, ranges, layout.primaryRect, points);
-    drawPolyline(*painter, points, QColor{218, 37, 54});
+    drawPolyline(*painter, points, marketAskColor(0u));
     appendTickerStepPoints(secondary, true, ranges, layout.primaryRect, points);
-    drawPolyline(*painter, points, QColor{76, 212, 126});
+    drawPolyline(*painter, points, marketBidColor(1u));
     appendTickerStepPoints(secondary, false, ranges, layout.primaryRect, points);
-    drawPolyline(*painter, points, QColor{179, 102, 255});
+    drawPolyline(*painter, points, marketAskColor(1u));
     drawFundingMarkers(*painter, primaryFunding, ranges, layout.primaryRect, QColor{255, 214, 51, 180}, QStringLiteral("A"));
     drawFundingMarkers(*painter, secondaryFunding, ranges, layout.primaryRect, QColor{255, 142, 64, 180}, QStringLiteral("B"));
 
-    if (!overlay.spreadPoints.empty()) {
+    if (lowerPaneKind == CompareLowerPaneKind::StrategySpread) {
         drawStrategySpreadTrace(*painter, overlay.spreadPoints, ranges, layout.spreadRect);
+    } else if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
+        drawStrategyIndicatorTrace(*painter, indicator, ranges, layout.spreadRect);
     } else {
         drawMeanBands(*painter, means, ranges, layout.spreadRect);
         drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);
     }
-    drawStrategySpreadFillMarkers(*painter, overlay, spreads, ranges, layout.spreadRect);
+    if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator) {
+        drawStrategySpreadFillMarkers(*painter, overlay, spreads, ranges, layout.spreadRect);
+    }
     drawStrategyOverlay(*painter, overlay, ranges, layout.primaryRect);
 
     painter->setFont(QFont{painter->font().family(), 9});
     painter->setPen(QColor{245, 245, 245});
     painter->drawText(layout.primaryRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("A: bid cyan / ask red   B: bid green / ask purple"));
-    const QString meanLabel = overlay.spreadPoints.empty() ? QStringLiteral("mean avg") : QStringLiteral("EMA avg");
-    painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("Spread: min %1   max %2   %3 %4   max cost band +/- %5   max deviation %6   max edge %7")
-                          .arg(formatBps(ranges.spreadMin),
-                               formatBps(ranges.spreadMax),
-                               meanLabel,
-                               formatBps(ranges.meanAvg),
-                               formatBps(ranges.costBandMax),
-                               formatBps(ranges.deviationAbsMax),
-                               formatBps(ranges.edgeAfterCostMax)));
+                      QStringLiteral("A market blue / orders green / fills red   B market red / orders yellow / fills blue"));
+    if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
+        painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
+                          QStringLiteral("%1: min %2   max %3   avg %4")
+                              .arg(controller_->lowerPaneTitle(),
+                                   QString::number(ranges.spreadMin, 'f', 2),
+                                   QString::number(ranges.spreadMax, 'f', 2),
+                                   QString::number(ranges.meanAvg, 'f', 2)));
+    } else {
+        if (lowerPaneKind == CompareLowerPaneKind::StrategySpread && ranges.hasRawSpreadRange) {
+            painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
+                              QStringLiteral("Strategy spread: raw %1..%2   EMA avg %3   scale %4..%5   band +/- %6   dev %7   edge %8")
+                                  .arg(formatBps(ranges.rawSpreadMin),
+                                       formatBps(ranges.rawSpreadMax),
+                                       formatBps(ranges.meanAvg),
+                                       formatBps(ranges.spreadMin),
+                                       formatBps(ranges.spreadMax),
+                                       formatBps(ranges.costBandMax),
+                                       formatBps(ranges.deviationAbsMax),
+                                       formatBps(ranges.edgeAfterCostMax)));
+        } else {
+            painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
+                              QStringLiteral("Spread: min %1   max %2   mean avg %3   max cost band +/- %4   max deviation %5   max edge %6")
+                                  .arg(formatBps(ranges.spreadMin),
+                                       formatBps(ranges.spreadMax),
+                                       formatBps(ranges.meanAvg),
+                                       formatBps(ranges.costBandMax),
+                                       formatBps(ranges.deviationAbsMax),
+                                       formatBps(ranges.edgeAfterCostMax)));
+        }
+    }
 
     const QRectF chartBounds = boundingRect().adjusted(4, 4, -4, -4);
     if (hoverActive_ && layout.spreadRect.contains(hoverPoint_)) {
         const auto ts = tsForX(hoverPoint_.x(), ranges, layout.spreadRect);
-        const auto* strategySpread = nearestStrategySpreadPoint(overlay.spreadPoints, ts);
-        if (strategySpread != nullptr) {
-            const QString label = QStringLiteral("spread %1  EMA %2  dev %3  cost %4  edge %5")
+        if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
+            const auto* point = nearestStrategyIndicatorPoint(indicator.points, ts);
+            if (point != nullptr) {
+                const QString label = QStringLiteral("%1 %2")
+                                          .arg(indicatorRawLabel(indicator),
+                                               QString::number(point->auxRaw));
+                drawLabel(*painter, hoverPoint_, label, chartBounds);
+            }
+        } else if (const auto* strategySpread = nearestStrategySpreadPoint(overlay.spreadPoints, ts); strategySpread != nullptr) {
+            const QString label = QStringLiteral("spread %1  EMA %2  dev %3  band +/- %4  edge %5")
                                       .arg(formatBps(bpsFromE8(strategySpread->spreadBpsE8)),
                                            formatBps(bpsFromE8(strategySpread->emaBpsE8)),
                                            formatBps(bpsFromE8(strategySpread->deviationBpsE8)),
@@ -895,7 +1035,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
             const auto* spread = nearestSpreadPoint(spreads, ts);
             const auto* mean = nearestMeanPoint(means, ts);
             if (spread != nullptr && mean != nullptr) {
-                const QString label = QStringLiteral("spread %1  mean %2  dev %3  cost %4  edge %5")
+                const QString label = QStringLiteral("spread %1  mean %2  dev %3  band +/- %4  edge %5")
                                           .arg(formatBps(spread->spreadBps),
                                                formatBps(mean->meanBps),
                                                formatBps(mean->deviationBps),
@@ -922,7 +1062,10 @@ void BookTickerCompareItem::paint(QPainter* painter) {
             if (startRect == &layout.spreadRect) {
                 const double b0 = spreadForY(measureStart_.y(), ranges, layout.spreadRect);
                 const double b1 = spreadForY(measureEnd_.y(), ranges, layout.spreadRect);
-                label += QStringLiteral("  d %1").arg(formatBps(b1 - b0));
+                if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator)
+                    label += QStringLiteral("  d %1").arg(QString::number(b1 - b0, 'f', 2));
+                else
+                    label += QStringLiteral("  d %1").arg(formatBps(b1 - b0));
             } else {
                 const auto p0 = priceForY(measureStart_.y(), ranges, *startRect);
                 const auto p1 = priceForY(measureEnd_.y(), ranges, *startRect);

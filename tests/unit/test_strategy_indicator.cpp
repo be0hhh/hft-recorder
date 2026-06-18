@@ -28,20 +28,20 @@ TEST(StrategyIndicator, LoadsManifestMetadataAndCompactRows) {
     const fs::path dir = makeTmpDir();
     writeFile(dir / "manifest.json",
               "{\"type\":\"run.result.v2\",\"streams\":{\"strategy_indicator\":{"
-              "\"path\":\"strategy_indicator.jsonl\",\"profile\":\"trade_range\","
-              "\"title\":\"Trade range\",\"value_label\":\"EMA\",\"aux_label\":\"Sample\","
-              "\"unit\":\"bps\",\"rows\":2}}}\n");
+              "\"path\":\"strategy_indicator.jsonl\",\"profile\":\"trend_score\","
+              "\"title\":\"Trend score\",\"value_label\":\"Score\",\"aux_label\":\"Raw\","
+              "\"unit\":\"score\",\"rows\":2}}}\n");
     writeFile(dir / "strategy_indicator.jsonl", "[1000,40,44,0,0,1,0]\n[2000,42,45,1,7,3,1]\n");
 
     hftrec::gui::viewer::StrategyIndicatorData data;
     std::string error;
     ASSERT_TRUE(hftrec::gui::viewer::loadStrategyIndicatorFromResult(dir, data, error)) << error;
 
-    EXPECT_EQ(data.profile, QStringLiteral("trade_range"));
-    EXPECT_EQ(data.title, QStringLiteral("Trade range"));
-    EXPECT_EQ(data.valueLabel, QStringLiteral("EMA"));
-    EXPECT_EQ(data.auxLabel, QStringLiteral("Sample"));
-    EXPECT_EQ(data.unit, QStringLiteral("bps"));
+    EXPECT_EQ(data.profile, QStringLiteral("trend_score"));
+    EXPECT_EQ(data.title, QStringLiteral("Trend score"));
+    EXPECT_EQ(data.valueLabel, QStringLiteral("Score"));
+    EXPECT_EQ(data.auxLabel, QStringLiteral("Raw"));
+    EXPECT_EQ(data.unit, QStringLiteral("score"));
     ASSERT_EQ(data.points.size(), 2u);
     EXPECT_EQ(data.points[0].tsNs, 1000);
     EXPECT_EQ(data.points[0].valueRaw, 40);

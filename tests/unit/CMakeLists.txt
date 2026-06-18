@@ -43,6 +43,7 @@ if(Qt6_FOUND)
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerSelection.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/LiveDataProvider.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/CompareLowerPane.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/StrategyOverlay.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/StrategyIndicator.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp

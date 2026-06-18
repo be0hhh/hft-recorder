@@ -69,6 +69,25 @@ std::string fundingLine(std::int64_t tsNs, std::int64_t rateE8) {
         + "]\n";
 }
 
+void writeEmptyResultBase(const fs::path& dir, const std::string& streams = "{}") {
+    fs::create_directories(dir);
+    writeFile(dir / "manifest.json", "{\"type\":\"run.result.v2\",\"streams\":" + streams + "}\n");
+    writeFile(dir / "fills.jsonl", "");
+}
+
+void writeStrategySpreadResult(const fs::path& dir) {
+    writeEmptyResultBase(dir);
+    writeFile(dir / "strategy_spread.jsonl", "[1000,100000000,90000000,10000000,5000000,5000000,1,3,0]\n");
+}
+
+void writeStrategyIndicatorResult(const fs::path& dir) {
+    writeEmptyResultBase(dir,
+                         "{\"strategy_indicator\":{\"path\":\"strategy_indicator.jsonl\","
+                         "\"profile\":\"trend_score\",\"title\":\"Trend score\","
+                         "\"value_label\":\"Score\",\"aux_label\":\"Raw\",\"unit\":\"score\",\"rows\":2}}");
+    writeFile(dir / "strategy_indicator.jsonl", "[1000,40,44,0,0,1,0]\n[2000,42,45,1,7,3,1]\n");
+}
+
 hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
                                   std::int64_t captureSeq,
                                   std::int64_t priceE8,
@@ -316,6 +335,104 @@ TEST(ViewerBookTickerCompare, RecordedSourceUsesBookTickerWithoutFullSessionRepl
     std::error_code ec;
     fs::remove_all(dirA, ec);
     fs::remove_all(dirB, ec);
+}
+
+TEST(ViewerBookTickerCompare, UsesDefaultSpreadLowerPaneWithoutBacktestResult) {
+    const auto dirA = makeTmpDir();
+    const auto dirB = makeTmpDir();
+    writeFile(dirA / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10000), e8(10010)) + bookTickerLine(2000, 2, e8(10020), e8(10030)));
+    writeFile(dirB / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10005), e8(10015)) + bookTickerLine(2000, 2, e8(10025), e8(10035)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
+
+    EXPECT_TRUE(compare.ready());
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("default_spread"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("BookTicker spread"));
+
+    std::error_code ec;
+    fs::remove_all(dirA, ec);
+    fs::remove_all(dirB, ec);
+}
+
+TEST(ViewerBookTickerCompare, StrategySpreadLowerPaneWinsWhenBacktestResultHasSpreadRows) {
+    const auto dirA = makeTmpDir();
+    const auto dirB = makeTmpDir();
+    const auto result = makeTmpDir();
+    writeFile(dirA / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10000), e8(10010)) + bookTickerLine(2000, 2, e8(10020), e8(10030)));
+    writeFile(dirB / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10005), e8(10015)) + bookTickerLine(2000, 2, e8(10025), e8(10035)));
+    writeStrategySpreadResult(result);
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
+    ASSERT_TRUE(compare.setBacktestResult(QString::fromStdString(result.string())));
+
+    EXPECT_TRUE(compare.ready());
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("strategy_spread"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Strategy spread"));
+
+    std::error_code ec;
+    fs::remove_all(dirA, ec);
+    fs::remove_all(dirB, ec);
+    fs::remove_all(result, ec);
+}
+
+TEST(ViewerBookTickerCompare, StrategyIndicatorLowerPaneReplacesDefaultSpreadWhenResultHasNoSpreadRows) {
+    const auto dirA = makeTmpDir();
+    const auto dirB = makeTmpDir();
+    const auto result = makeTmpDir();
+    writeFile(dirA / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10000), e8(10010)) + bookTickerLine(2000, 2, e8(10020), e8(10030)));
+    writeFile(dirB / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10005), e8(10015)) + bookTickerLine(2000, 2, e8(10025), e8(10035)));
+    writeStrategyIndicatorResult(result);
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
+    ASSERT_TRUE(compare.setBacktestResult(QString::fromStdString(result.string())));
+
+    EXPECT_TRUE(compare.ready());
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("strategy_indicator"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Trend score Raw"));
+    ASSERT_EQ(compare.strategyIndicator().points.size(), 2u);
+
+    std::error_code ec;
+    fs::remove_all(dirA, ec);
+    fs::remove_all(dirB, ec);
+    fs::remove_all(result, ec);
+}
+
+TEST(ViewerBookTickerCompare, StrategySpreadKeepsPriorityWhenResultAlsoHasIndicatorRows) {
+    const auto dirA = makeTmpDir();
+    const auto dirB = makeTmpDir();
+    const auto result = makeTmpDir();
+    writeFile(dirA / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10000), e8(10010)) + bookTickerLine(2000, 2, e8(10020), e8(10030)));
+    writeFile(dirB / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10005), e8(10015)) + bookTickerLine(2000, 2, e8(10025), e8(10035)));
+    writeStrategyIndicatorResult(result);
+    writeFile(result / "strategy_spread.jsonl", "[1000,100000000,90000000,10000000,5000000,5000000,1,3,0]\n");
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
+    ASSERT_TRUE(compare.setBacktestResult(QString::fromStdString(result.string())));
+
+    EXPECT_TRUE(compare.ready());
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("strategy_spread"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Strategy spread"));
+
+    std::error_code ec;
+    fs::remove_all(dirA, ec);
+    fs::remove_all(dirB, ec);
+    fs::remove_all(result, ec);
 }
 
 TEST(ViewerBookTickerCompare, ValueScaleZoomPanAndAutoFitReset) {

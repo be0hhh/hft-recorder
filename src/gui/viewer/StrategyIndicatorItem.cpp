@@ -46,6 +46,14 @@ QString compactValue(std::int64_t value, const QString& unit) {
     return unit.isEmpty() ? base : QStringLiteral("%1 %2").arg(base, unit);
 }
 
+QString indicatorRawTitle(const StrategyIndicatorData& indicator) {
+    QString title = indicator.title.isEmpty() ? indicator.profile : indicator.title;
+    if (!indicator.auxLabel.isEmpty()) {
+        title = title.isEmpty() ? indicator.auxLabel : QStringLiteral("%1 %2").arg(title, indicator.auxLabel);
+    }
+    return title;
+}
+
 }  // namespace
 
 StrategyIndicatorItem::StrategyIndicatorItem(QQuickItem* parent) : QQuickPaintedItem(parent) {
@@ -90,8 +98,6 @@ void StrategyIndicatorItem::paint(QPainter* painter) {
         if (point.tsNs < tsMin || point.tsNs > tsMax) continue;
         if (firstVisible == indicator.points.size()) firstVisible = i;
         lastVisible = i;
-        minValue = std::min(minValue, point.valueRaw);
-        maxValue = std::max(maxValue, point.valueRaw);
         minValue = std::min(minValue, point.auxRaw);
         maxValue = std::max(maxValue, point.auxRaw);
     }
@@ -110,7 +116,6 @@ void StrategyIndicatorItem::paint(QPainter* painter) {
 
     const int bucketCount = std::max(1, static_cast<int>(std::ceil(plotWidth)));
     std::vector<PixelBucket> buckets(static_cast<std::size_t>(bucketCount));
-    std::vector<PixelBucket> auxBuckets(static_cast<std::size_t>(bucketCount));
     for (std::size_t i = firstVisible; i <= lastVisible; ++i) {
         const auto& point = indicator.points[i];
         if (point.tsNs < tsMin || point.tsNs > tsMax) continue;
@@ -118,24 +123,13 @@ void StrategyIndicatorItem::paint(QPainter* painter) {
         PixelBucket& bucket = buckets[static_cast<std::size_t>(x)];
         if (!bucket.has) {
             bucket.has = true;
-            bucket.minValue = point.valueRaw;
-            bucket.maxValue = point.valueRaw;
+            bucket.minValue = point.auxRaw;
+            bucket.maxValue = point.auxRaw;
         } else {
-            bucket.minValue = std::min(bucket.minValue, point.valueRaw);
-            bucket.maxValue = std::max(bucket.maxValue, point.valueRaw);
+            bucket.minValue = std::min(bucket.minValue, point.auxRaw);
+            bucket.maxValue = std::max(bucket.maxValue, point.auxRaw);
         }
-        bucket.lastValue = point.valueRaw;
-
-        PixelBucket& auxBucket = auxBuckets[static_cast<std::size_t>(x)];
-        if (!auxBucket.has) {
-            auxBucket.has = true;
-            auxBucket.minValue = point.auxRaw;
-            auxBucket.maxValue = point.auxRaw;
-        } else {
-            auxBucket.minValue = std::min(auxBucket.minValue, point.auxRaw);
-            auxBucket.maxValue = std::max(auxBucket.maxValue, point.auxRaw);
-        }
-        auxBucket.lastValue = point.auxRaw;
+        bucket.lastValue = point.auxRaw;
     }
 
     auto drawBuckets = [&](const std::vector<PixelBucket>& source, const QColor& color, qreal width) {
@@ -162,12 +156,11 @@ void StrategyIndicatorItem::paint(QPainter* painter) {
         if (started) painter->drawPath(path);
     };
 
-    drawBuckets(auxBuckets, QColor(118, 134, 160, 150), 1.0);
     drawBuckets(buckets, QColor("#24c2cb"), 1.6);
 
     painter->setPen(QColor("#f1f4f8"));
     painter->setFont(QFont(painter->font().family(), 10));
-    const QString title = indicator.title.isEmpty() ? indicator.profile : indicator.title;
+    const QString title = indicatorRawTitle(indicator);
     painter->drawText(QRectF(10, 4, plotWidth - 20, 18), Qt::AlignLeft | Qt::AlignVCenter, title);
 
     painter->setPen(QColor("#a8afbd"));

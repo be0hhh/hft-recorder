@@ -113,6 +113,7 @@ void zoomAt(double factor, double anchorFraction, double& zoom, double& pan) noe
 BookTickerCompareController::BookTickerCompareController(QObject* parent)
     : QObject(parent) {
     meanWindowSeconds_ = cleanMeanWindowSeconds(QSettings{}.value(meanWindowSettingsKey(), meanWindowSeconds_).toDouble());
+    updateLowerPane_();
     liveTimer_.setInterval(100);
     connect(&liveTimer_, &QTimer::timeout, this, &BookTickerCompareController::pollLive_);
 }
@@ -172,6 +173,8 @@ void BookTickerCompareController::clear() {
     meanPoints_.clear();
     selectedBacktestResult_.clear();
     strategyOverlay_ = StrategyOverlayData{};
+    strategyIndicator_ = StrategyIndicatorData{};
+    updateLowerPane_();
     fullTsMin_ = 0;
     fullTsMax_ = 1;
     tsMin_ = 0;
@@ -190,7 +193,12 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
     if (selectedBacktestResult_ == next) return true;
     selectedBacktestResult_ = next;
     strategyOverlay_ = StrategyOverlayData{};
+    strategyIndicator_ = StrategyIndicatorData{};
     if (next.isEmpty()) {
+        updateLowerPane_();
+        if (!primaryRows_.empty() && !secondaryRows_.empty() && lowerPaneState_.hasData) {
+            setStatus_(QStringLiteral("BookTicker comparison ready: %1").arg(lowerPaneState_.title));
+        }
         emit dataChanged();
         return true;
     }
@@ -201,6 +209,18 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
         setStatus_(QStringLiteral("Failed to load backtest overlay: %1").arg(QString::fromStdString(error)));
         emit dataChanged();
         return false;
+    }
+    if (strategyOverlay_.spreadPoints.empty()
+        && !loadStrategyIndicatorFromResult(std::filesystem::path{next.toStdString()}, strategyIndicator_, error)) {
+        setStatus_(QStringLiteral("Failed to load strategy indicator: %1").arg(QString::fromStdString(error)));
+        emit dataChanged();
+        return false;
+    }
+    updateLowerPane_();
+    updateFullRange_();
+    initializeViewportIfNeeded_();
+    if (!primaryRows_.empty() && !secondaryRows_.empty() && lowerPaneState_.hasData) {
+        setStatus_(QStringLiteral("BookTicker comparison ready: %1").arg(lowerPaneState_.title));
     }
     emit dataChanged();
     return true;
@@ -447,6 +467,7 @@ void BookTickerCompareController::rebuild_() {
     secondaryFundingRows_ = secondary_.fundings;
     spreadPoints_ = hftrec::arbitrage::buildBestSideBookTickerSpread(primaryRows_, secondaryRows_, totalFeePenaltyBps());
     meanPoints_ = hftrec::arbitrage::buildRollingBookTickerSpreadMean(spreadPoints_, meanWindowNs(meanWindowSeconds_), totalFeePenaltyBps());
+    updateLowerPane_();
     updateFullRange_();
     initializeViewportIfNeeded_();
 
@@ -454,12 +475,16 @@ void BookTickerCompareController::rebuild_() {
         setStatus_(QStringLiteral("Select two bookTicker sessions"));
     } else if (primaryRows_.empty() || secondaryRows_.empty()) {
         setStatus_(QStringLiteral("Waiting for bookTicker rows from both sessions"));
-    } else if (spreadPoints_.empty()) {
+    } else if (!lowerPaneState_.hasData) {
         setStatus_(QStringLiteral("Not enough valid bid/ask quotes to build spread"));
     } else {
-        setStatus_(QStringLiteral("BookTicker comparison ready"));
+        setStatus_(QStringLiteral("BookTicker comparison ready: %1").arg(lowerPaneState_.title));
     }
     emit dataChanged();
+}
+
+void BookTickerCompareController::updateLowerPane_() {
+    lowerPaneState_ = selectCompareLowerPane(strategyOverlay_, strategyIndicator_, !spreadPoints_.empty());
 }
 
 void BookTickerCompareController::resetValueScale_() noexcept {
@@ -482,6 +507,8 @@ void BookTickerCompareController::updateFullRange_() noexcept {
         if (ts > fullTsMax_) fullTsMax_ = ts;
     };
 
+    for (const auto& point : strategyOverlay_.spreadPoints) absorb(point.tsNs);
+    for (const auto& point : strategyIndicator_.points) absorb(point.tsNs);
     for (const auto& point : spreadPoints_) absorb(point.tsNs);
     if (!hasTs) {
         for (const auto& row : primaryRows_) absorb(row.tsNs);
@@ -501,7 +528,7 @@ void BookTickerCompareController::updateFullRange_() noexcept {
 }
 
 void BookTickerCompareController::initializeViewportIfNeeded_() noexcept {
-    if (spreadPoints_.empty() || viewportInitialized_) return;
+    if (!lowerPaneState_.hasData || viewportInitialized_) return;
     tsMin_ = fullTsMin_;
     tsMax_ = fullTsMax_;
     viewportInitialized_ = true;
