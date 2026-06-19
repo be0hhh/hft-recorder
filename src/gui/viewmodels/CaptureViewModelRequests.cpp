@@ -21,8 +21,6 @@ struct VenueSpec {
     const char* market;
 };
 
-std::vector<std::string> normalizedSymbols(const QString& symbolsText);
-
 constexpr VenueSpec kVenues[] = {
     {"binance_futures", "Binance Futures", "binance", "futures"},
     {"binance_spot", "Binance Spot", "binance", "spot"},
@@ -81,15 +79,6 @@ bool isMoexVenue(const VenueSpec& venue) noexcept {
 
 bool isMoexFuturesVenue(const VenueSpec& venue) noexcept {
     return QString::fromLatin1(venue.key) == QStringLiteral("moex_futures");
-}
-
-std::string moexSharesUnderlyingHint(const QStringList& venueSymbolsTexts) {
-    for (const auto& venue : kVenues) {
-        if (QString::fromLatin1(venue.key) != QStringLiteral("moex_spot")) continue;
-        const auto symbols = normalizedSymbols(symbolsTextForVenue(venue, venueSymbolsTexts, {}));
-        if (!symbols.empty()) return symbols.front();
-    }
-    return {};
 }
 
 bool moexSupportsTimeframe(const QString& timeframe) {
@@ -403,6 +392,15 @@ std::vector<std::string> normalizedSymbols(const QString& symbolsText) {
         if (std::find(symbols.begin(), symbols.end(), asStd) == symbols.end()) symbols.push_back(asStd);
     }
     return symbols;
+}
+
+std::string moexSharesUnderlyingHint(const QStringList& venueSymbolsTexts) {
+    for (const auto& venue : kVenues) {
+        if (QString::fromLatin1(venue.key) != QStringLiteral("moex_spot")) continue;
+        const auto symbols = normalizedSymbols(symbolsTextForVenue(venue, venueSymbolsTexts, {}));
+        if (!symbols.empty()) return symbols.front();
+    }
+    return {};
 }
 
 QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symbolsText) {
