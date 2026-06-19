@@ -336,37 +336,51 @@ Pane {
                     Layout.rightMargin: 0
                     color: "transparent"
 
-                    ColumnLayout {
+                    Flickable {
+                        id: executionFlick
+                        property int tableWidth: 1510
                         anchors.fill: parent
-                        spacing: 4
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        contentWidth: Math.max(width, tableWidth)
+                        contentHeight: executionContent.implicitHeight
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Label { text: "Leg"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 190 }
-                            Label { text: "Balance"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
-                            Label { text: "Maker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 64 }
-                            Label { text: "Taker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 64 }
-                            Label { text: "MD base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
-                            Label { text: "MD jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
-                            Label { text: "Mkt base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
-                            Label { text: "Mkt jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
-                            Label { text: "Limit base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
-                            Label { text: "Limit jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
-                            CompactField {
-                                caption: "Seed"
-                                fieldWidth: 82
-                                text: root.backtestVm.latencySeed
-                                onEdited: function(value) { root.backtestVm.latencySeed = value }
+                        ColumnLayout {
+                            id: executionContent
+                            width: Math.max(executionFlick.width, executionFlick.tableWidth)
+                            spacing: 4
+
+                            RowLayout {
+                                width: executionContent.width
+                                spacing: 8
+                                Label { text: "Leg"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 190 }
+                                Label { text: "Balance"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
+                                Label { text: "Maker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 64 }
+                                Label { text: "Taker"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 64 }
+                                Label { text: "MD base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
+                                Label { text: "MD jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
+                                Label { text: "Mkt base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
+                                Label { text: "Mkt jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
+                                Label { text: "Limit base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                                Label { text: "Limit jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                                Label { text: "Cancel base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
+                                Label { text: "Cancel jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                                Label { text: "User base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                                Label { text: "User jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
+                                CompactField {
+                                    caption: "Seed"
+                                    fieldWidth: 82
+                                    text: root.backtestVm.latencySeed
+                                    onEdited: function(value) { root.backtestVm.latencySeed = value }
+                                }
+                                Item { Layout.fillWidth: true }
                             }
-                            Item { Layout.fillWidth: true }
-                        }
 
-                        Repeater {
-                            model: root.backtestVm.selectedSessionLegs
-                            delegate: RowLayout {
+                            Repeater {
+                                model: root.backtestVm.selectedSessionLegs
+                                delegate: RowLayout {
                                 required property var modelData
-                                Layout.fillWidth: true
+                                width: executionContent.width
                                 spacing: 8
                                 Label {
                                     text: modelData.label
@@ -456,6 +470,42 @@ Pane {
                                     background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                     onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "limit_order_jitter_us", text)
                                 }
+                                TextField {
+                                    text: modelData.cancelOrderLatencyUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 82
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "cancel_order_latency_us", text)
+                                }
+                                TextField {
+                                    text: modelData.cancelOrderJitterUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 78
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "cancel_order_jitter_us", text)
+                                }
+                                TextField {
+                                    text: modelData.userDataLatencyUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 78
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "user_data_latency_us", text)
+                                }
+                                TextField {
+                                    text: modelData.userDataJitterUs
+                                    selectByMouse: true
+                                    color: root.textColor
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 74
+                                    background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                                    onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "user_data_jitter_us", text)
+                                }
                                 Label {
                                     text: root.backtestVm.selectedSessionCount > 1 && !root.backtestVm.canRun ? root.backtestVm.statusText : ""
                                     color: root.badColor
@@ -465,6 +515,7 @@ Pane {
                                 }
                             }
                         }
+                    }
                     }
                 }
 

@@ -43,6 +43,7 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, Cap
             snapshot.fundingCount += static_cast<qulonglong>(coordinator->fundingCount());
             snapshot.priceLimitCount += static_cast<qulonglong>(coordinator->priceLimitCount());
             snapshot.candlesCount += static_cast<qulonglong>(coordinator->candlesCount());
+            snapshot.candles2Count += static_cast<qulonglong>(coordinator->candles2Count());
             snapshot.depthCount += static_cast<qulonglong>(coordinator->depthCount());
         }
 
@@ -115,6 +116,7 @@ void CaptureViewModel::refreshState(detail::CaptureRefreshMode mode) {
         snapshot.fundingCount != lastFundingCount_ ||
         snapshot.priceLimitCount != lastPriceLimitCount_ ||
         snapshot.candlesCount != lastCandlesCount_ ||
+        snapshot.candles2Count != lastCandles2Count_ ||
         snapshot.depthCount != lastDepthCount_)) {
         lastTradesCount_ = snapshot.tradesCount;
         lastLiquidationsCount_ = snapshot.liquidationsCount;
@@ -124,6 +126,7 @@ void CaptureViewModel::refreshState(detail::CaptureRefreshMode mode) {
         lastFundingCount_ = snapshot.fundingCount;
         lastPriceLimitCount_ = snapshot.priceLimitCount;
         lastCandlesCount_ = snapshot.candlesCount;
+        lastCandles2Count_ = snapshot.candles2Count;
         lastDepthCount_ = snapshot.depthCount;
         countersChangedLocal = true;
     }

@@ -61,11 +61,12 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
     if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
+    if (textEqualsAscii(exchange, "moex")) return canon::kExchangeIdMoex;
     return canon::kExchangeIdUnknown;
 }
 
 canon::MarketType marketTypeFromConfig(std::string_view market) noexcept {
-    if (textEqualsAscii(market, "spot")) return canon::kMarketTypeSpot;
+    if (textEqualsAscii(market, "spot") || textEqualsAscii(market, "shares")) return canon::kMarketTypeSpot;
     if (textEqualsAscii(market, "margin")) return canon::kMarketTypeMargin;
     if (textEqualsAscii(market, "inverse")) return canon::kMarketTypeInverse;
     if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
@@ -244,13 +245,15 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
         return Status::InvalidArgument;
     }
     if (exchangeIdFromConfig(config.exchange).raw == canon::kExchangeIdUnknown.raw) {
-        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, okx";
+        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, okx, moex";
         return Status::InvalidArgument;
     }
-    if (!textEqualsAscii(config.market, "futures") && !textEqualsAscii(config.market, "futures_usd") &&
+    if (!textEqualsAscii(config.market, "futures") && !textEqualsAscii(config.market, "forts") &&
+        !textEqualsAscii(config.market, "futures_usd") &&
         !textEqualsAscii(config.market, "spot") && !textEqualsAscii(config.market, "margin") &&
+        !textEqualsAscii(config.market, "shares") &&
         !textEqualsAscii(config.market, "inverse") && !textEqualsAscii(config.market, "swap")) {
-        lastError = "capture market must be futures, spot, margin, inverse or swap";
+        lastError = "capture market must be futures, forts, spot, shares, margin, inverse or swap";
         return Status::InvalidArgument;
     }
     if (config.outputDir.empty()) {

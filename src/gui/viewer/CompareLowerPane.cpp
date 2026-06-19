@@ -8,6 +8,10 @@ QString compareLowerPaneKindId(CompareLowerPaneKind kind) {
             return QStringLiteral("strategy_spread");
         case CompareLowerPaneKind::StrategyIndicator:
             return QStringLiteral("strategy_indicator");
+        case CompareLowerPaneKind::CandleSpread:
+            return QStringLiteral("candle_spread");
+        case CompareLowerPaneKind::MarketSpreadOverlay:
+            return QStringLiteral("market_spread_overlay");
         case CompareLowerPaneKind::DefaultSpread:
         default:
             return QStringLiteral("default_spread");
@@ -16,7 +20,8 @@ QString compareLowerPaneKindId(CompareLowerPaneKind kind) {
 
 CompareLowerPaneState selectCompareLowerPane(const StrategyOverlayData& overlay,
                                              const StrategyIndicatorData& indicator,
-                                             bool hasDefaultSpread) {
+                                             bool hasDefaultSpread,
+                                             bool hasCandleSpread) {
     if (!overlay.spreadPoints.empty()) {
         return CompareLowerPaneState{
             .kind = CompareLowerPaneKind::StrategySpread,
@@ -33,6 +38,20 @@ CompareLowerPaneState selectCompareLowerPane(const StrategyOverlayData& overlay,
             .kind = CompareLowerPaneKind::StrategyIndicator,
             .hasData = true,
             .title = title.isEmpty() ? QStringLiteral("Strategy indicator") : title,
+        };
+    }
+    if (hasDefaultSpread && hasCandleSpread) {
+        return CompareLowerPaneState{
+            .kind = CompareLowerPaneKind::MarketSpreadOverlay,
+            .hasData = true,
+            .title = QStringLiteral("BookTicker + Candle spread"),
+        };
+    }
+    if (hasCandleSpread) {
+        return CompareLowerPaneState{
+            .kind = CompareLowerPaneKind::CandleSpread,
+            .hasData = true,
+            .title = QStringLiteral("Candle close spread"),
         };
     }
     return CompareLowerPaneState{

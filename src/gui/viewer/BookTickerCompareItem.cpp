@@ -62,6 +62,12 @@ double bpsFromE8(std::int64_t value) noexcept {
     return static_cast<double>(value) / kE8;
 }
 
+std::int64_t candleClosePriceE8(const hftrec::replay::CandleRow& row) noexcept {
+    if (row.closeE8 > 0) return row.closeE8;
+    if (row.highE8 <= 0 || row.lowE8 <= 0 || row.highE8 < row.lowE8) return 0;
+    return row.lowE8 + ((row.highE8 - row.lowE8) / 2);
+}
+
 void absorbPrice(const hftrec::replay::BookTickerRow& row, Ranges& ranges, bool& hasPrice) noexcept {
     if (row.bidPriceE8 <= 0 || row.askPriceE8 <= 0) return;
     if (!hasPrice) {
@@ -84,6 +90,16 @@ void absorbOverlayPrice(std::int64_t priceE8, Ranges& ranges, bool& hasPrice) no
     }
     ranges.priceMin = std::min(ranges.priceMin, priceE8);
     ranges.priceMax = std::max(ranges.priceMax, priceE8);
+}
+
+void absorbCandlePrice(const hftrec::replay::CandleRow& row, Ranges& ranges, bool& hasPrice) noexcept {
+    if (row.highE8 > 0 && row.lowE8 > 0 && row.highE8 >= row.lowE8) {
+        absorbOverlayPrice(row.highE8, ranges, hasPrice);
+        absorbOverlayPrice(row.lowE8, ranges, hasPrice);
+        return;
+    }
+    const auto price = candleClosePriceE8(row);
+    if (price > 0) absorbOverlayPrice(price, ranges, hasPrice);
 }
 
 void applyScaledIntRange(std::int64_t& minValue, std::int64_t& maxValue, double zoom, double pan) noexcept {
@@ -110,8 +126,11 @@ void applyScaledDoubleRange(double& minValue, double& maxValue, double zoom, dou
 
 Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
                      const std::vector<hftrec::replay::BookTickerRow>& b,
+                     const std::vector<hftrec::replay::CandleRow>& candlesA,
+                     const std::vector<hftrec::replay::CandleRow>& candlesB,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreads,
                      const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& means,
+                     const std::vector<hftrec::arbitrage::CandleSpreadPoint>& candleSpreads,
                      const StrategyOverlayData& overlay,
                      const StrategyIndicatorData& indicator,
                      CompareLowerPaneKind lowerPaneKind,
@@ -133,8 +152,18 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
         }
         if (carry != nullptr) absorbPrice(*carry, ranges, hasPrice);
     };
+    auto absorbCarryCandlePrice = [&](const std::vector<hftrec::replay::CandleRow>& rows) noexcept {
+        const hftrec::replay::CandleRow* carry = nullptr;
+        for (const auto& row : rows) {
+            if (row.tsNs > ranges.tsMin) break;
+            if (candleClosePriceE8(row) > 0) carry = &row;
+        }
+        if (carry != nullptr) absorbCandlePrice(*carry, ranges, hasPrice);
+    };
     absorbCarryPrice(a);
     absorbCarryPrice(b);
+    absorbCarryCandlePrice(candlesA);
+    absorbCarryCandlePrice(candlesB);
     for (const auto& row : a) {
         if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
         absorbPrice(row, ranges, hasPrice);
@@ -142,6 +171,14 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     for (const auto& row : b) {
         if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
         absorbPrice(row, ranges, hasPrice);
+    }
+    for (const auto& row : candlesA) {
+        if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
+        absorbCandlePrice(row, ranges, hasPrice);
+    }
+    for (const auto& row : candlesB) {
+        if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
+        absorbCandlePrice(row, ranges, hasPrice);
     }
     for (const auto& segment : overlay.orderSegments) {
         if (segment.tsEndNs < ranges.tsMin || segment.tsStartNs > ranges.tsMax) continue;
@@ -206,7 +243,7 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     double penaltySum = 0.0;
     double feePenaltySum = 0.0;
     std::size_t penaltyCount = 0u;
-    if (lowerPaneKind == CompareLowerPaneKind::DefaultSpread) {
+    if (lowerPaneKind == CompareLowerPaneKind::DefaultSpread || lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay) {
         const hftrec::arbitrage::BookTickerSpreadPoint* carrySpread = nullptr;
         for (const auto& point : spreads) {
             if (point.tsNs > ranges.tsMin) break;
@@ -262,9 +299,30 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
         }
         if (meanCount > 0u) ranges.meanAvg = meanSum / static_cast<double>(meanCount);
     }
+    if ((lowerPaneKind == CompareLowerPaneKind::CandleSpread || lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay)
+        && !candleSpreads.empty()) {
+        double candleSum = 0.0;
+        std::size_t candleCount = 0u;
+        for (const auto& point : candleSpreads) {
+            if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+            if (!hasSpread) {
+                ranges.spreadMin = point.spreadBps;
+                ranges.spreadMax = point.spreadBps;
+                hasSpread = true;
+            } else {
+                ranges.spreadMin = std::min(ranges.spreadMin, point.spreadBps);
+                ranges.spreadMax = std::max(ranges.spreadMax, point.spreadBps);
+            }
+            candleSum += point.spreadBps;
+            ++candleCount;
+        }
+        if (candleCount > 0u && ranges.meanAvg == 0.0) ranges.meanAvg = candleSum / static_cast<double>(candleCount);
+    }
     if (!hasPrice) {
         for (const auto& row : a) absorbPrice(row, ranges, hasPrice);
         for (const auto& row : b) absorbPrice(row, ranges, hasPrice);
+        for (const auto& row : candlesA) absorbCandlePrice(row, ranges, hasPrice);
+        for (const auto& row : candlesB) absorbCandlePrice(row, ranges, hasPrice);
     }
     if (ranges.priceMax <= ranges.priceMin) ranges.priceMax = ranges.priceMin + 1;
     const auto pricePad = std::max<std::int64_t>(1, (ranges.priceMax - ranges.priceMin) / 20);
@@ -367,46 +425,6 @@ QColor spreadDirectionColor(std::uint8_t direction) noexcept {
     return direction == 1u ? sourceColor(0u) : sourceColor(1u);
 }
 
-void drawFundingMarkers(QPainter& painter,
-                        const std::vector<hftrec::replay::FundingRow>& rows,
-                        const Ranges& ranges,
-                        const QRectF& rect,
-                        const QColor& color,
-                        const QString& labelPrefix) {
-    if (rows.empty()) return;
-    QPen pen{color};
-    pen.setWidth(1);
-    pen.setCosmetic(true);
-    painter.setPen(pen);
-    painter.setBrush(color);
-
-    QFont labelFont = painter.font();
-    labelFont.setPixelSize(10);
-    painter.setFont(labelFont);
-    const QFontMetricsF metrics(labelFont);
-
-    bool labelDrawn = false;
-    for (const auto& row : rows) {
-        if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
-        const qreal x = xFor(row.tsNs, ranges, rect);
-        if (x < rect.left() || x > rect.right()) continue;
-        painter.drawLine(QPointF{x, rect.top()}, QPointF{x, rect.bottom()});
-        const qreal markerY = row.fundingRateE8 < 0 ? rect.bottom() - 7.0 : rect.top() + 7.0;
-        const QPolygonF tri{
-            QPointF{x, markerY},
-            QPointF{x - 4.0, row.fundingRateE8 < 0 ? markerY - 6.0 : markerY + 6.0},
-            QPointF{x + 4.0, row.fundingRateE8 < 0 ? markerY - 6.0 : markerY + 6.0},
-        };
-        painter.drawPolygon(tri);
-        if (!labelDrawn) {
-            const QString text = QStringLiteral("%1 funding").arg(labelPrefix);
-            qreal tx = std::clamp<qreal>(x + 5.0, rect.left() + 4.0, rect.right() - metrics.horizontalAdvance(text) - 4.0);
-            painter.drawText(QPointF{tx, rect.top() + 18.0}, text);
-            labelDrawn = true;
-        }
-    }
-}
-
 void appendTickerStepPoints(const std::vector<hftrec::replay::BookTickerRow>& rows,
                             bool bid,
                             const Ranges& ranges,
@@ -444,6 +462,96 @@ void appendTickerStepPoints(const std::vector<hftrec::replay::BookTickerRow>& ro
         if (holdX > prev.x()) out.push_back(QPointF{holdX, prev.y()});
     }
 }
+
+void appendCandleCloseStepPoints(const std::vector<hftrec::replay::CandleRow>& rows,
+                                 const Ranges& ranges,
+                                 const QRectF& rect,
+                                 QPolygonF& out) {
+    out.clear();
+    out.reserve(static_cast<int>(std::min<std::size_t>(rows.size() * 2u + 2u, 1000000)));
+
+    const hftrec::replay::CandleRow* carry = nullptr;
+    for (const auto& row : rows) {
+        if (row.tsNs > ranges.tsMin) break;
+        if (candleClosePriceE8(row) > 0) carry = &row;
+    }
+    if (carry != nullptr) out.push_back(QPointF{rect.left(), priceYFor(candleClosePriceE8(*carry), ranges, rect)});
+    bool havePrev = carry != nullptr;
+    QPointF prev = havePrev ? out.back() : QPointF{};
+    for (const auto& row : rows) {
+        if (row.tsNs < ranges.tsMin) continue;
+        if (row.tsNs > ranges.tsMax) break;
+        const auto price = candleClosePriceE8(row);
+        if (price <= 0) continue;
+        const QPointF current{xFor(row.tsNs, ranges, rect), priceYFor(price, ranges, rect)};
+        if (havePrev && current.x() > prev.x()) out.push_back(QPointF{current.x(), prev.y()});
+        out.push_back(current);
+        prev = current;
+        havePrev = true;
+    }
+}
+
+void drawCandleCloseTrace(QPainter& painter,
+                          const std::vector<hftrec::replay::CandleRow>& rows,
+                          const Ranges& ranges,
+                          const QRectF& rect,
+                          const QColor& color) {
+    QPolygonF points;
+    appendCandleCloseStepPoints(rows, ranges, rect, points);
+    if (points.size() < 2) return;
+    QPen pen{color};
+    pen.setWidth(2);
+    pen.setStyle(Qt::DashLine);
+    pen.setCapStyle(Qt::SquareCap);
+    pen.setJoinStyle(Qt::MiterJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPolyline(points);
+}
+
+std::int64_t candleDurationNs(const hftrec::replay::CandleRow& row) noexcept {
+    if (row.durationNs > 0) return row.durationNs;
+    if (row.tier == 1) return 60ll * 1000000000ll;
+    if (row.tier == 2) return 15ll * 60ll * 1000000000ll;
+    if (row.tier == 3) return 24ll * 60ll * 60ll * 1000000000ll;
+    return 60ll * 1000000000ll;
+}
+
+void drawCandleBodies(QPainter& painter,
+                      const std::vector<hftrec::replay::CandleRow>& rows,
+                      const Ranges& ranges,
+                      const QRectF& rect,
+                      const QColor& upColor,
+                      const QColor& downColor) {
+    for (const auto& row : rows) {
+        if (!row.hasOhlc) continue;
+        if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
+        if (row.openE8 <= 0 || row.highE8 <= 0 || row.lowE8 <= 0 || row.closeE8 <= 0 || row.highE8 < row.lowE8) continue;
+        const qreal x = xFor(row.tsNs, ranges, rect);
+        const qreal nextX = xFor(std::min<std::int64_t>(row.tsNs + candleDurationNs(row), ranges.tsMax), ranges, rect);
+        const qreal width = std::clamp(std::abs(nextX - x) * 0.65, 3.0, 14.0);
+        const qreal yHigh = priceYFor(row.highE8, ranges, rect);
+        const qreal yLow = priceYFor(row.lowE8, ranges, rect);
+        const qreal yOpen = priceYFor(row.openE8, ranges, rect);
+        const qreal yClose = priceYFor(row.closeE8, ranges, rect);
+        if ((x + width) < rect.left() || (x - width) > rect.right()) continue;
+
+        QColor color = row.closeE8 >= row.openE8 ? upColor : downColor;
+        QPen pen{color};
+        pen.setWidth(1);
+        painter.setPen(pen);
+        painter.drawLine(QPointF{x, yHigh}, QPointF{x, yLow});
+
+        QColor fill = color;
+        fill.setAlpha(90);
+        painter.setBrush(fill);
+        const qreal top = std::min(yOpen, yClose);
+        const qreal bottom = std::max(yOpen, yClose);
+        painter.drawRect(QRectF{x - width * 0.5, top, width, std::max<qreal>(2.0, bottom - top)});
+    }
+    painter.setBrush(Qt::NoBrush);
+}
+
 void drawSpreadSegments(QPainter& painter,
                         const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreads,
                         const Ranges& ranges,
@@ -494,6 +602,28 @@ void drawSpreadSegments(QPainter& painter,
         const QPointF holdPoint{xFor(holdTs, ranges, rect), prev.y()};
         if (holdPoint.x() > prev.x()) drawSegment(prev, holdPoint, prevDirection);
     }
+}
+
+void drawCandleSpreadTrace(QPainter& painter,
+                           const std::vector<hftrec::arbitrage::CandleSpreadPoint>& points,
+                           const Ranges& ranges,
+                           const QRectF& rect) {
+    if (points.empty()) return;
+    QPolygonF line;
+    line.reserve(static_cast<int>(std::min<std::size_t>(points.size(), 1000000)));
+    for (const auto& point : points) {
+        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+        line.push_back(QPointF{xFor(point.tsNs, ranges, rect), spreadYFor(point.spreadBps, ranges, rect)});
+    }
+    if (line.size() < 2) return;
+    QPen pen{QColor{235, 235, 245}};
+    pen.setWidth(2);
+    pen.setStyle(Qt::DashLine);
+    pen.setCapStyle(Qt::SquareCap);
+    pen.setJoinStyle(Qt::MiterJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPolyline(line);
 }
 
 void drawMeanBands(QPainter& painter,
@@ -662,6 +792,20 @@ const hftrec::arbitrage::BookTickerSpreadPoint* nearestSpreadPoint(
 
 const hftrec::arbitrage::BookTickerSpreadMeanPoint* nearestMeanPoint(
     const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& points,
+    std::int64_t ts) noexcept {
+    if (points.empty()) return nullptr;
+    auto it = std::lower_bound(points.begin(), points.end(), ts, [](const auto& point, std::int64_t value) {
+        return point.tsNs < value;
+    });
+    if (it == points.begin()) return &*it;
+    if (it == points.end()) return &points.back();
+    const auto* right = &*it;
+    const auto* left = &*(it - 1);
+    return (ts - left->tsNs) <= (right->tsNs - ts) ? left : right;
+}
+
+const hftrec::arbitrage::CandleSpreadPoint* nearestCandleSpreadPoint(
+    const std::vector<hftrec::arbitrage::CandleSpreadPoint>& points,
     std::int64_t ts) noexcept {
     if (points.empty()) return nullptr;
     auto it = std::lower_bound(points.begin(), points.end(), ts, [](const auto& point, std::int64_t value) {
@@ -917,17 +1061,21 @@ void BookTickerCompareItem::paint(QPainter* painter) {
 
     const auto& primary = controller_->primaryRows();
     const auto& secondary = controller_->secondaryRows();
-    const auto& primaryFunding = controller_->primaryFundingRows();
-    const auto& secondaryFunding = controller_->secondaryFundingRows();
+    const auto& primaryCandles = controller_->primaryCandles();
+    const auto& secondaryCandles = controller_->secondaryCandles();
     const auto& spreads = controller_->spreadPoints();
     const auto& means = controller_->meanPoints();
+    const auto& candleSpreads = controller_->candleSpreadPoints();
     const StrategyOverlayData& overlay = controller_->strategyOverlay();
     const StrategyIndicatorData& indicator = controller_->strategyIndicator();
     const CompareLowerPaneKind lowerPaneKind = controller_->lowerPaneKind();
     Ranges ranges = computeRanges(primary,
                                   secondary,
+                                  primaryCandles,
+                                  secondaryCandles,
                                   spreads,
                                   means,
+                                  candleSpreads,
                                   overlay,
                                   indicator,
                                   lowerPaneKind,
@@ -961,16 +1109,23 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     drawPolyline(*painter, points, marketBidColor(1u));
     appendTickerStepPoints(secondary, false, ranges, layout.primaryRect, points);
     drawPolyline(*painter, points, marketAskColor(1u));
-    drawFundingMarkers(*painter, primaryFunding, ranges, layout.primaryRect, QColor{255, 214, 51, 180}, QStringLiteral("A"));
-    drawFundingMarkers(*painter, secondaryFunding, ranges, layout.primaryRect, QColor{255, 142, 64, 180}, QStringLiteral("B"));
+    drawCandleBodies(*painter, primaryCandles, ranges, layout.primaryRect, QColor{125, 216, 255}, QColor{75, 150, 210});
+    drawCandleBodies(*painter, secondaryCandles, ranges, layout.primaryRect, QColor{255, 155, 170}, QColor{210, 85, 110});
+    drawCandleCloseTrace(*painter, primaryCandles, ranges, layout.primaryRect, QColor{175, 224, 255});
+    drawCandleCloseTrace(*painter, secondaryCandles, ranges, layout.primaryRect, QColor{255, 170, 180});
 
     if (lowerPaneKind == CompareLowerPaneKind::StrategySpread) {
         drawStrategySpreadTrace(*painter, overlay.spreadPoints, ranges, layout.spreadRect);
     } else if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
         drawStrategyIndicatorTrace(*painter, indicator, ranges, layout.spreadRect);
+    } else if (lowerPaneKind == CompareLowerPaneKind::CandleSpread) {
+        drawCandleSpreadTrace(*painter, candleSpreads, ranges, layout.spreadRect);
     } else {
         drawMeanBands(*painter, means, ranges, layout.spreadRect);
         drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);
+        if (lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay) {
+            drawCandleSpreadTrace(*painter, candleSpreads, ranges, layout.spreadRect);
+        }
     }
     if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator) {
         drawStrategySpreadFillMarkers(*painter, overlay, spreads, ranges, layout.spreadRect);
@@ -980,7 +1135,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     painter->setFont(QFont{painter->font().family(), 9});
     painter->setPen(QColor{245, 245, 245});
     painter->drawText(layout.primaryRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("A market blue / orders green / fills red   B market red / orders yellow / fills blue"));
+                      QStringLiteral("A market blue / candle dashed light blue   B market red / candle dashed pink"));
     if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
         painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
                           QStringLiteral("%1: min %2   max %3   avg %4")
@@ -1000,6 +1155,17 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                        formatBps(ranges.costBandMax),
                                        formatBps(ranges.deviationAbsMax),
                                        formatBps(ranges.edgeAfterCostMax)));
+        } else if (lowerPaneKind == CompareLowerPaneKind::CandleSpread) {
+            painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
+                              QStringLiteral("Candle futures premium: min %1   max %2")
+                                  .arg(formatBps(ranges.spreadMin),
+                                       formatBps(ranges.spreadMax)));
+        } else if (lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay) {
+            painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
+                              QStringLiteral("BookTicker spread + candle futures premium: scale %1..%2   mean avg %3   candle dashed white")
+                                  .arg(formatBps(ranges.spreadMin),
+                                       formatBps(ranges.spreadMax),
+                                       formatBps(ranges.meanAvg)));
         } else {
             painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
                               QStringLiteral("Spread: min %1   max %2   mean avg %3   max cost band +/- %4   max deviation %5   max edge %6")
@@ -1023,6 +1189,14 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                                QString::number(point->auxRaw));
                 drawLabel(*painter, hoverPoint_, label, chartBounds);
             }
+        } else if ((lowerPaneKind == CompareLowerPaneKind::CandleSpread || lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay)
+                   && nearestCandleSpreadPoint(candleSpreads, ts) != nullptr) {
+            const auto* candleSpread = nearestCandleSpreadPoint(candleSpreads, ts);
+            const QString label = QStringLiteral("candle premium %1  spot %2  futures %3")
+                                      .arg(formatBps(candleSpread->spreadBps),
+                                           formatPrice(candleSpread->spotCloseE8),
+                                           formatPrice(candleSpread->futuresCloseE8));
+            drawLabel(*painter, hoverPoint_, label, chartBounds);
         } else if (const auto* strategySpread = nearestStrategySpreadPoint(overlay.spreadPoints, ts); strategySpread != nullptr) {
             const QString label = QStringLiteral("spread %1  EMA %2  dev %3  band +/- %4  edge %5")
                                       .arg(formatBps(bpsFromE8(strategySpread->spreadBpsE8)),

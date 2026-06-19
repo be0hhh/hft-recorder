@@ -41,6 +41,11 @@ std::int64_t meanWindowNs(double seconds) noexcept {
     return static_cast<std::int64_t>(cleanMeanWindowSeconds(seconds) * 1000000000.0);
 }
 
+bool hasMarketRows(const std::vector<hftrec::replay::BookTickerRow>& rows,
+                   const std::vector<hftrec::replay::CandleRow>& candles) noexcept {
+    return !rows.empty() || !candles.empty();
+}
+
 QString feeSettingsKey(const QString& exchange, const QString& market) {
     const QString ex = exchange.trimmed().toLower();
     const QString mk = market.trimmed().toLower();
@@ -84,6 +89,33 @@ std::filesystem::path recordedFundingPath(const std::filesystem::path& sessionPa
     }
     if (const auto path = existingFileOrEmpty(sessionPath / "jsonl" / "funding.jsonl"); !path.empty()) return path;
     return existingFileOrEmpty(sessionPath / "funding.jsonl");
+}
+
+std::filesystem::path recordedChannelPath(const std::filesystem::path& sessionPath,
+                                          const char* channel,
+                                          const char* fallbackName) {
+    const QJsonObject manifest = readSessionManifestObject(sessionPath);
+    const QJsonObject channels = manifest.value(QStringLiteral("channels")).toObject();
+    const QString manifestPath = channels.value(QString::fromLatin1(channel)).toObject().value(QStringLiteral("path")).toString();
+    if (!manifestPath.isEmpty()) {
+        if (const auto path = existingFileOrEmpty(sessionPath / manifestPath.toStdString()); !path.empty()) return path;
+    }
+    if (const auto path = existingFileOrEmpty(sessionPath / "jsonl" / fallbackName); !path.empty()) return path;
+    return existingFileOrEmpty(sessionPath / fallbackName);
+}
+
+std::filesystem::path recordedDetailedCandlesPath(const std::filesystem::path& sessionPath) {
+    return recordedChannelPath(sessionPath, "candles2", "candles2.jsonl");
+}
+
+std::filesystem::path recordedTieredCandlesPath(const std::filesystem::path& sessionPath) {
+    return recordedChannelPath(sessionPath, "candles", "candles.jsonl");
+}
+
+std::string manifestMarketHint(const std::filesystem::path& sessionPath) {
+    const QJsonObject manifest = readSessionManifestObject(sessionPath);
+    const QJsonObject identity = manifest.value(QStringLiteral("identity")).toObject();
+    return identity.value(QStringLiteral("market")).toString().trimmed().toLower().toStdString();
 }
 
 double clampZoom(double value) noexcept {
@@ -169,8 +201,11 @@ void BookTickerCompareController::clear() {
     secondaryRows_.clear();
     primaryFundingRows_.clear();
     secondaryFundingRows_.clear();
+    primaryCandles_.clear();
+    secondaryCandles_.clear();
     spreadPoints_.clear();
     meanPoints_.clear();
+    candleSpreadPoints_.clear();
     selectedBacktestResult_.clear();
     strategyOverlay_ = StrategyOverlayData{};
     strategyIndicator_ = StrategyIndicatorData{};
@@ -183,7 +218,7 @@ void BookTickerCompareController::clear() {
     userViewportControl_ = false;
     resetValueScale_();
     liveTimer_.stop();
-    setStatus_(QStringLiteral("Select two bookTicker sessions"));
+    setStatus_(QStringLiteral("Select two market sessions"));
     emit sourcesChanged();
     emit dataChanged();
 }
@@ -196,8 +231,8 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
     strategyIndicator_ = StrategyIndicatorData{};
     if (next.isEmpty()) {
         updateLowerPane_();
-        if (!primaryRows_.empty() && !secondaryRows_.empty() && lowerPaneState_.hasData) {
-            setStatus_(QStringLiteral("BookTicker comparison ready: %1").arg(lowerPaneState_.title));
+        if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
+            setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
         }
         emit dataChanged();
         return true;
@@ -219,8 +254,8 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
     updateLowerPane_();
     updateFullRange_();
     initializeViewportIfNeeded_();
-    if (!primaryRows_.empty() && !secondaryRows_.empty() && lowerPaneState_.hasData) {
-        setStatus_(QStringLiteral("BookTicker comparison ready: %1").arg(lowerPaneState_.title));
+    if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
+        setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
     }
     emit dataChanged();
     return true;
@@ -376,7 +411,7 @@ bool BookTickerCompareController::setSource_(SourceState& state,
 
     if (sourceId.trimmed().isEmpty()) {
         state.rows.clear();
-        setStatus_(QStringLiteral("Select two bookTicker sessions"));
+        setStatus_(QStringLiteral("Select two market sessions"));
         return false;
     }
 
@@ -403,21 +438,20 @@ bool BookTickerCompareController::setSource_(SourceState& state,
 void BookTickerCompareController::reloadRecorded_(SourceState& state) {
     state.rows.clear();
     state.fundings.clear();
+    state.candles.clear();
+    state.marketHint = manifestMarketHint(state.sessionPath);
     const auto bookTickerPath = recordedBookTickerPath(state.sessionPath);
-    if (bookTickerPath.empty()) {
-        setStatus_(QStringLiteral("bookTicker file is missing for recorded session"));
-        return;
+    if (!bookTickerPath.empty()) {
+        hftrec::replay::SessionReplay replay{};
+        const auto status = replay.addBookTickerFile(bookTickerPath);
+        if (!isOk(status)) {
+            setStatus_(QStringLiteral("Failed to load recorded bookTicker"));
+        } else {
+            replay.finalize();
+            state.rows = replay.bookTickers();
+            std::sort(state.rows.begin(), state.rows.end(), rowsLessTs);
+        }
     }
-
-    hftrec::replay::SessionReplay replay{};
-    const auto status = replay.addBookTickerFile(bookTickerPath);
-    if (!isOk(status)) {
-        setStatus_(QStringLiteral("Failed to load recorded bookTicker"));
-        return;
-    }
-    replay.finalize();
-    state.rows = replay.bookTickers();
-    std::sort(state.rows.begin(), state.rows.end(), rowsLessTs);
 
     const auto fundingPath = recordedFundingPath(state.sessionPath);
     if (!fundingPath.empty()) {
@@ -427,6 +461,25 @@ void BookTickerCompareController::reloadRecorded_(SourceState& state) {
             std::sort(state.fundings.begin(), state.fundings.end(), [](const auto& lhs, const auto& rhs) noexcept {
                 return lhs.tsNs < rhs.tsNs;
             });
+        }
+    }
+
+    const auto detailedCandlesPath = recordedDetailedCandlesPath(state.sessionPath);
+    const auto tieredCandlesPath = recordedTieredCandlesPath(state.sessionPath);
+    const auto candlePath = !detailedCandlesPath.empty() ? detailedCandlesPath : tieredCandlesPath;
+    if (!candlePath.empty()) {
+        hftrec::replay::SessionReplay candleReplay{};
+        if (isOk(candleReplay.addCandlesFile(candlePath))) {
+            state.candles = hftrec::arbitrage::selectCompareCandles(candleReplay.candles());
+        } else if (state.rows.empty()) {
+            setStatus_(QStringLiteral("Failed to load recorded candles"));
+        }
+    }
+    if (state.marketHint.empty()) {
+        if (!state.candles.empty() && !state.candles.front().market.empty()) {
+            state.marketHint = state.candles.front().market;
+        } else {
+            state.marketHint = state.sourceId.trimmed().toLower().toStdString();
         }
     }
 }
@@ -465,26 +518,31 @@ void BookTickerCompareController::rebuild_() {
     secondaryRows_ = secondary_.rows;
     primaryFundingRows_ = primary_.fundings;
     secondaryFundingRows_ = secondary_.fundings;
+    primaryCandles_ = primary_.candles;
+    secondaryCandles_ = secondary_.candles;
     spreadPoints_ = hftrec::arbitrage::buildBestSideBookTickerSpread(primaryRows_, secondaryRows_, totalFeePenaltyBps());
     meanPoints_ = hftrec::arbitrage::buildRollingBookTickerSpreadMean(spreadPoints_, meanWindowNs(meanWindowSeconds_), totalFeePenaltyBps());
+    candleSpreadPoints_ = hftrec::arbitrage::buildFuturesPremiumCandleSpread(
+        hftrec::arbitrage::CandleSpreadSource{primaryCandles_, primary_.marketHint},
+        hftrec::arbitrage::CandleSpreadSource{secondaryCandles_, secondary_.marketHint});
     updateLowerPane_();
     updateFullRange_();
     initializeViewportIfNeeded_();
 
     if (primarySourceId_.isEmpty() || secondarySourceId_.isEmpty()) {
-        setStatus_(QStringLiteral("Select two bookTicker sessions"));
-    } else if (primaryRows_.empty() || secondaryRows_.empty()) {
-        setStatus_(QStringLiteral("Waiting for bookTicker rows from both sessions"));
+        setStatus_(QStringLiteral("Select two market sessions"));
+    } else if ((primaryRows_.empty() && primaryCandles_.empty()) || (secondaryRows_.empty() && secondaryCandles_.empty())) {
+        setStatus_(QStringLiteral("Waiting for market rows from both sessions"));
     } else if (!lowerPaneState_.hasData) {
-        setStatus_(QStringLiteral("Not enough valid bid/ask quotes to build spread"));
+        setStatus_(QStringLiteral("Not enough compatible quotes or candles to build spread"));
     } else {
-        setStatus_(QStringLiteral("BookTicker comparison ready: %1").arg(lowerPaneState_.title));
+        setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
     }
     emit dataChanged();
 }
 
 void BookTickerCompareController::updateLowerPane_() {
-    lowerPaneState_ = selectCompareLowerPane(strategyOverlay_, strategyIndicator_, !spreadPoints_.empty());
+    lowerPaneState_ = selectCompareLowerPane(strategyOverlay_, strategyIndicator_, !spreadPoints_.empty(), !candleSpreadPoints_.empty());
 }
 
 void BookTickerCompareController::resetValueScale_() noexcept {
@@ -510,9 +568,12 @@ void BookTickerCompareController::updateFullRange_() noexcept {
     for (const auto& point : strategyOverlay_.spreadPoints) absorb(point.tsNs);
     for (const auto& point : strategyIndicator_.points) absorb(point.tsNs);
     for (const auto& point : spreadPoints_) absorb(point.tsNs);
+    for (const auto& point : candleSpreadPoints_) absorb(point.tsNs);
     if (!hasTs) {
         for (const auto& row : primaryRows_) absorb(row.tsNs);
         for (const auto& row : secondaryRows_) absorb(row.tsNs);
+        for (const auto& row : primaryCandles_) absorb(row.tsNs);
+        for (const auto& row : secondaryCandles_) absorb(row.tsNs);
     }
 
     if (!hasTs) {

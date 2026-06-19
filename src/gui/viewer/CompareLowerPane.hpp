@@ -9,6 +9,8 @@ namespace hftrec::gui::viewer {
 
 enum class CompareLowerPaneKind {
     DefaultSpread,
+    CandleSpread,
+    MarketSpreadOverlay,
     StrategySpread,
     StrategyIndicator,
 };
@@ -23,6 +25,7 @@ QString compareLowerPaneKindId(CompareLowerPaneKind kind);
 
 CompareLowerPaneState selectCompareLowerPane(const StrategyOverlayData& overlay,
                                              const StrategyIndicatorData& indicator,
-                                             bool hasDefaultSpread);
+                                             bool hasDefaultSpread,
+                                             bool hasCandleSpread);
 
 }  // namespace hftrec::gui::viewer

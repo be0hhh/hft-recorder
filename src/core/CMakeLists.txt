@@ -4,6 +4,7 @@
 set(HFTREC_CORE_SOURCES
     arbitrage/BookTickerSpread.cpp
     arbitrage/BookTickerSpreadMean.cpp
+    arbitrage/CandleSpread.cpp
     backtest/BacktestRunner.cpp
     capture/SessionId.cpp
     capture/SessionManifest.cpp

@@ -37,6 +37,7 @@ struct CaptureBatchSnapshot {
     qulonglong fundingCount{0};
     qulonglong priceLimitCount{0};
     qulonglong candlesCount{0};
+    qulonglong candles2Count{0};
     qulonglong depthCount{0};
 };
 
@@ -73,6 +74,18 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QStringList& selectedBookTickerAliases,
                                                 const QStringList& selectedOrderbookAliases,
                                                 int tradesHistoryWarmupSec);
+std::vector<capture::CaptureConfig> makeDetailedCandlesConfigs(const QString& outputDirectory,
+                                                               const QString& envPath,
+                                                               int apiSlot,
+                                                               const QStringList& venueKeys,
+                                                               const QStringList& venueSymbolsTexts,
+                                                               const QString& timeframe,
+                                                               int limit,
+                                                               QString* errorText);
+QString buildDetailedCandlesPreview(const QStringList& venueKeys,
+                                    const QStringList& venueSymbolsTexts,
+                                    const QString& timeframe,
+                                    int limit);
 CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, CaptureRefreshMode mode);
 
 }  // namespace detail

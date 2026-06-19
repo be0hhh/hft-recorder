@@ -43,6 +43,10 @@ struct CaptureConfig {
     std::string liquidationRequestCommand{};
     std::string bookTickerRequestCommand{};
     std::string orderbookRequestCommand{};
+    std::string detailedCandlesTimeframe{"15m"};
+    std::uint32_t detailedCandlesLimit{5000u};
+    std::int64_t detailedCandlesEndNs{0};
+    std::string detailedCandlesUnderlyingSymbolHint{};
 };
 
 class CaptureCoordinator : public market_data::IMarketDataIngress {
@@ -77,6 +81,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status stopPriceLimit() noexcept;
     Status finalizeSession() noexcept;
     Status captureCandlesOnce(const CaptureConfig& config) noexcept;
+    Status captureDetailedCandlesOnce(const CaptureConfig& config) noexcept;
     void reapStoppedThreads() noexcept;
 
     const SessionManifest& manifest() const noexcept { return manifest_; }
@@ -100,6 +105,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::uint64_t priceLimitCount() const noexcept { return priceLimitCount_.load(std::memory_order_relaxed); }
     std::uint64_t depthCount() const noexcept { return depthCount_.load(std::memory_order_relaxed); }
     std::uint64_t candlesCount() const noexcept { return candlesCount_.load(std::memory_order_relaxed); }
+    std::uint64_t candles2Count() const noexcept { return candles2Count_.load(std::memory_order_relaxed); }
     std::string lastError() const;
     storage::EventBatch liveEventsCopy() const;
     const storage::IEventSource* liveEventSource() const noexcept { return &liveStore_; }
@@ -144,6 +150,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     ChannelJsonWriter liquidationsWriter_{};
     ChannelJsonWriter bookTickerWriter_{};
     ChannelJsonWriter candlesWriter_{};
+    ChannelJsonWriter candles2Writer_{};
     ChannelJsonWriter depthWriter_{};
     storage::LiveEventStore liveStore_{};
     storage::JsonSessionSink jsonSink_{};
@@ -174,6 +181,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::atomic<std::uint64_t> priceLimitCount_{0};
     std::atomic<std::uint64_t> depthCount_{0};
     std::atomic<std::uint64_t> candlesCount_{0};
+    std::atomic<std::uint64_t> candles2Count_{0};
     std::atomic<std::uint64_t> snapshotCount_{0};
     std::atomic<std::uint64_t> tradesCaptureSeq_{0};
     std::atomic<std::uint64_t> liquidationsCaptureSeq_{0};

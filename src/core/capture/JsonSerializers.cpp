@@ -57,6 +57,13 @@ void appendString(std::string& out, std::string_view value) {
     out.push_back(static_cast<char>(34));
 }
 
+std::int64_t candleTierFromTimeframe(std::string_view timeframe) noexcept {
+    if (timeframe == "1m") return 1;
+    if (timeframe == "10m" || timeframe == "15m") return 2;
+    if (timeframe == "1d") return 3;
+    return 0;
+}
+
 void appendFlatOrderbook(std::string& out, const std::vector<replay::PricePair>& levels, std::int64_t tsNs) {
     out.push_back('[');
     for (std::size_t i = 0; i < levels.size(); ++i) {
@@ -195,8 +202,36 @@ std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker,
 
 std::string renderCandleJsonLine(const replay::CandleRow& candle) {
     std::string out;
-    out.reserve(96);
+    out.reserve(candle.hasOhlc ? 192 : 96);
     out.push_back('[');
+    if (candle.hasOhlc) {
+        const std::int64_t tier = candle.tier > 0 ? candle.tier : candleTierFromTimeframe(candle.timeframe);
+        if (tier >= 1 && tier <= 3) {
+            appendInt(out, tier); out.push_back(',');
+            appendInt(out, candle.tsNs); out.push_back(',');
+            appendInt(out, candle.openE8); out.push_back(',');
+            appendInt(out, candle.highE8); out.push_back(',');
+            appendInt(out, candle.lowE8); out.push_back(',');
+            appendInt(out, candle.closeE8); out.push_back(',');
+            appendInt(out, candle.volumeE8); out.push_back(',');
+            appendInt(out, candle.quoteAmountE8);
+            out.push_back(']');
+            return out;
+        }
+        appendString(out, candle.exchange); out.push_back(',');
+        appendString(out, candle.market); out.push_back(',');
+        appendString(out, candle.symbol); out.push_back(',');
+        appendString(out, candle.timeframe); out.push_back(',');
+        appendInt(out, candle.tsNs); out.push_back(',');
+        appendInt(out, candle.openE8); out.push_back(',');
+        appendInt(out, candle.highE8); out.push_back(',');
+        appendInt(out, candle.lowE8); out.push_back(',');
+        appendInt(out, candle.closeE8); out.push_back(',');
+        appendInt(out, candle.volumeE8); out.push_back(',');
+        appendInt(out, candle.quoteAmountE8);
+        out.push_back(']');
+        return out;
+    }
     appendInt(out, candle.tier); out.push_back(',');
     appendInt(out, candle.tsNs); out.push_back(',');
     appendInt(out, candle.highE8); out.push_back(',');

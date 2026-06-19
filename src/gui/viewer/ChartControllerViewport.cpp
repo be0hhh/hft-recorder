@@ -850,12 +850,14 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
 
     if (in.candlesVisible) {
         const auto& candles = replay_.candles();
-        auto tierDurationNs = [](std::int64_t tier) noexcept -> std::int64_t {
+        auto candleDurationNs = [](const hftrec::replay::CandleRow& row) noexcept -> std::int64_t {
+            if (row.durationNs > 0) return row.durationNs;
+            const std::int64_t tier = row.tier;
             if (tier == 1) return 60ll * 1000000000ll;
             if (tier == 2) return 15ll * 60ll * 1000000000ll;
             return 24ll * 60ll * 60ll * 1000000000ll;
         };
-        constexpr std::int64_t kMaxCandleDurationNs = 24ll * 60ll * 60ll * 1000000000ll;
+        constexpr std::int64_t kMaxCandleDurationNs = 31ll * 24ll * 60ll * 60ll * 1000000000ll;
         const std::int64_t candleSearchStart = renderMinTs > (std::numeric_limits<std::int64_t>::min() + kMaxCandleDurationNs)
             ? renderMinTs - kMaxCandleDurationNs
             : std::numeric_limits<std::int64_t>::min();
@@ -886,14 +888,17 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         snap.candleRects.reserve(static_cast<std::size_t>(std::distance(candleBegin, candleEnd)));
         for (auto it = candleBegin; it != candleEnd; ++it) {
             const auto& row = *it;
-            if (row.tier < 1 || row.tier > 3) continue;
+            if (!row.hasOhlc && (row.tier < 1 || row.tier > 3)) continue;
             const auto tierIndex = static_cast<std::size_t>(row.tier);
             const std::int64_t mid = row.lowE8 + (row.highE8 - row.lowE8) / 2;
-            const bool up = !hasPreviousByTier[tierIndex] || mid >= previousMidByTier[tierIndex];
-            previousMidByTier[tierIndex] = mid;
-            hasPreviousByTier[tierIndex] = true;
+            bool up = row.hasOhlc ? (row.closeE8 >= row.openE8) : true;
+            if (!row.hasOhlc && row.tier >= 1 && row.tier <= 3) {
+                up = !hasPreviousByTier[tierIndex] || mid >= previousMidByTier[tierIndex];
+                previousMidByTier[tierIndex] = mid;
+                hasPreviousByTier[tierIndex] = true;
+            }
 
-            const std::int64_t durationNs = tierDurationNs(row.tier);
+            const std::int64_t durationNs = candleDurationNs(row);
             if ((row.tsNs + durationNs) < renderMinTs || row.tsNs > renderMaxTs) continue;
             if (row.highE8 < snap.vp.pMin || row.lowE8 > snap.vp.pMax) continue;
 
@@ -901,10 +906,28 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
             const qreal w = std::clamp(snap.candleWidthPx, 1.0, 80.0);
             const qreal yHigh = snap.vp.toY(row.highE8);
             const qreal yLow = snap.vp.toY(row.lowE8);
-            qreal y = std::min(yHigh, yLow);
-            qreal h = std::max<qreal>(2.0, std::abs(yLow - yHigh));
+            const qreal yOpen = row.hasOhlc ? snap.vp.toY(row.openE8) : yHigh;
+            const qreal yClose = row.hasOhlc ? snap.vp.toY(row.closeE8) : yLow;
+            qreal y = row.hasOhlc ? std::min(yOpen, yClose) : std::min(yHigh, yLow);
+            qreal h = row.hasOhlc ? std::max<qreal>(2.0, std::abs(yClose - yOpen)) : std::max<qreal>(2.0, std::abs(yLow - yHigh));
             if ((x + w) < 0.0 || x > snap.vp.w || (y + h) < 0.0 || y > snap.vp.h) continue;
-            snap.candleRects.push_back(CandleRect{row.tier, row.tsNs, row.highE8, row.lowE8, row.quoteAmountE8, x, y, w, h, up});
+            snap.candleRects.push_back(CandleRect{row.tier,
+                                                  row.tsNs,
+                                                  row.openE8,
+                                                  row.highE8,
+                                                  row.lowE8,
+                                                  row.closeE8,
+                                                  row.quoteAmountE8,
+                                                  x,
+                                                  y,
+                                                  w,
+                                                  h,
+                                                  yOpen,
+                                                  yClose,
+                                                  yHigh,
+                                                  yLow,
+                                                  row.hasOhlc,
+                                                  up});
         }
     }
 

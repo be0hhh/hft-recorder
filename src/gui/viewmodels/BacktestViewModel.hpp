@@ -45,6 +45,10 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString marketOrderJitterUs READ marketOrderJitterUs WRITE setMarketOrderJitterUs NOTIFY latencyChanged)
     Q_PROPERTY(QString limitOrderLatencyUs READ limitOrderLatencyUs WRITE setLimitOrderLatencyUs NOTIFY latencyChanged)
     Q_PROPERTY(QString limitOrderJitterUs READ limitOrderJitterUs WRITE setLimitOrderJitterUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString cancelOrderLatencyUs READ cancelOrderLatencyUs WRITE setCancelOrderLatencyUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString cancelOrderJitterUs READ cancelOrderJitterUs WRITE setCancelOrderJitterUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString userDataLatencyUs READ userDataLatencyUs WRITE setUserDataLatencyUs NOTIFY latencyChanged)
+    Q_PROPERTY(QString userDataJitterUs READ userDataJitterUs WRITE setUserDataJitterUs NOTIFY latencyChanged)
     Q_PROPERTY(QString initialBalanceUsdt READ initialBalanceUsdt WRITE setInitialBalanceUsdt NOTIFY accountingChanged)
     Q_PROPERTY(QString riskMinEquityPct READ riskMinEquityPct WRITE setRiskMinEquityPct NOTIFY accountingChanged)
     Q_PROPERTY(QString makerFeeBps READ makerFeeBps WRITE setMakerFeeBps NOTIFY accountingChanged)
@@ -125,12 +129,16 @@ class BacktestViewModel : public QObject {
     QString marketOrderJitterUs() const { return marketOrderJitterUs_; }
     QString limitOrderLatencyUs() const { return limitOrderLatencyUs_; }
     QString limitOrderJitterUs() const { return limitOrderJitterUs_; }
+    QString cancelOrderLatencyUs() const { return cancelOrderLatencyUs_; }
+    QString cancelOrderJitterUs() const { return cancelOrderJitterUs_; }
+    QString userDataLatencyUs() const { return userDataLatencyUs_; }
+    QString userDataJitterUs() const { return userDataJitterUs_; }
     QString initialBalanceUsdt() const { return initialBalanceUsdt_; }
     QString riskMinEquityPct() const { return riskMinEquityPct_; }
     QString makerFeeBps() const { return makerFeeBps_; }
     QString takerFeeBps() const { return takerFeeBps_; }
     QString orderLatencyUs() const { return marketOrderLatencyUs_; }
-    QString cancelLatencyUs() const { return limitOrderLatencyUs_; }
+    QString cancelLatencyUs() const { return cancelOrderLatencyUs_; }
     QString sweepBudget() const { return sweepBudget_; }
     QString sweepSeed() const { return sweepSeed_; }
     QVariantList sweepCurveLimitChoices() const;
@@ -194,6 +202,10 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setMarketOrderJitterUs(const QString& value);
     Q_INVOKABLE void setLimitOrderLatencyUs(const QString& value);
     Q_INVOKABLE void setLimitOrderJitterUs(const QString& value);
+    Q_INVOKABLE void setCancelOrderLatencyUs(const QString& value);
+    Q_INVOKABLE void setCancelOrderJitterUs(const QString& value);
+    Q_INVOKABLE void setUserDataLatencyUs(const QString& value);
+    Q_INVOKABLE void setUserDataJitterUs(const QString& value);
     Q_INVOKABLE void setVenueExecutionValue(int legIndex, const QString& field, const QString& value);
     Q_INVOKABLE void setInitialBalanceUsdt(const QString& value);
     Q_INVOKABLE void setRiskMinEquityPct(const QString& value);
@@ -371,6 +383,10 @@ class BacktestViewModel : public QObject {
     QString marketOrderJitterUs_{QStringLiteral("1000")};
     QString limitOrderLatencyUs_{QStringLiteral("1800")};
     QString limitOrderJitterUs_{QStringLiteral("700")};
+    QString cancelOrderLatencyUs_{QStringLiteral("1800")};
+    QString cancelOrderJitterUs_{QStringLiteral("700")};
+    QString userDataLatencyUs_{QStringLiteral("0")};
+    QString userDataJitterUs_{QStringLiteral("0")};
     QString initialBalanceUsdt_{QStringLiteral("1000")};
     QString riskMinEquityPct_{};
     QString makerFeeBps_{QStringLiteral("0")};

@@ -59,6 +59,7 @@ struct RecordedIdentity {
     QString exchange{};
     QString market{};
     int bookTickerCount{0};
+    int candleCount{0};
     qint64 startedAtNs{0};
 };
 
@@ -77,6 +78,11 @@ RecordedIdentity readRecordedIdentity(const QString& sessionPath) {
     const auto channels = manifest.value(QStringLiteral("channels")).toObject();
     const auto bookTicker = channels.value(QStringLiteral("bookticker")).toObject();
     out.bookTickerCount = bookTicker.value(QStringLiteral("declared_event_count")).toInt();
+    const auto candles = channels.value(QStringLiteral("candles")).toObject();
+    const auto candles2 = channels.value(QStringLiteral("candles2")).toObject();
+    const int candlesCount = candles.value(QStringLiteral("declared_event_count")).toInt();
+    const int candles2Count = candles2.value(QStringLiteral("declared_event_count")).toInt();
+    out.candleCount = candles2Count > 0 ? candles2Count : candlesCount;
     return out;
 }
 
@@ -383,6 +389,9 @@ void ViewerSourceListModel::rebuildEntries_() {
             entry.market = identity.market;
             entry.bookTickerCount = identity.bookTickerCount;
             entry.sourceSummary = sessionBacktestSummaryText(entry.bookTickerCount, backtestCounts, identity.startedAtNs);
+            if (identity.candleCount > 0) {
+                entry.sourceSummary += QStringLiteral(" | C %1").arg(identity.candleCount);
+            }
             nextEntries.push_back(std::move(entry));
         }
     }

@@ -62,6 +62,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.depthPath = std::string{channelJsonlRelativePath(ChannelKind::DepthTape)};
     manifest_.depthSidecarPath = std::string{channelJsonlRelativePath(ChannelKind::DepthSidecar)};
     manifest_.candlesPath = std::string{channelJsonlRelativePath(ChannelKind::Candles)};
+    manifest_.candles2Path = std::string{channelJsonlRelativePath(ChannelKind::Candles2)};
     manifest_.markPricePath = std::string{channelJsonlRelativePath(ChannelKind::MarkPrice)};
     manifest_.indexPricePath = std::string{channelJsonlRelativePath(ChannelKind::IndexPrice)};
     manifest_.fundingPath = std::string{channelJsonlRelativePath(ChannelKind::Funding)};
@@ -73,6 +74,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.bookTickerRowSchema = "cxet_bookticker_strict_v1";
     manifest_.depthRowSchema = "cxet_orderbook_tape_rle_sidecar_v1";
     manifest_.candlesRowSchema = "cxet_candle_lite_tiered_v1";
+    manifest_.candles2RowSchema = "cxet_ohlcv_numeric_v3";
     manifest_.snapshotSchema = "cxet_orderbook_snapshot_flat_levels_v1";
     manifest_.sessionStatus = "recording";
 
@@ -143,6 +145,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     manifest_.priceLimitCount = priceLimitCount_.load(std::memory_order_relaxed);
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
+    manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
     manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
     manifest_.warningSummary = lastError_;
     manifest_.structuralBlockers.clear();
@@ -153,6 +156,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     (void)liquidationsWriter_.close();
     (void)bookTickerWriter_.close();
     (void)candlesWriter_.close();
+    (void)candles2Writer_.close();
     (void)depthWriter_.close();
 
     if (const auto seedStatus = writeManifestFile_(); !isOk(seedStatus)) {
@@ -226,6 +230,7 @@ void CaptureCoordinator::resetSessionState() noexcept {
     priceLimitCount_.store(0, std::memory_order_release);
     depthCount_.store(0, std::memory_order_release);
     candlesCount_.store(0, std::memory_order_release);
+    candles2Count_.store(0, std::memory_order_release);
     snapshotCount_.store(0, std::memory_order_release);
     tradesCaptureSeq_.store(0, std::memory_order_release);
     liquidationsCaptureSeq_.store(0, std::memory_order_release);
@@ -235,6 +240,7 @@ void CaptureCoordinator::resetSessionState() noexcept {
     (void)liquidationsWriter_.close();
     (void)bookTickerWriter_.close();
     (void)candlesWriter_.close();
+    (void)candles2Writer_.close();
     (void)depthWriter_.close();
     liveStore_.clear();
     eventSink_.clearSinks();
@@ -259,6 +265,7 @@ void CaptureCoordinator::refreshRecordingManifestLocked_(std::int64_t nowNs) noe
     manifest_.priceLimitCount = priceLimitCount_.load(std::memory_order_relaxed);
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
+    manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
     manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
     manifest_.warningSummary = lastError_;
     manifest_.structuralBlockers.clear();

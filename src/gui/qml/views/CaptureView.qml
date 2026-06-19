@@ -143,6 +143,95 @@ Pane {
                             }
                         }
 
+                        Rectangle {
+                            Layout.fillWidth: true
+                            radius: 8
+                            color: root.panelAltColor
+                            border.color: root.borderColor
+                            border.width: 1
+                            implicitHeight: detailedCandlesColumn.implicitHeight + 20
+
+                            ColumnLayout {
+                                id: detailedCandlesColumn
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 10
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: "Detailed Candles v2"
+                                        font.bold: true
+                                        color: root.textColor
+                                    }
+
+                                    Label {
+                                        text: "Rows " + root.captureVm.candles2Count
+                                        color: root.mutedTextColor
+                                    }
+                                }
+
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 2
+                                    columnSpacing: 10
+                                    rowSpacing: 8
+
+                                    TextField {
+                                        Layout.fillWidth: true
+                                        text: root.captureVm.detailedCandlesTimeframe
+                                        placeholderText: "15m (MOEX maps to 10m)"
+                                        selectByMouse: true
+                                        color: root.textColor
+                                        placeholderTextColor: root.mutedTextColor
+                                        onTextEdited: root.captureVm.detailedCandlesTimeframe = text
+                                        background: Rectangle {
+                                            radius: 8
+                                            color: root.panelColor
+                                            border.color: root.borderColor
+                                            border.width: 1
+                                        }
+                                    }
+
+                                    SpinBox {
+                                        Layout.preferredWidth: 150
+                                        from: 1
+                                        to: 5000
+                                        stepSize: 100
+                                        editable: true
+                                        value: root.captureVm.detailedCandlesLimit
+                                        onValueModified: root.captureVm.detailedCandlesLimit = value
+                                    }
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "MOEX names: https://iss.moex.com/iss/securities.json?q=SiM6&iss.meta=off; futures are forts, shares are stock/shares. MOEX maps 15m requests to 10m."
+                                    color: root.mutedTextColor
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: root.captureVm.detailedCandlesRequestPreview
+                                    color: root.mutedTextColor
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                CaptureAccentActionButton {
+                                    text: "Download Candles2"
+                                    accentColor: root.accentRequiredColor
+                                    actionTextColor: "#071419"
+                                    mutedTextColor: root.mutedTextColor
+                                    enabled: root.captureVm.captureAvailable
+                                    onClicked: root.captureVm.startDetailedCandles()
+                                }
+                            }
+                        }
+
                         GridLayout {
                             id: venueGrid
                             Layout.fillWidth: true
@@ -463,7 +552,6 @@ Pane {
                         onActionTriggered: root.captureVm.orderbookRunning ? root.captureVm.stopOrderbook() : root.captureVm.startOrderbook()
 
                     }
-
                     CaptureDarkButton {
                         text: "Finalize Session"
                         panelAltColor: root.panelAltColor

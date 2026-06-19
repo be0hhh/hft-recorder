@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QSettings>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -38,6 +39,12 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(QString liquidationsRequestPreview READ liquidationsRequestPreview NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString bookTickerRequestPreview READ bookTickerRequestPreview NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString orderbookRequestPreview READ orderbookRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString detailedCandlesExchange READ detailedCandlesExchange WRITE setDetailedCandlesExchange NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesMarket READ detailedCandlesMarket WRITE setDetailedCandlesMarket NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesSymbolsText READ detailedCandlesSymbolsText WRITE setDetailedCandlesSymbolsText NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesTimeframe READ detailedCandlesTimeframe WRITE setDetailedCandlesTimeframe NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(int detailedCandlesLimit READ detailedCandlesLimit WRITE setDetailedCandlesLimit NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesRequestPreview READ detailedCandlesRequestPreview NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString sessionId READ sessionId NOTIFY sessionStateChanged)
     Q_PROPERTY(QString sessionPath READ sessionPath NOTIFY sessionStateChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
@@ -61,6 +68,7 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(qulonglong fundingCount READ fundingCount NOTIFY countersChanged)
     Q_PROPERTY(qulonglong priceLimitCount READ priceLimitCount NOTIFY countersChanged)
     Q_PROPERTY(qulonglong candlesCount READ candlesCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong candles2Count READ candles2Count NOTIFY countersChanged)
     Q_PROPERTY(qulonglong depthCount READ depthCount NOTIFY countersChanged)
 
   public:
@@ -82,6 +90,12 @@ class CaptureViewModel : public QObject {
     QString liquidationsRequestPreview() const;
     QString bookTickerRequestPreview() const;
     QString orderbookRequestPreview() const;
+    QString detailedCandlesExchange() const;
+    QString detailedCandlesMarket() const;
+    QString detailedCandlesSymbolsText() const;
+    QString detailedCandlesTimeframe() const;
+    int detailedCandlesLimit() const noexcept;
+    QString detailedCandlesRequestPreview() const;
     QString sessionId() const;
     QString sessionPath() const;
     QString statusText() const;
@@ -105,6 +119,7 @@ class CaptureViewModel : public QObject {
     qulonglong fundingCount() const;
     qulonglong priceLimitCount() const;
     qulonglong candlesCount() const;
+    qulonglong candles2Count() const;
     qulonglong depthCount() const;
 
     Q_INVOKABLE void setOutputDirectory(const QString& outputDirectory);
@@ -118,6 +133,11 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE void setSymbolsText(const QString& symbolsText);
     Q_INVOKABLE void applyGlobalSymbolsToVenues();
     Q_INVOKABLE void setTradesHistoryWarmupSec(int seconds);
+    Q_INVOKABLE void setDetailedCandlesExchange(const QString& exchange);
+    Q_INVOKABLE void setDetailedCandlesMarket(const QString& market);
+    Q_INVOKABLE void setDetailedCandlesSymbolsText(const QString& symbolsText);
+    Q_INVOKABLE void setDetailedCandlesTimeframe(const QString& timeframe);
+    Q_INVOKABLE void setDetailedCandlesLimit(int limit);
     Q_INVOKABLE void toggleAlias(const QString& channel, const QString& alias);
     Q_INVOKABLE bool isAliasSelected(const QString& channel, const QString& alias) const;
     Q_INVOKABLE bool isRequiredAlias(const QString& channel, const QString& alias) const;
@@ -130,6 +150,7 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE bool startBookTicker();
     Q_INVOKABLE void stopBookTicker();
     Q_INVOKABLE bool startCandles();
+    Q_INVOKABLE bool startDetailedCandles();
     Q_INVOKABLE bool startOrderbook();
     Q_INVOKABLE void stopOrderbook();
     Q_INVOKABLE bool startMarkPrice();
@@ -153,6 +174,7 @@ class CaptureViewModel : public QObject {
     void symbolsTextChanged();
     void tradesHistoryWarmupSecChanged();
     void requestBuilderChanged();
+    void detailedCandlesChanged();
     void sessionStateChanged();
     void statusTextChanged();
     void activeLiveSourcesChanged();
@@ -183,6 +205,8 @@ class CaptureViewModel : public QObject {
     void setStatusFromStatus(hftrec::Status status, const QString& okText);
     QString joinCoordinatorErrors_() const;
     void publishActiveLiveSources_();
+    void loadSettings_();
+    void saveSettings_();
 
     std::vector<CoordinatorEntry> coordinators_{};
     QTimer refreshTimer_{};
@@ -200,6 +224,11 @@ class CaptureViewModel : public QObject {
     QStringList venueSymbolsTexts_{};
     QString symbolsText_{"ETHUSDT"};
     int tradesHistoryWarmupSec_{300};
+    QString detailedCandlesExchange_{"moex"};
+    QString detailedCandlesMarket_{"futures"};
+    QString detailedCandlesSymbolsText_{"SiM6"};
+    QString detailedCandlesTimeframe_{"15m"};
+    int detailedCandlesLimit_{5000};
     QStringList tradesAvailableAliases_{};
     QStringList liquidationsAvailableAliases_{};
     QStringList bookTickerAvailableAliases_{};
@@ -236,7 +265,9 @@ class CaptureViewModel : public QObject {
     qulonglong lastFundingCount_{0};
     qulonglong lastPriceLimitCount_{0};
     qulonglong lastCandlesCount_{0};
+    qulonglong lastCandles2Count_{0};
     qulonglong lastDepthCount_{0};
+    QSettings settings_{};
 };
 
 }  // namespace hftrec::gui

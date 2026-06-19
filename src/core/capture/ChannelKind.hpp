@@ -24,6 +24,7 @@ enum class ChannelKind : std::uint8_t {
     ContractInfo = 16,
     OkxBooks50L2Tbt = 17,
     BitgetRpiBooks = 18,
+    Candles2 = 19,
 };
 
 constexpr std::string_view channelFileName(ChannelKind k) noexcept {
@@ -40,6 +41,7 @@ constexpr std::string_view channelFileName(ChannelKind k) noexcept {
         case ChannelKind::IndexPrice: return "index_price.jsonl";
         case ChannelKind::Funding: return "funding.jsonl";
         case ChannelKind::PriceLimit: return "price_limit.jsonl";
+        case ChannelKind::Candles2: return "candles2.jsonl";
         case ChannelKind::ExecutionFast: return "execution_fast.jsonl";
         case ChannelKind::FastFill: return "fast_fill.jsonl";
         case ChannelKind::ContractStats: return "contract_stats.jsonl";
@@ -65,6 +67,7 @@ constexpr std::string_view channelJsonlRelativePath(ChannelKind k) noexcept {
         case ChannelKind::IndexPrice: return "jsonl/index_price.jsonl";
         case ChannelKind::Funding: return "jsonl/funding.jsonl";
         case ChannelKind::PriceLimit: return "jsonl/price_limit.jsonl";
+        case ChannelKind::Candles2: return "jsonl/candles2.jsonl";
         case ChannelKind::ExecutionFast: return "jsonl/execution_fast.jsonl";
         case ChannelKind::FastFill: return "jsonl/fast_fill.jsonl";
         case ChannelKind::ContractStats: return "jsonl/contract_stats.jsonl";
@@ -88,6 +91,7 @@ constexpr std::string_view channelName(ChannelKind k) noexcept {
         case ChannelKind::IndexPrice: return "index_price";
         case ChannelKind::Funding: return "funding";
         case ChannelKind::PriceLimit: return "price_limit";
+        case ChannelKind::Candles2: return "candles2";
         case ChannelKind::ExecutionFast: return "execution_fast";
         case ChannelKind::FastFill: return "fast_fill";
         case ChannelKind::ContractStats: return "contract_stats";

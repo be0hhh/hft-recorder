@@ -95,13 +95,20 @@ struct TradeDot {
 struct CandleRect {
     std::int64_t tier{0};
     std::int64_t tsNs{0};
+    std::int64_t openE8{0};
     std::int64_t highE8{0};
     std::int64_t lowE8{0};
+    std::int64_t closeE8{0};
     std::int64_t quoteAmountE8{0};
     qreal x{0.0};
     qreal y{0.0};
     qreal w{0.0};
     qreal h{0.0};
+    qreal yOpen{0.0};
+    qreal yClose{0.0};
+    qreal yHigh{0.0};
+    qreal yLow{0.0};
+    bool hasOhlc{false};
     bool up{true};
 };
 

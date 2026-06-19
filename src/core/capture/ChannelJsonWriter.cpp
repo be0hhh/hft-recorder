@@ -9,11 +9,20 @@ Status ChannelJsonWriter::open(ChannelKind channel, const std::filesystem::path&
         return Status::Ok;
     }
     channel_ = channel;
-    const auto path = sessionDir / std::string{channelJsonlRelativePath(channel)};
+    return openRelativePath(sessionDir, std::string{channelJsonlRelativePath(channel)}, channel != ChannelKind::Snapshot);
+}
+
+Status ChannelJsonWriter::openRelativePath(const std::filesystem::path& sessionDir,
+                                           const std::filesystem::path& relativePath,
+                                           bool append) noexcept {
+    if (stream_.is_open()) {
+        return Status::Ok;
+    }
+    const auto path = sessionDir / relativePath;
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     if (ec) return Status::IoError;
-    stream_.open(path, channel == ChannelKind::Snapshot ? std::ios::out : (std::ios::out | std::ios::app));
+    stream_.open(path, append ? (std::ios::out | std::ios::app) : std::ios::out);
     return stream_.is_open() ? Status::Ok : Status::IoError;
 }
 

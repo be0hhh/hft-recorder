@@ -22,6 +22,7 @@ struct SessionCorpus {
     std::vector<std::string> fundingLines;
     std::vector<std::string> priceLimitLines;
     std::vector<std::string> candleLines;
+    std::vector<std::string> candle2Lines;
     std::vector<std::string> depthLines;
     std::vector<std::string> snapshotDocuments;
     std::string instrumentMetadataDocument;

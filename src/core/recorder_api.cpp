@@ -157,10 +157,25 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
                         &replay::SessionReplay::addBookTickerFile);
     if (!isOk(status)) return status;
 
-    status = addChannel(RecorderChannel_Candles,
-                        resolveJsonlPath(sessionPath, manifestPresent, manifest.candlesPath, "candles.jsonl"),
-                        &replay::SessionReplay::addCandlesFile);
-    if (!isOk(status)) return status;
+    if (wants(channels, RecorderChannel_Candles)) {
+        const auto candlesPath = resolveJsonlPath(sessionPath, manifestPresent, manifest.candlesPath, "candles.jsonl");
+        const auto candles2Path = resolveJsonlPath(sessionPath, manifestPresent, manifest.candles2Path, "candles2.jsonl");
+        bool loadedCandles = false;
+        if (fileExists(candlesPath)) {
+            status = replay.addCandlesFile(candlesPath);
+            if (!isOk(status)) return status;
+            loadedCandles = true;
+        }
+        if (fileExists(candles2Path)) {
+            status = replay.addCandlesFile(candles2Path);
+            if (!isOk(status)) return status;
+            loadedCandles = true;
+        }
+        if (!loadedCandles) {
+            status = replay.addCandlesFile(candlesPath);
+            if (!isOk(status)) return status;
+        }
+    }
 
     status = addChannel(RecorderChannel_Depth,
                         resolveDepthJsonlPath(sessionPath, manifestPresent, manifest.depthPath),
@@ -247,7 +262,22 @@ RecorderBookTickerRow convert(const replay::BookTickerRow& row) {
 }
 
 RecorderCandleRow convert(const replay::CandleRow& row) {
-    return RecorderCandleRow{row.tier, row.tsNs, row.highE8, row.lowE8, row.quoteAmountE8};
+    RecorderCandleRow out{};
+    out.tier = row.tier;
+    out.tsNs = row.tsNs;
+    out.exchange = row.exchange;
+    out.market = row.market;
+    out.symbol = row.symbol;
+    out.timeframe = row.timeframe;
+    out.durationNs = row.durationNs;
+    out.openE8 = row.openE8;
+    out.highE8 = row.highE8;
+    out.lowE8 = row.lowE8;
+    out.closeE8 = row.closeE8;
+    out.volumeE8 = row.volumeE8;
+    out.quoteAmountE8 = row.quoteAmountE8;
+    out.hasOhlc = row.hasOhlc;
+    return out;
 }
 
 RecorderDepthRow convert(const replay::DepthRow& row) {

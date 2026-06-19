@@ -78,6 +78,11 @@ Status CaptureCoordinator::captureCandlesOnce(const CaptureConfig&) noexcept {
     lastError_ = kNoCxet;
     return Status::Unimplemented;
 }
+
+Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig&) noexcept {
+    lastError_ = kNoCxet;
+    return Status::Unimplemented;
+}
 void CaptureCoordinator::reapStoppedThreads() noexcept {
     if (tradesThread_.joinable() && !tradesRunning_.load(std::memory_order_acquire)) tradesThread_.join();
     if (liquidationsThread_.joinable() && !liquidationsRunning_.load(std::memory_order_acquire)) liquidationsThread_.join();

@@ -7,10 +7,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "core/arbitrage/BookTickerSpread.hpp"
 #include "core/arbitrage/BookTickerSpreadMean.hpp"
+#include "core/arbitrage/CandleSpread.hpp"
 #include "core/replay/EventRows.hpp"
 #include "gui/viewer/CompareLowerPane.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
@@ -28,6 +30,9 @@ class BookTickerCompareController : public QObject {
     Q_PROPERTY(int primaryCount READ primaryCount NOTIFY dataChanged)
     Q_PROPERTY(int secondaryCount READ secondaryCount NOTIFY dataChanged)
     Q_PROPERTY(int spreadCount READ spreadCount NOTIFY dataChanged)
+    Q_PROPERTY(int primaryCandleCount READ primaryCandleCount NOTIFY dataChanged)
+    Q_PROPERTY(int secondaryCandleCount READ secondaryCandleCount NOTIFY dataChanged)
+    Q_PROPERTY(int candleSpreadCount READ candleSpreadCount NOTIFY dataChanged)
     Q_PROPERTY(QString lowerPaneMode READ lowerPaneMode NOTIFY dataChanged)
     Q_PROPERTY(QString lowerPaneTitle READ lowerPaneTitle NOTIFY dataChanged)
     Q_PROPERTY(QString selectedBacktestResult READ selectedBacktestResult NOTIFY dataChanged)
@@ -46,10 +51,17 @@ class BookTickerCompareController : public QObject {
     QString primarySourceId() const { return primarySourceId_; }
     QString secondarySourceId() const { return secondarySourceId_; }
     QString statusText() const { return statusText_; }
-    bool ready() const noexcept { return !primaryRows_.empty() && !secondaryRows_.empty() && lowerPaneState_.hasData; }
+    bool ready() const noexcept {
+        return (!primaryRows_.empty() || !primaryCandles_.empty())
+            && (!secondaryRows_.empty() || !secondaryCandles_.empty())
+            && lowerPaneState_.hasData;
+    }
     int primaryCount() const noexcept { return static_cast<int>(primaryRows_.size()); }
     int secondaryCount() const noexcept { return static_cast<int>(secondaryRows_.size()); }
     int spreadCount() const noexcept { return static_cast<int>(spreadPoints_.size()); }
+    int primaryCandleCount() const noexcept { return static_cast<int>(primaryCandles_.size()); }
+    int secondaryCandleCount() const noexcept { return static_cast<int>(secondaryCandles_.size()); }
+    int candleSpreadCount() const noexcept { return static_cast<int>(candleSpreadPoints_.size()); }
     QString lowerPaneMode() const { return compareLowerPaneKindId(lowerPaneState_.kind); }
     QString lowerPaneTitle() const { return lowerPaneState_.title; }
     QString selectedBacktestResult() const { return selectedBacktestResult_; }
@@ -69,8 +81,11 @@ class BookTickerCompareController : public QObject {
     const std::vector<hftrec::replay::BookTickerRow>& secondaryRows() const noexcept { return secondaryRows_; }
     const std::vector<hftrec::replay::FundingRow>& primaryFundingRows() const noexcept { return primaryFundingRows_; }
     const std::vector<hftrec::replay::FundingRow>& secondaryFundingRows() const noexcept { return secondaryFundingRows_; }
+    const std::vector<hftrec::replay::CandleRow>& primaryCandles() const noexcept { return primaryCandles_; }
+    const std::vector<hftrec::replay::CandleRow>& secondaryCandles() const noexcept { return secondaryCandles_; }
     const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreadPoints() const noexcept { return spreadPoints_; }
     const std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint>& meanPoints() const noexcept { return meanPoints_; }
+    const std::vector<hftrec::arbitrage::CandleSpreadPoint>& candleSpreadPoints() const noexcept { return candleSpreadPoints_; }
     const StrategyOverlayData& strategyOverlay() const noexcept { return strategyOverlay_; }
     const StrategyIndicatorData& strategyIndicator() const noexcept { return strategyIndicator_; }
     CompareLowerPaneKind lowerPaneKind() const noexcept { return lowerPaneState_.kind; }
@@ -114,6 +129,8 @@ class BookTickerCompareController : public QObject {
         std::uint64_t nextBatchId{1};
         std::vector<hftrec::replay::BookTickerRow> rows{};
         std::vector<hftrec::replay::FundingRow> fundings{};
+        std::vector<hftrec::replay::CandleRow> candles{};
+        std::string marketHint{};
     };
 
     bool setSource_(SourceState& state, const QString& sourceId, const QString& sourceKind, const QString& sessionPath);
@@ -130,13 +147,16 @@ class BookTickerCompareController : public QObject {
     SourceState secondary_{};
     QString primarySourceId_{};
     QString secondarySourceId_{};
-    QString statusText_{QStringLiteral("Select two bookTicker sessions")};
+    QString statusText_{QStringLiteral("Select two market sessions")};
     std::vector<hftrec::replay::BookTickerRow> primaryRows_{};
     std::vector<hftrec::replay::BookTickerRow> secondaryRows_{};
     std::vector<hftrec::replay::FundingRow> primaryFundingRows_{};
     std::vector<hftrec::replay::FundingRow> secondaryFundingRows_{};
+    std::vector<hftrec::replay::CandleRow> primaryCandles_{};
+    std::vector<hftrec::replay::CandleRow> secondaryCandles_{};
     std::vector<hftrec::arbitrage::BookTickerSpreadPoint> spreadPoints_{};
     std::vector<hftrec::arbitrage::BookTickerSpreadMeanPoint> meanPoints_{};
+    std::vector<hftrec::arbitrage::CandleSpreadPoint> candleSpreadPoints_{};
     QString selectedBacktestResult_{};
     StrategyOverlayData strategyOverlay_{};
     StrategyIndicatorData strategyIndicator_{};

@@ -811,7 +811,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         return lhs.tsNs < rhs.tsNs;
     });
 
-    candles_.reserve(corpus.candleLines.size());
+    candles_.reserve(corpus.candleLines.size() + corpus.candle2Lines.size());
     for (const auto& line : corpus.candleLines) {
         if (line.empty()) continue;
         CandleRow row{};
@@ -820,6 +820,21 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
             errorDetail_ = "failed to parse candles.jsonl line from loaded corpus";
             ++parseFailureCount_;
             metrics::recordReplayParseFailure("candles");
+            status_ = st;
+            refreshHealthSummary_();
+            maybeWriteIntegrityReport_();
+            return status_;
+        }
+        candles_.push_back(std::move(row));
+    }
+    for (const auto& line : corpus.candle2Lines) {
+        if (line.empty()) continue;
+        CandleRow row{};
+        const auto st = parseCandleLine(std::string_view{line}, row);
+        if (!isOk(st)) {
+            errorDetail_ = "failed to parse candles2.jsonl line from loaded corpus";
+            ++parseFailureCount_;
+            metrics::recordReplayParseFailure("candles2");
             status_ = st;
             refreshHealthSummary_();
             maybeWriteIntegrityReport_();

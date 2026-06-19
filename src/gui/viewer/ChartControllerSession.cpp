@@ -861,6 +861,8 @@ bool ChartController::loadSessionForLayers(const QString& dir,
     if (candlesVisible) {
         loadOptional(sessionChannelPath(path, manifest, QStringLiteral("candles"), "candles.jsonl"),
                      [&](const std::filesystem::path& channelPath) { return replay_.addCandlesFile(channelPath); });
+        loadOptional(sessionChannelPath(path, manifest, QStringLiteral("candles2"), "candles2.jsonl"),
+                     [&](const std::filesystem::path& channelPath) { return replay_.addCandlesFile(channelPath); });
     }
     if (bookTickerVisible) {
         loadOptional(sessionChannelPath(path, manifest, QStringLiteral("bookticker"), "bookticker.jsonl"),
@@ -953,6 +955,18 @@ bool ChartController::loadRecordedOrderbook() {
                  });
 
     if (!loadedAnyChannel) {
+        if (hadLoadedData || loaded_) {
+            statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 candles=%3 depth=%4 bookticker=%5")
+                              .arg(replay_.trades().size())
+                              .arg(replay_.liquidations().size())
+                              .arg(replay_.candles().size())
+                              .arg(replay_.depths().size())
+                              .arg(replay_.bookTickers().size());
+            emit sessionChanged();
+            emit statusChanged();
+            emit viewportChanged();
+            return true;
+        }
         statusText_ = QStringLiteral("No orderbook data found for selected session.");
         emit statusChanged();
         return false;

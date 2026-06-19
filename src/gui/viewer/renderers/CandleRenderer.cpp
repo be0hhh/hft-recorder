@@ -32,6 +32,10 @@ void renderCandles(const RenderContext& ctx) {
         pen.setCapStyle(Qt::SquareCap);
         ctx.p->setPen(pen);
         ctx.p->setBrush(QBrush(fill));
+        if (candle.hasOhlc) {
+            const qreal midX = candle.x + candle.w * 0.5;
+            ctx.p->drawLine(QPointF(midX, candle.yHigh), QPointF(midX, candle.yLow));
+        }
         ctx.p->drawRect(body);
     }
     ctx.p->restore();

@@ -777,7 +777,11 @@ bool isVenueExecutionField(const QString& field) {
            field == QStringLiteral("market_order_latency_us") ||
            field == QStringLiteral("market_order_jitter_us") ||
            field == QStringLiteral("limit_order_latency_us") ||
-           field == QStringLiteral("limit_order_jitter_us");
+           field == QStringLiteral("limit_order_jitter_us") ||
+           field == QStringLiteral("cancel_order_latency_us") ||
+           field == QStringLiteral("cancel_order_jitter_us") ||
+           field == QStringLiteral("user_data_latency_us") ||
+           field == QStringLiteral("user_data_jitter_us");
 }
 
 QString cleanProfileName(QString name) {
@@ -1260,6 +1264,10 @@ QVariantList BacktestViewModel::selectedSessionLegs() const {
         row.insert(QStringLiteral("marketOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_));
         row.insert(QStringLiteral("limitOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_));
         row.insert(QStringLiteral("limitOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_));
+        row.insert(QStringLiteral("cancelOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("cancel_order_latency_us"), cancelOrderLatencyUs_));
+        row.insert(QStringLiteral("cancelOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("cancel_order_jitter_us"), cancelOrderJitterUs_));
+        row.insert(QStringLiteral("userDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_latency_us"), userDataLatencyUs_));
+        row.insert(QStringLiteral("userDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_jitter_us"), userDataJitterUs_));
         row.insert(QStringLiteral("label"), QStringLiteral("%1: %2 %3")
             .arg(i + 1)
             .arg(venueSectionForSession(path), symbolForSessionPath(path)));
@@ -1305,6 +1313,10 @@ std::vector<QVariantMap> BacktestViewModel::venueExecutionRows_() const {
         row.insert(QStringLiteral("marketOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_));
         row.insert(QStringLiteral("limitOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_));
         row.insert(QStringLiteral("limitOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_));
+        row.insert(QStringLiteral("cancelOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("cancel_order_latency_us"), cancelOrderLatencyUs_));
+        row.insert(QStringLiteral("cancelOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("cancel_order_jitter_us"), cancelOrderJitterUs_));
+        row.insert(QStringLiteral("userDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_latency_us"), userDataLatencyUs_));
+        row.insert(QStringLiteral("userDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_jitter_us"), userDataJitterUs_));
         out.push_back(std::move(row));
     }
     return out;
@@ -1999,6 +2011,38 @@ void BacktestViewModel::setLimitOrderJitterUs(const QString& value) {
     emit latencyChanged();
 }
 
+void BacktestViewModel::setCancelOrderLatencyUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (cancelOrderLatencyUs_ == next) return;
+    cancelOrderLatencyUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setCancelOrderJitterUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (cancelOrderJitterUs_ == next) return;
+    cancelOrderJitterUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setUserDataLatencyUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (userDataLatencyUs_ == next) return;
+    userDataLatencyUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
+void BacktestViewModel::setUserDataJitterUs(const QString& value) {
+    const QString next = value.trimmed();
+    if (userDataJitterUs_ == next) return;
+    userDataJitterUs_ = next;
+    savePersistentConfig_();
+    emit latencyChanged();
+}
+
 void BacktestViewModel::setVenueExecutionValue(int legIndex, const QString& field, const QString& value) {
     const QString normalizedField = field.trimmed().toLower();
     if (!isVenueExecutionField(normalizedField)) return;
@@ -2054,7 +2098,7 @@ void BacktestViewModel::setTakerFeeBps(const QString& value) {
 }
 
 void BacktestViewModel::setCancelLatencyUs(const QString& value) {
-    setLimitOrderLatencyUs(value);
+    setCancelOrderLatencyUs(value);
 }
 
 void BacktestViewModel::setSweepBudget(const QString& value) {
@@ -2152,8 +2196,12 @@ void BacktestViewModel::saveProfile() {
     out << "market_order_jitter_us=" << marketOrderJitterUs_ << "\n";
     out << "limit_order_latency_us=" << limitOrderLatencyUs_ << "\n";
     out << "limit_order_jitter_us=" << limitOrderJitterUs_ << "\n";
+    out << "cancel_order_latency_us=" << cancelOrderLatencyUs_ << "\n";
+    out << "cancel_order_jitter_us=" << cancelOrderJitterUs_ << "\n";
+    out << "user_data_latency_us=" << userDataLatencyUs_ << "\n";
+    out << "user_data_jitter_us=" << userDataJitterUs_ << "\n";
     out << "order_latency_us=" << marketOrderLatencyUs_ << "\n";
-    out << "cancel_latency_us=" << limitOrderLatencyUs_ << "\n";
+    out << "cancel_latency_us=" << cancelOrderLatencyUs_ << "\n";
     out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\n";
     out << "risk_min_equity_pct=" << riskMinEquityPct_ << "\n";
     out << "maker_fee_bps=" << makerFeeBps_ << "\n";
@@ -2175,7 +2223,11 @@ void BacktestViewModel::saveProfile() {
         out << "market_order_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_) << "\n";
         out << "market_order_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_) << "\n";
         out << "limit_order_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_) << "\n";
-        out << "limit_order_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_) << "\n\n";
+        out << "limit_order_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_) << "\n";
+        out << "cancel_order_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("cancel_order_latency_us"), cancelOrderLatencyUs_) << "\n";
+        out << "cancel_order_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("cancel_order_jitter_us"), cancelOrderJitterUs_) << "\n";
+        out << "user_data_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("user_data_latency_us"), userDataLatencyUs_) << "\n";
+        out << "user_data_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("user_data_jitter_us"), userDataJitterUs_) << "\n\n";
     }
     out << "[strategy]\n";
     for (auto it = activeParamByGroup_.constBegin(); it != activeParamByGroup_.constEnd(); ++it) out << groupSettingKey(it.key()) << "=" << it.value() << "\n";
@@ -2205,6 +2257,11 @@ void BacktestViewModel::loadProfile() {
     const QString marketOrderJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_order_jitter_us"));
     const QString limitOrderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("limit_order_latency_us"));
     const QString limitOrderJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("limit_order_jitter_us"));
+    const QString cancelLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("cancel_latency_us"));
+    const QString cancelOrderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("cancel_order_latency_us"));
+    const QString cancelOrderJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("cancel_order_jitter_us"));
+    const QString userDataLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("user_data_latency_us"));
+    const QString userDataJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("user_data_jitter_us"));
     const QString initialBalance = iniValue(text, QStringLiteral("backtest"), QStringLiteral("initial_balance_usdt"));
     const QString riskMinEquity = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_min_equity_pct"));
     const QString makerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("maker_fee_bps"));
@@ -2222,6 +2279,13 @@ void BacktestViewModel::loadProfile() {
     if (!limitOrderLatency.isEmpty()) limitOrderLatencyUs_ = limitOrderLatency;
     else if (!orderLatency.isEmpty()) limitOrderLatencyUs_ = orderLatency;
     if (!limitOrderJitter.isEmpty()) limitOrderJitterUs_ = limitOrderJitter;
+    if (!cancelOrderLatency.isEmpty()) cancelOrderLatencyUs_ = cancelOrderLatency;
+    else if (!cancelLatency.isEmpty()) cancelOrderLatencyUs_ = cancelLatency;
+    else cancelOrderLatencyUs_ = limitOrderLatencyUs_;
+    if (!cancelOrderJitter.isEmpty()) cancelOrderJitterUs_ = cancelOrderJitter;
+    else cancelOrderJitterUs_ = limitOrderJitterUs_;
+    if (!userDataLatency.isEmpty()) userDataLatencyUs_ = userDataLatency;
+    if (!userDataJitter.isEmpty()) userDataJitterUs_ = userDataJitter;
     if (!initialBalance.isEmpty()) initialBalanceUsdt_ = initialBalance;
     riskMinEquityPct_ = riskMinEquity;
     if (!makerFee.isEmpty()) makerFeeBps_ = makerFee;
@@ -2533,8 +2597,12 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
     const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
     const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
+    const quint64 cancelOrderLatency = latencyValue_(cancelOrderLatencyUs_, limitOrderLatency);
+    const quint64 cancelOrderJitter = latencyValue_(cancelOrderJitterUs_, limitOrderJitter);
+    const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
+    const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
     const quint64 orderLatency = marketOrderLatency;
-    const quint64 cancelLatency = limitOrderLatency;
+    const quint64 cancelLatency = cancelOrderLatency;
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
     const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
@@ -2565,10 +2633,14 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
         latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
         latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
+        latency.cancelOrder.baseUs = latencyValue_(row.value(QStringLiteral("cancelOrderLatencyUs")).toString(), cancelOrderLatency);
+        latency.cancelOrder.jitterUs = latencyValue_(row.value(QStringLiteral("cancelOrderJitterUs")).toString(), cancelOrderJitter);
+        latency.userData.baseUs = latencyValue_(row.value(QStringLiteral("userDataLatencyUs")).toString(), userDataLatency);
+        latency.userData.jitterUs = latencyValue_(row.value(QStringLiteral("userDataJitterUs")).toString(), userDataJitter);
         latencySchedules.push_back(std::move(latency));
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
-    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, orderLatency, cancelLatency, initialBalance, makerFee, takerFee, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules)] {
+    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, makerFee, takerFee, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules)] {
         try {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPath.toStdString();
@@ -2595,6 +2667,10 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.marketOrderLatency.jitterUs = marketOrderJitter;
         request.limitOrderLatency.baseUs = limitOrderLatency;
         request.limitOrderLatency.jitterUs = limitOrderJitter;
+        request.cancelOrderLatency.baseUs = cancelOrderLatency;
+        request.cancelOrderLatency.jitterUs = cancelOrderJitter;
+        request.userDataLatency.baseUs = userDataLatency;
+        request.userDataLatency.jitterUs = userDataJitter;
         request.orderLatencyUs = orderLatency;
         request.cancelLatencyUs = cancelLatency;
         request.initialBalanceE8 = initialBalance;
@@ -2694,6 +2770,10 @@ void BacktestViewModel::startSweep() {
     const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
     const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
     const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
+    const quint64 cancelOrderLatency = latencyValue_(cancelOrderLatencyUs_, limitOrderLatency);
+    const quint64 cancelOrderJitter = latencyValue_(cancelOrderJitterUs_, limitOrderJitter);
+    const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
+    const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
     const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
     const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
@@ -2724,11 +2804,15 @@ void BacktestViewModel::startSweep() {
         latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
         latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
         latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
+        latency.cancelOrder.baseUs = latencyValue_(row.value(QStringLiteral("cancelOrderLatencyUs")).toString(), cancelOrderLatency);
+        latency.cancelOrder.jitterUs = latencyValue_(row.value(QStringLiteral("cancelOrderJitterUs")).toString(), cancelOrderJitter);
+        latency.userData.baseUs = latencyValue_(row.value(QStringLiteral("userDataLatencyUs")).toString(), userDataLatency);
+        latency.userData.jitterUs = latencyValue_(row.value(QStringLiteral("userDataJitterUs")).toString(), userDataJitter);
         latencySchedules.push_back(std::move(latency));
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
 
-    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, initialBalance, makerFee, takerFee, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), ranges = std::move(ranges)] {
+    worker_ = std::thread([this, sessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, makerFee, takerFee, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), ranges = std::move(ranges)] {
         try {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPath.toStdString();
@@ -2753,8 +2837,12 @@ void BacktestViewModel::startSweep() {
         request.baseRun.marketOrderLatency.jitterUs = marketOrderJitter;
         request.baseRun.limitOrderLatency.baseUs = limitOrderLatency;
         request.baseRun.limitOrderLatency.jitterUs = limitOrderJitter;
+        request.baseRun.cancelOrderLatency.baseUs = cancelOrderLatency;
+        request.baseRun.cancelOrderLatency.jitterUs = cancelOrderJitter;
+        request.baseRun.userDataLatency.baseUs = userDataLatency;
+        request.baseRun.userDataLatency.jitterUs = userDataJitter;
         request.baseRun.orderLatencyUs = marketOrderLatency;
-        request.baseRun.cancelLatencyUs = limitOrderLatency;
+        request.baseRun.cancelLatencyUs = cancelOrderLatency;
         request.baseRun.initialBalanceE8 = initialBalance;
         request.baseRun.legInitialBalancesE8 = legInitialBalances;
         request.baseRun.makerFeeBpsE8 = makerFee;
@@ -3377,6 +3465,16 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (limitOrderLatencyUs_.isEmpty()) limitOrderLatencyUs_ = QStringLiteral("1800");
     limitOrderJitterUs_ = settings_.value(QStringLiteral("backtests/limit_order_jitter_us"), limitOrderJitterUs_).toString().trimmed();
     if (limitOrderJitterUs_.isEmpty()) limitOrderJitterUs_ = QStringLiteral("700");
+    if (settings_.contains(QStringLiteral("backtests/cancel_order_latency_us"))) cancelOrderLatencyUs_ = settings_.value(QStringLiteral("backtests/cancel_order_latency_us"), cancelOrderLatencyUs_).toString().trimmed();
+    else cancelOrderLatencyUs_ = limitOrderLatencyUs_;
+    if (cancelOrderLatencyUs_.isEmpty()) cancelOrderLatencyUs_ = limitOrderLatencyUs_;
+    if (settings_.contains(QStringLiteral("backtests/cancel_order_jitter_us"))) cancelOrderJitterUs_ = settings_.value(QStringLiteral("backtests/cancel_order_jitter_us"), cancelOrderJitterUs_).toString().trimmed();
+    else cancelOrderJitterUs_ = limitOrderJitterUs_;
+    if (cancelOrderJitterUs_.isEmpty()) cancelOrderJitterUs_ = limitOrderJitterUs_;
+    userDataLatencyUs_ = settings_.value(QStringLiteral("backtests/user_data_latency_us"), userDataLatencyUs_).toString().trimmed();
+    if (userDataLatencyUs_.isEmpty()) userDataLatencyUs_ = QStringLiteral("0");
+    userDataJitterUs_ = settings_.value(QStringLiteral("backtests/user_data_jitter_us"), userDataJitterUs_).toString().trimmed();
+    if (userDataJitterUs_.isEmpty()) userDataJitterUs_ = QStringLiteral("0");
     initialBalanceUsdt_ = settings_.value(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_).toString().trimmed();
     if (initialBalanceUsdt_.isEmpty()) initialBalanceUsdt_ = QStringLiteral("1000");
     riskMinEquityPct_ = settings_.value(QStringLiteral("backtests/risk_min_equity_pct"), riskMinEquityPct_).toString().trimmed();
@@ -3429,6 +3527,10 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/market_order_jitter_us"), marketOrderJitterUs_);
     settings_.setValue(QStringLiteral("backtests/limit_order_latency_us"), limitOrderLatencyUs_);
     settings_.setValue(QStringLiteral("backtests/limit_order_jitter_us"), limitOrderJitterUs_);
+    settings_.setValue(QStringLiteral("backtests/cancel_order_latency_us"), cancelOrderLatencyUs_);
+    settings_.setValue(QStringLiteral("backtests/cancel_order_jitter_us"), cancelOrderJitterUs_);
+    settings_.setValue(QStringLiteral("backtests/user_data_latency_us"), userDataLatencyUs_);
+    settings_.setValue(QStringLiteral("backtests/user_data_jitter_us"), userDataJitterUs_);
     settings_.setValue(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_);
     settings_.setValue(QStringLiteral("backtests/risk_min_equity_pct"), riskMinEquityPct_);
     settings_.setValue(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_);

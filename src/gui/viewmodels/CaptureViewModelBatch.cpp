@@ -1,7 +1,10 @@
 ﻿#include "gui/viewmodels/CaptureViewModel.hpp"
 
+#include <QStringList>
 #include <QVariantMap>
 #include <algorithm>
+#include <filesystem>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
@@ -30,13 +33,15 @@ QString buildLiveLabel(const QString& exchange, const QString& market, const QSt
 QString configKey(const capture::CaptureConfig& config) {
     const QString symbol = QString::fromStdString(config.symbols.empty() ? std::string{} : config.symbols.front());
     const int apiSlot = config.apiSlot == 0u ? 1 : static_cast<int>(config.apiSlot);
-    return QStringLiteral("%1|%2|%3|%4|%5|%6")
+    return QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8")
         .arg(QString::fromStdString(config.exchange).toLower(),
              QString::fromStdString(config.market).toLower(),
              symbol,
              QString::fromStdString(config.envPath.string()),
              QString::number(apiSlot),
-             QString::fromStdString(config.outputDir.string()));
+             QString::fromStdString(config.outputDir.string()),
+             QString::fromStdString(config.detailedCandlesTimeframe),
+             QString::fromStdString(config.detailedCandlesUnderlyingSymbolHint));
 }
 
 bool configsMatch(const capture::CaptureConfig& lhs, const capture::CaptureConfig& rhs) {
@@ -169,6 +174,74 @@ bool CaptureViewModel::startCandles() {
         ? QStringLiteral("Candles history requested for %1 stream(s)").arg(coordinators_.size())
         : joinCoordinatorErrors_());
     registerLiveSources_();
+    refreshState(detail::CaptureRefreshMode::Full);
+    return ok;
+}
+
+bool CaptureViewModel::startDetailedCandles() {
+    QString errorText;
+    const auto configs = detail::makeDetailedCandlesConfigs(outputDirectory_,
+                                                            envPath_,
+                                                            apiSlot_,
+                                                            selectedVenueKeys_,
+                                                            venueSymbolsTexts_,
+                                                            detailedCandlesTimeframe_,
+                                                            detailedCandlesLimit_,
+                                                            &errorText);
+    if (configs.empty()) {
+        setStatusText(errorText.isEmpty() ? QStringLiteral("Enter at least one selected venue symbol") : errorText);
+        return false;
+    }
+
+    bool ok = true;
+    QStringList failures;
+    QStringList successes;
+    for (const auto& config : configs) {
+        auto existing = std::find_if(coordinators_.begin(), coordinators_.end(), [&](const CoordinatorEntry& entry) {
+            return configsMatch(entry.config, config);
+        });
+        if (existing == coordinators_.end()) {
+            CoordinatorEntry entry{};
+            entry.config = config;
+            entry.coordinator = std::make_unique<capture::CaptureCoordinator>();
+            coordinators_.push_back(std::move(entry));
+            existing = std::prev(coordinators_.end());
+        }
+        if (!existing->coordinator) {
+            ok = false;
+            failures.push_back(QStringLiteral("missing coordinator"));
+            continue;
+        }
+        existing->config = config;
+        const auto beforeRows = existing->coordinator->candles2Count();
+        const auto status = existing->coordinator->captureDetailedCandlesOnce(existing->config);
+        const auto afterRows = existing->coordinator->candles2Count();
+        const auto symbol = config.symbols.empty() ? QString{} : QString::fromStdString(config.symbols.front());
+        const auto venue = QStringLiteral("%1/%2/%3/%4")
+            .arg(QString::fromStdString(config.exchange),
+                 QString::fromStdString(config.market),
+                 symbol,
+                 QString::fromStdString(config.detailedCandlesTimeframe));
+        if (!isOk(status)) {
+            ok = false;
+            const auto error = QString::fromStdString(existing->coordinator->lastError()).trimmed();
+            const auto statusText = QString::fromUtf8(hftrec::statusToString(status).data());
+            failures.push_back(error.isEmpty()
+                ? QStringLiteral("%1: %2").arg(venue, statusText)
+                : QStringLiteral("%1: %2").arg(venue, error));
+            continue;
+        }
+        const auto written = afterRows >= beforeRows ? (afterRows - beforeRows) : afterRows;
+        successes.push_back(QStringLiteral("%1 rows=%2").arg(venue, QString::number(written)));
+    }
+
+    if (ok) {
+        setStatusText(QStringLiteral("Detailed candles2 downloaded: %1").arg(successes.join(QStringLiteral(" | "))));
+    } else if (!failures.isEmpty()) {
+        setStatusText(QStringLiteral("Detailed candles2 failed: %1").arg(failures.join(QStringLiteral(" | "))));
+    } else {
+        setStatusText(joinCoordinatorErrors_());
+    }
     refreshState(detail::CaptureRefreshMode::Full);
     return ok;
 }

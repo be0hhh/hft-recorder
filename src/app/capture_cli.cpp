@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "core/capture/CaptureCoordinator.hpp"
@@ -17,7 +18,7 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture [--env path] [--api-slot n] <trades|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
+    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] [--underlying-symbol symbol] <trades|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles|candles2> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
     std::puts("  hft-recorder capture [--env path] [--api-slot n] bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
@@ -37,6 +38,7 @@ void printUsage() {
     std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT futures 300");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 ./recordings binance ETHUSDT futures 300");
     std::puts("  hft-recorder capture candles 1 ./recordings binance BSBUSDT");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 10m --limit 5000 --underlying-symbol SBER candles2 1 ./recordings moex SRM6 futures");
 }
 
 capture::CaptureConfig makeDefaultConfig() {
@@ -83,6 +85,22 @@ bool isPriceLimitChannel(std::string_view channel) noexcept {
     return channel == "price_limit" || channel == "price-limit" || channel == "pricelimit" || channel == "limit" || channel == "limits";
 }
 
+bool isDetailedCandlesChannel(std::string_view channel) noexcept {
+    return channel == "candles2" || channel == "candle2" || channel == "detailed_candles" ||
+           channel == "detailed-candles" || channel == "klines2";
+}
+
+bool isMoexExchange(std::string_view exchange) noexcept {
+    return exchange == "moex" || exchange == "MOEX";
+}
+
+capture::CaptureConfig normalizeDetailedCandlesConfig(capture::CaptureConfig config) {
+    if (isMoexExchange(config.exchange) && config.detailedCandlesTimeframe == "15m") {
+        config.detailedCandlesTimeframe = "10m";
+    }
+    return config;
+}
+
 Status startChannel(capture::CaptureCoordinator& coordinator,
                     const std::string& channel,
                     const capture::CaptureConfig& config) {
@@ -99,11 +117,15 @@ Status startChannel(capture::CaptureCoordinator& coordinator,
         if (!isOk(sessionStatus)) return sessionStatus;
         return coordinator.captureCandlesOnce(config);
     }
+    if (isDetailedCandlesChannel(channel)) {
+        return coordinator.captureDetailedCandlesOnce(normalizeDetailedCandlesConfig(config));
+    }
     return Status::InvalidArgument;
 }
 
 bool isMarketText(const std::string& text) noexcept {
-    return text == "futures" || text == "futures_usd" || text == "spot" || text == "margin" || text == "inverse" || text == "swap";
+    return text == "futures" || text == "futures_usd" || text == "spot" || text == "shares" || text == "margin" ||
+           text == "inverse" || text == "swap";
 }
 
 void applyTradesWarmupArg(capture::CaptureConfig& config, const char* text) noexcept {
@@ -160,6 +182,35 @@ bool stripCaptureOptions(capture::CaptureConfig& config,
                 return false;
             }
             config.apiSlot = static_cast<std::uint8_t>(slot);
+            continue;
+        }
+        if (arg == "--timeframe") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --timeframe requires a value\n", stderr);
+                return false;
+            }
+            config.detailedCandlesTimeframe = argv[++i];
+            continue;
+        }
+        if (arg == "--limit") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --limit requires a value\n", stderr);
+                return false;
+            }
+            const long limit = std::strtol(argv[++i], nullptr, 10);
+            if (limit < 1 || limit > 5000) {
+                std::fputs("capture: --limit must be in [1,5000]\n", stderr);
+                return false;
+            }
+            config.detailedCandlesLimit = static_cast<std::uint32_t>(limit);
+            continue;
+        }
+        if (arg == "--underlying-symbol") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --underlying-symbol requires a value\n", stderr);
+                return false;
+            }
+            config.detailedCandlesUnderlyingSymbolHint = argv[++i];
             continue;
         }
         positional.push_back(argv[i]);
@@ -264,6 +315,9 @@ int runCapture(int argc, char** argv) {
     if (argc >= 4) {
         config.outputDir = argv[3];
     }
+    if (isDetailedCandlesChannel(channel)) {
+        config = normalizeDetailedCandlesConfig(std::move(config));
+    }
 
     capture::CaptureCoordinator coordinator{};
     Status startStatus = startChannel(coordinator, channel, config);
@@ -283,7 +337,23 @@ int runCapture(int argc, char** argv) {
         return 1;
     }
 
-    std::printf("capture started: channel=%s exchange=%s market=%s symbol=%s duration=%llds dir=%s env=%s api_slot=%u trades_warmup=%llds\n",
+    if (isDetailedCandlesChannel(channel)) {
+        std::printf("capture finished: channel=%s exchange=%s market=%s symbol=%s dir=%s env=%s api_slot=%u timeframe=%s limit=%u candles2_rows=%llu session=%s\n",
+                    channel.c_str(),
+                    config.exchange.c_str(),
+                    config.market.c_str(),
+                    config.symbols.empty() ? "" : config.symbols.front().c_str(),
+                    config.outputDir.string().c_str(),
+                    config.envPath.string().c_str(),
+                    static_cast<unsigned>(config.apiSlot == 0u ? 1u : config.apiSlot),
+                    config.detailedCandlesTimeframe.c_str(),
+                    static_cast<unsigned>(config.detailedCandlesLimit),
+                    static_cast<unsigned long long>(coordinator.candles2Count()),
+                    coordinator.sessionDirCopy().string().c_str());
+        return 0;
+    }
+
+    std::printf("capture started: channel=%s exchange=%s market=%s symbol=%s duration=%llds dir=%s env=%s api_slot=%u trades_warmup=%llds timeframe=%s limit=%u\n",
                 channel.c_str(),
                 config.exchange.c_str(),
                 config.market.c_str(),
@@ -292,7 +362,9 @@ int runCapture(int argc, char** argv) {
                 config.outputDir.string().c_str(),
                 config.envPath.string().c_str(),
                 static_cast<unsigned>(config.apiSlot == 0u ? 1u : config.apiSlot),
-                static_cast<long long>(config.tradesHistoryWarmupSec));
+                static_cast<long long>(config.tradesHistoryWarmupSec),
+                config.detailedCandlesTimeframe.c_str(),
+                static_cast<unsigned>(config.detailedCandlesLimit));
 
     std::this_thread::sleep_for(std::chrono::seconds(config.durationSec));
     const auto finalizeStatus = coordinator.finalizeSession();

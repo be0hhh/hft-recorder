@@ -280,6 +280,15 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
                                     manifest.candlesCount)) {
                 return false;
             }
+        } else if (key == "candles2") {
+            if (!parseChannelObject(parser,
+                                    manifest.candles2Enabled,
+                                    manifest.candles2RequiredWhenEnabled,
+                                    manifest.candles2Path,
+                                    manifest.candles2RowSchema,
+                                    manifest.candles2Count)) {
+                return false;
+            }
         } else if (key == "mark_price") {
             if (!parseChannelObject(parser,
                                     manifest.markPriceEnabled,
@@ -509,7 +518,9 @@ bool isDepthTapeSidecarSchema(std::string_view schema) noexcept {
 }
 
 bool isSupportedCandlesRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_candle_lite_tiered_v1";
+    return schema == "cxet_candle_lite_tiered_v1"
+        || schema == "cxet_ohlcv_detailed_v2"
+        || schema == "cxet_ohlcv_numeric_v3";
 }
 
 bool isSupportedMarkPriceRowSchema(std::string_view schema) noexcept {
@@ -547,6 +558,7 @@ void populateCanonicalArtifacts(SessionManifest& manifest) {
         }
     }
     if (manifest.candlesEnabled && !manifest.candlesPath.empty()) manifest.canonicalArtifacts.push_back(manifest.candlesPath);
+    if (manifest.candles2Enabled && !manifest.candles2Path.empty()) manifest.canonicalArtifacts.push_back(manifest.candles2Path);
     if (manifest.markPriceEnabled && !manifest.markPricePath.empty()) manifest.canonicalArtifacts.push_back(manifest.markPricePath);
     if (manifest.indexPriceEnabled && !manifest.indexPricePath.empty()) manifest.canonicalArtifacts.push_back(manifest.indexPricePath);
     if (manifest.fundingEnabled && !manifest.fundingPath.empty()) manifest.canonicalArtifacts.push_back(manifest.fundingPath);
@@ -610,6 +622,12 @@ bool validateStructurally(SessionManifest& manifest) {
     }
     if (manifest.candlesEnabled && !isSupportedCandlesRowSchema(manifest.candlesRowSchema)) {
         manifest.structuralBlockers.push_back("unsupported candles row schema");
+    }
+    if (manifest.candles2Enabled && manifest.candles2RequiredWhenEnabled && manifest.candles2Path.empty()) {
+        manifest.structuralBlockers.push_back("missing candles2 path");
+    }
+    if (manifest.candles2Enabled && !isSupportedCandlesRowSchema(manifest.candles2RowSchema)) {
+        manifest.structuralBlockers.push_back("unsupported candles2 row schema");
     }
     if (manifest.markPriceEnabled && manifest.markPriceRequiredWhenEnabled && manifest.markPricePath.empty()) {
         manifest.structuralBlockers.push_back("missing mark_price path");
@@ -733,6 +751,13 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"path\": " << json::quote(manifest.candlesPath) << ",\n";
     out << "      \"row_schema\": " << json::quote(manifest.candlesRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.candlesCount << "\n";
+    out << "    },\n";
+    out << "    \"candles2\": {\n";
+    out << "      \"enabled\": " << boolToString(manifest.candles2Enabled) << ",\n";
+    out << "      \"required_when_enabled\": " << boolToString(manifest.candles2RequiredWhenEnabled) << ",\n";
+    out << "      \"path\": " << json::quote(manifest.candles2Path) << ",\n";
+    out << "      \"row_schema\": " << json::quote(manifest.candles2RowSchema) << ",\n";
+    out << "      \"declared_event_count\": " << manifest.candles2Count << "\n";
     out << "    },\n";
     out << "    \"mark_price\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.markPriceEnabled) << ",\n";

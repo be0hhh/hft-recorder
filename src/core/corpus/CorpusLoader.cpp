@@ -565,6 +565,7 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
         {"funding.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.fundingPath), static_cast<std::uint64_t>(corpus.fundingLines.size())}},
         {"price_limit.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.priceLimitPath), static_cast<std::uint64_t>(corpus.priceLimitLines.size())}},
         {"candles.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candlesPath), static_cast<std::uint64_t>(corpus.candleLines.size())}},
+        {"candles2.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candles2Path), static_cast<std::uint64_t>(corpus.candle2Lines.size())}},
         {"depth.jsonl", depthSource},
         {"depth_tape.jsonl", depthSource},
         {"depth_sidecar.jsonl", depthSidecarSource},
@@ -680,6 +681,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     const bool requireFunding = report.manifestPresent ? (out.manifest.fundingEnabled && out.manifest.fundingRequiredWhenEnabled) : false;
     const bool requirePriceLimit = report.manifestPresent ? (out.manifest.priceLimitEnabled && out.manifest.priceLimitRequiredWhenEnabled) : false;
     const bool requireCandles = report.manifestPresent ? (out.manifest.candlesEnabled && out.manifest.candlesRequiredWhenEnabled) : false;
+    const bool requireCandles2 = report.manifestPresent ? (out.manifest.candles2Enabled && out.manifest.candles2RequiredWhenEnabled) : false;
     const bool requireDepth = report.manifestPresent ? (out.manifest.orderbookEnabled && out.manifest.orderbookRequiredWhenEnabled) : false;
 
     const auto tradesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.tradesPath, "trades.jsonl");
@@ -690,6 +692,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     const auto fundingPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.fundingPath, "funding.jsonl");
     const auto priceLimitPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.priceLimitPath, "price_limit.jsonl");
     const auto candlesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.candlesPath, "candles.jsonl");
+    const auto candles2Path = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.candles2Path, "candles2.jsonl");
     const auto depthPath = resolveDepthPath(sessionDir, report.manifestPresent, out.manifest.depthPath);
 
     if (!isOk(loadJsonLines<decltype(&parseTradeCanonicalLine), hftrec::replay::TradeRow>(
@@ -785,6 +788,19 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
                             candlesPath.filename().string(),
                             requireCandles,
                             report.candlesState))) {
+        out.report = report;
+        return report.finalStatus;
+    }
+    ChannelLoadState candles2State = ChannelLoadState::NotCaptured;
+    if (!isOk(loadJsonLines<decltype(&hftrec::replay::parseCandleLine), hftrec::replay::CandleRow>(
+                            candles2Path,
+                            out.candle2Lines,
+                            hftrec::replay::parseCandleLine,
+                            report,
+                            "candles2",
+                            candles2Path.filename().string(),
+                            requireCandles2,
+                            candles2State))) {
         out.report = report;
         return report.finalStatus;
     }

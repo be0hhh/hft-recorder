@@ -69,6 +69,53 @@ std::string fundingLine(std::int64_t tsNs, std::int64_t rateE8) {
         + "]\n";
 }
 
+std::string detailedCandleLine(const char* market,
+                               std::int64_t tsNs,
+                               std::int64_t openE8,
+                               std::int64_t highE8,
+                               std::int64_t lowE8,
+                               std::int64_t closeE8) {
+    return "[\"moex\",\"" + std::string{market}
+        + "\",\"SiM6\",\"1m\","
+        + std::to_string(tsNs)
+        + "," + std::to_string(openE8)
+        + "," + std::to_string(highE8)
+        + "," + std::to_string(lowE8)
+        + "," + std::to_string(closeE8)
+        + "," + std::to_string(e8(10))
+        + "," + std::to_string(e8(100000))
+        + "]\n";
+}
+
+std::string numericDetailedCandleLine(std::int64_t tier,
+                                      std::int64_t tsNs,
+                                      std::int64_t openE8,
+                                      std::int64_t highE8,
+                                      std::int64_t lowE8,
+                                      std::int64_t closeE8) {
+    return "[" + std::to_string(tier)
+        + "," + std::to_string(tsNs)
+        + "," + std::to_string(openE8)
+        + "," + std::to_string(highE8)
+        + "," + std::to_string(lowE8)
+        + "," + std::to_string(closeE8)
+        + "," + std::to_string(e8(10))
+        + "," + std::to_string(e8(100000))
+        + "]\n";
+}
+
+std::string tierCandleLine(std::int64_t tier,
+                           std::int64_t tsNs,
+                           std::int64_t highE8,
+                           std::int64_t lowE8) {
+    return "[" + std::to_string(tier)
+        + "," + std::to_string(tsNs)
+        + "," + std::to_string(highE8)
+        + "," + std::to_string(lowE8)
+        + "," + std::to_string(e8(100000))
+        + "]\n";
+}
+
 void writeEmptyResultBase(const fs::path& dir, const std::string& streams = "{}") {
     fs::create_directories(dir);
     writeFile(dir / "manifest.json", "{\"type\":\"run.result.v2\",\"streams\":" + streams + "}\n");
@@ -356,6 +403,136 @@ TEST(ViewerBookTickerCompare, UsesDefaultSpreadLowerPaneWithoutBacktestResult) {
     std::error_code ec;
     fs::remove_all(dirA, ec);
     fs::remove_all(dirB, ec);
+}
+
+TEST(ViewerBookTickerCompare, UsesCandleSpreadWhenBookTickerMissing) {
+    const auto dirSpot = makeTmpDir();
+    const auto dirFutures = makeTmpDir();
+    fs::create_directories(dirSpot / "jsonl");
+    fs::create_directories(dirFutures / "jsonl");
+    writeFile(dirSpot / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("spot", 1000, e8(100), e8(102), e8(99), e8(100))
+                  + detailedCandleLine("spot", 2000, e8(101), e8(103), e8(100), e8(101)));
+    writeFile(dirFutures / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("futures", 1000, e8(100), e8(103), e8(100), e8(102))
+                  + detailedCandleLine("futures", 2000, e8(102), e8(104), e8(101), e8(103)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
+
+    EXPECT_TRUE(compare.ready());
+    EXPECT_EQ(compare.primaryCount(), 0);
+    EXPECT_EQ(compare.secondaryCount(), 0);
+    EXPECT_EQ(compare.primaryCandleCount(), 2);
+    EXPECT_EQ(compare.secondaryCandleCount(), 2);
+    ASSERT_EQ(compare.candleSpreadPoints().size(), 2u);
+    EXPECT_EQ(compare.candleSpreadCount(), 2);
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("candle_spread"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Candle close spread"));
+    EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
+
+    std::error_code ec;
+    fs::remove_all(dirSpot, ec);
+    fs::remove_all(dirFutures, ec);
+}
+
+TEST(ViewerBookTickerCompare, UsesNumericDetailedCandles) {
+    const auto dirSpot = makeTmpDir();
+    const auto dirFutures = makeTmpDir();
+    fs::create_directories(dirSpot / "jsonl");
+    fs::create_directories(dirFutures / "jsonl");
+    writeFile(dirSpot / "jsonl" / "candles2.jsonl",
+              numericDetailedCandleLine(1, 1000, e8(100), e8(102), e8(99), e8(100)));
+    writeFile(dirFutures / "jsonl" / "candles2.jsonl",
+              numericDetailedCandleLine(1, 1000, e8(100), e8(103), e8(100), e8(102)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
+
+    ASSERT_EQ(compare.candleSpreadPoints().size(), 1u);
+    EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
+
+    std::error_code ec;
+    fs::remove_all(dirSpot, ec);
+    fs::remove_all(dirFutures, ec);
+}
+
+TEST(ViewerBookTickerCompare, KeepsBookTickerAndCandleSpreadWhenBothExist) {
+    const auto dirSpot = makeTmpDir();
+    const auto dirFutures = makeTmpDir();
+    fs::create_directories(dirSpot / "jsonl");
+    fs::create_directories(dirFutures / "jsonl");
+    writeFile(dirSpot / "jsonl" / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(100), e8(101)));
+    writeFile(dirFutures / "jsonl" / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(103), e8(104)));
+    writeFile(dirSpot / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("spot", 1000, e8(100), e8(102), e8(99), e8(100)));
+    writeFile(dirFutures / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("futures", 1000, e8(100), e8(103), e8(100), e8(102)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
+
+    EXPECT_TRUE(compare.ready());
+    EXPECT_EQ(compare.spreadCount(), 1);
+    EXPECT_EQ(compare.candleSpreadCount(), 1);
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("market_spread_overlay"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("BookTicker + Candle spread"));
+
+    std::error_code ec;
+    fs::remove_all(dirSpot, ec);
+    fs::remove_all(dirFutures, ec);
+}
+
+TEST(ViewerBookTickerCompare, CandleSpreadUsesFuturesPremiumWhenSourcesAreReversed) {
+    const auto dirSpot = makeTmpDir();
+    const auto dirFutures = makeTmpDir();
+    fs::create_directories(dirSpot / "jsonl");
+    fs::create_directories(dirFutures / "jsonl");
+    writeFile(dirSpot / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("spot", 1000, e8(100), e8(102), e8(99), e8(100)));
+    writeFile(dirFutures / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("futures", 1000, e8(100), e8(103), e8(100), e8(102)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
+
+    ASSERT_EQ(compare.candleSpreadPoints().size(), 1u);
+    EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
+
+    std::error_code ec;
+    fs::remove_all(dirSpot, ec);
+    fs::remove_all(dirFutures, ec);
+}
+
+TEST(ViewerBookTickerCompare, CandleSpreadPrefersDetailedCandlesAndFallsBackToTierOneMid) {
+    const auto dirSpot = makeTmpDir();
+    const auto dirFutures = makeTmpDir();
+    fs::create_directories(dirSpot / "jsonl");
+    fs::create_directories(dirFutures / "jsonl");
+    writeFile(dirSpot / "jsonl" / "candles.jsonl",
+              tierCandleLine(1, 1000, e8(110), e8(90))
+                  + tierCandleLine(2, 1000, e8(150), e8(50)));
+    writeFile(dirSpot / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("spot", 1000, e8(100), e8(102), e8(99), e8(100)));
+    writeFile(dirFutures / "jsonl" / "candles.jsonl",
+              tierCandleLine(1, 1000, e8(104), e8(100)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
+
+    ASSERT_EQ(compare.candleSpreadPoints().size(), 1u);
+    EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
+
+    std::error_code ec;
+    fs::remove_all(dirSpot, ec);
+    fs::remove_all(dirFutures, ec);
 }
 
 TEST(ViewerBookTickerCompare, StrategySpreadLowerPaneWinsWhenBacktestResultHasSpreadRows) {

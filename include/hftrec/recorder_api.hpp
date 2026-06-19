@@ -103,9 +103,18 @@ struct RecorderBookTickerRow {
 struct RecorderCandleRow {
     std::int64_t tier{0};
     std::int64_t tsNs{0};
+    std::string exchange{};
+    std::string market{};
+    std::string symbol{};
+    std::string timeframe{};
+    std::int64_t durationNs{0};
+    std::int64_t openE8{0};
     std::int64_t highE8{0};
     std::int64_t lowE8{0};
+    std::int64_t closeE8{0};
+    std::int64_t volumeE8{0};
     std::int64_t quoteAmountE8{0};
+    bool hasOhlc{false};
 };
 
 struct RecorderPriceLevel {

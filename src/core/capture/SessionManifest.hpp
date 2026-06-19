@@ -38,6 +38,7 @@ struct SessionManifest {
     bool bookTickerEnabled{false};
     bool orderbookEnabled{false};
     bool candlesEnabled{false};
+    bool candles2Enabled{false};
     bool markPriceEnabled{false};
     bool indexPriceEnabled{false};
     bool fundingEnabled{false};
@@ -47,6 +48,7 @@ struct SessionManifest {
     bool bookTickerRequiredWhenEnabled{true};
     bool orderbookRequiredWhenEnabled{true};
     bool candlesRequiredWhenEnabled{false};
+    bool candles2RequiredWhenEnabled{false};
     bool markPriceRequiredWhenEnabled{false};
     bool indexPriceRequiredWhenEnabled{false};
     bool fundingRequiredWhenEnabled{false};
@@ -57,6 +59,7 @@ struct SessionManifest {
     std::string depthPath{"jsonl/depth_tape.jsonl"};
     std::string depthSidecarPath{"jsonl/depth_sidecar.jsonl"};
     std::string candlesPath{"jsonl/candles.jsonl"};
+    std::string candles2Path{"jsonl/candles2.jsonl"};
     std::string markPricePath{"jsonl/mark_price.jsonl"};
     std::string indexPricePath{"jsonl/index_price.jsonl"};
     std::string fundingPath{"jsonl/funding.jsonl"};
@@ -66,6 +69,7 @@ struct SessionManifest {
     std::string bookTickerRowSchema{"cxet_bookticker_strict_v1"};
     std::string depthRowSchema{"cxet_orderbook_tape_rle_sidecar_v1"};
     std::string candlesRowSchema{"cxet_candle_lite_tiered_v1"};
+    std::string candles2RowSchema{"cxet_ohlcv_numeric_v3"};
     std::string markPriceRowSchema{"cxet_mark_price_ref_v1"};
     std::string indexPriceRowSchema{"cxet_index_price_ref_v1"};
     std::string fundingRowSchema{"cxet_funding_ref_dedup_v1"};
@@ -83,6 +87,7 @@ struct SessionManifest {
     std::uint64_t priceLimitCount{0};
     std::uint64_t depthCount{0};
     std::uint64_t candlesCount{0};
+    std::uint64_t candles2Count{0};
     std::uint64_t snapshotCount{0};
     std::int64_t tradesHistoryWarmupSec{0};
     std::int64_t tradesHistoryRequestedStartNs{0};

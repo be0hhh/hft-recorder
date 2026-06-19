@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
@@ -39,6 +40,31 @@ constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
 constexpr std::int64_t kTradesHistoryWarmupMaxSec = 86400;
 constexpr std::size_t kTradesHistoryWarmupTargetRows = 0u;
 constexpr std::uint32_t kTradesHistoryWarmupPageLimit = 1000u;
+
+std::int64_t candleTierFromTimeframe(std::string_view timeframe) noexcept {
+    if (timeframe == "1m") return 1;
+    if (timeframe == "10m" || timeframe == "15m") return 2;
+    if (timeframe == "1d") return 3;
+    return 0;
+}
+
+std::string sanitizedTimeframeSuffix(std::string_view timeframe) {
+    std::string out;
+    out.reserve(timeframe.size());
+    for (char c : timeframe) {
+        if ((c >= '0' && c <= '9') ||
+            (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z')) {
+            out.push_back(c);
+        }
+    }
+    return out.empty() ? std::string{"unknown"} : out;
+}
+
+std::string detailedCandlesRelativePath(std::string_view timeframe, bool detailed) {
+    const auto suffix = sanitizedTimeframeSuffix(timeframe);
+    return std::string{"jsonl/"} + (detailed ? "candles2_" : "candles_") + suffix + ".jsonl";
+}
 
 EventSequenceIds nextEventSequenceIds(std::atomic<std::uint64_t>& channelCounter,
                                       std::atomic<std::uint64_t>& ingestCounter) noexcept {
@@ -348,11 +374,12 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
     if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
+    if (textEqualsAscii(exchange, "moex")) return canon::kExchangeIdMoex;
     return canon::kExchangeIdUnknown;
 }
 
 canon::MarketType marketTypeFromConfig(std::string_view market) noexcept {
-    if (textEqualsAscii(market, "spot")) return canon::kMarketTypeSpot;
+    if (textEqualsAscii(market, "spot") || textEqualsAscii(market, "shares")) return canon::kMarketTypeSpot;
     if (textEqualsAscii(market, "margin")) return canon::kMarketTypeMargin;
     if (textEqualsAscii(market, "inverse")) return canon::kMarketTypeInverse;
     if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
@@ -531,6 +558,173 @@ Status CaptureCoordinator::captureCandlesOnce(const CaptureConfig& config) noexc
         }
     }
     return Status::Ok;
+}
+
+Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& config) noexcept {
+    const auto sessionStatus = ensureSession(config);
+    if (!isOk(sessionStatus)) return sessionStatus;
+    if (config.symbols.empty()) {
+        lastError_ = "candles2: missing symbol";
+        return Status::InvalidArgument;
+    }
+
+    Symbol symbol{};
+    symbol.copyFrom(config.symbols.front().c_str());
+    if (symbol.data[0] == '\0') {
+        lastError_ = "candles2: invalid symbol";
+        return Status::InvalidArgument;
+    }
+
+    TimeframeBuf timeframe{};
+    const std::string tfText = config.detailedCandlesTimeframe.empty() ? std::string{"15m"} : config.detailedCandlesTimeframe;
+    timeframe.copyFrom(tfText.c_str());
+    if (timeframe.data[0] == '\0') {
+        lastError_ = "candles2: invalid timeframe";
+        return Status::InvalidArgument;
+    }
+
+    CountVal limit{};
+    const std::uint32_t requestedLimit = config.detailedCandlesLimit == 0u ? 5000u : config.detailedCandlesLimit;
+    limit.raw = std::min<std::uint32_t>(requestedLimit, 5000u);
+
+    TimeNs endTime{};
+    endTime.raw = config.detailedCandlesEndNs > 0
+        ? static_cast<std::uint64_t>(config.detailedCandlesEndNs)
+        : static_cast<std::uint64_t>(internal::nowNs());
+
+    std::vector<cxet::composite::Ohlcv> rows(static_cast<std::size_t>(limit.raw));
+    MessageBuffer requestBuf{};
+    MessageBuffer recvBuf{};
+    std::size_t rowCount = 0u;
+    Symbol underlyingSymbolHint{};
+    const Symbol* underlyingSymbolPtr = nullptr;
+    if (!config.detailedCandlesUnderlyingSymbolHint.empty()) {
+        underlyingSymbolHint.copyFrom(config.detailedCandlesUnderlyingSymbolHint.c_str());
+        if (underlyingSymbolHint.data[0] != '\0') underlyingSymbolPtr = &underlyingSymbolHint;
+    }
+    std::string fetchFailure;
+    const bool fetched = hft_trader::runtime::candles::loadOhlcvHistoryForVenue(
+        makeTraderVenueConfig(config),
+        symbol,
+        timeframe,
+        limit,
+        endTime,
+        rows.data(),
+        rows.size(),
+        &rowCount,
+        requestBuf,
+        recvBuf,
+        underlyingSymbolPtr,
+        &fetchFailure);
+    if (!fetched) {
+        lastError_ = "candles2: trader OHLCV fetch failed exchange=" + config.exchange +
+                     " market=" + config.market +
+                     " symbol=" + config.symbols.front() +
+                     " timeframe=" + tfText;
+        if (!fetchFailure.empty()) lastError_ += " reason=" + fetchFailure;
+        if (!config.detailedCandlesUnderlyingSymbolHint.empty()) {
+            lastError_ += " underlying=" + config.detailedCandlesUnderlyingSymbolHint;
+        }
+        if (requestBuf.size() != 0u) {
+            lastError_ += " request=";
+            lastError_.append(requestBuf.data(), std::min<std::size_t>(requestBuf.size(), 240u));
+        }
+        lastError_ += " response_bytes=" + std::to_string(recvBuf.size());
+        return Status::Unknown;
+    }
+
+    const std::string candles2Path = detailedCandlesRelativePath(tfText, true);
+    const std::string candlesPath = detailedCandlesRelativePath(tfText, false);
+    candles2Writer_.close();
+    candlesWriter_.close();
+    if (!isOk(candles2Writer_.openRelativePath(sessionDir_, candles2Path, true))) {
+        if (lastError_.empty()) lastError_ = "candles2: failed to create candles2.jsonl";
+        return Status::IoError;
+    }
+
+    const std::int64_t candleTier = candleTierFromTimeframe(tfText);
+    const bool writeLegacyCandles = candleTier >= 1 && candleTier <= 3;
+    if (writeLegacyCandles && !isOk(candlesWriter_.openRelativePath(sessionDir_, candlesPath, true))) {
+        lastError_ = "candles2: failed to create compatibility candles.jsonl";
+        return Status::IoError;
+    }
+
+    std::uint64_t written = 0u;
+    std::uint64_t legacyWritten = 0u;
+    for (std::size_t i = 0u; i < rowCount; ++i) {
+        const auto& candle = rows[i];
+        replay::CandleRow row{};
+        row.tier = candleTier;
+        row.exchange = config.exchange;
+        row.market = config.market;
+        row.symbol = candle.symbol.data[0] != '\0' ? std::string{candle.symbol.data} : config.symbols.front();
+        row.timeframe = tfText;
+        row.tsNs = static_cast<std::int64_t>(candle.ts.raw);
+        row.openE8 = static_cast<std::int64_t>(candle.open.raw);
+        row.highE8 = static_cast<std::int64_t>(candle.high.raw);
+        row.lowE8 = static_cast<std::int64_t>(candle.low.raw);
+        row.closeE8 = static_cast<std::int64_t>(candle.close.raw);
+        row.volumeE8 = static_cast<std::int64_t>(candle.amount.raw);
+        row.quoteAmountE8 = static_cast<std::int64_t>(candle.quoteAmount.raw);
+        row.hasOhlc = true;
+        if (row.tsNs <= 0 || row.openE8 <= 0 || row.highE8 <= 0 || row.lowE8 <= 0 ||
+            row.closeE8 <= 0 || row.highE8 < row.lowE8 || row.volumeE8 < 0 || row.quoteAmountE8 < 0) {
+            continue;
+        }
+        const auto line = renderCandleJsonLine(row);
+        const auto writeStatus = candles2Writer_.writeLine(line);
+        if (!isOk(writeStatus)) {
+            lastError_ = "candles2: failed to write candles2.jsonl";
+            return writeStatus;
+        }
+        candles2Count_.fetch_add(1, std::memory_order_acq_rel);
+        ++written;
+
+        if (writeLegacyCandles) {
+            replay::CandleRow lite{};
+            lite.tier = candleTier;
+            lite.tsNs = row.tsNs;
+            lite.highE8 = row.highE8;
+            lite.lowE8 = row.lowE8;
+            lite.quoteAmountE8 = row.quoteAmountE8;
+            const auto legacyLine = renderCandleJsonLine(lite);
+            const auto legacyWriteStatus = candlesWriter_.writeLine(legacyLine);
+            if (!isOk(legacyWriteStatus)) {
+                lastError_ = "candles2: failed to write compatibility candles.jsonl";
+                return legacyWriteStatus;
+            }
+            candlesCount_.fetch_add(1, std::memory_order_acq_rel);
+            ++legacyWritten;
+        }
+    }
+
+    if (written == 0u) {
+        lastError_ = "candles2: fetch returned no valid OHLCV rows exchange=" + config.exchange +
+                     " market=" + config.market +
+                     " symbol=" + config.symbols.front() +
+                     " timeframe=" + tfText +
+                     " parsed_rows=" + std::to_string(rowCount);
+        return Status::Unknown;
+    }
+
+    if (lastError_.starts_with("candles2:")) lastError_.clear();
+    manifest_.candles2Enabled = true;
+    manifest_.candles2Path = candles2Path;
+    manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
+    if (legacyWritten != 0u) {
+        manifest_.candlesEnabled = true;
+        manifest_.candlesPath = candlesPath;
+        manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
+        if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.candlesPath)
+            == manifest_.canonicalArtifacts.end()) {
+            manifest_.canonicalArtifacts.push_back(manifest_.candlesPath);
+        }
+    }
+    if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.candles2Path)
+        == manifest_.canonicalArtifacts.end()) {
+        manifest_.canonicalArtifacts.push_back(manifest_.candles2Path);
+    }
+    return writeManifestFile_();
 }
 
 Status CaptureCoordinator::startManagedMarketData_(const CaptureConfig& config, ManagedStreamKind stream) noexcept {
