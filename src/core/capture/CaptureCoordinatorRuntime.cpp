@@ -40,6 +40,8 @@ constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
 constexpr std::int64_t kTradesHistoryWarmupMaxSec = 86400;
 constexpr std::size_t kTradesHistoryWarmupTargetRows = 0u;
 constexpr std::uint32_t kTradesHistoryWarmupPageLimit = 1000u;
+constexpr std::uint32_t kDetailedCandlesDefaultLimit = 5000u;
+constexpr std::uint32_t kDetailedCandlesMaxLimit = 1'000'000u;
 
 std::int64_t candleTierFromTimeframe(std::string_view timeframe) noexcept {
     if (timeframe == "1m") return 1;
@@ -374,7 +376,8 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
     if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
-    if (textEqualsAscii(exchange, "moex")) return canon::kExchangeIdMoex;
+    if (textEqualsAscii(exchange, "finam")) return canon::kExchangeIdFinam;
+    if (textEqualsAscii(exchange, "mexc")) return canon::kExchangeIdMexc;
     return canon::kExchangeIdUnknown;
 }
 
@@ -584,8 +587,10 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
     }
 
     CountVal limit{};
-    const std::uint32_t requestedLimit = config.detailedCandlesLimit == 0u ? 5000u : config.detailedCandlesLimit;
-    limit.raw = std::min<std::uint32_t>(requestedLimit, 5000u);
+    const std::uint32_t requestedLimit = config.detailedCandlesLimit == 0u
+        ? kDetailedCandlesDefaultLimit
+        : config.detailedCandlesLimit;
+    limit.raw = std::min<std::uint32_t>(requestedLimit, kDetailedCandlesMaxLimit);
 
     TimeNs endTime{};
     endTime.raw = config.detailedCandlesEndNs > 0
@@ -596,12 +601,6 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
     MessageBuffer requestBuf{};
     MessageBuffer recvBuf{};
     std::size_t rowCount = 0u;
-    Symbol underlyingSymbolHint{};
-    const Symbol* underlyingSymbolPtr = nullptr;
-    if (!config.detailedCandlesUnderlyingSymbolHint.empty()) {
-        underlyingSymbolHint.copyFrom(config.detailedCandlesUnderlyingSymbolHint.c_str());
-        if (underlyingSymbolHint.data[0] != '\0') underlyingSymbolPtr = &underlyingSymbolHint;
-    }
     std::string fetchFailure;
     const bool fetched = hft_trader::runtime::candles::loadOhlcvHistoryForVenue(
         makeTraderVenueConfig(config),
@@ -614,7 +613,6 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
         &rowCount,
         requestBuf,
         recvBuf,
-        underlyingSymbolPtr,
         &fetchFailure);
     if (!fetched) {
         lastError_ = "candles2: trader OHLCV fetch failed exchange=" + config.exchange +
@@ -622,9 +620,6 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
                      " symbol=" + config.symbols.front() +
                      " timeframe=" + tfText;
         if (!fetchFailure.empty()) lastError_ += " reason=" + fetchFailure;
-        if (!config.detailedCandlesUnderlyingSymbolHint.empty()) {
-            lastError_ += " underlying=" + config.detailedCandlesUnderlyingSymbolHint;
-        }
         if (requestBuf.size() != 0u) {
             lastError_ += " request=";
             lastError_.append(requestBuf.data(), std::min<std::size_t>(requestBuf.size(), 240u));

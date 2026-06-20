@@ -16,9 +16,11 @@ namespace hftrec::app {
 
 namespace {
 
+constexpr long kDetailedCandlesMaxLimit = 1'000'000;
+
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] [--underlying-symbol symbol] <trades|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles|candles2> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
+    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] <trades|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles|candles2> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
     std::puts("  hft-recorder capture [--env path] [--api-slot n] bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
@@ -31,6 +33,7 @@ void printUsage() {
     std::puts("  hft-recorder capture bookticker 10 ./recordings aster ASTERUSDT spot");
     std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT margin");
     std::puts("  hft-recorder capture bookticker 10 ./recordings okx BTC-USDT-SWAP futures");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 bookticker 30 ./recordings finam SBER@MISX spot");
     std::puts("  hft-recorder capture mark_price 30 ./recordings binance BTCUSDT futures");
     std::puts("  hft-recorder capture index_price 30 ./recordings bybit BTCUSDT futures");
     std::puts("  hft-recorder capture funding 30 ./recordings gate BTC_USDT futures");
@@ -38,7 +41,7 @@ void printUsage() {
     std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT futures 300");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 ./recordings binance ETHUSDT futures 300");
     std::puts("  hft-recorder capture candles 1 ./recordings binance BSBUSDT");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 10m --limit 5000 --underlying-symbol SBER candles2 1 ./recordings moex SRM6 futures");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 100000 candles2 1 ./recordings finam SBER@MISX spot");
 }
 
 capture::CaptureConfig makeDefaultConfig() {
@@ -90,17 +93,6 @@ bool isDetailedCandlesChannel(std::string_view channel) noexcept {
            channel == "detailed-candles" || channel == "klines2";
 }
 
-bool isMoexExchange(std::string_view exchange) noexcept {
-    return exchange == "moex" || exchange == "MOEX";
-}
-
-capture::CaptureConfig normalizeDetailedCandlesConfig(capture::CaptureConfig config) {
-    if (isMoexExchange(config.exchange) && config.detailedCandlesTimeframe == "15m") {
-        config.detailedCandlesTimeframe = "10m";
-    }
-    return config;
-}
-
 Status startChannel(capture::CaptureCoordinator& coordinator,
                     const std::string& channel,
                     const capture::CaptureConfig& config) {
@@ -118,7 +110,7 @@ Status startChannel(capture::CaptureCoordinator& coordinator,
         return coordinator.captureCandlesOnce(config);
     }
     if (isDetailedCandlesChannel(channel)) {
-        return coordinator.captureDetailedCandlesOnce(normalizeDetailedCandlesConfig(config));
+        return coordinator.captureDetailedCandlesOnce(config);
     }
     return Status::InvalidArgument;
 }
@@ -198,19 +190,11 @@ bool stripCaptureOptions(capture::CaptureConfig& config,
                 return false;
             }
             const long limit = std::strtol(argv[++i], nullptr, 10);
-            if (limit < 1 || limit > 5000) {
-                std::fputs("capture: --limit must be in [1,5000]\n", stderr);
+            if (limit < 1 || limit > kDetailedCandlesMaxLimit) {
+                std::fputs("capture: --limit must be in [1,1000000]\n", stderr);
                 return false;
             }
             config.detailedCandlesLimit = static_cast<std::uint32_t>(limit);
-            continue;
-        }
-        if (arg == "--underlying-symbol") {
-            if (i + 1 >= argc) {
-                std::fputs("capture: --underlying-symbol requires a value\n", stderr);
-                return false;
-            }
-            config.detailedCandlesUnderlyingSymbolHint = argv[++i];
             continue;
         }
         positional.push_back(argv[i]);
@@ -315,10 +299,6 @@ int runCapture(int argc, char** argv) {
     if (argc >= 4) {
         config.outputDir = argv[3];
     }
-    if (isDetailedCandlesChannel(channel)) {
-        config = normalizeDetailedCandlesConfig(std::move(config));
-    }
-
     capture::CaptureCoordinator coordinator{};
     Status startStatus = startChannel(coordinator, channel, config);
     if (startStatus == Status::InvalidArgument && coordinator.lastError().empty()) {

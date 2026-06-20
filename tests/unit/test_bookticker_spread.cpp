@@ -106,7 +106,6 @@ TEST(BookTickerSpread, HoldsLastQuoteAcrossSparseUpdateGap) {
     EXPECT_EQ(points.back().tsNs, 1'200'000'001LL);
 }
 
-
 TEST(BookTickerSpread, ComputesTrailingMeanAndCostEdge) {
     std::vector<hftrec::arbitrage::BookTickerSpreadPoint> points{};
     points.push_back(hftrec::arbitrage::BookTickerSpreadPoint{.tsNs = 0, .internalPenaltyBps = 5.0, .spreadBps = -100.0});

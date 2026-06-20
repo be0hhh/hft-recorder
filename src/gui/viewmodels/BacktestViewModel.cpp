@@ -721,6 +721,7 @@ QString venueSectionFor(const QString& exchange, const QString& market) {
     if (exchange == QStringLiteral("aster")) return QStringLiteral("aster_futures");
     if (exchange == QStringLiteral("okx") && market == QStringLiteral("spot")) return QStringLiteral("okx_spot");
     if (exchange == QStringLiteral("okx")) return QStringLiteral("okx_futures");
+    if (exchange == QStringLiteral("mexc") && market == QStringLiteral("spot")) return QStringLiteral("mexc_spot");
     return QStringLiteral("binance_futures");
 }
 

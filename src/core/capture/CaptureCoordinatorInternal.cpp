@@ -61,7 +61,8 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
     if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
-    if (textEqualsAscii(exchange, "moex")) return canon::kExchangeIdMoex;
+    if (textEqualsAscii(exchange, "finam")) return canon::kExchangeIdFinam;
+    if (textEqualsAscii(exchange, "mexc")) return canon::kExchangeIdMexc;
     return canon::kExchangeIdUnknown;
 }
 
@@ -245,7 +246,7 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
         return Status::InvalidArgument;
     }
     if (exchangeIdFromConfig(config.exchange).raw == canon::kExchangeIdUnknown.raw) {
-        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, okx, moex";
+        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, okx, finam, mexc";
         return Status::InvalidArgument;
     }
     if (!textEqualsAscii(config.market, "futures") && !textEqualsAscii(config.market, "forts") &&

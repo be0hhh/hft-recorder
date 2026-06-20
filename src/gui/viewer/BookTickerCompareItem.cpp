@@ -11,6 +11,7 @@
 #include <QPolygonF>
 #include <QRectF>
 
+#include "gui/viewer/BookTickerCompareCandlePaint.hpp"
 #include "gui/viewer/BookTickerCompareController.hpp"
 
 namespace hftrec::gui::viewer {
@@ -425,6 +426,17 @@ QColor spreadDirectionColor(std::uint8_t direction) noexcept {
     return direction == 1u ? sourceColor(0u) : sourceColor(1u);
 }
 
+BookTickerCompareCandlePaintRanges candlePaintRanges(const Ranges& ranges) noexcept {
+    return BookTickerCompareCandlePaintRanges{
+        .tsMin = ranges.tsMin,
+        .tsMax = ranges.tsMax,
+        .priceMin = ranges.priceMin,
+        .priceMax = ranges.priceMax,
+        .spreadMin = ranges.spreadMin,
+        .spreadMax = ranges.spreadMax,
+    };
+}
+
 void appendTickerStepPoints(const std::vector<hftrec::replay::BookTickerRow>& rows,
                             bool bid,
                             const Ranges& ranges,
@@ -461,95 +473,6 @@ void appendTickerStepPoints(const std::vector<hftrec::replay::BookTickerRow>& ro
         const qreal holdX = xFor(holdTs, ranges, rect);
         if (holdX > prev.x()) out.push_back(QPointF{holdX, prev.y()});
     }
-}
-
-void appendCandleCloseStepPoints(const std::vector<hftrec::replay::CandleRow>& rows,
-                                 const Ranges& ranges,
-                                 const QRectF& rect,
-                                 QPolygonF& out) {
-    out.clear();
-    out.reserve(static_cast<int>(std::min<std::size_t>(rows.size() * 2u + 2u, 1000000)));
-
-    const hftrec::replay::CandleRow* carry = nullptr;
-    for (const auto& row : rows) {
-        if (row.tsNs > ranges.tsMin) break;
-        if (candleClosePriceE8(row) > 0) carry = &row;
-    }
-    if (carry != nullptr) out.push_back(QPointF{rect.left(), priceYFor(candleClosePriceE8(*carry), ranges, rect)});
-    bool havePrev = carry != nullptr;
-    QPointF prev = havePrev ? out.back() : QPointF{};
-    for (const auto& row : rows) {
-        if (row.tsNs < ranges.tsMin) continue;
-        if (row.tsNs > ranges.tsMax) break;
-        const auto price = candleClosePriceE8(row);
-        if (price <= 0) continue;
-        const QPointF current{xFor(row.tsNs, ranges, rect), priceYFor(price, ranges, rect)};
-        if (havePrev && current.x() > prev.x()) out.push_back(QPointF{current.x(), prev.y()});
-        out.push_back(current);
-        prev = current;
-        havePrev = true;
-    }
-}
-
-void drawCandleCloseTrace(QPainter& painter,
-                          const std::vector<hftrec::replay::CandleRow>& rows,
-                          const Ranges& ranges,
-                          const QRectF& rect,
-                          const QColor& color) {
-    QPolygonF points;
-    appendCandleCloseStepPoints(rows, ranges, rect, points);
-    if (points.size() < 2) return;
-    QPen pen{color};
-    pen.setWidth(2);
-    pen.setStyle(Qt::DashLine);
-    pen.setCapStyle(Qt::SquareCap);
-    pen.setJoinStyle(Qt::MiterJoin);
-    painter.setPen(pen);
-    painter.setBrush(Qt::NoBrush);
-    painter.drawPolyline(points);
-}
-
-std::int64_t candleDurationNs(const hftrec::replay::CandleRow& row) noexcept {
-    if (row.durationNs > 0) return row.durationNs;
-    if (row.tier == 1) return 60ll * 1000000000ll;
-    if (row.tier == 2) return 15ll * 60ll * 1000000000ll;
-    if (row.tier == 3) return 24ll * 60ll * 60ll * 1000000000ll;
-    return 60ll * 1000000000ll;
-}
-
-void drawCandleBodies(QPainter& painter,
-                      const std::vector<hftrec::replay::CandleRow>& rows,
-                      const Ranges& ranges,
-                      const QRectF& rect,
-                      const QColor& upColor,
-                      const QColor& downColor) {
-    for (const auto& row : rows) {
-        if (!row.hasOhlc) continue;
-        if (row.tsNs < ranges.tsMin || row.tsNs > ranges.tsMax) continue;
-        if (row.openE8 <= 0 || row.highE8 <= 0 || row.lowE8 <= 0 || row.closeE8 <= 0 || row.highE8 < row.lowE8) continue;
-        const qreal x = xFor(row.tsNs, ranges, rect);
-        const qreal nextX = xFor(std::min<std::int64_t>(row.tsNs + candleDurationNs(row), ranges.tsMax), ranges, rect);
-        const qreal width = std::clamp(std::abs(nextX - x) * 0.65, 3.0, 14.0);
-        const qreal yHigh = priceYFor(row.highE8, ranges, rect);
-        const qreal yLow = priceYFor(row.lowE8, ranges, rect);
-        const qreal yOpen = priceYFor(row.openE8, ranges, rect);
-        const qreal yClose = priceYFor(row.closeE8, ranges, rect);
-        if ((x + width) < rect.left() || (x - width) > rect.right()) continue;
-
-        QColor color = row.closeE8 >= row.openE8 ? upColor : downColor;
-        QPen pen{color};
-        pen.setWidth(1);
-        painter.setPen(pen);
-        painter.drawLine(QPointF{x, yHigh}, QPointF{x, yLow});
-
-        QColor fill = color;
-        fill.setAlpha(90);
-        painter.setBrush(fill);
-        const qreal top = std::min(yOpen, yClose);
-        const qreal bottom = std::max(yOpen, yClose);
-        painter.drawRect(QRectF{x - width * 0.5, top, width, std::max<qreal>(2.0, bottom - top)});
-    }
-    painter.setBrush(Qt::NoBrush);
 }
 
 void drawSpreadSegments(QPainter& painter,
@@ -602,28 +525,6 @@ void drawSpreadSegments(QPainter& painter,
         const QPointF holdPoint{xFor(holdTs, ranges, rect), prev.y()};
         if (holdPoint.x() > prev.x()) drawSegment(prev, holdPoint, prevDirection);
     }
-}
-
-void drawCandleSpreadTrace(QPainter& painter,
-                           const std::vector<hftrec::arbitrage::CandleSpreadPoint>& points,
-                           const Ranges& ranges,
-                           const QRectF& rect) {
-    if (points.empty()) return;
-    QPolygonF line;
-    line.reserve(static_cast<int>(std::min<std::size_t>(points.size(), 1000000)));
-    for (const auto& point : points) {
-        if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
-        line.push_back(QPointF{xFor(point.tsNs, ranges, rect), spreadYFor(point.spreadBps, ranges, rect)});
-    }
-    if (line.size() < 2) return;
-    QPen pen{QColor{235, 235, 245}};
-    pen.setWidth(2);
-    pen.setStyle(Qt::DashLine);
-    pen.setCapStyle(Qt::SquareCap);
-    pen.setJoinStyle(Qt::MiterJoin);
-    painter.setPen(pen);
-    painter.setBrush(Qt::NoBrush);
-    painter.drawPolyline(line);
 }
 
 void drawMeanBands(QPainter& painter,
@@ -740,9 +641,9 @@ void drawStrategyIndicatorTrace(QPainter& painter,
 void drawSideTriangle(QPainter& painter, qreal x, qreal y, qreal r, bool buy, const QColor& fill) {
     QPolygonF triangle;
     if (buy) {
-        triangle << QPointF{x, y - r} << QPointF{x - r, y + r} << QPointF{x + r, y + r};
+        triangle << QPointF{x, y} << QPointF{x - r, y + (2.0 * r)} << QPointF{x + r, y + (2.0 * r)};
     } else {
-        triangle << QPointF{x, y + r} << QPointF{x - r, y - r} << QPointF{x + r, y - r};
+        triangle << QPointF{x, y} << QPointF{x - r, y - (2.0 * r)} << QPointF{x + r, y - (2.0 * r)};
     }
     painter.setPen(QPen{QColor{18, 18, 21}, 1});
     painter.setBrush(fill);
@@ -1085,6 +986,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                   controller_->totalFeePenaltyBps());
     applyControllerScale(ranges, *controller_);
     const LayoutRects layout = makeLayout(boundingRect());
+    const BookTickerCompareCandlePaintRanges candleRanges = candlePaintRanges(ranges);
     const QString lowerAxisLabel = lowerPaneKind == CompareLowerPaneKind::StrategyIndicator
         ? (!indicator.unit.isEmpty() ? indicator.unit : indicatorRawLabel(indicator))
         : QStringLiteral("bps");
@@ -1109,22 +1011,20 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     drawPolyline(*painter, points, marketBidColor(1u));
     appendTickerStepPoints(secondary, false, ranges, layout.primaryRect, points);
     drawPolyline(*painter, points, marketAskColor(1u));
-    drawCandleBodies(*painter, primaryCandles, ranges, layout.primaryRect, QColor{125, 216, 255}, QColor{75, 150, 210});
-    drawCandleBodies(*painter, secondaryCandles, ranges, layout.primaryRect, QColor{255, 155, 170}, QColor{210, 85, 110});
-    drawCandleCloseTrace(*painter, primaryCandles, ranges, layout.primaryRect, QColor{175, 224, 255});
-    drawCandleCloseTrace(*painter, secondaryCandles, ranges, layout.primaryRect, QColor{255, 170, 180});
+    drawCompareCandleBodies(*painter, primaryCandles, candleRanges, layout.primaryRect, sourceColor(0u));
+    drawCompareCandleBodies(*painter, secondaryCandles, candleRanges, layout.primaryRect, sourceColor(1u));
 
     if (lowerPaneKind == CompareLowerPaneKind::StrategySpread) {
         drawStrategySpreadTrace(*painter, overlay.spreadPoints, ranges, layout.spreadRect);
     } else if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
         drawStrategyIndicatorTrace(*painter, indicator, ranges, layout.spreadRect);
     } else if (lowerPaneKind == CompareLowerPaneKind::CandleSpread) {
-        drawCandleSpreadTrace(*painter, candleSpreads, ranges, layout.spreadRect);
+        drawCompareCandleSpreadTrace(*painter, candleSpreads, candleRanges, layout.spreadRect, sourceColor(0u), sourceColor(1u));
     } else {
         drawMeanBands(*painter, means, ranges, layout.spreadRect);
         drawSpreadSegments(*painter, spreads, ranges, layout.spreadRect);
         if (lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay) {
-            drawCandleSpreadTrace(*painter, candleSpreads, ranges, layout.spreadRect);
+            drawCompareCandleSpreadTrace(*painter, candleSpreads, candleRanges, layout.spreadRect, sourceColor(0u), sourceColor(1u));
         }
     }
     if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator) {
@@ -1135,7 +1035,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     painter->setFont(QFont{painter->font().family(), 9});
     painter->setPen(QColor{245, 245, 245});
     painter->drawText(layout.primaryRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                      QStringLiteral("A market blue / candle dashed light blue   B market red / candle dashed pink"));
+                      QStringLiteral("A blue   B red"));
     if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
         painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
                           QStringLiteral("%1: min %2   max %3   avg %4")
@@ -1157,12 +1057,12 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                        formatBps(ranges.edgeAfterCostMax)));
         } else if (lowerPaneKind == CompareLowerPaneKind::CandleSpread) {
             painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                              QStringLiteral("Candle futures premium: min %1   max %2")
+                              QStringLiteral("Candle A/B spread: min %1   max %2")
                                   .arg(formatBps(ranges.spreadMin),
                                        formatBps(ranges.spreadMax)));
         } else if (lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay) {
             painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
-                              QStringLiteral("BookTicker spread + candle futures premium: scale %1..%2   mean avg %3   candle dashed white")
+                              QStringLiteral("BookTicker spread + candle A/B spread: scale %1..%2   mean avg %3")
                                   .arg(formatBps(ranges.spreadMin),
                                        formatBps(ranges.spreadMax),
                                        formatBps(ranges.meanAvg)));
@@ -1192,10 +1092,10 @@ void BookTickerCompareItem::paint(QPainter* painter) {
         } else if ((lowerPaneKind == CompareLowerPaneKind::CandleSpread || lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay)
                    && nearestCandleSpreadPoint(candleSpreads, ts) != nullptr) {
             const auto* candleSpread = nearestCandleSpreadPoint(candleSpreads, ts);
-            const QString label = QStringLiteral("candle premium %1  spot %2  futures %3")
+            const QString label = QStringLiteral("candle spread %1  A %2  B %3")
                                       .arg(formatBps(candleSpread->spreadBps),
-                                           formatPrice(candleSpread->spotCloseE8),
-                                           formatPrice(candleSpread->futuresCloseE8));
+                                           formatPrice(candleSpread->aCloseE8),
+                                           formatPrice(candleSpread->bCloseE8));
             drawLabel(*painter, hoverPoint_, label, chartBounds);
         } else if (const auto* strategySpread = nearestStrategySpreadPoint(overlay.spreadPoints, ts); strategySpread != nullptr) {
             const QString label = QStringLiteral("spread %1  EMA %2  dev %3  band +/- %4  edge %5")

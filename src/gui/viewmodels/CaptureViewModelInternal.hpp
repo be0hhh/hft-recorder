@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 #include <vector>
 
 #include "core/capture/CaptureCoordinator.hpp"
@@ -48,6 +49,7 @@ bool isRequiredAliasForChannel(const QString& channel, const QString& alias);
 int aliasWeightBytes(const QString& alias);
 QString channelWeightSummary(const QString& channel, const QStringList& selectedAliases);
 QVariantList venueChoices();
+QVariantList detailedCandlesVenueChoices();
 QString buildRequestPreview(const QString& channel,
                             const QStringList& availableAliases,
                             const QStringList& selectedAliases,
@@ -77,13 +79,15 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
 std::vector<capture::CaptureConfig> makeDetailedCandlesConfigs(const QString& outputDirectory,
                                                                const QString& envPath,
                                                                int apiSlot,
-                                                               const QStringList& venueKeys,
-                                                               const QStringList& venueSymbolsTexts,
+                                                               const QString& venueKey,
+                                                               const QString& symbolText,
                                                                const QString& timeframe,
                                                                int limit,
                                                                QString* errorText);
-QString buildDetailedCandlesPreview(const QStringList& venueKeys,
-                                    const QStringList& venueSymbolsTexts,
+QVariantList detailedCandlesTimeframeChoices(const QString& venueKey);
+QString defaultDetailedCandlesTimeframe(const QString& venueKey);
+QString buildDetailedCandlesPreview(const QString& venueKey,
+                                    const QString& symbolText,
                                     const QString& timeframe,
                                     int limit);
 CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, CaptureRefreshMode mode);

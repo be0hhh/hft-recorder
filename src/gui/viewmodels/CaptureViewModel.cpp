@@ -4,8 +4,44 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QVariantMap>
 
 namespace hftrec::gui {
+
+namespace {
+
+constexpr int kDetailedCandlesMaxLimit = 1'000'000;
+
+QString normalizeDetailedCandlesTimeframeForVenue(const QString& venueKey, QString timeframe) {
+    timeframe = timeframe.trimmed();
+    if (timeframe != QStringLiteral("1M")) timeframe = timeframe.toLower();
+    const auto choices = detail::detailedCandlesTimeframeChoices(venueKey);
+    for (const auto& rawChoice : choices) {
+        const auto choice = rawChoice.toMap();
+        if (choice.value(QStringLiteral("value")).toString() == timeframe) return timeframe;
+    }
+    return detail::defaultDetailedCandlesTimeframe(venueKey);
+}
+
+QString normalizeDetailedCandlesVenueKey(QString venueKey) {
+    venueKey = venueKey.trimmed().toLower();
+    if (venueKey.isEmpty()) return {};
+    const auto choices = detail::detailedCandlesVenueChoices();
+    for (const auto& rawChoice : choices) {
+        const auto choice = rawChoice.toMap();
+        if (choice.value(QStringLiteral("key")).toString() == venueKey) return venueKey;
+    }
+    return {};
+}
+
+void syncDetailedVenueFields(const QString& venueKey, QString& exchange, QString& market) {
+    const auto key = venueKey.trimmed().toLower();
+    const auto parts = key.split(QLatin1Char('_'), Qt::SkipEmptyParts);
+    if (!parts.isEmpty()) exchange = parts.front();
+    if (parts.size() >= 2) market = parts.back() == QStringLiteral("spot") ? QStringLiteral("spot") : QStringLiteral("futures");
+}
+
+}  // namespace
 
 CaptureViewModel::CaptureViewModel(QObject* parent)
     : QObject(parent) {
@@ -30,8 +66,9 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTC-USDT-SWAP"),
         QStringLiteral("BTC-USDT"),
-        QStringLiteral("SiM6"),
-        QStringLiteral("SBER"),
+        QStringLiteral("SBER@MISX"),
+        QStringLiteral("SBER@MISX"),
+        QStringLiteral("BTCUSDT"),
     };
     loadSettings_();
 
@@ -48,6 +85,7 @@ QString CaptureViewModel::envPath() const { return envPath_; }
 int CaptureViewModel::apiSlot() const noexcept { return apiSlot_; }
 QStringList CaptureViewModel::selectedVenueKeys() const { return selectedVenueKeys_; }
 QVariantList CaptureViewModel::venueChoices() const { return detail::venueChoices(); }
+QVariantList CaptureViewModel::detailedCandlesVenueChoices() const { return detail::detailedCandlesVenueChoices(); }
 QString CaptureViewModel::symbolsText() const { return symbolsText_; }
 int CaptureViewModel::tradesHistoryWarmupSec() const noexcept { return tradesHistoryWarmupSec_; }
 QString CaptureViewModel::sessionId() const { return lastSessionId_; }
@@ -143,15 +181,23 @@ QString CaptureViewModel::orderbookRequestPreview() const {
                                        apiSlot_);
 }
 
+QString CaptureViewModel::detailedCandlesVenueKey() const { return detailedCandlesVenueKey_; }
 QString CaptureViewModel::detailedCandlesExchange() const { return detailedCandlesExchange_; }
 QString CaptureViewModel::detailedCandlesMarket() const { return detailedCandlesMarket_; }
 QString CaptureViewModel::detailedCandlesSymbolsText() const { return detailedCandlesSymbolsText_; }
 QString CaptureViewModel::detailedCandlesTimeframe() const { return detailedCandlesTimeframe_; }
 int CaptureViewModel::detailedCandlesLimit() const noexcept { return detailedCandlesLimit_; }
+QVariantList CaptureViewModel::detailedCandlesTimeframeChoices() const {
+    return detail::detailedCandlesTimeframeChoices(detailedCandlesVenueKey_);
+}
+
+QString CaptureViewModel::detailedCandlesLimitWarning() const {
+    return QStringLiteral("Paged REST download stops when the exchange returns no older candles; written rows can be lower than requested.");
+}
 
 QString CaptureViewModel::detailedCandlesRequestPreview() const {
-    return detail::buildDetailedCandlesPreview(selectedVenueKeys_,
-                                               venueSymbolsTexts_,
+    return detail::buildDetailedCandlesPreview(detailedCandlesVenueKey_,
+                                               detailedCandlesSymbolsText_,
                                                detailedCandlesTimeframe_,
                                                detailedCandlesLimit_);
 }
@@ -185,10 +231,21 @@ void CaptureViewModel::setApiSlot(int apiSlot) {
     reconcileActiveChannels_();
 }
 
+void CaptureViewModel::setDetailedCandlesVenueKey(const QString& venueKey) {
+    const auto normalized = normalizeDetailedCandlesVenueKey(venueKey);
+    if (normalized.isEmpty() || normalized == detailedCandlesVenueKey_) return;
+    detailedCandlesVenueKey_ = normalized;
+    syncDetailedVenueFields(detailedCandlesVenueKey_, detailedCandlesExchange_, detailedCandlesMarket_);
+    detailedCandlesTimeframe_ = normalizeDetailedCandlesTimeframeForVenue(detailedCandlesVenueKey_, detailedCandlesTimeframe_);
+    saveSettings_();
+    emit detailedCandlesChanged();
+}
+
 void CaptureViewModel::setDetailedCandlesExchange(const QString& exchange) {
     const auto normalized = exchange.trimmed().toLower();
     if (normalized.isEmpty() || normalized == detailedCandlesExchange_) return;
     detailedCandlesExchange_ = normalized;
+    saveSettings_();
     emit detailedCandlesChanged();
 }
 
@@ -196,6 +253,7 @@ void CaptureViewModel::setDetailedCandlesMarket(const QString& market) {
     const auto normalized = market.trimmed().toLower();
     if (normalized.isEmpty() || normalized == detailedCandlesMarket_) return;
     detailedCandlesMarket_ = normalized;
+    saveSettings_();
     emit detailedCandlesChanged();
 }
 
@@ -203,11 +261,12 @@ void CaptureViewModel::setDetailedCandlesSymbolsText(const QString& symbolsText)
     const auto normalized = symbolsText.trimmed();
     if (normalized == detailedCandlesSymbolsText_) return;
     detailedCandlesSymbolsText_ = normalized;
+    saveSettings_();
     emit detailedCandlesChanged();
 }
 
 void CaptureViewModel::setDetailedCandlesTimeframe(const QString& timeframe) {
-    const auto normalized = timeframe.trimmed().toLower();
+    const auto normalized = normalizeDetailedCandlesTimeframeForVenue(detailedCandlesVenueKey_, timeframe);
     if (normalized.isEmpty() || normalized == detailedCandlesTimeframe_) return;
     detailedCandlesTimeframe_ = normalized;
     saveSettings_();
@@ -216,7 +275,7 @@ void CaptureViewModel::setDetailedCandlesTimeframe(const QString& timeframe) {
 
 void CaptureViewModel::setDetailedCandlesLimit(int limit) {
     if (limit < 1) limit = 1;
-    if (limit > 5000) limit = 5000;
+    if (limit > kDetailedCandlesMaxLimit) limit = kDetailedCandlesMaxLimit;
     if (limit == detailedCandlesLimit_) return;
     detailedCandlesLimit_ = limit;
     saveSettings_();
@@ -236,7 +295,6 @@ void CaptureViewModel::toggleVenue(const QString& venueKey) {
     saveSettings_();
     emit venueChanged();
     emit requestBuilderChanged();
-    emit detailedCandlesChanged();
     reconcileActiveChannels_();
 }
 
@@ -267,7 +325,6 @@ void CaptureViewModel::setVenueSymbolsText(const QString& venueKey, const QStrin
         saveSettings_();
         emit symbolsTextChanged();
         emit requestBuilderChanged();
-        emit detailedCandlesChanged();
         reconcileActiveChannels_();
         return;
     }
@@ -280,7 +337,6 @@ void CaptureViewModel::setSymbolsText(const QString& symbolsText) {
     saveSettings_();
     emit symbolsTextChanged();
     emit requestBuilderChanged();
-    emit detailedCandlesChanged();
     reconcileActiveChannels_();
 }
 
@@ -301,7 +357,6 @@ void CaptureViewModel::applyGlobalSymbolsToVenues() {
     saveSettings_();
     emit symbolsTextChanged();
     emit requestBuilderChanged();
-    emit detailedCandlesChanged();
     reconcileActiveChannels_();
 }
 
@@ -443,12 +498,20 @@ void CaptureViewModel::loadSettings_() {
     if (warmupSec > 86400) warmupSec = 86400;
     tradesHistoryWarmupSec_ = warmupSec;
 
-    const auto detailedTf = settings_.value(QStringLiteral("capture/detailed_candles_timeframe"), detailedCandlesTimeframe_).toString().trimmed().toLower();
-    if (!detailedTf.isEmpty()) detailedCandlesTimeframe_ = detailedTf;
+    const auto detailedVenueKey = normalizeDetailedCandlesVenueKey(
+        settings_.value(QStringLiteral("capture/detailed_candles_venue_key"), detailedCandlesVenueKey_).toString());
+    detailedCandlesVenueKey_ = detailedVenueKey.isEmpty() ? QStringLiteral("binance_futures") : detailedVenueKey;
+    syncDetailedVenueFields(detailedCandlesVenueKey_, detailedCandlesExchange_, detailedCandlesMarket_);
+
+    const auto detailedSymbol = settings_.value(QStringLiteral("capture/detailed_candles_symbol"), detailedCandlesSymbolsText_).toString().trimmed();
+    if (!detailedSymbol.isEmpty()) detailedCandlesSymbolsText_ = detailedSymbol;
+
+    const auto detailedTf = settings_.value(QStringLiteral("capture/detailed_candles_timeframe"), detailedCandlesTimeframe_).toString();
+    detailedCandlesTimeframe_ = normalizeDetailedCandlesTimeframeForVenue(detailedCandlesVenueKey_, detailedTf);
 
     int detailedLimit = settings_.value(QStringLiteral("capture/detailed_candles_limit"), detailedCandlesLimit_).toInt();
     if (detailedLimit < 1) detailedLimit = 1;
-    if (detailedLimit > 5000) detailedLimit = 5000;
+    if (detailedLimit > kDetailedCandlesMaxLimit) detailedLimit = kDetailedCandlesMaxLimit;
     detailedCandlesLimit_ = detailedLimit;
 }
 
@@ -460,6 +523,8 @@ void CaptureViewModel::saveSettings_() {
     settings_.setValue(QStringLiteral("capture/venue_symbols_texts"), venueSymbolsTexts_);
     settings_.setValue(QStringLiteral("capture/symbols_text"), symbolsText_);
     settings_.setValue(QStringLiteral("capture/trades_history_warmup_sec"), tradesHistoryWarmupSec_);
+    settings_.setValue(QStringLiteral("capture/detailed_candles_venue_key"), detailedCandlesVenueKey_);
+    settings_.setValue(QStringLiteral("capture/detailed_candles_symbol"), detailedCandlesSymbolsText_);
     settings_.setValue(QStringLiteral("capture/detailed_candles_timeframe"), detailedCandlesTimeframe_);
     settings_.setValue(QStringLiteral("capture/detailed_candles_limit"), detailedCandlesLimit_);
     settings_.sync();

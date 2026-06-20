@@ -75,8 +75,8 @@ std::string detailedCandleLine(const char* market,
                                std::int64_t highE8,
                                std::int64_t lowE8,
                                std::int64_t closeE8) {
-    return "[\"moex\",\"" + std::string{market}
-        + "\",\"SiM6\",\"1m\","
+    return "[\"finam\",\"" + std::string{market}
+        + "\",\"SBER@MISX\",\"1m\","
         + std::to_string(tsNs)
         + "," + std::to_string(openE8)
         + "," + std::to_string(highE8)
@@ -429,7 +429,7 @@ TEST(ViewerBookTickerCompare, UsesCandleSpreadWhenBookTickerMissing) {
     ASSERT_EQ(compare.candleSpreadPoints().size(), 2u);
     EXPECT_EQ(compare.candleSpreadCount(), 2);
     EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("candle_spread"));
-    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Candle close spread"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Candle A/B spread"));
     EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
 
     std::error_code ec;
@@ -481,14 +481,14 @@ TEST(ViewerBookTickerCompare, KeepsBookTickerAndCandleSpreadWhenBothExist) {
     EXPECT_EQ(compare.spreadCount(), 1);
     EXPECT_EQ(compare.candleSpreadCount(), 1);
     EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("market_spread_overlay"));
-    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("BookTicker + Candle spread"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("BookTicker + Candle A/B spread"));
 
     std::error_code ec;
     fs::remove_all(dirSpot, ec);
     fs::remove_all(dirFutures, ec);
 }
 
-TEST(ViewerBookTickerCompare, CandleSpreadUsesFuturesPremiumWhenSourcesAreReversed) {
+TEST(ViewerBookTickerCompare, CandleSpreadUsesABDirectionWhenSourcesAreReversed) {
     const auto dirSpot = makeTmpDir();
     const auto dirFutures = makeTmpDir();
     fs::create_directories(dirSpot / "jsonl");
@@ -504,6 +504,7 @@ TEST(ViewerBookTickerCompare, CandleSpreadUsesFuturesPremiumWhenSourcesAreRevers
 
     ASSERT_EQ(compare.candleSpreadPoints().size(), 1u);
     EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
+    EXPECT_EQ(compare.candleSpreadPoints().front().direction, hftrec::arbitrage::SpreadDirection::BuyBAskSellABid);
 
     std::error_code ec;
     fs::remove_all(dirSpot, ec);
@@ -529,6 +530,8 @@ TEST(ViewerBookTickerCompare, CandleSpreadPrefersDetailedCandlesAndFallsBackToTi
 
     ASSERT_EQ(compare.candleSpreadPoints().size(), 1u);
     EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
+    EXPECT_EQ(compare.candleSpreadPoints().front().aCloseE8, e8(100));
+    EXPECT_EQ(compare.candleSpreadPoints().front().bCloseE8, e8(102));
 
     std::error_code ec;
     fs::remove_all(dirSpot, ec);

@@ -28,6 +28,7 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(int apiSlot READ apiSlot WRITE setApiSlot NOTIFY envSettingsChanged)
     Q_PROPERTY(QStringList selectedVenueKeys READ selectedVenueKeys NOTIFY venueChanged)
     Q_PROPERTY(QVariantList venueChoices READ venueChoices CONSTANT)
+    Q_PROPERTY(QVariantList detailedCandlesVenueChoices READ detailedCandlesVenueChoices CONSTANT)
     Q_PROPERTY(QString symbolsText READ symbolsText WRITE setSymbolsText NOTIFY symbolsTextChanged)
     Q_PROPERTY(QString normalizedSymbolsText READ normalizedSymbolsText NOTIFY symbolsTextChanged)
     Q_PROPERTY(int tradesHistoryWarmupSec READ tradesHistoryWarmupSec WRITE setTradesHistoryWarmupSec NOTIFY tradesHistoryWarmupSecChanged)
@@ -39,11 +40,14 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(QString liquidationsRequestPreview READ liquidationsRequestPreview NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString bookTickerRequestPreview READ bookTickerRequestPreview NOTIFY requestBuilderChanged)
     Q_PROPERTY(QString orderbookRequestPreview READ orderbookRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString detailedCandlesVenueKey READ detailedCandlesVenueKey WRITE setDetailedCandlesVenueKey NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString detailedCandlesExchange READ detailedCandlesExchange WRITE setDetailedCandlesExchange NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString detailedCandlesMarket READ detailedCandlesMarket WRITE setDetailedCandlesMarket NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString detailedCandlesSymbolsText READ detailedCandlesSymbolsText WRITE setDetailedCandlesSymbolsText NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString detailedCandlesTimeframe READ detailedCandlesTimeframe WRITE setDetailedCandlesTimeframe NOTIFY detailedCandlesChanged)
     Q_PROPERTY(int detailedCandlesLimit READ detailedCandlesLimit WRITE setDetailedCandlesLimit NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QVariantList detailedCandlesTimeframeChoices READ detailedCandlesTimeframeChoices NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesLimitWarning READ detailedCandlesLimitWarning NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString detailedCandlesRequestPreview READ detailedCandlesRequestPreview NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString sessionId READ sessionId NOTIFY sessionStateChanged)
     Q_PROPERTY(QString sessionPath READ sessionPath NOTIFY sessionStateChanged)
@@ -79,6 +83,7 @@ class CaptureViewModel : public QObject {
     int apiSlot() const noexcept;
     QStringList selectedVenueKeys() const;
     QVariantList venueChoices() const;
+    QVariantList detailedCandlesVenueChoices() const;
     QString symbolsText() const;
     QString normalizedSymbolsText() const;
     int tradesHistoryWarmupSec() const noexcept;
@@ -90,11 +95,14 @@ class CaptureViewModel : public QObject {
     QString liquidationsRequestPreview() const;
     QString bookTickerRequestPreview() const;
     QString orderbookRequestPreview() const;
+    QString detailedCandlesVenueKey() const;
     QString detailedCandlesExchange() const;
     QString detailedCandlesMarket() const;
     QString detailedCandlesSymbolsText() const;
     QString detailedCandlesTimeframe() const;
     int detailedCandlesLimit() const noexcept;
+    QVariantList detailedCandlesTimeframeChoices() const;
+    QString detailedCandlesLimitWarning() const;
     QString detailedCandlesRequestPreview() const;
     QString sessionId() const;
     QString sessionPath() const;
@@ -133,6 +141,7 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE void setSymbolsText(const QString& symbolsText);
     Q_INVOKABLE void applyGlobalSymbolsToVenues();
     Q_INVOKABLE void setTradesHistoryWarmupSec(int seconds);
+    Q_INVOKABLE void setDetailedCandlesVenueKey(const QString& venueKey);
     Q_INVOKABLE void setDetailedCandlesExchange(const QString& exchange);
     Q_INVOKABLE void setDetailedCandlesMarket(const QString& market);
     Q_INVOKABLE void setDetailedCandlesSymbolsText(const QString& symbolsText);
@@ -224,10 +233,11 @@ class CaptureViewModel : public QObject {
     QStringList venueSymbolsTexts_{};
     QString symbolsText_{"ETHUSDT"};
     int tradesHistoryWarmupSec_{300};
-    QString detailedCandlesExchange_{"moex"};
+    QString detailedCandlesVenueKey_{"binance_futures"};
+    QString detailedCandlesExchange_{"binance"};
     QString detailedCandlesMarket_{"futures"};
-    QString detailedCandlesSymbolsText_{"SiM6"};
-    QString detailedCandlesTimeframe_{"15m"};
+    QString detailedCandlesSymbolsText_{"BTCUSDT"};
+    QString detailedCandlesTimeframe_{"1m"};
     int detailedCandlesLimit_{5000};
     QStringList tradesAvailableAliases_{};
     QStringList liquidationsAvailableAliases_{};

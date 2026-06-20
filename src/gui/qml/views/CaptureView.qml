@@ -176,47 +176,104 @@ Pane {
 
                                 GridLayout {
                                     Layout.fillWidth: true
-                                    columns: 2
-                                    columnSpacing: 10
+                                    columns: 4
+                                    columnSpacing: 12
                                     rowSpacing: 8
 
+                                    RecorderComboBox {
+                                        id: detailedCandlesVenueCombo
+                                        Layout.preferredWidth: 170
+                                        Layout.minimumWidth: 150
+                                        caption: "Venue"
+                                        textRole: "label"
+                                        valueRole: "key"
+                                        popupWidth: 240
+                                        panelColor: root.panelColor
+                                        panelAltColor: root.panelAltColor
+                                        panelDeepColor: root.panelColor
+                                        borderColor: root.borderColor
+                                        textColor: root.textColor
+                                        mutedTextColor: root.mutedTextColor
+                                        accentColor: root.accentRequiredColor
+                                        model: root.captureVm.detailedCandlesVenueChoices
+                                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(root.captureVm.detailedCandlesVenueKey))
+                                        onActivated: root.captureVm.detailedCandlesVenueKey = currentValue
+                                    }
+
                                     TextField {
+                                        id: detailedCandlesSymbolField
                                         Layout.fillWidth: true
-                                        text: root.captureVm.detailedCandlesTimeframe
-                                        placeholderText: "15m (MOEX maps to 10m)"
+                                        Layout.minimumWidth: 180
+                                        text: root.captureVm.detailedCandlesSymbolsText
+                                        placeholderText: root.captureVm.venueSymbolPlaceholder(root.captureVm.detailedCandlesVenueKey)
                                         selectByMouse: true
                                         color: root.textColor
                                         placeholderTextColor: root.mutedTextColor
-                                        onTextEdited: root.captureVm.detailedCandlesTimeframe = text
+                                        onTextEdited: root.captureVm.detailedCandlesSymbolsText = text
                                         background: Rectangle {
                                             radius: 8
-                                            color: root.panelColor
+                                            color: root.panelAltColor
                                             border.color: root.borderColor
                                             border.width: 1
                                         }
                                     }
 
+                                    RecorderComboBox {
+                                        id: detailedCandlesTimeframeCombo
+                                        Layout.preferredWidth: 170
+                                        Layout.minimumWidth: 150
+                                        caption: "Timeframe"
+                                        textRole: "label"
+                                        valueRole: "value"
+                                        popupWidth: 240
+                                        panelColor: root.panelColor
+                                        panelAltColor: root.panelAltColor
+                                        panelDeepColor: root.panelColor
+                                        borderColor: root.borderColor
+                                        textColor: root.textColor
+                                        mutedTextColor: root.mutedTextColor
+                                        accentColor: root.accentRequiredColor
+                                        model: root.captureVm.detailedCandlesTimeframeChoices
+                                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(root.captureVm.detailedCandlesTimeframe))
+                                        onActivated: root.captureVm.detailedCandlesTimeframe = currentValue
+                                    }
+
                                     SpinBox {
-                                        Layout.preferredWidth: 150
+                                        Layout.preferredWidth: 170
+                                        Layout.minimumWidth: 155
                                         from: 1
-                                        to: 5000
-                                        stepSize: 100
+                                        to: 1000000
+                                        stepSize: 1000
                                         editable: true
                                         value: root.captureVm.detailedCandlesLimit
                                         onValueModified: root.captureVm.detailedCandlesLimit = value
+                                    }
+
+                                }
+
+                                Connections {
+                                    target: root.captureVm
+                                    function onDetailedCandlesChanged() {
+                                        var venueIdx = detailedCandlesVenueCombo.indexOfValue(root.captureVm.detailedCandlesVenueKey)
+                                        if (venueIdx >= 0 && detailedCandlesVenueCombo.currentIndex !== venueIdx)
+                                            detailedCandlesVenueCombo.currentIndex = venueIdx
+
+                                        var tfIdx = detailedCandlesTimeframeCombo.indexOfValue(root.captureVm.detailedCandlesTimeframe)
+                                        if (tfIdx >= 0 && detailedCandlesTimeframeCombo.currentIndex !== tfIdx)
+                                            detailedCandlesTimeframeCombo.currentIndex = tfIdx
                                     }
                                 }
 
                                 Label {
                                     Layout.fillWidth: true
-                                    text: "MOEX names: https://iss.moex.com/iss/securities.json?q=SiM6&iss.meta=off; futures are forts, shares are stock/shares. MOEX maps 15m requests to 10m."
+                                    text: root.captureVm.detailedCandlesRequestPreview
                                     color: root.mutedTextColor
                                     wrapMode: Text.WordWrap
                                 }
 
                                 Label {
                                     Layout.fillWidth: true
-                                    text: root.captureVm.detailedCandlesRequestPreview
+                                    text: root.captureVm.detailedCandlesLimitWarning
                                     color: root.mutedTextColor
                                     wrapMode: Text.WordWrap
                                 }

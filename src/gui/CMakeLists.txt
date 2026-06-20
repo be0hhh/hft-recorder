@@ -28,6 +28,7 @@ qt_add_executable(hft-recorder-gui
     viewer/StrategyIndicator.cpp
     viewer/StrategyIndicatorItem.cpp
     viewer/BookTickerCompareController.cpp
+    viewer/BookTickerCompareCandlePaint.cpp
     viewer/BookTickerCompareItem.cpp
     viewer/ChartItem.cpp
     viewer/ChartItemHover.cpp

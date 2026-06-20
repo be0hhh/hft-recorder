@@ -522,7 +522,7 @@ void BookTickerCompareController::rebuild_() {
     secondaryCandles_ = secondary_.candles;
     spreadPoints_ = hftrec::arbitrage::buildBestSideBookTickerSpread(primaryRows_, secondaryRows_, totalFeePenaltyBps());
     meanPoints_ = hftrec::arbitrage::buildRollingBookTickerSpreadMean(spreadPoints_, meanWindowNs(meanWindowSeconds_), totalFeePenaltyBps());
-    candleSpreadPoints_ = hftrec::arbitrage::buildFuturesPremiumCandleSpread(
+    candleSpreadPoints_ = hftrec::arbitrage::buildBestSideCandleSpread(
         hftrec::arbitrage::CandleSpreadSource{primaryCandles_, primary_.marketHint},
         hftrec::arbitrage::CandleSpreadSource{secondaryCandles_, secondary_.marketHint});
     updateLowerPane_();

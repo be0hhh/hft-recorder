@@ -3,15 +3,10 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/arbitrage/SpreadDirection.hpp"
 #include "core/replay/EventRows.hpp"
 
 namespace hftrec::arbitrage {
-
-enum class SpreadDirection : std::uint8_t {
-    None = 0,
-    BuyAAskSellBBid = 1,
-    BuyBAskSellABid = 2,
-};
 
 struct BookTickerSpreadPoint {
     std::int64_t tsNs{0};

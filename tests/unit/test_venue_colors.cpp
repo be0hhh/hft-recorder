@@ -10,6 +10,7 @@ TEST(VenueColors, NormalizesConfiguredExchanges) {
     EXPECT_EQ(hftrec::gui::viewer::venueColor(QStringLiteral("gate-io")), QColor(48, 96, 175));
     EXPECT_EQ(hftrec::gui::viewer::venueColor(QStringLiteral("bit_get")), QColor(24, 154, 170));
     EXPECT_EQ(hftrec::gui::viewer::venueColor(QStringLiteral("BINANCE")), QColor(196, 154, 36));
+    EXPECT_EQ(hftrec::gui::viewer::venueColor(QStringLiteral("MEXC")), QColor(0, 123, 172));
 }
 
 TEST(VenueColors, UnknownExchangeUsesMutedFallback) {

@@ -33,15 +33,14 @@ QString buildLiveLabel(const QString& exchange, const QString& market, const QSt
 QString configKey(const capture::CaptureConfig& config) {
     const QString symbol = QString::fromStdString(config.symbols.empty() ? std::string{} : config.symbols.front());
     const int apiSlot = config.apiSlot == 0u ? 1 : static_cast<int>(config.apiSlot);
-    return QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8")
+    return QStringLiteral("%1|%2|%3|%4|%5|%6|%7")
         .arg(QString::fromStdString(config.exchange).toLower(),
              QString::fromStdString(config.market).toLower(),
              symbol,
              QString::fromStdString(config.envPath.string()),
              QString::number(apiSlot),
              QString::fromStdString(config.outputDir.string()),
-             QString::fromStdString(config.detailedCandlesTimeframe),
-             QString::fromStdString(config.detailedCandlesUnderlyingSymbolHint));
+             QString::fromStdString(config.detailedCandlesTimeframe));
 }
 
 bool configsMatch(const capture::CaptureConfig& lhs, const capture::CaptureConfig& rhs) {
@@ -183,13 +182,13 @@ bool CaptureViewModel::startDetailedCandles() {
     const auto configs = detail::makeDetailedCandlesConfigs(outputDirectory_,
                                                             envPath_,
                                                             apiSlot_,
-                                                            selectedVenueKeys_,
-                                                            venueSymbolsTexts_,
+                                                            detailedCandlesVenueKey_,
+                                                            detailedCandlesSymbolsText_,
                                                             detailedCandlesTimeframe_,
                                                             detailedCandlesLimit_,
                                                             &errorText);
     if (configs.empty()) {
-        setStatusText(errorText.isEmpty() ? QStringLiteral("Enter at least one selected venue symbol") : errorText);
+        setStatusText(errorText.isEmpty() ? QStringLiteral("Enter detailed candles symbol") : errorText);
         return false;
     }
 
@@ -232,7 +231,10 @@ bool CaptureViewModel::startDetailedCandles() {
             continue;
         }
         const auto written = afterRows >= beforeRows ? (afterRows - beforeRows) : afterRows;
-        successes.push_back(QStringLiteral("%1 rows=%2").arg(venue, QString::number(written)));
+        successes.push_back(QStringLiteral("%1 rows=%2/%3")
+            .arg(venue,
+                 QString::number(written),
+                 QString::number(config.detailedCandlesLimit)));
     }
 
     if (ok) {

@@ -10,6 +10,8 @@ namespace hftrec::gui::detail {
 
 namespace {
 
+constexpr int kDetailedCandlesMaxLimit = 1'000'000;
+
 QString normalizeToken(QString token) {
     return token.trimmed();
 }
@@ -36,8 +38,9 @@ constexpr VenueSpec kVenues[] = {
     {"aster_spot", "Aster Spot", "aster", "spot"},
     {"okx_futures", "OKX Futures", "okx", "futures"},
     {"okx_spot", "OKX Spot", "okx", "spot"},
-    {"moex_futures", "MOEX Futures", "moex", "futures"},
-    {"moex_spot", "MOEX Shares", "moex", "spot"},
+    {"finam_futures", "FINAM Futures", "finam", "futures"},
+    {"finam_spot", "FINAM Spot", "finam", "spot"},
+    {"mexc_spot", "MEXC Spot", "mexc", "spot"},
 };
 
 std::vector<VenueSpec> selectedVenues(const QStringList& venueKeys) {
@@ -63,6 +66,11 @@ qsizetype venueIndex(const QString& venueKey) noexcept {
     return -1;
 }
 
+const VenueSpec* venueByKey(const QString& venueKey) noexcept {
+    const qsizetype idx = venueIndex(venueKey);
+    return idx >= 0 ? &kVenues[idx] : nullptr;
+}
+
 QString symbolsTextForVenue(const VenueSpec& venue,
                             const QStringList& venueSymbolsTexts,
                             const QString& fallbackSymbolsText) {
@@ -73,24 +81,123 @@ QString symbolsTextForVenue(const VenueSpec& venue,
     return venueSymbolsFromGlobalInput(QString::fromLatin1(venue.key), fallbackSymbolsText);
 }
 
-bool isMoexVenue(const VenueSpec& venue) noexcept {
-    return venue.exchange[0] == 'm' && venue.exchange[1] == 'o' && venue.exchange[2] == 'e' && venue.exchange[3] == 'x';
+bool isFinamVenue(const VenueSpec& venue) noexcept {
+    return venue.exchange[0] == 'f' && venue.exchange[1] == 'i' && venue.exchange[2] == 'n' &&
+           venue.exchange[3] == 'a' && venue.exchange[4] == 'm';
 }
 
-bool isMoexFuturesVenue(const VenueSpec& venue) noexcept {
-    return QString::fromLatin1(venue.key) == QStringLiteral("moex_futures");
+bool supportsDetailedCandlesVenue(const VenueSpec& venue) noexcept {
+    return !(venue.exchange[0] == 'm' && venue.exchange[1] == 'e' &&
+             venue.exchange[2] == 'x' && venue.exchange[3] == 'c');
 }
 
-bool moexSupportsTimeframe(const QString& timeframe) {
-    return timeframe == QStringLiteral("1m") ||
-           timeframe == QStringLiteral("10m") ||
-           timeframe == QStringLiteral("1h") ||
-           timeframe == QStringLiteral("1d");
+QString normalizeDetailedTimeframe(QString timeframe) {
+    timeframe = timeframe.trimmed();
+    if (timeframe == QStringLiteral("1M")) return timeframe;
+    return timeframe.toLower();
+}
+
+QStringList detailedCandlesTimeframesForVenue(const VenueSpec& venue) {
+    if (isFinamVenue(venue)) {
+        return {
+            QStringLiteral("1m"),
+            QStringLiteral("5m"),
+            QStringLiteral("15m"),
+            QStringLiteral("30m"),
+            QStringLiteral("1h"),
+            QStringLiteral("2h"),
+            QStringLiteral("4h"),
+            QStringLiteral("8h"),
+            QStringLiteral("1d"),
+            QStringLiteral("1w"),
+            QStringLiteral("1M"),
+        };
+    }
+    const QString exchange = QString::fromLatin1(venue.exchange);
+    if (exchange == QStringLiteral("okx")) {
+        return {
+            QStringLiteral("1m"),
+            QStringLiteral("3m"),
+            QStringLiteral("5m"),
+            QStringLiteral("15m"),
+            QStringLiteral("30m"),
+            QStringLiteral("1h"),
+            QStringLiteral("2h"),
+            QStringLiteral("4h"),
+            QStringLiteral("6h"),
+            QStringLiteral("12h"),
+            QStringLiteral("1d"),
+            QStringLiteral("1w"),
+            QStringLiteral("1M"),
+        };
+    }
+    if (exchange == QStringLiteral("kucoin")) {
+        return {
+            QStringLiteral("1m"),
+            QStringLiteral("15m"),
+            QStringLiteral("1h"),
+            QStringLiteral("4h"),
+            QStringLiteral("1d"),
+        };
+    }
+    if (exchange == QStringLiteral("bitget")) {
+        return {
+            QStringLiteral("1m"),
+            QStringLiteral("3m"),
+            QStringLiteral("5m"),
+            QStringLiteral("15m"),
+            QStringLiteral("30m"),
+            QStringLiteral("1h"),
+            QStringLiteral("4h"),
+            QStringLiteral("6h"),
+            QStringLiteral("12h"),
+            QStringLiteral("1d"),
+        };
+    }
+    if (exchange == QStringLiteral("gate")) {
+        return {
+            QStringLiteral("1m"),
+            QStringLiteral("5m"),
+            QStringLiteral("15m"),
+            QStringLiteral("30m"),
+            QStringLiteral("1h"),
+            QStringLiteral("4h"),
+            QStringLiteral("8h"),
+            QStringLiteral("1d"),
+            QStringLiteral("7d"),
+            QStringLiteral("30d"),
+        };
+    }
+    return {
+        QStringLiteral("1m"),
+        QStringLiteral("3m"),
+        QStringLiteral("5m"),
+        QStringLiteral("15m"),
+        QStringLiteral("30m"),
+        QStringLiteral("1h"),
+        QStringLiteral("2h"),
+        QStringLiteral("4h"),
+        QStringLiteral("6h"),
+        QStringLiteral("8h"),
+        QStringLiteral("12h"),
+        QStringLiteral("1d"),
+        QStringLiteral("3d"),
+        QStringLiteral("1w"),
+        QStringLiteral("1M"),
+    };
+}
+
+bool detailedCandlesSupportsTimeframe(const VenueSpec& venue, const QString& timeframe) {
+    return detailedCandlesTimeframesForVenue(venue).contains(timeframe);
+}
+
+QString detailedCandlesTimeframeSummary(const VenueSpec& venue) {
+    return detailedCandlesTimeframesForVenue(venue).join(QStringLiteral(", "));
 }
 
 QString detailedCandlesTimeframeForVenue(const VenueSpec& venue, const QString& requestedTimeframe) {
-    if (isMoexVenue(venue) && requestedTimeframe == QStringLiteral("15m")) return QStringLiteral("10m");
-    return requestedTimeframe;
+    (void)venue;
+    return normalizeDetailedTimeframe(requestedTimeframe);
 }
 
 QString marketDsl(const VenueSpec& venue) {
@@ -102,8 +209,9 @@ QString marketDsl(const VenueSpec& venue) {
     return QStringLiteral("futures");
 }
 
-QString toDslSymbol(const std::string& symbol) {
-    return QString::fromStdString(symbol).toLower();
+QString toDslSymbol(const VenueSpec& venue, const std::string& symbol) {
+    QString value = QString::fromStdString(symbol).trimmed();
+    return isFinamVenue(venue) ? value : value.toLower();
 }
 
 struct ParsedSymbol {
@@ -309,6 +417,18 @@ QVariantList venueChoices() {
     return choices;
 }
 
+QVariantList detailedCandlesVenueChoices() {
+    QVariantList choices;
+    for (const auto& venue : kVenues) {
+        if (!supportsDetailedCandlesVenue(venue)) continue;
+        QVariantMap item;
+        item.insert(QStringLiteral("key"), QString::fromLatin1(venue.key));
+        item.insert(QStringLiteral("label"), QString::fromLatin1(venue.label));
+        choices.push_back(item);
+    }
+    return choices;
+}
+
 QStringList requiredAliasesForChannel(const QString& channel) {
     if (channel == QStringLiteral("trades")) return requiredTradesAliases();
     if (channel == QStringLiteral("liquidations")) return requiredLiquidationsAliases();
@@ -394,15 +514,6 @@ std::vector<std::string> normalizedSymbols(const QString& symbolsText) {
     return symbols;
 }
 
-std::string moexSharesUnderlyingHint(const QStringList& venueSymbolsTexts) {
-    for (const auto& venue : kVenues) {
-        if (QString::fromLatin1(venue.key) != QStringLiteral("moex_spot")) continue;
-        const auto symbols = normalizedSymbols(symbolsTextForVenue(venue, venueSymbolsTexts, {}));
-        if (!symbols.empty()) return symbols.front();
-    }
-    return {};
-}
-
 QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symbolsText) {
     const qsizetype idx = venueIndex(venueKey);
     if (idx < 0) return {};
@@ -410,7 +521,7 @@ QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symb
     QStringList formatted;
     const auto symbols = normalizedSymbols(symbolsText);
     formatted.reserve(static_cast<qsizetype>(symbols.size()));
-    if (isMoexVenue(kVenues[idx])) {
+    if (isFinamVenue(kVenues[idx])) {
         for (const auto& symbol : symbols) {
             const QString value = QString::fromStdString(symbol).trimmed();
             if (!value.isEmpty()) formatted.push_back(value);
@@ -427,15 +538,12 @@ QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symb
 QString venueSymbolPlaceholder(const QString& venueKey) {
     const qsizetype idx = venueIndex(venueKey);
     if (idx < 0) return QStringLiteral("Example: BTCUSDT");
-    if (QString::fromLatin1(kVenues[idx].key) == QStringLiteral("moex_futures")) return QStringLiteral("Example: SiM6");
-    if (QString::fromLatin1(kVenues[idx].key) == QStringLiteral("moex_spot")) return QStringLiteral("Example: SBER");
+    if (isFinamVenue(kVenues[idx])) return QStringLiteral("Example: SBER@MISX");
     return QStringLiteral("Example: %1").arg(formattedVenueSymbol(kVenues[idx], parseGlobalSymbol(QStringLiteral("BTCUSDT"))));
 }
 
 QString venueSymbolExample(const VenueSpec& venue) {
-    const QString key = QString::fromLatin1(venue.key);
-    if (key == QStringLiteral("moex_futures")) return QStringLiteral("SiM6");
-    if (key == QStringLiteral("moex_spot")) return QStringLiteral("SBER");
+    if (isFinamVenue(venue)) return QStringLiteral("SBER@MISX");
     return formattedVenueSymbol(venue, parseGlobalSymbol(QStringLiteral("BTCUSDT")));
 }
 
@@ -482,7 +590,7 @@ QString buildRequestPreview(const QString& channel,
                          QString::fromLatin1(venue.exchange),
                          marketDsl(venue),
                          apiSuffix,
-                         toDslSymbol(symbol),
+                         toDslSymbol(venue, symbol),
                          aliasesSuffix));
         }
     }
@@ -534,7 +642,7 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
             }
             config.tradesHistoryWarmupSec = effectiveTradesHistoryWarmupSec;
 
-            const auto symbolDsl = toDslSymbol(symbol);
+            const auto symbolDsl = toDslSymbol(venue, symbol);
             config.tradesAliases.reserve(static_cast<std::size_t>(normalizedTradesAliases.size()));
             for (const auto& alias : normalizedTradesAliases) config.tradesAliases.push_back(alias.toStdString());
             config.liquidationAliases.reserve(static_cast<std::size_t>(normalizedLiquidationsAliases.size()));
@@ -573,90 +681,107 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
 std::vector<capture::CaptureConfig> makeDetailedCandlesConfigs(const QString& outputDirectory,
                                                                const QString& envPath,
                                                                int apiSlot,
-                                                               const QStringList& venueKeys,
-                                                               const QStringList& venueSymbolsTexts,
+                                                               const QString& venueKey,
+                                                               const QString& symbolText,
                                                                const QString& timeframe,
                                                                int limit,
                                                                QString* errorText) {
     if (errorText != nullptr) errorText->clear();
     std::vector<capture::CaptureConfig> configs;
-    const QString tf = timeframe.trimmed().toLower();
+    const auto* venue = venueByKey(venueKey);
+    if (venue == nullptr) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Select detailed candles venue");
+        return configs;
+    }
+    if (!supportsDetailedCandlesVenue(*venue)) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Selected venue does not support detailed candles");
+        return configs;
+    }
+
+    const QString tf = detailedCandlesTimeframeForVenue(*venue, timeframe);
     if (tf.isEmpty()) {
         if (errorText != nullptr) *errorText = QStringLiteral("Enter detailed candles timeframe");
         return configs;
     }
-
-    const auto venues = selectedVenues(venueKeys);
-    const std::uint32_t clampedLimit = static_cast<std::uint32_t>(std::clamp(limit, 1, 5000));
-    const std::string moexUnderlyingHint = moexSharesUnderlyingHint(venueSymbolsTexts);
-    for (const auto& venue : venues) {
-        const QString venueTf = detailedCandlesTimeframeForVenue(venue, tf);
-        if (venueTf.isEmpty()) {
-            if (errorText != nullptr) *errorText = QStringLiteral("Enter detailed candles timeframe");
-            configs.clear();
-            return configs;
+    if (!detailedCandlesSupportsTimeframe(*venue, tf)) {
+        if (errorText != nullptr) {
+            *errorText = QStringLiteral("%1 candles support %2; got %3")
+                .arg(QString::fromLatin1(venue->label), detailedCandlesTimeframeSummary(*venue), tf);
         }
-        if (isMoexVenue(venue) && !moexSupportsTimeframe(venueTf)) {
-            if (errorText != nullptr) {
-                *errorText = QStringLiteral("MOEX candles support 1m, 10m, 1h, 1d; got %1").arg(tf);
-            }
-            configs.clear();
-            return configs;
-        }
-
-        const auto symbols = normalizedSymbols(symbolsTextForVenue(venue, venueSymbolsTexts, {}));
-        for (const auto& symbol : symbols) {
-            capture::CaptureConfig config{};
-            config.exchange = venue.exchange;
-            config.market = venue.market;
-            config.symbols = {symbol};
-            config.envPath = std::filesystem::path{envPath.toStdString()};
-            config.apiSlot = static_cast<std::uint8_t>(normalizedApiSlot(apiSlot));
-            config.outputDir = std::filesystem::path{outputDirectory.toStdString()};
-            config.detailedCandlesTimeframe = venueTf.toStdString();
-            config.detailedCandlesLimit = clampedLimit;
-            config.detailedCandlesEndNs = 0;
-            if (isMoexFuturesVenue(venue)) config.detailedCandlesUnderlyingSymbolHint = moexUnderlyingHint;
-            configs.push_back(std::move(config));
-        }
+        return configs;
     }
 
-    if (configs.empty() && errorText != nullptr) {
-        const QString missing = missingVenueSymbolsText(venueKeys, venueSymbolsTexts);
-        *errorText = missing.isEmpty() ? QStringLiteral("Enter at least one selected venue symbol") : missing;
+    const auto symbols = normalizedSymbols(symbolText);
+    if (symbols.empty()) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Enter detailed candles symbol");
+        return configs;
     }
+    if (symbols.size() != 1u) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Enter one detailed candles symbol");
+        return configs;
+    }
+    const std::uint32_t clampedLimit = static_cast<std::uint32_t>(std::clamp(limit, 1, kDetailedCandlesMaxLimit));
+    capture::CaptureConfig config{};
+    config.exchange = venue->exchange;
+    config.market = venue->market;
+    config.symbols = {symbols.front()};
+    config.envPath = std::filesystem::path{envPath.toStdString()};
+    config.apiSlot = static_cast<std::uint8_t>(normalizedApiSlot(apiSlot));
+    config.outputDir = std::filesystem::path{outputDirectory.toStdString()};
+    config.detailedCandlesTimeframe = tf.toStdString();
+    config.detailedCandlesLimit = clampedLimit;
+    config.detailedCandlesEndNs = 0;
+    configs.push_back(std::move(config));
     return configs;
 }
 
-QString buildDetailedCandlesPreview(const QStringList& venueKeys,
-                                    const QStringList& venueSymbolsTexts,
+QVariantList detailedCandlesTimeframeChoices(const QString& venueKey) {
+    const auto* venue = venueByKey(venueKey);
+    if (venue == nullptr) venue = &kVenues[0];
+    QVariantList choices;
+    const auto timeframes = detailedCandlesTimeframesForVenue(*venue);
+    for (const auto& timeframe : timeframes) {
+        QVariantMap item;
+        item.insert(QStringLiteral("label"), timeframe);
+        item.insert(QStringLiteral("value"), timeframe);
+        if (isFinamVenue(*venue)) {
+            item.insert(QStringLiteral("rightText"), QStringLiteral("FINAM bars"));
+        } else {
+            item.insert(QStringLiteral("rightText"), QStringLiteral("REST pages"));
+        }
+        choices.push_back(item);
+    }
+    return choices;
+}
+
+QString defaultDetailedCandlesTimeframe(const QString& venueKey) {
+    const auto* venue = venueByKey(venueKey);
+    if (venue == nullptr) venue = &kVenues[0];
+    const auto timeframes = detailedCandlesTimeframesForVenue(*venue);
+    return timeframes.isEmpty() ? QStringLiteral("1m") : timeframes.front();
+}
+
+QString buildDetailedCandlesPreview(const QString& venueKey,
+                                    const QString& symbolText,
                                     const QString& timeframe,
                                     int limit) {
-    const auto venues = selectedVenues(venueKeys);
-    const QString tf = timeframe.trimmed().toLower();
-    const QString limitText = QString::number(std::clamp(limit, 1, 5000));
-    QStringList commands;
-    for (const auto& venue : venues) {
-        const auto symbols = normalizedSymbols(symbolsTextForVenue(venue, venueSymbolsTexts, {}));
-        const QString exchange = QString::fromLatin1(venue.exchange);
-        const QString market = marketDsl(venue);
-        const QString venueTf = detailedCandlesTimeframeForVenue(venue, tf);
-        const QString path = QStringLiteral("jsonl/candles2_%1.jsonl").arg(venueTf);
-        if (symbols.empty()) {
-            commands.push_back(QStringLiteral("get().object(klines).exchange(%1).market(%2).timeframe(%3).limit(%4).symbol(<symbol>) -> %5")
-                                   .arg(exchange, market, venueTf, limitText, path));
-            continue;
-        }
-        for (const auto& symbol : symbols) {
-            commands.push_back(QStringLiteral("get().object(klines).exchange(%1).market(%2).timeframe(%3).limit(%4).symbol(%5) -> %6")
-                                   .arg(exchange, market, venueTf, limitText, QString::fromStdString(symbol), path));
-        }
+    const auto* venue = venueByKey(venueKey);
+    const QString tf = venue == nullptr ? normalizeDetailedTimeframe(timeframe) : detailedCandlesTimeframeForVenue(*venue, timeframe);
+    const QString limitText = QString::number(std::clamp(limit, 1, kDetailedCandlesMaxLimit));
+    if (venue == nullptr) {
+        return QStringLiteral("get().object(klines).exchange(<venue>).market(<market>).timeframe(%1).limit(%2).symbol(<symbol>) -> jsonl/candles2_%1.jsonl")
+            .arg(tf, limitText);
     }
-    if (commands.isEmpty()) {
-        commands.push_back(QStringLiteral("get().object(klines).exchange(<venue>).market(<market>).timeframe(%1).limit(%2).symbol(<symbol>) -> jsonl/candles2_%1.jsonl")
-                               .arg(tf, limitText));
-    }
-    return commands.join(QStringLiteral("\n"));
+    const auto symbols = normalizedSymbols(symbolText);
+    const QString exchange = QString::fromLatin1(venue->exchange);
+    const QString market = marketDsl(*venue);
+    const QString path = QStringLiteral("jsonl/candles2_%1.jsonl").arg(tf);
+    const QString symbol = symbols.empty()
+        ? QStringLiteral("<symbol>")
+        : toDslSymbol(*venue, symbols.front());
+    QString command = QStringLiteral("get().object(klines).exchange(%1).market(%2).timeframe(%3).limit(%4).symbol(%5)")
+        .arg(exchange, market, tf, limitText, symbol);
+    return command + QStringLiteral(" -> ") + path;
 }
 
 }  // namespace hftrec::gui::detail

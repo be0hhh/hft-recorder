@@ -44,14 +44,14 @@ CompareLowerPaneState selectCompareLowerPane(const StrategyOverlayData& overlay,
         return CompareLowerPaneState{
             .kind = CompareLowerPaneKind::MarketSpreadOverlay,
             .hasData = true,
-            .title = QStringLiteral("BookTicker + Candle spread"),
+            .title = QStringLiteral("BookTicker + Candle A/B spread"),
         };
     }
     if (hasCandleSpread) {
         return CompareLowerPaneState{
             .kind = CompareLowerPaneKind::CandleSpread,
             .hasData = true,
-            .title = QStringLiteral("Candle close spread"),
+            .title = QStringLiteral("Candle A/B spread"),
         };
     }
     return CompareLowerPaneState{

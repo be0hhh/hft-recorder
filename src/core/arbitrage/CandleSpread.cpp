@@ -1,49 +1,10 @@
 #include "core/arbitrage/CandleSpread.hpp"
 
 #include <algorithm>
-#include <string_view>
 
 namespace hftrec::arbitrage {
 
 namespace {
-
-std::string toLowerAscii(std::string_view text) {
-    std::string out;
-    out.reserve(text.size());
-    for (char ch : text) {
-        if (ch >= 'A' && ch <= 'Z') {
-            out.push_back(static_cast<char>(ch - 'A' + 'a'));
-        } else {
-            out.push_back(ch);
-        }
-    }
-    return out;
-}
-
-bool eqAscii(std::string_view lhs, std::string_view rhs) noexcept {
-    return lhs == rhs;
-}
-
-bool containsAscii(std::string_view text, std::string_view needle) noexcept {
-    return text.find(needle) != std::string_view::npos;
-}
-
-CandleSpreadLegRole roleFromMarket(std::string_view market) {
-    const std::string lowered = toLowerAscii(market);
-    if (eqAscii(lowered, "spot") || eqAscii(lowered, "shares")) return CandleSpreadLegRole::Spot;
-    if (eqAscii(lowered, "futures") || eqAscii(lowered, "forts") || eqAscii(lowered, "swap")) return CandleSpreadLegRole::Futures;
-    if (containsAscii(lowered, "spot") || containsAscii(lowered, "share")) return CandleSpreadLegRole::Spot;
-    if (containsAscii(lowered, "future") || containsAscii(lowered, "forts") || containsAscii(lowered, "swap")) return CandleSpreadLegRole::Futures;
-    return CandleSpreadLegRole::Unknown;
-}
-
-CandleSpreadLegRole roleForSource(const CandleSpreadSource& source) {
-    if (const auto role = roleFromMarket(source.marketHint); role != CandleSpreadLegRole::Unknown) return role;
-    for (const auto& row : source.rows) {
-        if (const auto role = roleFromMarket(row.market); role != CandleSpreadLegRole::Unknown) return role;
-    }
-    return CandleSpreadLegRole::Unknown;
-}
 
 std::int64_t closePriceE8(const hftrec::replay::CandleRow& row) noexcept {
     if (row.closeE8 > 0) return row.closeE8;
@@ -55,17 +16,34 @@ bool validCandlePrice(const hftrec::replay::CandleRow& row) noexcept {
     return row.tsNs > 0 && closePriceE8(row) > 0;
 }
 
-CandleSpreadPoint makePoint(std::int64_t tsNs,
-                            const hftrec::replay::CandleRow& spot,
-                            const hftrec::replay::CandleRow& futures) noexcept {
-    const std::int64_t spotClose = closePriceE8(spot);
-    const std::int64_t futuresClose = closePriceE8(futures);
+std::int64_t durationFromTier(std::int64_t tier) noexcept {
+    if (tier == 1) return 60ll * 1000000000ll;
+    if (tier == 2) return 15ll * 60ll * 1000000000ll;
+    if (tier == 3) return 24ll * 60ll * 60ll * 1000000000ll;
+    return 60ll * 1000000000ll;
+}
+
+std::int64_t candleDurationNs(const hftrec::replay::CandleRow& row) noexcept {
+    return row.durationNs > 0 ? row.durationNs : durationFromTier(row.tier);
+}
+
+CandleSpreadPoint makePoint(const hftrec::replay::CandleRow& a,
+                            const hftrec::replay::CandleRow& b) noexcept {
+    const std::int64_t aClose = closePriceE8(a);
+    const std::int64_t bClose = closePriceE8(b);
     CandleSpreadPoint out{};
-    out.tsNs = tsNs;
-    out.spotCloseE8 = spotClose;
-    out.futuresCloseE8 = futuresClose;
-    if (spotClose > 0 && futuresClose > 0) {
-        out.spreadBps = (static_cast<double>(futuresClose - spotClose) / static_cast<double>(spotClose)) * 10000.0;
+    out.tsNs = a.tsNs;
+    out.aCloseE8 = aClose;
+    out.bCloseE8 = bClose;
+    out.durationNs = std::max(candleDurationNs(a), candleDurationNs(b));
+    if (aClose > 0 && bClose > 0) {
+        if (bClose > aClose) {
+            out.direction = SpreadDirection::BuyAAskSellBBid;
+            out.spreadBps = (static_cast<double>(bClose - aClose) / static_cast<double>(aClose)) * 10000.0;
+        } else if (aClose > bClose) {
+            out.direction = SpreadDirection::BuyBAskSellABid;
+            out.spreadBps = (static_cast<double>(aClose - bClose) / static_cast<double>(bClose)) * 10000.0;
+        }
     }
     return out;
 }
@@ -98,34 +76,28 @@ std::vector<hftrec::replay::CandleRow> selectCompareCandles(
     return tierOne;
 }
 
-std::vector<CandleSpreadPoint> buildFuturesPremiumCandleSpread(
+std::vector<CandleSpreadPoint> buildBestSideCandleSpread(
     const CandleSpreadSource& a,
     const CandleSpreadSource& b) {
-    const CandleSpreadLegRole roleA = roleForSource(a);
-    const CandleSpreadLegRole roleB = roleForSource(b);
-    if (roleA == roleB || roleA == CandleSpreadLegRole::Unknown || roleB == CandleSpreadLegRole::Unknown) return {};
-
-    const auto& spotRows = roleA == CandleSpreadLegRole::Spot ? a.rows : b.rows;
-    const auto& futuresRows = roleA == CandleSpreadLegRole::Futures ? a.rows : b.rows;
     std::vector<CandleSpreadPoint> out;
-    out.reserve(spotRows.size() + futuresRows.size());
+    out.reserve(std::min(a.rows.size(), b.rows.size()));
 
-    std::size_t si = 0u;
-    std::size_t fi = 0u;
-    while (si < spotRows.size() && fi < futuresRows.size()) {
-        if (spotRows[si].tsNs < futuresRows[fi].tsNs) {
-            ++si;
+    std::size_t ai = 0u;
+    std::size_t bi = 0u;
+    while (ai < a.rows.size() && bi < b.rows.size()) {
+        if (a.rows[ai].tsNs < b.rows[bi].tsNs) {
+            ++ai;
             continue;
         }
-        if (futuresRows[fi].tsNs < spotRows[si].tsNs) {
-            ++fi;
+        if (b.rows[bi].tsNs < a.rows[ai].tsNs) {
+            ++bi;
             continue;
         }
-        if (validCandlePrice(spotRows[si]) && validCandlePrice(futuresRows[fi])) {
-            out.push_back(makePoint(spotRows[si].tsNs, spotRows[si], futuresRows[fi]));
+        if (validCandlePrice(a.rows[ai]) && validCandlePrice(b.rows[bi])) {
+            out.push_back(makePoint(a.rows[ai], b.rows[bi]));
         }
-        ++si;
-        ++fi;
+        ++ai;
+        ++bi;
     }
     return out;
 }

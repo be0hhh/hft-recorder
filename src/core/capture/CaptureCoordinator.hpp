@@ -46,7 +46,6 @@ struct CaptureConfig {
     std::string detailedCandlesTimeframe{"15m"};
     std::uint32_t detailedCandlesLimit{5000u};
     std::int64_t detailedCandlesEndNs{0};
-    std::string detailedCandlesUnderlyingSymbolHint{};
 };
 
 class CaptureCoordinator : public market_data::IMarketDataIngress {

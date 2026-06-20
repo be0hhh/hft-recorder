@@ -20,6 +20,7 @@ inline QColor venueColor(const QString& exchange) {
     if (key == QStringLiteral("gate") || key == QStringLiteral("gateio")) return QColor{48, 96, 175};
     if (key == QStringLiteral("bitget")) return QColor{24, 154, 170};
     if (key == QStringLiteral("binance")) return QColor{196, 154, 36};
+    if (key == QStringLiteral("mexc")) return QColor{0, 123, 172};
     return QColor{128, 128, 136};
 }
 
