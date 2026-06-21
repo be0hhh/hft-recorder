@@ -204,6 +204,7 @@ void CaptureCoordinator::resetSessionState() noexcept {
     manifest_ = {};
     sessionDir_.clear();
     config_ = {};
+    instrumentMetadataReady_ = false;
     lastError_.clear();
     tradesStop_.store(false, std::memory_order_release);
     liquidationsStop_.store(false, std::memory_order_release);
@@ -350,6 +351,7 @@ Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
     if (config_.symbols.empty()) return Status::InvalidArgument;
     auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
     internal::enrichInstrumentMetadataFromExchangeInfo(config_, metadata);
+    instrumentMetadataReady_ = metadata.metadataSource == "hft_trader";
     std::ofstream out(sessionDir_ / manifest_.instrumentMetadataPath, std::ios::out | std::ios::trunc);
     if (!out.is_open()) return Status::IoError;
     out << corpus::renderInstrumentMetadataJson(metadata);

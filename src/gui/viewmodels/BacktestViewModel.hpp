@@ -363,6 +363,7 @@ class BacktestViewModel : public QObject {
     QString profilePath_() const;
     QString writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides = {}, bool fixedOnly = false);
     QStringList selectedSessionPaths_() const;
+    QStringList orderedSessionPathsForRun_() const;
     bool strategySupportsSelectedSessionCount_() const;
     bool ensureSelectedStrategySupportsSessionCount_();
     qint64 decimalE8Value_(const QString& value, qint64 fallback) const noexcept;

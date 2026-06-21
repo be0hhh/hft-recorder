@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -160,6 +161,11 @@ void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
     if (result.instrumentSpec.priceBasisQtyRaw > 0) {
         metadata.priceBasisQtyE8 = result.instrumentSpec.priceBasisQtyRaw;
         metadata.priceBasisQtySource = "hft_trader_exchange_info";
+    }
+    if (result.instrumentSpec.expiryUtcNs > 0u &&
+        result.instrumentSpec.expiryUtcNs <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        metadata.expiryUtcNs = static_cast<std::int64_t>(result.instrumentSpec.expiryUtcNs);
+        metadata.expiryUtcNsSource = "hft_trader_exchange_info";
     }
     metadata.metadataSource = "hft_trader";
     metadata.metadataWarning.reset();

@@ -749,7 +749,13 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
             if (tradeOrigIndex < std::numeric_limits<int>::max()) ++tradeOrigIndex;
             if (row.tsNs < live.vp.tMin || row.tsNs > live.vp.tMax) continue;
             if (row.priceE8 < live.vp.pMin || row.priceE8 > live.vp.pMax) continue;
-            detail::appendGroupedTradeDot(live.tradeDots, TradeDot{row.tsNs, row.priceE8, row.qtyE8, row.sideBuy != 0, rowOrigIndex});
+            TradeDot dot{};
+            dot.tsNs = row.tsNs;
+            dot.priceE8 = row.priceE8;
+            dot.qtyE8 = row.qtyE8;
+            dot.sideBuy = row.sideBuy != 0;
+            dot.origIndex = rowOrigIndex;
+            detail::appendGroupedTradeDot(live.tradeDots, dot);
         }
     };
     if (live.tradesVisible) {

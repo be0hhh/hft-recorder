@@ -170,7 +170,13 @@ int ChartController::liveUpdateIntervalMs() const noexcept {
 QString ChartController::performanceDiagnostics() const {
     const hftrec::metrics::MetricsSnapshot snap = hftrec::metrics::snapshot();
     const hftrec::metrics::GuiRuntimeMetrics& gui = snap.gui;
-    return QStringLiteral("FPS %1 | paint %2/%3 | snap %4/%5 | objs ob=%6 bt=%7 tr=%8 liq=%9 | cache h/r=%10/%11")
+    const QString loadText = lastRecordedLoadNs_ == 0u
+        ? QStringLiteral("-")
+        : QStringLiteral("%1 %2 %3r")
+              .arg(lastRecordedLoadLabel_,
+                   formatNsAsMs(lastRecordedLoadNs_),
+                   QString::number(static_cast<qulonglong>(lastRecordedLoadRows_)));
+    QString text = QStringLiteral("FPS %1 | paint %2/%3 | snap %4/%5 | objs ob=%6 bt=%7 tr=%8 liq=%9")
         .arg(static_cast<qulonglong>(gui.fps))
         .arg(formatNsAsMs(avgNs(gui.paintNsTotal, gui.frameTotal)))
         .arg(formatNsAsMs(gui.paintNsMax))
@@ -179,9 +185,12 @@ QString ChartController::performanceDiagnostics() const {
         .arg(static_cast<qulonglong>(gui.orderbookSegments))
         .arg(static_cast<qulonglong>(gui.bookTickerSamples))
         .arg(static_cast<qulonglong>(gui.tradeDots))
-        .arg(static_cast<qulonglong>(gui.liquidationDots))
+        .arg(static_cast<qulonglong>(gui.liquidationDots));
+    text += QStringLiteral(" | cache h/r=%1/%2 | load %3")
         .arg(static_cast<qulonglong>(gui.layerCacheHitTotal))
-        .arg(static_cast<qulonglong>(gui.layerCacheRebuildTotal));
+        .arg(static_cast<qulonglong>(gui.layerCacheRebuildTotal))
+        .arg(loadText);
+    return text;
 }
 
 void ChartController::setRenderWindowSeconds(int seconds) {

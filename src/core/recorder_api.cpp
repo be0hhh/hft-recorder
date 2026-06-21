@@ -139,7 +139,7 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
                                 const std::filesystem::path& path,
                                 auto addFile) noexcept -> Status {
         if (!wants(channels, channel)) return Status::Ok;
-        return (replay.*addFile)(path);
+        return (replay.*addFile)(path, 0u);
     };
 
     Status status = addChannel(RecorderChannel_Trades,
@@ -300,6 +300,11 @@ RecorderEventKind convert(replay::SessionReplay::EventKind kind) noexcept {
         case replay::SessionReplay::EventKind::Trade: return RecorderEventKind::Trade;
         case replay::SessionReplay::EventKind::Liquidation: return RecorderEventKind::Liquidation;
         case replay::SessionReplay::EventKind::BookTicker: return RecorderEventKind::BookTicker;
+        case replay::SessionReplay::EventKind::MarkPrice:
+        case replay::SessionReplay::EventKind::IndexPrice:
+        case replay::SessionReplay::EventKind::Funding:
+        case replay::SessionReplay::EventKind::PriceLimit:
+            return RecorderEventKind::Depth;
     }
     return RecorderEventKind::Depth;
 }
@@ -310,6 +315,11 @@ bool eventWanted(replay::SessionReplay::EventKind kind, RecorderChannelMask chan
         case replay::SessionReplay::EventKind::Trade: return wants(channels, RecorderChannel_Trades);
         case replay::SessionReplay::EventKind::Liquidation: return wants(channels, RecorderChannel_Liquidations);
         case replay::SessionReplay::EventKind::BookTicker: return wants(channels, RecorderChannel_BookTicker);
+        case replay::SessionReplay::EventKind::MarkPrice:
+        case replay::SessionReplay::EventKind::IndexPrice:
+        case replay::SessionReplay::EventKind::Funding:
+        case replay::SessionReplay::EventKind::PriceLimit:
+            return false;
     }
     return false;
 }

@@ -32,6 +32,7 @@ bool mockFetchMetadata(cxet::UnifiedRequestBuilder& builder,
     std::memcpy(out[0].stepSize, "0.001", 6u);
     std::memcpy(out[0].lotSize, "0.001", 6u);
     std::memcpy(out[0].contractBaseQty, "0.001", 6u);
+    std::memcpy(out[0].priceBasisQty, "100", 4u);
     *outCount = 1u;
     return true;
 }
@@ -129,6 +130,7 @@ TEST(CaptureCoordinator, WritesInstrumentMetadataFromTraderRuntime) {
     EXPECT_NE(metadata.find("\"tick_size_e8\": 10000000"), std::string::npos);
     EXPECT_NE(metadata.find("\"lot_size_e8\": 100000"), std::string::npos);
     EXPECT_NE(metadata.find("\"contract_base_qty_e8\": 100000"), std::string::npos);
+    EXPECT_NE(metadata.find("\"price_basis_qty_e8\": 10000000000"), std::string::npos);
 
     std::error_code ec;
     coordinator.finalizeSession();

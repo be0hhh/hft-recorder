@@ -56,17 +56,21 @@ class SessionReplay {
     // addXxx(), then finalize(). Each addXxx() may be called multiple times
     // to merge files.
     void   reset() noexcept;
-    Status addTradesFile(const std::filesystem::path& path) noexcept;
-    Status addLiquidationsFile(const std::filesystem::path& path) noexcept;
-    Status addBookTickerFile(const std::filesystem::path& path) noexcept;
-    Status addMarkPriceFile(const std::filesystem::path& path) noexcept;
-    Status addIndexPriceFile(const std::filesystem::path& path) noexcept;
-    Status addFundingFile(const std::filesystem::path& path) noexcept;
-    Status addPriceLimitFile(const std::filesystem::path& path) noexcept;
-    Status addCandlesFile(const std::filesystem::path& path) noexcept;
-    Status addCandles2File(const std::filesystem::path& path) noexcept;
-    Status addDepthFile(const std::filesystem::path& path) noexcept;
-    Status addDepthFileAllowPartial(const std::filesystem::path& path) noexcept;
+    Status addTradesFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
+    Status addLiquidationsFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
+    Status addBookTickerFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
+    Status addMarkPriceFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
+    Status addIndexPriceFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
+    Status addFundingFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
+    Status addPriceLimitFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
+    Status addCandlesFile(const std::filesystem::path& path,
+                          std::size_t reserveHint = 0,
+                          bool rebuildTimeline = true) noexcept;
+    Status addCandles2File(const std::filesystem::path& path,
+                           std::size_t reserveHint = 0,
+                           bool rebuildTimeline = true) noexcept;
+    Status addDepthFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
+    Status addDepthFileAllowPartial(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
     Status addSnapshotFile(const std::filesystem::path& path) noexcept;
     void   finalize() noexcept;
     Status status() const noexcept { return status_; }
@@ -146,7 +150,7 @@ class SessionReplay {
     void refreshHealthSummary_() noexcept;
     void noteIncident_(const IntegrityIncident& incident) noexcept;
     ChannelIntegritySummary& summaryFor_(IntegrityChannel channel) noexcept;
-    Status addDepthFile_(const std::filesystem::path& path, bool allowPartial) noexcept;
+    Status addDepthFile_(const std::filesystem::path& path, bool allowPartial, std::size_t reserveHint) noexcept;
     void restorePartialDepthIncident_() noexcept;
     bool loadManifestHints_(const std::filesystem::path& sessionDir) noexcept;
     void maybeWriteIntegrityReport_() noexcept;

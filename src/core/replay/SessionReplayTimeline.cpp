@@ -84,6 +84,7 @@ void SessionReplay::finalize() noexcept {
     resetIntegrity_();
     rebuildEvents_();
     rebuildBuckets_();
+    rewindToSnapshot_();
     restorePartialDepthIncident_();
     const bool depthValid = validateDepthStream_();
     const bool sequenceMetadataValid = validateSequenceMetadata_();

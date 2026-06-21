@@ -96,6 +96,27 @@ Pane {
         rows.push(row)
     }
 
+    function backtestPopupPreferredWidth() {
+        var widest = 420
+        for (var i = 0; i < root.backtestRows.length; ++i) {
+            var row = root.backtestRows[i] || {}
+            var label = String(row.label || "")
+            var right = String(row.rightText || row.pnlText || (row.selectable === false ? "sweep" : ""))
+            var estimate = 48 + Math.ceil(label.length * 7.4) + (right.length > 0 ? Math.ceil(right.length * 8.2) + 18 : 0)
+            widest = Math.max(widest, estimate)
+        }
+        var controlWidth = backtestCombo && backtestCombo.width > 0 ? backtestCombo.width : 220
+        return Math.min(Math.max(controlWidth, widest), Math.max(controlWidth, root.width - 32))
+    }
+
+    function backtestPopupX(popupWidth) {
+        if (!backtestCombo)
+            return 0
+        var comboRootX = backtestCombo.mapToItem(root, 0, 0).x
+        var alignRightX = Math.min(0, backtestCombo.width - popupWidth)
+        return Math.max(16 - comboRootX, alignRightX)
+    }
+
     function compareComboSourceId(combo) {
         if (!combo)
             return ""
@@ -196,9 +217,9 @@ Pane {
     }
 
     function loadSelectedRecordedOrderbook() {
-        if (root.selectedSourceId === "" || sourcesModel.sourceKind(root.selectedSourceId) !== "recorded")
-            return
-        chart.loadRecordedOrderbook()
+        if (chart.currentSourceKind !== "recorded" || chart.sessionDir === "")
+            return false
+        return chart.loadRecordedOrderbook()
     }
 
     function preferChartStatusText() {
@@ -925,7 +946,7 @@ Pane {
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 Text {
-                                    Layout.preferredWidth: visible ? 64 : 0
+                                    Layout.preferredWidth: visible ? Math.min(190, Math.max(96, implicitWidth + 14)) : 0
                                     text: modelData.pnlText || ""
                                     visible: text.length > 0
                                     color: text.charAt(0) === "-" ? "#ef6f6c" : root.accentBuyColor
@@ -941,8 +962,8 @@ Pane {
                     }
                     popup: Popup {
                         y: backtestCombo.height + 2
-                        x: Math.min(0, backtestCombo.width - width)
-                        width: Math.min(root.width - 32, Math.max(backtestCombo.width, 420))
+                        x: root.backtestPopupX(width)
+                        width: root.backtestPopupPreferredWidth()
                         implicitHeight: Math.min(contentItem.implicitHeight, 360)
                         padding: 1
                         onOpened: {
@@ -1085,61 +1106,80 @@ Pane {
             onToggleTrades: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showTradesLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedTrades())
+                    nextVisible = false
                 root.showTradesLayer = nextVisible
                 root.userDisabledTradesLayer = !nextVisible
             }
             onToggleCandles: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showCandlesLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedCandles())
+                    nextVisible = false
                 root.showCandlesLayer = nextVisible
                 root.userDisabledCandlesLayer = !nextVisible
             }
             onToggleCandles2: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showCandles2Layer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedCandles2())
+                    nextVisible = false
                 root.showCandles2Layer = nextVisible
                 root.userDisabledCandles2Layer = !nextVisible
             }
             onToggleLiquidations: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showLiquidationsLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedLiquidations())
+                    nextVisible = false
                 root.showLiquidationsLayer = nextVisible
                 root.userDisabledLiquidationsLayer = !nextVisible
             }
             onToggleOrderbook: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showOrderbookLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !root.loadSelectedRecordedOrderbook())
+                    nextVisible = false
                 root.showOrderbookLayer = nextVisible
                 root.userDisabledOrderbookLayer = !nextVisible
-                if (nextVisible) root.loadSelectedRecordedOrderbook()
             }
             onToggleBookTicker: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showBookTickerLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedBookTicker())
+                    nextVisible = false
                 root.showBookTickerLayer = nextVisible
                 root.userDisabledBookTickerLayer = !nextVisible
             }
             onToggleMarkPrice: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showMarkPriceLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedMarkPrice())
+                    nextVisible = false
                 root.showMarkPriceLayer = nextVisible
                 root.userDisabledMarkPriceLayer = !nextVisible
             }
             onToggleIndexPrice: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showIndexPriceLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedIndexPrice())
+                    nextVisible = false
                 root.showIndexPriceLayer = nextVisible
                 root.userDisabledIndexPriceLayer = !nextVisible
             }
             onToggleFunding: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showFundingLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedFunding())
+                    nextVisible = false
                 root.showFundingLayer = nextVisible
                 root.userDisabledFundingLayer = !nextVisible
             }
             onTogglePriceLimit: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showPriceLimitLayer
+                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedPriceLimit())
+                    nextVisible = false
                 root.showPriceLimitLayer = nextVisible
                 root.userDisabledPriceLimitLayer = !nextVisible
             }

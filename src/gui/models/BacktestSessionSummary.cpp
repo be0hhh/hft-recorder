@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -78,7 +79,15 @@ bool isBacktestResultManifest(const QJsonObject& manifest) {
     return type == QStringLiteral("run.result.v2") || type == QStringLiteral("sweep.result.v1");
 }
 
-void scanResultDir(const QDir& dir, const QString& targetSessionId, BacktestLegCounts& counts) {
+void addLegCount(QHash<QString, BacktestLegCounts>& counts, const QString& sessionId, int legIndex) {
+    const QString id = normalizedSessionId(sessionId);
+    if (id.isEmpty()) return;
+    auto& row = counts[id];
+    if (legIndex == 0) ++row.firstLeg;
+    else if (legIndex == 1) ++row.secondLeg;
+}
+
+void scanResultDir(const QDir& dir, QHash<QString, BacktestLegCounts>& counts) {
     if (!dir.exists()) return;
     const QFileInfoList resultDirs = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QFileInfo& resultDir : resultDirs) {
@@ -86,15 +95,15 @@ void scanResultDir(const QDir& dir, const QString& targetSessionId, BacktestLegC
         const QString manifestPath = QDir(resultDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json"));
         const QJsonObject manifest = readManifestObject(manifestPath);
         if (!isBacktestResultManifest(manifest)) continue;
-        if (resultLegSessionId(manifestPath, manifest, 0) == targetSessionId) ++counts.firstLeg;
-        if (resultLegSessionId(manifestPath, manifest, 1) == targetSessionId) ++counts.secondLeg;
+        addLegCount(counts, resultLegSessionId(manifestPath, manifest, 0), 0);
+        addLegCount(counts, resultLegSessionId(manifestPath, manifest, 1), 1);
     }
 }
 
-void scanSessionBacktests(const QString& sessionPath, const QString& targetSessionId, BacktestLegCounts& counts) {
+void scanSessionBacktests(const QString& sessionPath, QHash<QString, BacktestLegCounts>& counts) {
     const QDir backtestsDir(QDir(sessionPath).absoluteFilePath(QStringLiteral("backtests")));
-    scanResultDir(backtestsDir, targetSessionId, counts);
-    scanResultDir(QDir(backtestsDir.absoluteFilePath(QStringLiteral("sweeps"))), targetSessionId, counts);
+    scanResultDir(backtestsDir, counts);
+    scanResultDir(QDir(backtestsDir.absoluteFilePath(QStringLiteral("sweeps"))), counts);
 }
 
 QString formatStartedAt(qint64 startedAtNs) {
@@ -108,19 +117,22 @@ QString sessionIdFromSessionPathText(const QString& sessionPath) {
     return normalizedSessionId(sessionPath);
 }
 
-BacktestLegCounts backtestLegCountsForSession(const QString& recordingsRoot, const QString& sessionId) {
-    const QString targetSessionId = normalizedSessionId(sessionId);
-    BacktestLegCounts counts{};
-    if (targetSessionId.isEmpty()) return counts;
-
+QHash<QString, BacktestLegCounts> backtestLegCountsBySession(const QString& recordingsRoot) {
+    QHash<QString, BacktestLegCounts> counts;
     const QDir recordingsDir(recordingsRoot);
     if (!recordingsDir.exists()) return counts;
     const QStringList entries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QString& entry : entries) {
         if (entry == QStringLiteral("backtest_profiles")) continue;
-        scanSessionBacktests(recordingsDir.absoluteFilePath(entry), targetSessionId, counts);
+        scanSessionBacktests(recordingsDir.absoluteFilePath(entry), counts);
     }
     return counts;
+}
+
+BacktestLegCounts backtestLegCountsForSession(const QString& recordingsRoot, const QString& sessionId) {
+    const QString targetSessionId = normalizedSessionId(sessionId);
+    if (targetSessionId.isEmpty()) return {};
+    return backtestLegCountsBySession(recordingsRoot).value(targetSessionId);
 }
 
 QString sessionBacktestSummaryText(int bookTickerCount, const BacktestLegCounts& counts, qint64 startedAtNs) {

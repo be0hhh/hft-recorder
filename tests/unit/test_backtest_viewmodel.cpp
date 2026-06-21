@@ -760,6 +760,39 @@ TEST(BacktestViewModel, AllowsStatArbBandLadderOnlyForTwoSessions) {
     QDir(secondary).removeRecursively();
 }
 
+TEST(BacktestViewModel, MapsFinamSessionsToFinamVenues) {
+    isolateSettings(QStringLiteral("finam_venues"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString primaryId = QStringLiteral("hftrec_finam_spot_%1_%2")
+                                  .arg(QCoreApplication::applicationPid())
+                                  .arg(std::rand());
+    const QString secondaryId = QStringLiteral("hftrec_finam_futures_%1_%2")
+                                    .arg(QCoreApplication::applicationPid())
+                                    .arg(std::rand());
+    const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(primaryId);
+    const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(secondaryId);
+    QDir().mkpath(primary);
+    QDir().mkpath(secondary);
+    writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"identity\":{\"exchange\":\"finam\",\"market\":\"spot\",\"symbols\":[\"SBER@MISX\"]}}"));
+    writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArrayLiteral("{\"identity\":{\"exchange\":\"finam\",\"market\":\"futures\",\"symbols\":[\"SRU6@RTSX\"]}}"));
+
+    vm.setSessionPath(primary);
+    vm.setExtraSessionIds(secondary);
+
+    const QVariantList legs = vm.selectedSessionLegs();
+    ASSERT_EQ(legs.size(), 2);
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("finam_spot"));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("SBER@MISX"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("finam_futures"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("SRU6@RTSX"));
+
+    QDir(primary).removeRecursively();
+    QDir(secondary).removeRecursively();
+}
+
 TEST(BacktestViewModel, StoresVenueExecutionValuesPerExchangeMarket) {
     isolateSettings(QStringLiteral("venue_execution_values"));
 

@@ -145,6 +145,8 @@ std::string renderInstrumentMetadataJson(const InstrumentMetadata& metadata) {
     out << "  \"contract_base_qty_source\": " << json::quote(metadata.contractBaseQtySource) << ",\n";
     appendOptionalI64(out, "price_basis_qty_e8", metadata.priceBasisQtyE8);
     out << "  \"price_basis_qty_source\": " << json::quote(metadata.priceBasisQtySource) << ",\n";
+    appendOptionalI64(out, "expiry_utc_ns", metadata.expiryUtcNs);
+    out << "  \"expiry_utc_ns_source\": " << json::quote(metadata.expiryUtcNsSource) << ",\n";
     appendOptionalString(out, "instrument_status", metadata.instrumentStatus);
     out << "  \"instrument_status_source\": " << json::quote(metadata.instrumentStatusSource) << ",\n";
     out << "  \"metadata_source\": " << json::quote(metadata.metadataSource) << ",\n";
@@ -215,6 +217,10 @@ Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata
                 if (!parseOptionalI64(parser, parsed.priceBasisQtyE8)) return Status::CorruptData;
             } else if (key == "price_basis_qty_source") {
                 if (!parser.parseString(parsed.priceBasisQtySource)) return Status::CorruptData;
+            } else if (key == "expiry_utc_ns") {
+                if (!parseOptionalI64(parser, parsed.expiryUtcNs)) return Status::CorruptData;
+            } else if (key == "expiry_utc_ns_source") {
+                if (!parser.parseString(parsed.expiryUtcNsSource)) return Status::CorruptData;
             } else if (key == "instrument_status") {
                 if (!parseOptionalString(parser, parsed.instrumentStatus)) return Status::CorruptData;
             } else if (key == "instrument_status_source") {

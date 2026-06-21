@@ -206,6 +206,17 @@ TEST(CaptureViewModelRequests, FinamSymbolSuggestionsRankPairedFuturesFirst) {
     EXPECT_TRUE(first.value(QStringLiteral("detail")).toString().contains(QStringLiteral("underlying SBRF")));
 }
 
+TEST(CaptureViewModelRequests, FinamSymbolSuggestionsUseCatalogUnderlyingForPairedFutures) {
+    const auto suggestions = detailedCandlesSymbolSuggestions(QStringLiteral("finam_futures"),
+                                                              QStringLiteral("U6"),
+                                                              QStringLiteral("finam_spot"),
+                                                              QStringLiteral("GAZP@MISX"));
+    ASSERT_FALSE(suggestions.isEmpty());
+    const auto first = suggestions.front().toMap();
+    EXPECT_EQ(first.value(QStringLiteral("symbol")).toString(), QStringLiteral("GZU6@RTSX"));
+    EXPECT_TRUE(first.value(QStringLiteral("detail")).toString().contains(QStringLiteral("underlying GAZR")));
+}
+
 TEST(CaptureViewModelRequests, FinamSymbolSuggestionsUseSymbolBoundariesForQuery) {
     const auto suggestions = detailedCandlesSymbolSuggestions(QStringLiteral("finam_futures"),
                                                               QStringLiteral("H"),

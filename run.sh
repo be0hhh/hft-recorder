@@ -109,10 +109,26 @@ INSTALL_DIR="${HOME}/.local/cxet"
 export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${LD_LIBRARY_PATH:-}"
 
 MODE="cpu"
-if [ "${1:-}" = "--gpu" ]; then
-    MODE="gpu"
-    shift
-fi
+NEW_INSTANCE="0"
+while [ "$#" -gt 0 ]; do
+    case "${1:-}" in
+        --gpu)
+            MODE="gpu"
+            shift
+            ;;
+        --new-instance)
+            NEW_INSTANCE="1"
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if [ "$MODE" = "gpu" ]; then
     export HFTREC_RENDER_MODE=gpu
@@ -129,6 +145,23 @@ else
     export QSG_RHI_BACKEND=software
     export QT_QUICK_BACKEND=software
     echo ">>> hft-recorder launcher: CPU-safe software mode"
+fi
+
+if [ "$NEW_INSTANCE" != "1" ]; then
+    existing_pids="$(
+        for exe in /proc/[0-9]*/exe; do
+            target="$(readlink "$exe" 2>/dev/null || true)"
+            if [ "$target" = "$APP_DIR/build/bin/hft-recorder-gui" ]; then
+                pid="${exe#/proc/}"
+                printf '%s\n' "${pid%/exe}"
+            fi
+        done
+    )"
+    if [ -n "$existing_pids" ]; then
+        echo ">>> hft-recorder gui already running pid(s): $existing_pids"
+        echo ">>> keeping this terminal free; pass --new-instance to force another GUI window"
+        exit 0
+    fi
 fi
 
 exec "$APP_DIR/build/bin/hft-recorder-gui" "$@"

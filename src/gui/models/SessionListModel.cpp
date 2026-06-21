@@ -19,8 +19,7 @@ QString resolveRecordingsRoot() {
     return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
 }
 
-QString sessionSummary(const QString& recordingsRoot, const QString& sessionId, const QString& sessionPath) {
-    const BacktestLegCounts backtestCounts = backtestLegCountsForSession(recordingsRoot, sessionId);
+QString sessionSummary(const BacktestLegCounts& backtestCounts, const QString& sessionPath) {
     QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
     if (!file.open(QIODevice::ReadOnly)) return sessionBacktestSummaryText(0, backtestCounts, 0);
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
@@ -44,9 +43,10 @@ void SessionListModel::reload() {
 
     QDir recordingsDir(recordingsRoot());
     if (recordingsDir.exists()) {
+        const auto backtestCounts = backtestLegCountsBySession(recordingsRoot());
         const auto entries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
         for (const auto& entry : entries) {
-            sessions_.push_back(Entry{entry, sessionSummary(recordingsRoot(), entry, recordingsDir.absoluteFilePath(entry))});
+            sessions_.push_back(Entry{entry, sessionSummary(backtestCounts.value(entry), recordingsDir.absoluteFilePath(entry))});
         }
     }
 

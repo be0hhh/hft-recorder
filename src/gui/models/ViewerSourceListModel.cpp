@@ -375,6 +375,7 @@ void ViewerSourceListModel::rebuildEntries_() {
 
     QDir recordingsDir(recordingsRoot());
     if (recordingsDir.exists()) {
+        const auto backtestCountsBySession = backtestLegCountsBySession(recordingsRoot());
         const auto recordedEntries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot,
                                                              QDir::Time | QDir::Reversed);
         for (const auto& recordedId : recordedEntries) {
@@ -385,7 +386,7 @@ void ViewerSourceListModel::rebuildEntries_() {
             entry.groupTitle = QStringLiteral("Recorded");
             entry.sourceKind = QStringLiteral("recorded");
             entry.sessionPath = recordingsDir.absoluteFilePath(recordedId);
-            const BacktestLegCounts backtestCounts = backtestLegCountsForSession(recordingsRoot(), recordedId);
+            const BacktestLegCounts backtestCounts = backtestCountsBySession.value(recordedId);
             entry.backtestCount = backtestCounts.firstLeg;
             const auto identity = readRecordedIdentity(entry.sessionPath);
             entry.exchange = identity.exchange;

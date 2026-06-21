@@ -63,6 +63,10 @@ double bpsFromE8(std::int64_t value) noexcept {
     return static_cast<double>(value) / kE8;
 }
 
+bool isBasisConvergenceOverlay(const StrategyOverlayData& overlay) noexcept {
+    return overlay.strategy == QStringLiteral("basis_convergence_probe");
+}
+
 std::int64_t candleClosePriceE8(const hftrec::replay::CandleRow& row) noexcept {
     if (row.closeE8 > 0) return row.closeE8;
     if (row.highE8 <= 0 || row.lowE8 <= 0 || row.highE8 < row.lowE8) return 0;
@@ -190,6 +194,7 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
         absorbOverlayPrice(marker.priceE8, ranges, hasPrice);
     }
     bool hasSpread = false;
+    const bool basisOnlySpread = lowerPaneKind == CompareLowerPaneKind::StrategySpread && isBasisConvergenceOverlay(overlay);
     if (lowerPaneKind == CompareLowerPaneKind::StrategySpread && !overlay.spreadPoints.empty()) {
         double emaSum = 0.0;
         std::size_t emaCount = 0u;
@@ -207,14 +212,16 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
                 ranges.rawSpreadMax = std::max(ranges.rawSpreadMax, spread);
             }
             if (!hasSpread) {
-                ranges.spreadMin = std::min(spread, ema - cost);
-                ranges.spreadMax = std::max(spread, ema + cost);
+                ranges.spreadMin = basisOnlySpread ? spread : std::min(spread, ema - cost);
+                ranges.spreadMax = basisOnlySpread ? spread : std::max(spread, ema + cost);
                 hasSpread = true;
             } else {
-                ranges.spreadMin = std::min(ranges.spreadMin, std::min(spread, ema - cost));
-                ranges.spreadMax = std::max(ranges.spreadMax, std::max(spread, ema + cost));
+                ranges.spreadMin = basisOnlySpread ? std::min(ranges.spreadMin, spread)
+                                                   : std::min(ranges.spreadMin, std::min(spread, ema - cost));
+                ranges.spreadMax = basisOnlySpread ? std::max(ranges.spreadMax, spread)
+                                                   : std::max(ranges.spreadMax, std::max(spread, ema + cost));
             }
-            emaSum += ema;
+            emaSum += basisOnlySpread ? spread : ema;
             ranges.costBandMax = std::max(ranges.costBandMax, cost);
             ranges.deviationAbsMax = std::max(ranges.deviationAbsMax, std::abs(bpsFromE8(point.deviationBpsE8)));
             ranges.edgeAfterCostMax = std::max(ranges.edgeAfterCostMax, bpsFromE8(point.edgeAfterCostBpsE8));
@@ -334,6 +341,7 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     ranges.spreadMin -= spreadPad;
     ranges.spreadMax += spreadPad;
     if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator
+        && !basisOnlySpread
         && lowerPaneKind != CompareLowerPaneKind::CandleSpread) {
         ranges.spreadMin = std::min(ranges.spreadMin, 0.0);
         ranges.spreadMax = std::max(ranges.spreadMax, 1.0);
@@ -582,7 +590,8 @@ void drawMeanBands(QPainter& painter,
 void drawStrategySpreadTrace(QPainter& painter,
                              const std::vector<StrategySpreadPoint>& points,
                              const Ranges& ranges,
-                             const QRectF& rect) {
+                             const QRectF& rect,
+                             bool basisOnly) {
     if (points.empty()) return;
     QPolygonF spreadLine;
     QPolygonF emaLine;
@@ -602,30 +611,34 @@ void drawStrategySpreadTrace(QPainter& painter,
         const double cost = bpsFromE8(point.costBandBpsE8);
         spreadLine.push_back(QPointF{x, spreadYFor(spread, ranges, rect)});
         spreadDirections.push_back(point.direction);
-        emaLine.push_back(QPointF{x, spreadYFor(ema, ranges, rect)});
-        upperBand.push_back(QPointF{x, spreadYFor(ema + cost, ranges, rect)});
-        lowerBand.push_back(QPointF{x, spreadYFor(ema - cost, ranges, rect)});
+        if (!basisOnly) {
+            emaLine.push_back(QPointF{x, spreadYFor(ema, ranges, rect)});
+            upperBand.push_back(QPointF{x, spreadYFor(ema + cost, ranges, rect)});
+            lowerBand.push_back(QPointF{x, spreadYFor(ema - cost, ranges, rect)});
+        }
     }
-    QPen bandPen{QColor{145, 145, 150}};
-    bandPen.setWidth(1);
-    bandPen.setStyle(Qt::DashLine);
-    painter.setPen(bandPen);
-    painter.drawPolyline(upperBand);
-    painter.drawPolyline(lowerBand);
+    if (!basisOnly) {
+        QPen bandPen{QColor{145, 145, 150}};
+        bandPen.setWidth(1);
+        bandPen.setStyle(Qt::DashLine);
+        painter.setPen(bandPen);
+        painter.drawPolyline(upperBand);
+        painter.drawPolyline(lowerBand);
+    }
     for (int i = 1; i < spreadLine.size(); ++i) {
         const std::uint8_t currentDirection = spreadDirections[static_cast<std::size_t>(i)];
         const std::uint8_t previousDirection = spreadDirections[static_cast<std::size_t>(i - 1)];
         const std::uint8_t direction = currentDirection != 0u ? currentDirection : previousDirection;
         QColor color = spreadDirectionColor(direction);
-        color.setAlpha(155);
+        color.setAlpha(basisOnly ? 230 : 155);
         QPen pen{color};
-        pen.setWidth(1);
+        pen.setWidth(basisOnly ? 2 : 1);
         pen.setCapStyle(Qt::SquareCap);
         pen.setJoinStyle(Qt::MiterJoin);
         painter.setPen(pen);
         painter.drawLine(spreadLine.at(i - 1), spreadLine.at(i));
     }
-    drawPolyline(painter, emaLine, QColor{255, 214, 84}, 2);
+    if (!basisOnly) drawPolyline(painter, emaLine, QColor{255, 214, 84}, 2);
 
 }
 
@@ -1020,8 +1033,9 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     drawCompareCandleBodies(*painter, primaryCandles, candleRanges, layout.primaryRect, sourceColor(0u));
     drawCompareCandleBodies(*painter, secondaryCandles, candleRanges, layout.primaryRect, sourceColor(1u));
 
+    const bool basisOnly = isBasisConvergenceOverlay(overlay);
     if (lowerPaneKind == CompareLowerPaneKind::StrategySpread) {
-        drawStrategySpreadTrace(*painter, overlay.spreadPoints, ranges, layout.spreadRect);
+        drawStrategySpreadTrace(*painter, overlay.spreadPoints, ranges, layout.spreadRect, basisOnly);
     } else if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
         drawStrategyIndicatorTrace(*painter, indicator, ranges, layout.spreadRect);
     } else if (lowerPaneKind == CompareLowerPaneKind::CandleSpread) {
@@ -1050,7 +1064,13 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                    QString::number(ranges.spreadMax, 'f', 2),
                                    QString::number(ranges.meanAvg, 'f', 2)));
     } else {
-        if (lowerPaneKind == CompareLowerPaneKind::StrategySpread && ranges.hasRawSpreadRange) {
+        if (lowerPaneKind == CompareLowerPaneKind::StrategySpread && basisOnly && ranges.hasRawSpreadRange) {
+            painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
+                              QStringLiteral("Basis: signed %1..%2   avg %3")
+                                  .arg(formatBps(ranges.rawSpreadMin),
+                                       formatBps(ranges.rawSpreadMax),
+                                       formatBps(ranges.meanAvg)));
+        } else if (lowerPaneKind == CompareLowerPaneKind::StrategySpread && ranges.hasRawSpreadRange) {
             painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
                               QStringLiteral("Strategy spread: raw %1..%2   EMA avg %3   scale %4..%5   band +/- %6   dev %7   edge %8")
                                   .arg(formatBps(ranges.rawSpreadMin),
@@ -1104,12 +1124,14 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                            formatPrice(candleSpread->bCloseE8));
             drawLabel(*painter, hoverPoint_, label, chartBounds);
         } else if (const auto* strategySpread = nearestStrategySpreadPoint(overlay.spreadPoints, ts); strategySpread != nullptr) {
-            const QString label = QStringLiteral("spread %1  EMA %2  dev %3  band +/- %4  edge %5")
-                                      .arg(formatBps(bpsFromE8(strategySpread->spreadBpsE8)),
-                                           formatBps(bpsFromE8(strategySpread->emaBpsE8)),
-                                           formatBps(bpsFromE8(strategySpread->deviationBpsE8)),
-                                           formatBps(bpsFromE8(strategySpread->costBandBpsE8)),
-                                           formatBps(bpsFromE8(strategySpread->edgeAfterCostBpsE8)));
+            const QString label = basisOnly
+                ? QStringLiteral("basis %1").arg(formatBps(bpsFromE8(strategySpread->spreadBpsE8)))
+                : QStringLiteral("spread %1  EMA %2  dev %3  band +/- %4  edge %5")
+                      .arg(formatBps(bpsFromE8(strategySpread->spreadBpsE8)),
+                           formatBps(bpsFromE8(strategySpread->emaBpsE8)),
+                           formatBps(bpsFromE8(strategySpread->deviationBpsE8)),
+                           formatBps(bpsFromE8(strategySpread->costBandBpsE8)),
+                           formatBps(bpsFromE8(strategySpread->edgeAfterCostBpsE8)));
             drawLabel(*painter, hoverPoint_, label, chartBounds);
         } else {
             const auto* spread = nearestSpreadPoint(spreads, ts);

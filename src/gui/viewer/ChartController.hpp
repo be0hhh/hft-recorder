@@ -155,6 +155,15 @@ class ChartController : public QObject {
                                           bool fundingVisible,
                                           bool priceLimitVisible);
     Q_INVOKABLE bool loadRecordedSession(const QString& dir);
+    Q_INVOKABLE bool loadRecordedTrades();
+    Q_INVOKABLE bool loadRecordedLiquidations();
+    Q_INVOKABLE bool loadRecordedCandles();
+    Q_INVOKABLE bool loadRecordedCandles2();
+    Q_INVOKABLE bool loadRecordedBookTicker();
+    Q_INVOKABLE bool loadRecordedMarkPrice();
+    Q_INVOKABLE bool loadRecordedIndexPrice();
+    Q_INVOKABLE bool loadRecordedFunding();
+    Q_INVOKABLE bool loadRecordedPriceLimit();
     Q_INVOKABLE bool loadRecordedOrderbook();
     Q_INVOKABLE void setActive(bool active);
     Q_INVOKABLE bool activateLiveSource(const QString& sourceId, const QString& sessionPath = QString{});
@@ -293,6 +302,9 @@ class ChartController : public QObject {
     void refreshLoadedStateFromSources_() noexcept;
     void initializeViewportFromLiveDataOnce_() noexcept;
     void applyRecordedRenderWindowViewport_() noexcept;
+    bool loadRecordedChannel_(const QString& channelName);
+    void noteRecordedLoad_(QString label, std::uint64_t loadNs, std::size_t rowsLoaded);
+    QString recordedLoadStatus_(QStringView prefix) const;
     void markUserViewportControl_() noexcept;
     std::int64_t latestRenderableTsNs_() const noexcept;
     std::int64_t latestOrderbookTsNs_() const noexcept;
@@ -312,6 +324,9 @@ class ChartController : public QObject {
     QString sourceMarket_{};
     QString sourceSymbol_{};
     QString statusText_{"No session loaded"};
+    QString lastRecordedLoadLabel_{};
+    std::uint64_t lastRecordedLoadNs_{0};
+    std::size_t lastRecordedLoadRows_{0};
     bool loaded_{false};
     bool active_{false};
     QTimer* liveDataTimer_{nullptr};

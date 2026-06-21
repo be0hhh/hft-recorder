@@ -238,8 +238,7 @@ QString resolveRecordingsRoot() {
     return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
 }
 
-QString sessionSourceSummary(const QString& recordingsRoot, const QString& sessionId, const QString& sessionPath) {
-    const BacktestLegCounts backtestCounts = backtestLegCountsForSession(recordingsRoot, sessionId);
+QString sessionSourceSummary(const BacktestLegCounts& backtestCounts, const QString& sessionPath) {
     QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
     if (!file.open(QIODevice::ReadOnly)) return sessionBacktestSummaryText(0, backtestCounts, 0);
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
@@ -398,9 +397,11 @@ QString CompressionViewModel::recordingsRoot() const {
 
 QVariantList CompressionViewModel::sessions() const {
     QVariantList out;
-    QDir recordingsDir(recordingsRoot());
+    const QString root = recordingsRoot();
+    QDir recordingsDir(root);
     if (!recordingsDir.exists()) return out;
 
+    const auto backtestCountsBySession = backtestLegCountsBySession(root);
     const auto entries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
     for (const auto& entry : entries) {
         const QString path = recordingsDir.absoluteFilePath(entry);
@@ -408,7 +409,7 @@ QVariantList CompressionViewModel::sessions() const {
         row.insert(QStringLiteral("id"), entry);
         row.insert(QStringLiteral("label"), entry);
         row.insert(QStringLiteral("path"), path);
-        row.insert(QStringLiteral("rightText"), sessionSourceSummary(recordingsRoot(), entry, path));
+        row.insert(QStringLiteral("rightText"), sessionSourceSummary(backtestCountsBySession.value(entry), path));
         row.insert(QStringLiteral("hasTrades"), !existingChannelPath_(path, QStringLiteral("trades")).isEmpty());
         row.insert(QStringLiteral("hasBookTicker"), !existingChannelPath_(path, QStringLiteral("bookticker")).isEmpty());
         row.insert(QStringLiteral("hasDepth"), !existingChannelPath_(path, QStringLiteral("depth")).isEmpty());

@@ -368,6 +368,12 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
     return true;
 }
 
+bool detailedCandlesNeedInstrumentMetadata(const CaptureConfig& config) noexcept {
+    return textEqualsAscii(config.exchange, "finam")
+        && !textEqualsAscii(config.market, "spot")
+        && !textEqualsAscii(config.market, "shares");
+}
+
 ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "binance")) return canon::kExchangeIdBinance;
     if (textEqualsAscii(exchange, "bybit")) return canon::kExchangeIdBybit;
@@ -695,6 +701,11 @@ Status CaptureCoordinator::probeDetailedCandlesOnce(const CaptureConfig& config)
 Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& config) noexcept {
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
+    if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
+        lastError_ = "candles2: finam futures instrument metadata is required for price-basis logic; "
+                     "refresh Finam auth and retry so /v1/assets/<symbol> can provide price_basis_qty_e8";
+        return Status::Unknown;
+    }
 
     std::vector<cxet::composite::Ohlcv> rows;
     std::size_t rowCount = 0u;

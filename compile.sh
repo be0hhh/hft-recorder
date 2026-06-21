@@ -414,6 +414,7 @@ export HFTREC_BUILD_CXX="\${HFTREC_BUILD_CXX:-$build_cxx}"
 
 MODE="cpu"
 FOREGROUND="0"
+NEW_INSTANCE="0"
 while [ "\$#" -gt 0 ]; do
     case "\${1:-}" in
         --gpu)
@@ -422,6 +423,10 @@ while [ "\$#" -gt 0 ]; do
             ;;
         --foreground)
             FOREGROUND="1"
+            shift
+            ;;
+        --new-instance)
+            NEW_INSTANCE="1"
             shift
             ;;
         --)
@@ -475,6 +480,23 @@ trap restore_cursor_tty EXIT INT TERM
 LOG_DIR="\$APP_DIR/build/logs"
 mkdir -p "\$LOG_DIR"
 LOG_FILE="\$LOG_DIR/gui.log"
+
+if [ "\$NEW_INSTANCE" != "1" ]; then
+    existing_pids="\$(
+        for exe in /proc/[0-9]*/exe; do
+            target="\$(readlink "\$exe" 2>/dev/null || true)"
+            if [ "\$target" = "\$APP_DIR/build/bin/hft-recorder-gui" ]; then
+                pid="\${exe#/proc/}"
+                printf '%s\n' "\${pid%/exe}"
+            fi
+        done
+    )"
+    if [ -n "\$existing_pids" ]; then
+        echo ">>> hft-recorder gui already running pid(s): \$existing_pids"
+        echo ">>> keeping this terminal free; pass --new-instance to force another GUI window"
+        exit 0
+    fi
+fi
 
 : > "\$LOG_FILE"
 {

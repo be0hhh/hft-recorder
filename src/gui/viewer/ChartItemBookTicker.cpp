@@ -25,22 +25,22 @@ RenderSnapshot buildInteractiveTickerSnapshot(ChartController& controller,
                                               const ChartItem& item,
                                               qreal width,
                                               qreal height) {
-    const SnapshotInputs tickerInputs{
-        false,
-        false,
-        false,
-        false,
-        item.bookTickerVisible(),
-        false,
-        item.overlayOnly(),
-        true,
-        item.tradeAmountScale(),
-        item.candleWidthPx(),
-        item.bookOpacityGain(),
-        item.bookRenderDetail(),
-        item.bookDepthWindowPct(),
-        false,
-    };
+    SnapshotInputs tickerInputs{};
+    tickerInputs.tradesVisible = false;
+    tickerInputs.liquidationsVisible = false;
+    tickerInputs.candlesVisible = false;
+    tickerInputs.candles2Visible = false;
+    tickerInputs.orderbookVisible = false;
+    tickerInputs.bookTickerVisible = item.bookTickerVisible();
+    tickerInputs.interactiveMode = true;
+    tickerInputs.overlayOnly = item.overlayOnly();
+    tickerInputs.exactTradeRendering = false;
+    tickerInputs.tradeAmountScale = item.tradeAmountScale();
+    tickerInputs.candleWidthPx = item.candleWidthPx();
+    tickerInputs.bookOpacityGain = item.bookOpacityGain();
+    tickerInputs.bookRenderDetail = item.bookRenderDetail();
+    tickerInputs.bookDepthWindowPct = item.bookDepthWindowPct();
+    tickerInputs.gpuOrderbookVertices = false;
     if (!tickerInputs.bookTickerVisible) return RenderSnapshot{};
     return controller.buildSnapshot(width, height, tickerInputs);
 }

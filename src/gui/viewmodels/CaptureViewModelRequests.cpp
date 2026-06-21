@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -492,6 +493,15 @@ struct FinamSymbolRow {
     bool isArchived{false};
 };
 
+struct FinamCatalog {
+    std::vector<FinamSymbolRow> rows;
+    std::vector<const FinamSymbolRow*> spotRows;
+    std::vector<const FinamSymbolRow*> futuresRows;
+    QHash<QString, const FinamSymbolRow*> bySymbol;
+    QHash<QString, const FinamSymbolRow*> byTicker;
+    QHash<QString, std::vector<const FinamSymbolRow*>> futuresByUnderlying;
+};
+
 QString finamCatalogSourcePath() {
     return QDir(QCoreApplication::applicationDirPath())
         .absoluteFilePath(QStringLiteral("../src/gui/data/finam_assets.json"));
@@ -511,15 +521,27 @@ QByteArray readFinamCatalogBytes() {
     return {};
 }
 
-std::vector<FinamSymbolRow> loadFinamSymbolRows() {
+QString finamIndexKey(QString value) {
+    return value.trimmed().toUpper();
+}
+
+void insertFirstFinamRow(QHash<QString, const FinamSymbolRow*>& index,
+                         const QString& rawKey,
+                         const FinamSymbolRow& row) {
+    const QString key = finamIndexKey(rawKey);
+    if (key.isEmpty() || index.contains(key)) return;
+    index.insert(key, &row);
+}
+
+FinamCatalog loadFinamCatalog() {
     const QByteArray bytes = readFinamCatalogBytes();
     if (bytes.isEmpty()) return {};
     QJsonParseError error{};
     const QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
     if (error.error != QJsonParseError::NoError || !doc.isObject()) return {};
     const QJsonArray assets = doc.object().value(QStringLiteral("assets")).toArray();
-    std::vector<FinamSymbolRow> rows;
-    rows.reserve(static_cast<std::size_t>(assets.size()));
+    FinamCatalog catalog;
+    catalog.rows.reserve(static_cast<std::size_t>(assets.size()));
     for (const auto& raw : assets) {
         const QJsonObject item = raw.toObject();
         FinamSymbolRow row{};
@@ -527,7 +549,7 @@ std::vector<FinamSymbolRow> loadFinamSymbolRows() {
         row.ticker = item.value(QStringLiteral("ticker")).toString().trimmed();
         row.name = item.value(QStringLiteral("name")).toString().trimmed();
         row.mic = item.value(QStringLiteral("mic")).toString().trimmed();
-        row.market = item.value(QStringLiteral("market")).toString().trimmed();
+        row.market = item.value(QStringLiteral("market")).toString().trimmed().toLower();
         row.type = item.value(QStringLiteral("type")).toString().trimmed();
         row.underlying = item.value(QStringLiteral("underlying")).toString().trimmed().toUpper();
         row.expiration = item.value(QStringLiteral("expiration")).toString().trimmed();
@@ -536,14 +558,42 @@ std::vector<FinamSymbolRow> loadFinamSymbolRows() {
         if (contractValue.isDouble()) row.contractSize = QString::number(contractValue.toDouble());
         else row.contractSize = contractValue.toString().trimmed();
         if (row.symbol.isEmpty() || row.market.isEmpty()) continue;
-        rows.push_back(std::move(row));
+        catalog.rows.push_back(std::move(row));
     }
-    return rows;
+
+    catalog.spotRows.reserve(catalog.rows.size());
+    catalog.futuresRows.reserve(catalog.rows.size());
+    for (const FinamSymbolRow& row : catalog.rows) {
+        insertFirstFinamRow(catalog.bySymbol, row.symbol, row);
+        insertFirstFinamRow(catalog.byTicker, row.ticker, row);
+        if (row.market == QStringLiteral("spot")) {
+            catalog.spotRows.push_back(&row);
+        } else if (row.market == QStringLiteral("futures")) {
+            catalog.futuresRows.push_back(&row);
+            if (!row.underlying.isEmpty()) {
+                catalog.futuresByUnderlying[row.underlying].push_back(&row);
+            }
+        }
+    }
+    return catalog;
+}
+
+const FinamCatalog& finamCatalog() {
+    static const FinamCatalog catalog = loadFinamCatalog();
+    return catalog;
 }
 
 const std::vector<FinamSymbolRow>& finamSymbolRows() {
-    static const std::vector<FinamSymbolRow> rows = loadFinamSymbolRows();
-    return rows;
+    return finamCatalog().rows;
+}
+
+const std::vector<const FinamSymbolRow*>& finamRowsForMarket(const VenueSpec& venue) {
+    static const std::vector<const FinamSymbolRow*> empty;
+    const FinamCatalog& catalog = finamCatalog();
+    const QString market = QString::fromLatin1(venue.market);
+    if (market == QStringLiteral("spot")) return catalog.spotRows;
+    if (market == QStringLiteral("futures")) return catalog.futuresRows;
+    return empty;
 }
 
 bool finamRowMatchesMarket(const FinamSymbolRow& row, const VenueSpec& venue) {
@@ -580,12 +630,14 @@ QString finamAnchorUnderlying(const QString& anchorSymbolText) {
     const auto symbols = normalizedSymbols(anchorSymbolText);
     if (symbols.empty()) return {};
     const QString anchor = QString::fromStdString(symbols.front()).trimmed().toUpper();
-    for (const auto& row : finamSymbolRows()) {
-        if (row.symbol.compare(anchor, Qt::CaseInsensitive) == 0 ||
-            row.ticker.compare(anchor, Qt::CaseInsensitive) == 0) {
-            if (!row.underlying.isEmpty()) return row.underlying;
-            return row.ticker.toUpper();
-        }
+    const FinamCatalog& catalog = finamCatalog();
+    if (auto it = catalog.bySymbol.constFind(anchor); it != catalog.bySymbol.constEnd()) {
+        const FinamSymbolRow* row = it.value();
+        if (row != nullptr) return row->underlying.isEmpty() ? row->ticker.toUpper() : row->underlying;
+    }
+    if (auto it = catalog.byTicker.constFind(anchor); it != catalog.byTicker.constEnd()) {
+        const FinamSymbolRow* row = it.value();
+        if (row != nullptr) return row->underlying.isEmpty() ? row->ticker.toUpper() : row->underlying;
     }
     if (anchor.startsWith(QStringLiteral("SBER"))) return QStringLiteral("SBRF");
     return anchor.section(QLatin1Char('@'), 0, 0);
@@ -593,16 +645,14 @@ QString finamAnchorUnderlying(const QString& anchorSymbolText) {
 
 int finamSuggestionRank(const FinamSymbolRow& row,
                         const VenueSpec& venue,
-                        const QString& anchorVenueKey,
-                        const QString& anchorSymbolText) {
+                        const QString& anchorMarket,
+                        const QString& anchorUnderlying) {
     int rank = row.isArchived ? 120 : 100;
-    const QString anchorUnderlying = finamAnchorUnderlying(anchorSymbolText);
     if (QString::fromLatin1(venue.market) == QStringLiteral("futures") &&
         !anchorUnderlying.isEmpty() && row.underlying == anchorUnderlying) {
         rank = row.isArchived ? 20 : 0;
     }
-    const auto* anchorVenue = venueByKey(anchorVenueKey);
-    if (anchorVenue != nullptr && QString::fromLatin1(anchorVenue->market) == row.market) {
+    if (!anchorMarket.isEmpty() && anchorMarket == row.market) {
         rank += 20;
     }
     return rank;
@@ -1180,11 +1230,30 @@ QVariantList detailedCandlesSymbolSuggestions(const QString& venueKey,
 
     if (isFinamVenue(*venue)) {
         std::vector<QVariantMap> rows;
-        for (const auto& row : finamSymbolRows()) {
-            if (!finamRowMatchesMarket(row, *venue)) continue;
-            if (!textMatchesQuery(row, query)) continue;
-            rows.push_back(finamSuggestionItem(row, finamSuggestionRank(row, *venue, anchorVenueKey, anchorSymbolText)));
+        const QString normalizedQuery = query.trimmed();
+        const QString anchorUnderlying = finamAnchorUnderlying(anchorSymbolText);
+        const auto* anchorVenue = venueByKey(anchorVenueKey);
+        const QString anchorMarket = anchorVenue == nullptr ? QString{} : QString::fromLatin1(anchorVenue->market);
+        const auto& marketRows = finamRowsForMarket(*venue);
+        const std::vector<const FinamSymbolRow*>* scanRows = &marketRows;
+        const bool preferUnderlyingFutures = QString::fromLatin1(venue->market) == QStringLiteral("futures") &&
+                                            !anchorUnderlying.isEmpty();
+        if (preferUnderlyingFutures) {
+            const FinamCatalog& catalog = finamCatalog();
+            auto it = catalog.futuresByUnderlying.constFind(anchorUnderlying);
+            if (it != catalog.futuresByUnderlying.constEnd() && !it.value().empty()) scanRows = &it.value();
         }
+        auto collectRows = [&](const std::vector<const FinamSymbolRow*>& sourceRows) {
+            for (const FinamSymbolRow* rowPtr : sourceRows) {
+                if (rowPtr == nullptr) continue;
+                const FinamSymbolRow& row = *rowPtr;
+                if (!finamRowMatchesMarket(row, *venue)) continue;
+                if (!textMatchesQuery(row, normalizedQuery)) continue;
+                rows.push_back(finamSuggestionItem(row, finamSuggestionRank(row, *venue, anchorMarket, anchorUnderlying)));
+            }
+        };
+        collectRows(*scanRows);
+        if (rows.empty() && scanRows != &marketRows && !normalizedQuery.isEmpty()) collectRows(marketRows);
         std::stable_sort(rows.begin(), rows.end(), [](const QVariantMap& lhs, const QVariantMap& rhs) {
             const int leftRank = lhs.value(QStringLiteral("rank")).toInt();
             const int rightRank = rhs.value(QStringLiteral("rank")).toInt();

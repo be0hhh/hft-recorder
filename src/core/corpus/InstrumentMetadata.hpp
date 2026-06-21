@@ -37,6 +37,8 @@ struct InstrumentMetadata {
     std::string contractBaseQtySource{"unknown"};
     std::optional<std::int64_t> priceBasisQtyE8{};
     std::string priceBasisQtySource{"unknown"};
+    std::optional<std::int64_t> expiryUtcNs{};
+    std::string expiryUtcNsSource{"unknown"};
     std::optional<std::string> instrumentStatus{};
     std::string instrumentStatusSource{"unknown"};
     std::string metadataSource{"recorder_inference"};

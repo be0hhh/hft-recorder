@@ -156,9 +156,11 @@ Status loadJsonl(const std::filesystem::path& path,
                  std::vector<RowT>& out,
                  std::string& errorDetail,
                  Parser&& parse,
-                 std::size_t& lineNumberOut) noexcept {
+                 std::size_t& lineNumberOut,
+                 std::size_t reserveHint = 0) noexcept {
     std::ifstream in(path, std::ios::binary);
     if (!in) return Status::Ok;
+    if (reserveHint > 0u) out.reserve(out.size() + reserveHint);
     std::string line;
     std::size_t lineNumber = 0;
     while (std::getline(in, line)) {
@@ -186,7 +188,8 @@ Status loadDepthTapeSidecarJsonl(const std::filesystem::path& tapePath,
                                  std::vector<DepthRow>& out,
                                  std::string& errorDetail,
                                  std::size_t& lineNumberOut,
-                                 bool allowPartial) noexcept {
+                                 bool allowPartial,
+                                 std::size_t reserveHint = 0) noexcept {
     const bool tapeExists = regularFileExists(tapePath);
     const bool sidecarExists = regularFileExists(sidecarPath);
     if (!tapeExists && !sidecarExists) return Status::Ok;
@@ -207,6 +210,7 @@ Status loadDepthTapeSidecarJsonl(const std::filesystem::path& tapePath,
     std::string sidecarLine;
     std::size_t lineNumber = 0;
     const std::size_t initialSize = out.size();
+    if (reserveHint > 0u) out.reserve(out.size() + reserveHint);
     while (true) {
         const bool haveTape = static_cast<bool>(std::getline(tape, tapeLine));
         const bool haveSidecar = static_cast<bool>(std::getline(sidecar, sidecarLine));
@@ -272,7 +276,7 @@ void SessionReplay::reset() noexcept {
     resetIntegrity_();
 }
 
-Status SessionReplay::addTradesFile(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addTradesFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "trades path is empty";
         ++parseFailureCount_;
@@ -293,7 +297,7 @@ Status SessionReplay::addTradesFile(const std::filesystem::path& path) noexcept 
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<TradeRow>(path, trades_, errorDetail_, parseTradeCanonicalLine, lineNumber);
+    const auto st = loadJsonl<TradeRow>(path, trades_, errorDetail_, parseTradeCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("trades");
@@ -316,7 +320,7 @@ Status SessionReplay::addTradesFile(const std::filesystem::path& path) noexcept 
     return st;
 }
 
-Status SessionReplay::addLiquidationsFile(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addLiquidationsFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "liquidations path is empty";
         status_ = Status::InvalidArgument;
@@ -324,7 +328,7 @@ Status SessionReplay::addLiquidationsFile(const std::filesystem::path& path) noe
         return status_;
     }
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<LiquidationRow>(path, liquidations_, errorDetail_, parseLiquidationCanonicalLine, lineNumber);
+    const auto st = loadJsonl<LiquidationRow>(path, liquidations_, errorDetail_, parseLiquidationCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("liquidations");
@@ -338,7 +342,7 @@ Status SessionReplay::addLiquidationsFile(const std::filesystem::path& path) noe
     return Status::Ok;
 }
 
-Status SessionReplay::addBookTickerFile(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addBookTickerFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "bookticker path is empty";
         ++parseFailureCount_;
@@ -359,7 +363,7 @@ Status SessionReplay::addBookTickerFile(const std::filesystem::path& path) noexc
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<BookTickerRow>(path, bookTickers_, errorDetail_, parseBookTickerCanonicalLine, lineNumber);
+    const auto st = loadJsonl<BookTickerRow>(path, bookTickers_, errorDetail_, parseBookTickerCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("bookticker");
@@ -382,14 +386,14 @@ Status SessionReplay::addBookTickerFile(const std::filesystem::path& path) noexc
     return st;
 }
 
-Status SessionReplay::addMarkPriceFile(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addMarkPriceFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "mark_price path is empty";
         ++parseFailureCount_;
         return Status::InvalidArgument;
     }
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<MarkPriceRow>(path, markPrices_, errorDetail_, parseMarkPriceCanonicalLine, lineNumber);
+    const auto st = loadJsonl<MarkPriceRow>(path, markPrices_, errorDetail_, parseMarkPriceCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         status_ = st;
@@ -401,14 +405,14 @@ Status SessionReplay::addMarkPriceFile(const std::filesystem::path& path) noexce
     return Status::Ok;
 }
 
-Status SessionReplay::addIndexPriceFile(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addIndexPriceFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "index_price path is empty";
         ++parseFailureCount_;
         return Status::InvalidArgument;
     }
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<IndexPriceRow>(path, indexPrices_, errorDetail_, parseIndexPriceCanonicalLine, lineNumber);
+    const auto st = loadJsonl<IndexPriceRow>(path, indexPrices_, errorDetail_, parseIndexPriceCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         status_ = st;
@@ -420,14 +424,14 @@ Status SessionReplay::addIndexPriceFile(const std::filesystem::path& path) noexc
     return Status::Ok;
 }
 
-Status SessionReplay::addFundingFile(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addFundingFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "funding path is empty";
         ++parseFailureCount_;
         return Status::InvalidArgument;
     }
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<FundingRow>(path, fundings_, errorDetail_, parseFundingCanonicalLine, lineNumber);
+    const auto st = loadJsonl<FundingRow>(path, fundings_, errorDetail_, parseFundingCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         status_ = st;
@@ -439,14 +443,14 @@ Status SessionReplay::addFundingFile(const std::filesystem::path& path) noexcept
     return Status::Ok;
 }
 
-Status SessionReplay::addPriceLimitFile(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addPriceLimitFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "price_limit path is empty";
         ++parseFailureCount_;
         return Status::InvalidArgument;
     }
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<PriceLimitRow>(path, priceLimits_, errorDetail_, parsePriceLimitCanonicalLine, lineNumber);
+    const auto st = loadJsonl<PriceLimitRow>(path, priceLimits_, errorDetail_, parsePriceLimitCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         status_ = st;
@@ -458,7 +462,9 @@ Status SessionReplay::addPriceLimitFile(const std::filesystem::path& path) noexc
     return Status::Ok;
 }
 
-Status SessionReplay::addCandlesFile(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addCandlesFile(const std::filesystem::path& path,
+                                     std::size_t reserveHint,
+                                     bool rebuildTimeline) noexcept {
     if (path.empty()) {
         errorDetail_ = "candles path is empty";
         ++parseFailureCount_;
@@ -467,7 +473,7 @@ Status SessionReplay::addCandlesFile(const std::filesystem::path& path) noexcept
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<CandleRow>(path, candles_, errorDetail_, parseCandleLine, lineNumber);
+    const auto st = loadJsonl<CandleRow>(path, candles_, errorDetail_, parseCandleLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("candles");
@@ -475,11 +481,13 @@ Status SessionReplay::addCandlesFile(const std::filesystem::path& path) noexcept
         return st;
     }
     sortCandles(candles_);
-    rebuildBuckets_();
+    if (rebuildTimeline) rebuildBuckets_();
     return Status::Ok;
 }
 
-Status SessionReplay::addCandles2File(const std::filesystem::path& path) noexcept {
+Status SessionReplay::addCandles2File(const std::filesystem::path& path,
+                                      std::size_t reserveHint,
+                                      bool rebuildTimeline) noexcept {
     if (path.empty()) {
         errorDetail_ = "candles2 path is empty";
         ++parseFailureCount_;
@@ -488,7 +496,7 @@ Status SessionReplay::addCandles2File(const std::filesystem::path& path) noexcep
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<CandleRow>(path, candles2_, errorDetail_, parseCandleLine, lineNumber);
+    const auto st = loadJsonl<CandleRow>(path, candles2_, errorDetail_, parseCandleLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
         metrics::recordReplayParseFailure("candles2");
@@ -496,19 +504,19 @@ Status SessionReplay::addCandles2File(const std::filesystem::path& path) noexcep
         return st;
     }
     sortCandles(candles2_);
-    rebuildBuckets_();
+    if (rebuildTimeline) rebuildBuckets_();
     return Status::Ok;
 }
 
-Status SessionReplay::addDepthFile(const std::filesystem::path& path) noexcept {
-    return addDepthFile_(path, false);
+Status SessionReplay::addDepthFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
+    return addDepthFile_(path, false, reserveHint);
 }
 
-Status SessionReplay::addDepthFileAllowPartial(const std::filesystem::path& path) noexcept {
-    return addDepthFile_(path, true);
+Status SessionReplay::addDepthFileAllowPartial(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
+    return addDepthFile_(path, true, reserveHint);
 }
 
-Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allowPartial) noexcept {
+Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allowPartial, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "depth path is empty";
         ++parseFailureCount_;
@@ -538,13 +546,13 @@ Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allo
         : path.parent_path() / "depth_sidecar.jsonl";
 
     if (path.filename() == "depth_tape.jsonl" || path.filename() == "depth_sidecar.jsonl") {
-        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber, allowPartial);
+        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber, allowPartial, reserveHint);
     } else if (regularFileExists(path)) {
-        st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber);
+        st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber, reserveHint);
     } else if (regularFileExists(tapePath) || regularFileExists(sidecarPath)) {
-        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber, allowPartial);
+        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber, allowPartial, reserveHint);
     } else {
-        st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber);
+        st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber, reserveHint);
     }
     if (!isOk(st)) {
         ++parseFailureCount_;
