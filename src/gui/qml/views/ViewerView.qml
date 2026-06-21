@@ -39,6 +39,7 @@ Pane {
     property bool showTradesLayer: false
     property bool showLiquidationsLayer: false
     property bool showCandlesLayer: false
+    property bool showCandles2Layer: false
     property bool showOrderbookLayer: false
     property bool showBookTickerLayer: true
     property bool showMarkPriceLayer: false
@@ -50,6 +51,7 @@ Pane {
     property bool userDisabledTradesLayer: false
     property bool userDisabledLiquidationsLayer: false
     property bool userDisabledCandlesLayer: false
+    property bool userDisabledCandles2Layer: false
     property bool userDisabledOrderbookLayer: false
     property bool userDisabledBookTickerLayer: false
     property bool userDisabledMarkPriceLayer: false
@@ -250,6 +252,7 @@ Pane {
             root.userDisabledTradesLayer = false
             root.userDisabledLiquidationsLayer = false
             root.userDisabledCandlesLayer = false
+            root.userDisabledCandles2Layer = false
             root.userDisabledOrderbookLayer = false
             root.userDisabledBookTickerLayer = false
             root.userDisabledMarkPriceLayer = false
@@ -259,6 +262,7 @@ Pane {
             root.showTradesLayer = false
             root.showLiquidationsLayer = false
             root.showCandlesLayer = false
+            root.showCandles2Layer = false
             root.showOrderbookLayer = false
             root.showBookTickerLayer = true
             root.showMarkPriceLayer = false
@@ -293,28 +297,32 @@ Pane {
                 root.showTradesLayer = false
                 root.showLiquidationsLayer = false
                 root.showCandlesLayer = false
+                root.showCandles2Layer = false
                 root.showOrderbookLayer = false
                 root.showBookTickerLayer = true
                 return
             }
             root.showTradesLayer = chart.hasTrades && !root.userDisabledTradesLayer
             root.showLiquidationsLayer = chart.hasLiquidations && !chart.hasTrades && !root.userDisabledLiquidationsLayer
-            root.showCandlesLayer = chart.hasCandles && !root.userDisabledCandlesLayer
+            root.showCandles2Layer = chart.hasCandles2 && !root.userDisabledCandles2Layer
+            root.showCandlesLayer = !root.showCandles2Layer && chart.hasCandles && !root.userDisabledCandlesLayer
             root.showOrderbookLayer = chart.hasOrderbook && !root.userDisabledOrderbookLayer
             root.showMarkPriceLayer = chart.hasMarkPrice && !root.userDisabledMarkPriceLayer
             root.showIndexPriceLayer = chart.hasIndexPrice && !root.userDisabledIndexPriceLayer
             root.showFundingLayer = chart.hasFunding && !root.userDisabledFundingLayer
             root.showPriceLimitLayer = chart.hasPriceLimit && !root.userDisabledPriceLimitLayer
             root.showBookTickerLayer = false
-            if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer
+            if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showCandles2Layer && !root.showOrderbookLayer && !root.showBookTickerLayer
                     && !root.showMarkPriceLayer && !root.showIndexPriceLayer && !root.showFundingLayer && !root.showPriceLimitLayer)
                 root.showTradesLayer = !root.userDisabledTradesLayer
             return
         }
 
-        if (root.showTradesLayer || root.showLiquidationsLayer || root.showCandlesLayer) {
+        if (root.showTradesLayer || root.showLiquidationsLayer || root.showCandlesLayer || root.showCandles2Layer) {
             root.showTradesLayer = false
             root.showLiquidationsLayer = false
+            root.showCandlesLayer = false
+            root.showCandles2Layer = false
             if (chart.hasOrderbook && !root.userDisabledOrderbookLayer)
                 root.showOrderbookLayer = true
             else if (chart.hasBookTicker && !root.userDisabledBookTickerLayer)
@@ -329,7 +337,7 @@ Pane {
                 root.showPriceLimitLayer = true
         }
 
-        if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showOrderbookLayer && !root.showBookTickerLayer
+        if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showCandles2Layer && !root.showOrderbookLayer && !root.showBookTickerLayer
                 && !root.showMarkPriceLayer && !root.showIndexPriceLayer && !root.showFundingLayer && !root.showPriceLimitLayer) {
             if (chart.hasOrderbook && !root.userDisabledOrderbookLayer)
                 root.showOrderbookLayer = true
@@ -874,7 +882,7 @@ Pane {
                             var row = root.backtestRows[i]
                             var haystack = (row.label + " " + row.path).toLowerCase()
                             if (needle.length === 0 || haystack.indexOf(needle) !== -1)
-                                rows.push({ "index": i, "label": row.label, "path": row.path, "pnlText": row.pnlText || (row.selectable === false ? "sweep" : ""), "selectable": row.selectable !== false })
+                                rows.push({ "index": i, "label": row.label, "path": row.path, "pnlText": row.rightText || row.pnlText || (row.selectable === false ? "sweep" : ""), "selectable": row.selectable !== false })
                         }
                         backtestCombo.filteredRows = rows
                     }
@@ -1059,6 +1067,7 @@ Pane {
             showTradesLayer: root.showTradesLayer
             showLiquidationsLayer: root.showLiquidationsLayer
             showCandlesLayer: root.showCandlesLayer
+            showCandles2Layer: root.showCandles2Layer
             showOrderbookLayer: root.showOrderbookLayer
             showBookTickerLayer: root.showBookTickerLayer
             showMarkPriceLayer: root.showMarkPriceLayer
@@ -1084,6 +1093,12 @@ Pane {
                 var nextVisible = !root.showCandlesLayer
                 root.showCandlesLayer = nextVisible
                 root.userDisabledCandlesLayer = !nextVisible
+            }
+            onToggleCandles2: {
+                root.userHasExplicitLayerSelection = true
+                var nextVisible = !root.showCandles2Layer
+                root.showCandles2Layer = nextVisible
+                root.userDisabledCandles2Layer = !nextVisible
             }
             onToggleLiquidations: {
                 root.userHasExplicitLayerSelection = true
@@ -1293,6 +1308,7 @@ Pane {
                         tradesVisible: root.showTradesLayer
                         liquidationsVisible: root.showLiquidationsLayer
                         candlesVisible: root.showCandlesLayer
+                        candles2Visible: root.showCandles2Layer
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
                         markPriceVisible: root.showMarkPriceLayer
@@ -1315,6 +1331,7 @@ Pane {
                         tradesVisible: root.showTradesLayer
                         liquidationsVisible: root.showLiquidationsLayer
                         candlesVisible: root.showCandlesLayer
+                        candles2Visible: root.showCandles2Layer
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
                         tradeAmountScale: root.appVm.tradeAmountScale

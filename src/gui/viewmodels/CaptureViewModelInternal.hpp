@@ -3,6 +3,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <cstdint>
 #include <vector>
 
 #include "core/capture/CaptureCoordinator.hpp"
@@ -83,11 +84,47 @@ std::vector<capture::CaptureConfig> makeDetailedCandlesConfigs(const QString& ou
                                                                const QString& symbolText,
                                                                const QString& timeframe,
                                                                int limit,
-                                                               QString* errorText);
+                                                               QString* errorText,
+                                                               std::int64_t endNs = 0);
+std::vector<capture::CaptureConfig> makeDetailedCandlesConfigs(const QString& outputDirectory,
+                                                               const QString& envPath,
+                                                               int apiSlot,
+                                                               const QString& leg1VenueKey,
+                                                               const QString& leg1SymbolText,
+                                                               const QString& leg2VenueKey,
+                                                               const QString& leg2SymbolText,
+                                                               const QString& timeframe,
+                                                               int limit,
+                                                               QString* errorText,
+                                                               std::int64_t endNs = 0);
+QVariantList detailedCandlesEndModeChoices();
+std::int64_t parseDetailedCandlesEndUtcText(const QString& text, QString* errorText);
+std::vector<std::int64_t> detailedCandlesEndCandidatesNs(const QString& mode,
+                                                         const QString& manualUtcText,
+                                                         const QString& leg1VenueKey,
+                                                         const QString& leg2VenueKey,
+                                                         std::int64_t nowNs,
+                                                         QString* resolvedText,
+                                                         QString* errorText);
+QVariantList detailedCandlesSymbolSuggestions(const QString& venueKey,
+                                              const QString& query,
+                                              const QString& anchorVenueKey,
+                                              const QString& anchorSymbolText);
 QVariantList detailedCandlesTimeframeChoices(const QString& venueKey);
 QString defaultDetailedCandlesTimeframe(const QString& venueKey);
+QString detailedCandlesLimitHint(const QString& venueKey,
+                                 const QString& timeframe);
+QString detailedCandlesLimitWarning(const QString& venueKey,
+                                    const QString& timeframe,
+                                    int limit);
 QString buildDetailedCandlesPreview(const QString& venueKey,
                                     const QString& symbolText,
+                                    const QString& timeframe,
+                                    int limit);
+QString buildDetailedCandlesPreview(const QString& leg1VenueKey,
+                                    const QString& leg1SymbolText,
+                                    const QString& leg2VenueKey,
+                                    const QString& leg2SymbolText,
                                     const QString& timeframe,
                                     int limit);
 CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, CaptureRefreshMode mode);

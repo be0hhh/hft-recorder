@@ -64,6 +64,7 @@ class SessionReplay {
     Status addFundingFile(const std::filesystem::path& path) noexcept;
     Status addPriceLimitFile(const std::filesystem::path& path) noexcept;
     Status addCandlesFile(const std::filesystem::path& path) noexcept;
+    Status addCandles2File(const std::filesystem::path& path) noexcept;
     Status addDepthFile(const std::filesystem::path& path) noexcept;
     Status addDepthFileAllowPartial(const std::filesystem::path& path) noexcept;
     Status addSnapshotFile(const std::filesystem::path& path) noexcept;
@@ -86,6 +87,7 @@ class SessionReplay {
     const std::vector<FundingRow>& fundings() const noexcept { return fundings_; }
     const std::vector<PriceLimitRow>& priceLimits() const noexcept { return priceLimits_; }
     const std::vector<CandleRow>&     candles()     const noexcept { return candles_;     }
+    const std::vector<CandleRow>&     candles2()    const noexcept { return candles2_;    }
     const std::vector<DepthRow>&      depths()      const noexcept { return depths_;      }
     bool hasSnapshot() const noexcept { return snapshotLoaded_; }
     const SnapshotDocument& snapshot() const noexcept { return snapshot_; }
@@ -100,6 +102,7 @@ class SessionReplay {
     void appendFundingRow(FundingRow row);
     void appendPriceLimitRow(PriceLimitRow row);
     void appendCandleRow(CandleRow row);
+    void appendCandle2Row(CandleRow row);
     void appendDepthRow(DepthRow row);
     void appendSnapshotDocument(SnapshotDocument snapshot);
     void refreshLiveTimeline() noexcept;
@@ -156,6 +159,7 @@ class SessionReplay {
     std::vector<FundingRow>     fundings_{};
     std::vector<PriceLimitRow>  priceLimits_{};
     std::vector<CandleRow>     candles_{};
+    std::vector<CandleRow>     candles2_{};
     std::vector<DepthRow>      depths_{};
     std::vector<Event>         events_{};   // transitional flat timeline
     std::vector<ReplayBucket>  buckets_{};  // canonical bucketed replay timeline

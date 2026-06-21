@@ -24,6 +24,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     Q_PROPERTY(bool tradesVisible READ tradesVisible WRITE setTradesVisible NOTIFY tradesVisibleChanged)
     Q_PROPERTY(bool liquidationsVisible READ liquidationsVisible WRITE setLiquidationsVisible NOTIFY liquidationsVisibleChanged)
     Q_PROPERTY(bool candlesVisible READ candlesVisible WRITE setCandlesVisible NOTIFY candlesVisibleChanged)
+    Q_PROPERTY(bool candles2Visible READ candles2Visible WRITE setCandles2Visible NOTIFY candles2VisibleChanged)
     Q_PROPERTY(bool orderbookVisible READ orderbookVisible WRITE setOrderbookVisible NOTIFY orderbookVisibleChanged)
     Q_PROPERTY(bool bookTickerVisible READ bookTickerVisible WRITE setBookTickerVisible NOTIFY bookTickerVisibleChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
@@ -46,6 +47,8 @@ class GpuChartItem : public QQuickFramebufferObject {
     void setLiquidationsVisible(bool value);
     bool candlesVisible() const noexcept { return candlesVisible_; }
     void setCandlesVisible(bool value);
+    bool candles2Visible() const noexcept { return candles2Visible_; }
+    void setCandles2Visible(bool value);
     bool orderbookVisible() const noexcept { return orderbookVisible_; }
     void setOrderbookVisible(bool value);
     bool bookTickerVisible() const noexcept { return bookTickerVisible_; }
@@ -75,6 +78,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     void tradesVisibleChanged();
     void liquidationsVisibleChanged();
     void candlesVisibleChanged();
+    void candles2VisibleChanged();
     void orderbookVisibleChanged();
     void bookTickerVisibleChanged();
     void tradeAmountScaleChanged();
@@ -116,6 +120,7 @@ class GpuChartItem : public QQuickFramebufferObject {
     bool tradesVisible_{true};
     bool liquidationsVisible_{true};
     bool candlesVisible_{false};
+    bool candles2Visible_{false};
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};
     qreal tradeAmountScale_{0.45};

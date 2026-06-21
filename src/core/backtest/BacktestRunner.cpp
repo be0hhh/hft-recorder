@@ -162,7 +162,7 @@ BacktestRunResult BacktestRunner::run(const BacktestRunRequest& request,
     result.liquidations = replay.liquidations().size();
     result.bookTickers = replay.bookTickers().size();
     result.depths = replay.depths().size();
-    result.candles = replay.candles().size();
+    result.candles = replay.candles().size() + replay.candles2().size();
     result.events = replay.events().size();
     result.buckets = replay.buckets().size();
     result.firstTsNs = replay.firstTsNs();

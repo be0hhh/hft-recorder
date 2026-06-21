@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "core/arbitrage/PriceBasis.hpp"
 #include "core/arbitrage/SpreadDirection.hpp"
 #include "core/replay/EventRows.hpp"
 
@@ -12,6 +13,7 @@ namespace hftrec::arbitrage {
 struct CandleSpreadSource {
     std::vector<hftrec::replay::CandleRow> rows{};
     std::string marketHint{};
+    std::int64_t priceBasisQtyE8{kPriceBasisScaleE8};
 };
 
 struct CandleSpreadPoint {

@@ -83,6 +83,12 @@ qt_add_qml_module(hft-recorder-gui
         qml/views/ResultsView.qml
 )
 
+qt_add_resources(hft-recorder-gui hft_recorder_data
+    PREFIX "/HftRecorder"
+    FILES
+        data/finam_assets.json
+)
+
 target_link_libraries(hft-recorder-gui
     PRIVATE
         Qt6::Core
@@ -101,6 +107,7 @@ target_link_libraries(hft-recorder-gui
 target_compile_features(hft-recorder-gui PRIVATE cxx_std_23)
 target_compile_definitions(hft-recorder-gui
     PRIVATE
+        HFTRREC_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
         HFT_COMPRESSOR_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-compressor"
         HFT_BACKTEST_TRADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-trader"
 )

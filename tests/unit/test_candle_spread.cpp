@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "core/arbitrage/CandleSpread.hpp"
+#include "core/arbitrage/PriceBasis.hpp"
 
 namespace {
 
@@ -75,6 +76,31 @@ TEST(CandleSpread, EqualClosesHaveNoDirection) {
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points.front().direction, hftrec::arbitrage::SpreadDirection::None);
     EXPECT_DOUBLE_EQ(points.front().spreadBps, 0.0);
+}
+
+TEST(PriceBasis, NormalizesNativeFuturesPriceByBasisQty) {
+    EXPECT_EQ(hftrec::arbitrage::normalizeNativePriceE8(3'228'500'000'000LL, 10'000'000'000LL),
+              32'285'000'000LL);
+    EXPECT_EQ(hftrec::arbitrage::normalizeNativePriceE8(32'222'000'000LL, 100'000'000LL),
+              32'222'000'000LL);
+    EXPECT_EQ(hftrec::arbitrage::normalizeNativePriceE8(32'222'000'000LL, 0),
+              32'222'000'000LL);
+}
+
+TEST(CandleSpread, UsesPriceBasisForNativeFuturesComparison) {
+    const hftrec::arbitrage::CandleSpreadSource spot{
+        .rows = {candle(100, 32'222'000'000LL)},
+    };
+    const hftrec::arbitrage::CandleSpreadSource futures{
+        .rows = {candle(100, 3'228'500'000'000LL)},
+        .priceBasisQtyE8 = 10'000'000'000LL,
+    };
+
+    const auto points = hftrec::arbitrage::buildBestSideCandleSpread(spot, futures);
+    ASSERT_EQ(points.size(), 1u);
+    EXPECT_EQ(points.front().aCloseE8, 32'222'000'000LL);
+    EXPECT_EQ(points.front().bCloseE8, 32'285'000'000LL);
+    EXPECT_NEAR(points.front().spreadBps, 19.552, 0.01);
 }
 
 }  // namespace

@@ -9,6 +9,9 @@ namespace {
 
 using hftrec::gui::detail::makeConfigs;
 using hftrec::gui::detail::makeDetailedCandlesConfigs;
+using hftrec::gui::detail::detailedCandlesEndCandidatesNs;
+using hftrec::gui::detail::detailedCandlesSymbolSuggestions;
+using hftrec::gui::detail::parseDetailedCandlesEndUtcText;
 using hftrec::gui::detail::detailedCandlesVenueChoices;
 using hftrec::gui::detail::detailedCandlesTimeframeChoices;
 using hftrec::gui::detail::venueChoices;
@@ -88,6 +91,140 @@ TEST(CaptureViewModelRequests, DetailedCandlesBuildsSingleFinamConfigFromForm) {
     ASSERT_EQ(configs.front().symbols.size(), 1u);
     EXPECT_EQ(configs.front().symbols.front(), "SBER@MISX");
     EXPECT_EQ(configs.front().detailedCandlesTimeframe, "1m");
+}
+
+TEST(CaptureViewModelRequests, DetailedCandlesBuildsTwoConfigsFromDualLegForm) {
+    QString error;
+    const auto configs = makeDetailedCandlesConfigs(QStringLiteral("/tmp/hftrec-finam-pair"),
+                                                    QStringLiteral("/tmp/.env"),
+                                                    1,
+                                                    QStringLiteral("finam_spot"),
+                                                    QStringLiteral("SBER@MISX"),
+                                                    QStringLiteral("finam_futures"),
+                                                    QStringLiteral("SRU6@RTSX"),
+                                                    QStringLiteral("1m"),
+                                                    10080,
+                                                    &error);
+    ASSERT_EQ(configs.size(), 2u);
+    EXPECT_TRUE(error.isEmpty());
+    EXPECT_EQ(configs[0].exchange, "finam");
+    EXPECT_EQ(configs[0].market, "spot");
+    ASSERT_EQ(configs[0].symbols.size(), 1u);
+    EXPECT_EQ(configs[0].symbols.front(), "SBER@MISX");
+    EXPECT_EQ(configs[1].exchange, "finam");
+    EXPECT_EQ(configs[1].market, "futures");
+    ASSERT_EQ(configs[1].symbols.size(), 1u);
+    EXPECT_EQ(configs[1].symbols.front(), "SRU6@RTSX");
+    EXPECT_EQ(configs[1].detailedCandlesTimeframe, "1m");
+    EXPECT_EQ(configs[1].detailedCandlesLimit, 10080u);
+}
+
+TEST(CaptureViewModelRequests, DetailedCandlesPropagatesManualEndNsToBothLegs) {
+    QString error;
+    const auto configs = makeDetailedCandlesConfigs(QStringLiteral("/tmp/hftrec-finam-pair"),
+                                                    QStringLiteral("/tmp/.env"),
+                                                    1,
+                                                    QStringLiteral("finam_spot"),
+                                                    QStringLiteral("SBER@MISX"),
+                                                    QStringLiteral("finam_futures"),
+                                                    QStringLiteral("SRU6@RTSX"),
+                                                    QStringLiteral("1m"),
+                                                    1000,
+                                                    &error,
+                                                    1781901900000000000ll);
+    ASSERT_EQ(configs.size(), 2u);
+    EXPECT_TRUE(error.isEmpty());
+    EXPECT_EQ(configs[0].detailedCandlesEndNs, 1781901900000000000ll);
+    EXPECT_EQ(configs[1].detailedCandlesEndNs, 1781901900000000000ll);
+}
+
+TEST(CaptureViewModelRequests, DetailedCandlesParsesManualUtcEndTime) {
+    QString error;
+    EXPECT_EQ(parseDetailedCandlesEndUtcText(QStringLiteral("2026-06-19 20:45:00Z"), &error),
+              1781901900000000000ll);
+    EXPECT_TRUE(error.isEmpty());
+}
+
+TEST(CaptureViewModelRequests, DetailedCandlesSmartFinamSkipsWeekend) {
+    QString resolved;
+    QString error;
+    const auto candidates = detailedCandlesEndCandidatesNs(QStringLiteral("smart"),
+                                                          QString{},
+                                                          QStringLiteral("finam_spot"),
+                                                          QStringLiteral("finam_futures"),
+                                                          1782057600000000000ll,
+                                                          &resolved,
+                                                          &error);
+    ASSERT_FALSE(candidates.empty());
+    EXPECT_TRUE(error.isEmpty());
+    EXPECT_EQ(candidates.front(), 1781901900000000000ll);
+    EXPECT_TRUE(resolved.contains(QStringLiteral("2026-06-19 20:45:00Z")));
+}
+
+TEST(CaptureViewModelRequests, DetailedCandlesBuildsSingleConfigWhenSecondLegEmpty) {
+    QString error;
+    const auto configs = makeDetailedCandlesConfigs(QStringLiteral("/tmp/hftrec-single-leg"),
+                                                    QStringLiteral("/tmp/.env"),
+                                                    1,
+                                                    QStringLiteral("finam_spot"),
+                                                    QStringLiteral("SBER@MISX"),
+                                                    QStringLiteral("finam_futures"),
+                                                    QString{},
+                                                    QStringLiteral("1m"),
+                                                    5000,
+                                                    &error);
+    ASSERT_EQ(configs.size(), 1u);
+    EXPECT_TRUE(error.isEmpty());
+    EXPECT_EQ(configs.front().market, "spot");
+    EXPECT_EQ(configs.front().symbols.front(), "SBER@MISX");
+}
+
+TEST(CaptureViewModelRequests, DetailedCandlesRejectsSecondLegWithoutFirst) {
+    QString error;
+    const auto configs = makeDetailedCandlesConfigs(QStringLiteral("/tmp/hftrec-second-only"),
+                                                    QStringLiteral("/tmp/.env"),
+                                                    1,
+                                                    QStringLiteral("finam_spot"),
+                                                    QString{},
+                                                    QStringLiteral("finam_futures"),
+                                                    QStringLiteral("SRU6@RTSX"),
+                                                    QStringLiteral("1m"),
+                                                    5000,
+                                                    &error);
+    EXPECT_TRUE(configs.empty());
+    EXPECT_EQ(error, QStringLiteral("Enter first detailed candles symbol"));
+}
+
+TEST(CaptureViewModelRequests, FinamSymbolSuggestionsRankPairedFuturesFirst) {
+    const auto suggestions = detailedCandlesSymbolSuggestions(QStringLiteral("finam_futures"),
+                                                              QString{},
+                                                              QStringLiteral("finam_spot"),
+                                                              QStringLiteral("SBER@MISX"));
+    ASSERT_FALSE(suggestions.isEmpty());
+    const auto first = suggestions.front().toMap();
+    EXPECT_TRUE(first.value(QStringLiteral("symbol")).toString().startsWith(QStringLiteral("SR")));
+    EXPECT_TRUE(first.value(QStringLiteral("detail")).toString().contains(QStringLiteral("underlying SBRF")));
+}
+
+TEST(CaptureViewModelRequests, FinamSymbolSuggestionsUseSymbolBoundariesForQuery) {
+    const auto suggestions = detailedCandlesSymbolSuggestions(QStringLiteral("finam_futures"),
+                                                              QStringLiteral("H"),
+                                                              QStringLiteral("finam_spot"),
+                                                              QStringLiteral("SBER@MISX"));
+    ASSERT_FALSE(suggestions.isEmpty());
+    const auto first = suggestions.front().toMap();
+    EXPECT_TRUE(first.value(QStringLiteral("symbol")).toString().startsWith(QStringLiteral("SRH")));
+    EXPECT_TRUE(first.value(QStringLiteral("detail")).toString().contains(QStringLiteral("underlying SBRF")));
+}
+
+TEST(CaptureViewModelRequests, CryptoSymbolSuggestionUsesNativeVenueFormat) {
+    const auto suggestions = detailedCandlesSymbolSuggestions(QStringLiteral("okx_spot"),
+                                                              QString{},
+                                                              QStringLiteral("binance_futures"),
+                                                              QStringLiteral("ETHUSDT"));
+    ASSERT_EQ(suggestions.size(), 1);
+    const auto first = suggestions.front().toMap();
+    EXPECT_EQ(first.value(QStringLiteral("symbol")).toString(), QStringLiteral("ETH-USDT"));
 }
 
 TEST(CaptureViewModelRequests, DetailedCandlesRejectsMultipleSymbols) {

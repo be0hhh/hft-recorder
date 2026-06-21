@@ -11,6 +11,7 @@ Rectangle {
     required property bool showTradesLayer
     required property bool showLiquidationsLayer
     required property bool showCandlesLayer
+    required property bool showCandles2Layer
     required property bool showOrderbookLayer
     required property bool showBookTickerLayer
     required property bool showMarkPriceLayer
@@ -29,6 +30,7 @@ Rectangle {
     signal toggleTrades()
     signal toggleLiquidations()
     signal toggleCandles()
+    signal toggleCandles2()
     signal toggleOrderbook()
     signal toggleBookTicker()
     signal toggleMarkPrice()
@@ -117,7 +119,7 @@ Rectangle {
         }
 
         ViewerChannelButton {
-            text: "Candles"
+            text: "C"
             active: bar.showCandlesLayer
             compact: bar.compact
             panelColor: bar.panelColor
@@ -127,6 +129,19 @@ Rectangle {
             mutedTextColor: bar.mutedTextColor
             accentBuyColor: bar.accentBuyColor
             onClicked: bar.toggleCandles()
+        }
+
+        ViewerChannelButton {
+            text: "C2"
+            active: bar.showCandles2Layer
+            compact: bar.compact
+            panelColor: bar.panelColor
+            panelAltColor: bar.panelAltColor
+            borderColor: bar.borderColor
+            textColor: bar.textColor
+            mutedTextColor: bar.mutedTextColor
+            accentBuyColor: bar.accentBuyColor
+            onClicked: bar.toggleCandles2()
         }
         ViewerChannelButton {
             text: bar.compact ? "Book" : "Orderbook"

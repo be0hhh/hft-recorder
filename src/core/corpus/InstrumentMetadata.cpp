@@ -143,6 +143,8 @@ std::string renderInstrumentMetadataJson(const InstrumentMetadata& metadata) {
     out << "  \"lot_size_source\": " << json::quote(metadata.lotSizeSource) << ",\n";
     appendOptionalI64(out, "contract_base_qty_e8", metadata.contractBaseQtyE8);
     out << "  \"contract_base_qty_source\": " << json::quote(metadata.contractBaseQtySource) << ",\n";
+    appendOptionalI64(out, "price_basis_qty_e8", metadata.priceBasisQtyE8);
+    out << "  \"price_basis_qty_source\": " << json::quote(metadata.priceBasisQtySource) << ",\n";
     appendOptionalString(out, "instrument_status", metadata.instrumentStatus);
     out << "  \"instrument_status_source\": " << json::quote(metadata.instrumentStatusSource) << ",\n";
     out << "  \"metadata_source\": " << json::quote(metadata.metadataSource) << ",\n";
@@ -209,6 +211,10 @@ Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata
                 if (!parseOptionalI64(parser, parsed.contractBaseQtyE8)) return Status::CorruptData;
             } else if (key == "contract_base_qty_source") {
                 if (!parser.parseString(parsed.contractBaseQtySource)) return Status::CorruptData;
+            } else if (key == "price_basis_qty_e8") {
+                if (!parseOptionalI64(parser, parsed.priceBasisQtyE8)) return Status::CorruptData;
+            } else if (key == "price_basis_qty_source") {
+                if (!parser.parseString(parsed.priceBasisQtySource)) return Status::CorruptData;
             } else if (key == "instrument_status") {
                 if (!parseOptionalString(parser, parsed.instrumentStatus)) return Status::CorruptData;
             } else if (key == "instrument_status_source") {

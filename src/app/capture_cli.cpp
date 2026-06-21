@@ -20,7 +20,7 @@ constexpr long kDetailedCandlesMaxLimit = 1'000'000;
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] <trades|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles|candles2> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
+    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] [--end-ns ns] [--history-sec n] [--history-page-limit n] [--history-max-rows n] <trades|trades_history|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles|candles2> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
     std::puts("  hft-recorder capture [--env path] [--api-slot n] bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
@@ -39,6 +39,7 @@ void printUsage() {
     std::puts("  hft-recorder capture funding 30 ./recordings gate BTC_USDT futures");
     std::puts("  hft-recorder capture price_limit 30 ./recordings bitget BTCUSDT futures");
     std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT futures 300");
+    std::puts("  hft-recorder capture --history-sec 3600 trades_history 1 ./recordings mexc BTCUSDT spot");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 ./recordings binance ETHUSDT futures 300");
     std::puts("  hft-recorder capture candles 1 ./recordings binance BSBUSDT");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 100000 candles2 1 ./recordings finam SBER@MISX spot");
@@ -93,6 +94,11 @@ bool isDetailedCandlesChannel(std::string_view channel) noexcept {
            channel == "detailed-candles" || channel == "klines2";
 }
 
+bool isTradesHistoryChannel(std::string_view channel) noexcept {
+    return channel == "trades_history" || channel == "trade_history" ||
+           channel == "historical_trades" || channel == "history_trades";
+}
+
 Status startChannel(capture::CaptureCoordinator& coordinator,
                     const std::string& channel,
                     const capture::CaptureConfig& config) {
@@ -111,6 +117,9 @@ Status startChannel(capture::CaptureCoordinator& coordinator,
     }
     if (isDetailedCandlesChannel(channel)) {
         return coordinator.captureDetailedCandlesOnce(config);
+    }
+    if (isTradesHistoryChannel(channel)) {
+        return coordinator.captureTradesHistoryOnce(config);
     }
     return Status::InvalidArgument;
 }
@@ -195,6 +204,80 @@ bool stripCaptureOptions(capture::CaptureConfig& config,
                 return false;
             }
             config.detailedCandlesLimit = static_cast<std::uint32_t>(limit);
+            continue;
+        }
+        if (arg == "--end-ns") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --end-ns requires a value\n", stderr);
+                return false;
+            }
+            const long long endNs = std::strtoll(argv[++i], nullptr, 10);
+            if (endNs < 0) {
+                std::fputs("capture: --end-ns must be >= 0\n", stderr);
+                return false;
+            }
+            config.detailedCandlesEndNs = endNs;
+            config.tradesHistoryEndNs = endNs;
+            continue;
+        }
+        if (arg == "--candles-end-ns") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --candles-end-ns requires a value\n", stderr);
+                return false;
+            }
+            const long long endNs = std::strtoll(argv[++i], nullptr, 10);
+            if (endNs < 0) {
+                std::fputs("capture: --candles-end-ns must be >= 0\n", stderr);
+                return false;
+            }
+            config.detailedCandlesEndNs = endNs;
+            continue;
+        }
+        if (arg == "--history-end-ns") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --history-end-ns requires a value\n", stderr);
+                return false;
+            }
+            const long long endNs = std::strtoll(argv[++i], nullptr, 10);
+            if (endNs < 0) {
+                std::fputs("capture: --history-end-ns must be >= 0\n", stderr);
+                return false;
+            }
+            config.tradesHistoryEndNs = endNs;
+            continue;
+        }
+        if (arg == "--history-sec") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --history-sec requires a value\n", stderr);
+                return false;
+            }
+            applyTradesWarmupArg(config, argv[++i]);
+            continue;
+        }
+        if (arg == "--history-page-limit") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --history-page-limit requires a value\n", stderr);
+                return false;
+            }
+            const long limit = std::strtol(argv[++i], nullptr, 10);
+            if (limit < 1 || limit > 1000000) {
+                std::fputs("capture: --history-page-limit must be in [1,1000000]\n", stderr);
+                return false;
+            }
+            config.tradesHistoryPageLimit = static_cast<std::uint32_t>(limit);
+            continue;
+        }
+        if (arg == "--history-max-rows") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --history-max-rows requires a value\n", stderr);
+                return false;
+            }
+            const long limit = std::strtol(argv[++i], nullptr, 10);
+            if (limit < 0 || limit > 1000000) {
+                std::fputs("capture: --history-max-rows must be in [0,1000000]\n", stderr);
+                return false;
+            }
+            config.tradesHistoryMaxRows = static_cast<std::uint32_t>(limit);
             continue;
         }
         positional.push_back(argv[i]);
@@ -329,6 +412,21 @@ int runCapture(int argc, char** argv) {
                     config.detailedCandlesTimeframe.c_str(),
                     static_cast<unsigned>(config.detailedCandlesLimit),
                     static_cast<unsigned long long>(coordinator.candles2Count()),
+                    coordinator.sessionDirCopy().string().c_str());
+        return 0;
+    }
+
+    if (isTradesHistoryChannel(channel)) {
+        std::printf("capture finished: channel=%s exchange=%s market=%s symbol=%s dir=%s env=%s api_slot=%u history_sec=%lld history_rows=%llu session=%s\n",
+                    channel.c_str(),
+                    config.exchange.c_str(),
+                    config.market.c_str(),
+                    config.symbols.empty() ? "" : config.symbols.front().c_str(),
+                    config.outputDir.string().c_str(),
+                    config.envPath.string().c_str(),
+                    static_cast<unsigned>(config.apiSlot == 0u ? 1u : config.apiSlot),
+                    static_cast<long long>(config.tradesHistoryWarmupSec),
+                    static_cast<unsigned long long>(coordinator.manifestCopy().tradesHistoryRows),
                     coordinator.sessionDirCopy().string().c_str());
         return 0;
     }

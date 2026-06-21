@@ -660,6 +660,16 @@ QString iniValue(const QString& text, const QString& sectionName, const QString&
     return {};
 }
 
+bool boolIniValue(const QString& value, bool fallback = false) {
+    const QString normalized = value.trimmed().toLower();
+    if (normalized.isEmpty()) return fallback;
+    if (normalized == QStringLiteral("1") || normalized == QStringLiteral("true") ||
+        normalized == QStringLiteral("yes") || normalized == QStringLiteral("on")) return true;
+    if (normalized == QStringLiteral("0") || normalized == QStringLiteral("false") ||
+        normalized == QStringLiteral("no") || normalized == QStringLiteral("off")) return false;
+    return fallback;
+}
+
 std::vector<IniKeyValue> iniSectionValues(const QString& text, const QString& sectionName) {
     std::vector<IniKeyValue> out;
     QString section;
@@ -837,30 +847,27 @@ QString normalizedParamMode(QString mode) {
     return QStringLiteral("fixed");
 }
 
-bool isSweepKey(const QString& key) {
-    return key == QStringLiteral("distance_bps") || key == QStringLiteral("trigger_bps") ||
-           key == QStringLiteral("trigger_edge_bps") || key == QStringLiteral("close_delay_us");
+QString sweepTemplateValue(const QString& templateText, const QString& key, const QString& field) {
+    return iniValue(templateText, QStringLiteral("sweep"), QStringLiteral("%1.%2").arg(key, field)).trimmed();
 }
 
-QString defaultRangeMin(const QString& key, const QString& value) {
-    if (key == QStringLiteral("distance_bps")) return QStringLiteral("10");
-    if (key == QStringLiteral("trigger_bps") || key == QStringLiteral("trigger_edge_bps")) return QStringLiteral("1");
-    if (key == QStringLiteral("close_delay_us")) return QStringLiteral("0");
-    return value;
+QString defaultParamMode(const QString& templateText, const QString& key) {
+    return normalizedParamMode(sweepTemplateValue(templateText, key, QStringLiteral("mode")));
 }
 
-QString defaultRangeMax(const QString& key, const QString& value) {
-    if (key == QStringLiteral("distance_bps")) return QStringLiteral("1000");
-    if (key == QStringLiteral("trigger_bps") || key == QStringLiteral("trigger_edge_bps")) return QStringLiteral("100");
-    if (key == QStringLiteral("close_delay_us")) return QStringLiteral("10000000");
-    return value;
+QString defaultRangeMin(const QString& templateText, const QString& key, const QString& value) {
+    const QString configured = sweepTemplateValue(templateText, key, QStringLiteral("min"));
+    return configured.isEmpty() ? value : configured;
 }
 
-QString defaultRangeStep(const QString& key) {
-    if (key == QStringLiteral("distance_bps")) return QStringLiteral("10");
-    if (key == QStringLiteral("trigger_bps") || key == QStringLiteral("trigger_edge_bps")) return QStringLiteral("1");
-    if (key == QStringLiteral("close_delay_us")) return QStringLiteral("500000");
-    return QStringLiteral("1");
+QString defaultRangeMax(const QString& templateText, const QString& key, const QString& value) {
+    const QString configured = sweepTemplateValue(templateText, key, QStringLiteral("max"));
+    return configured.isEmpty() ? value : configured;
+}
+
+QString defaultRangeStep(const QString& templateText, const QString& key) {
+    const QString configured = sweepTemplateValue(templateText, key, QStringLiteral("step"));
+    return configured.isEmpty() ? QStringLiteral("1") : configured;
 }
 
 QVariantList sweepParamModeChoices() {
@@ -1142,7 +1149,6 @@ const hft_backtest::StrategyParamMetadata* paramMetadataFor(const QString& strat
 QString filteredBaseConfig(const QString& base) {
     QString out;
     QTextStream stream(&out);
-    QString section;
     bool skipSection = false;
     const QStringList lines = base.split(QLatin1Char('\n'));
     for (QString line : lines) {
@@ -1152,11 +1158,7 @@ QString filteredBaseConfig(const QString& base) {
         if (hash >= 0) probe = probe.left(hash);
         probe = probe.trimmed();
         if (probe.startsWith(QLatin1Char('[')) && probe.endsWith(QLatin1Char(']'))) {
-            section = probe.mid(1, probe.size() - 2).trimmed().toLower();
-            skipSection = section == QStringLiteral("strategy") || section.startsWith(QStringLiteral("venue.")) ||
-                          section.startsWith(QStringLiteral("portfolio."));
-            if (skipSection) continue;
-            stream << line << "\n";
+            skipSection = true;
             continue;
         }
         if (skipSection) continue;
@@ -1885,6 +1887,7 @@ void BacktestViewModel::setSelectedStrategy(const QString& strategy) {
     emit selectedStrategyChanged();
     emit indicatorProfileChanged();
     emit configChanged();
+    emit accountingChanged();
     emit strategyParametersChanged();
     emit canRunChanged();
     emit selectionChanged();
@@ -2074,10 +2077,33 @@ void BacktestViewModel::setInitialBalanceUsdt(const QString& value) {
     emit accountingChanged();
 }
 
+void BacktestViewModel::setRiskEnabled(bool enabled) {
+    if (riskEnabled_ == enabled) return;
+    riskEnabled_ = enabled;
+    savePersistentConfig_();
+    emit accountingChanged();
+}
+
 void BacktestViewModel::setRiskMinEquityPct(const QString& value) {
     const QString next = value.trimmed();
     if (riskMinEquityPct_ == next) return;
     riskMinEquityPct_ = next;
+    savePersistentConfig_();
+    emit accountingChanged();
+}
+
+void BacktestViewModel::setRiskMinLegEquityPct(const QString& value) {
+    const QString next = value.trimmed();
+    if (riskMinLegEquityPct_ == next) return;
+    riskMinLegEquityPct_ = next;
+    savePersistentConfig_();
+    emit accountingChanged();
+}
+
+void BacktestViewModel::setRiskMinLegEquityUsdt(const QString& value) {
+    const QString next = value.trimmed();
+    if (riskMinLegEquityUsdt_ == next) return;
+    riskMinLegEquityUsdt_ = next;
     savePersistentConfig_();
     emit accountingChanged();
 }
@@ -2204,7 +2230,10 @@ void BacktestViewModel::saveProfile() {
     out << "order_latency_us=" << marketOrderLatencyUs_ << "\n";
     out << "cancel_latency_us=" << cancelOrderLatencyUs_ << "\n";
     out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\n";
+    out << "risk_enabled=" << (riskEnabled_ ? "true" : "false") << "\n";
     out << "risk_min_equity_pct=" << riskMinEquityPct_ << "\n";
+    out << "risk_min_leg_equity_pct=" << riskMinLegEquityPct_ << "\n";
+    out << "risk_min_leg_equity_usdt=" << riskMinLegEquityUsdt_ << "\n";
     out << "maker_fee_bps=" << makerFeeBps_ << "\n";
     out << "taker_fee_bps=" << takerFeeBps_ << "\n";
     out << "sweep_budget=" << sweepBudget_ << "\n";
@@ -2264,7 +2293,10 @@ void BacktestViewModel::loadProfile() {
     const QString userDataLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("user_data_latency_us"));
     const QString userDataJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("user_data_jitter_us"));
     const QString initialBalance = iniValue(text, QStringLiteral("backtest"), QStringLiteral("initial_balance_usdt"));
+    const QString riskEnabled = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_enabled"));
     const QString riskMinEquity = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_min_equity_pct"));
+    const QString riskMinLegEquityPct = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_min_leg_equity_pct"));
+    const QString riskMinLegEquityUsdt = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_min_leg_equity_usdt"));
     const QString makerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("maker_fee_bps"));
     const QString takerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("taker_fee_bps"));
     const QString sweepBudget = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_budget"));
@@ -2288,7 +2320,10 @@ void BacktestViewModel::loadProfile() {
     if (!userDataLatency.isEmpty()) userDataLatencyUs_ = userDataLatency;
     if (!userDataJitter.isEmpty()) userDataJitterUs_ = userDataJitter;
     if (!initialBalance.isEmpty()) initialBalanceUsdt_ = initialBalance;
+    if (!riskEnabled.isEmpty()) riskEnabled_ = boolIniValue(riskEnabled, riskEnabled_);
     riskMinEquityPct_ = riskMinEquity;
+    riskMinLegEquityPct_ = riskMinLegEquityPct;
+    riskMinLegEquityUsdt_ = riskMinLegEquityUsdt;
     if (!makerFee.isEmpty()) makerFeeBps_ = makerFee;
     if (!takerFee.isEmpty()) takerFeeBps_ = takerFee;
     if (!sweepBudget.isEmpty()) sweepBudget_ = sweepBudget;
@@ -3389,7 +3424,7 @@ QString BacktestViewModel::configSummary_(const QHash<QString, QString>& overrid
     QString summary = configMode_.trimmed();
     if (!parts.empty()) summary += QStringLiteral(": ") + parts.join(QStringLiteral(", "));
     if (!selectedIndicatorProfile_.isEmpty()) summary += QStringLiteral(" | indicator=%1").arg(selectedIndicatorProfile_);
-    if (!riskMinEquityPct_.trimmed().isEmpty()) summary += QStringLiteral(" | min_equity=%1%").arg(riskMinEquityPct_.trimmed());
+    if (riskEnabled_) summary += QStringLiteral(" | risk=on");
     return summary;
 }
 
@@ -3403,6 +3438,8 @@ void BacktestViewModel::loadStrategyDefaults_() {
     paramOrder_.clear();
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata == nullptr) return;
+    const QString templatePath = configTemplatePathForStrategy(selectedStrategy_);
+    const QString templateText = templatePath.isEmpty() ? QString{} : readTextFile(templatePath);
     for (std::size_t i = 0; i < metadata->paramCount && i < hft_backtest::kStrategyMetadataMaxParams; ++i) {
         const hft_backtest::StrategyParamMetadata& param = metadata->params[i];
         if (param.key == nullptr || param.key[0] == '\0') continue;
@@ -3411,27 +3448,29 @@ void BacktestViewModel::loadStrategyDefaults_() {
         const QString value = qString(param.defaultValue);
         paramOrder_.push_back(key);
         paramValues_.insert(key, value);
-        paramModes_.insert(key, isSweepKey(key) ? QStringLiteral("sweep") : QStringLiteral("fixed"));
-        paramMinValues_.insert(key, defaultRangeMin(key, value));
-        paramMaxValues_.insert(key, defaultRangeMax(key, value));
-        paramStepValues_.insert(key, defaultRangeStep(key));
+        paramModes_.insert(key, defaultParamMode(templateText, key));
+        paramMinValues_.insert(key, defaultRangeMin(templateText, key, value));
+        paramMaxValues_.insert(key, defaultRangeMax(templateText, key, value));
+        paramStepValues_.insert(key, defaultRangeStep(templateText, key));
         if (param.exclusiveGroup != 0u && (param.defaultActive || !activeParamByGroup_.contains(static_cast<int>(param.exclusiveGroup)))) {
             activeParamByGroup_.insert(static_cast<int>(param.exclusiveGroup), key);
         }
     }
-    const QString templatePath = configTemplatePathForStrategy(selectedStrategy_);
-    const QString templateText = templatePath.isEmpty() ? QString{} : readTextFile(templatePath);
     for (const IniKeyValue& row : iniSectionValues(templateText, QStringLiteral("strategy"))) {
         const QString key = row.key.trimmed().toLower();
         if (!isTemplateStrategyParamKey(key) || paramOrder_.contains(key)) continue;
         const QString value = row.value.trimmed();
         paramOrder_.push_back(key);
         paramValues_.insert(key, value);
-        paramModes_.insert(key, isSweepKey(key) ? QStringLiteral("sweep") : QStringLiteral("fixed"));
-        paramMinValues_.insert(key, defaultRangeMin(key, value));
-        paramMaxValues_.insert(key, defaultRangeMax(key, value));
-        paramStepValues_.insert(key, defaultRangeStep(key));
+        paramModes_.insert(key, defaultParamMode(templateText, key));
+        paramMinValues_.insert(key, defaultRangeMin(templateText, key, value));
+        paramMaxValues_.insert(key, defaultRangeMax(templateText, key, value));
+        paramStepValues_.insert(key, defaultRangeStep(templateText, key));
     }
+    riskEnabled_ = boolIniValue(iniValue(templateText, QStringLiteral("risk"), QStringLiteral("enabled")), false);
+    riskMinEquityPct_ = iniValue(templateText, QStringLiteral("risk"), QStringLiteral("min_equity_pct"));
+    riskMinLegEquityPct_ = iniValue(templateText, QStringLiteral("risk"), QStringLiteral("min_leg_equity_pct"));
+    riskMinLegEquityUsdt_ = iniValue(templateText, QStringLiteral("risk"), QStringLiteral("min_leg_equity_usdt"));
 }
 
 void BacktestViewModel::loadPersistentConfig_() {
@@ -3478,7 +3517,8 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (userDataJitterUs_.isEmpty()) userDataJitterUs_ = QStringLiteral("0");
     initialBalanceUsdt_ = settings_.value(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_).toString().trimmed();
     if (initialBalanceUsdt_.isEmpty()) initialBalanceUsdt_ = QStringLiteral("1000");
-    riskMinEquityPct_ = settings_.value(QStringLiteral("backtests/risk_min_equity_pct"), riskMinEquityPct_).toString().trimmed();
+    loadStrategyDefaults_();
+    loadSavedParameterValues_();
     makerFeeBps_ = settings_.value(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_).toString().trimmed();
     if (makerFeeBps_.isEmpty()) makerFeeBps_ = QStringLiteral("0");
     takerFeeBps_ = settings_.value(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_).toString().trimmed();
@@ -3487,8 +3527,6 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (sweepBudget_.isEmpty()) sweepBudget_ = QStringLiteral("64");
     sweepSeed_ = settings_.value(QStringLiteral("backtests/sweep_seed"), sweepSeed_).toString().trimmed();
     if (sweepSeed_.isEmpty()) sweepSeed_ = QStringLiteral("0");
-    loadStrategyDefaults_();
-    loadSavedParameterValues_();
 }
 
 void BacktestViewModel::loadSavedParameterValues_() {
@@ -3533,7 +3571,6 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/user_data_latency_us"), userDataLatencyUs_);
     settings_.setValue(QStringLiteral("backtests/user_data_jitter_us"), userDataJitterUs_);
     settings_.setValue(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_);
-    settings_.setValue(QStringLiteral("backtests/risk_min_equity_pct"), riskMinEquityPct_);
     settings_.setValue(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/sweep_budget"), sweepBudget_);
@@ -3578,6 +3615,7 @@ bool BacktestViewModel::ensureSelectedStrategySupportsSessionCount_() {
     emit selectedStrategyChanged();
     emit indicatorProfileChanged();
     emit configChanged();
+    emit accountingChanged();
     emit strategyParametersChanged();
     return true;
 }
@@ -3610,6 +3648,7 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         if (!venueExecutionByVenue.contains(venue)) {
             const QString venueKey = venueExecutionKey(path);
             QVariantMap row;
+            row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
             row.insert(QStringLiteral("makerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), makerFeeBps_));
             row.insert(QStringLiteral("takerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), takerFeeBps_));
             venueExecutionByVenue.insert(venue, row);
@@ -3637,17 +3676,19 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         const QString value = overrides.value(key, paramValues_.value(key)).trimmed();
         if (!value.isEmpty()) out << key << "=" << value << "\n";
     }
-    if (!riskMinEquityPct_.trimmed().isEmpty()) {
+    if (riskEnabled_) {
         out << "\n[risk]\n";
         out << "enabled=true\n";
-        out << "min_equity_pct=" << riskMinEquityPct_.trimmed() << "\n";
+        if (!riskMinEquityPct_.trimmed().isEmpty()) out << "min_equity_pct=" << riskMinEquityPct_.trimmed() << "\n";
+        if (!riskMinLegEquityPct_.trimmed().isEmpty()) out << "min_leg_equity_pct=" << riskMinLegEquityPct_.trimmed() << "\n";
+        if (!riskMinLegEquityUsdt_.trimmed().isEmpty()) out << "min_leg_equity_usdt=" << riskMinLegEquityUsdt_.trimmed() << "\n";
     }
     for (const QString& venue : venueOrder) {
         out << "\n[venue." << venue << "]\n";
         out << "api_slot=" << venueApiSlots.value(venue, QStringLiteral("1")) << "\n";
         out << "symbols=" << venueSymbols.value(venue).join(QLatin1Char(',')) << "\n";
-        out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\n";
         const QVariantMap execution = venueExecutionByVenue.value(venue);
+        out << "initial_balance_usdt=" << execution.value(QStringLiteral("initialBalanceUsdt"), initialBalanceUsdt_).toString() << "\n";
         out << "maker_fee_bps=" << execution.value(QStringLiteral("makerFeeBps"), makerFeeBps_).toString() << "\n";
         out << "taker_fee_bps=" << execution.value(QStringLiteral("takerFeeBps"), takerFeeBps_).toString() << "\n";
     }

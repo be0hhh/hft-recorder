@@ -37,6 +37,7 @@ class ChartController : public QObject {
     Q_PROPERTY(bool hasTrades READ hasTrades NOTIFY sessionChanged)
     Q_PROPERTY(bool hasLiquidations READ hasLiquidations NOTIFY sessionChanged)
     Q_PROPERTY(bool hasCandles READ hasCandles NOTIFY sessionChanged)
+    Q_PROPERTY(bool hasCandles2 READ hasCandles2 NOTIFY sessionChanged)
     Q_PROPERTY(bool hasBookTicker READ hasBookTicker NOTIFY sessionChanged)
     Q_PROPERTY(bool hasOrderbook READ hasOrderbook NOTIFY sessionChanged)
     Q_PROPERTY(bool hasMarkPrice READ hasMarkPrice NOTIFY sessionChanged)
@@ -46,6 +47,7 @@ class ChartController : public QObject {
     Q_PROPERTY(bool gpuRendererAvailable READ gpuRendererAvailable CONSTANT)
     Q_PROPERTY(int tradeCount READ tradeCount NOTIFY sessionChanged)
     Q_PROPERTY(int candleCount READ candleCount NOTIFY sessionChanged)
+    Q_PROPERTY(int candle2Count READ candle2Count NOTIFY sessionChanged)
     Q_PROPERTY(int depthCount READ depthCount NOTIFY sessionChanged)
     Q_PROPERTY(bool selectionActive READ selectionActive NOTIFY selectionChanged)
     Q_PROPERTY(QString selectionSummaryText READ selectionSummaryText NOTIFY selectionChanged)
@@ -87,6 +89,7 @@ class ChartController : public QObject {
             || !liveOverlayState_.liquidations.empty();
     }
     bool hasCandles() const noexcept { return !replay_.candles().empty(); }
+    bool hasCandles2() const noexcept { return !replay_.candles2().empty(); }
     bool hasBookTicker() const noexcept {
         return !replay_.bookTickers().empty()
             || !liveDataCache_.stableRows.bookTickers.empty()
@@ -128,6 +131,7 @@ class ChartController : public QObject {
 
     int tradeCount() const { return static_cast<int>(replay_.trades().size()); }
     int candleCount() const { return static_cast<int>(replay_.candles().size()); }
+    int candle2Count() const { return static_cast<int>(replay_.candles2().size()); }
     int depthCount() const { return static_cast<int>(replay_.depths().size()); }
     bool selectionActive() const noexcept { return selectionActive_; }
     QString selectionSummaryText() const { return selectionSummaryText_; }
@@ -143,6 +147,7 @@ class ChartController : public QObject {
                                           bool tradesVisible,
                                           bool liquidationsVisible,
                                           bool candlesVisible,
+                                          bool candles2Visible,
                                           bool orderbookVisible,
                                           bool bookTickerVisible,
                                           bool markPriceVisible,

@@ -144,6 +144,13 @@ bool regularFileExists(const std::filesystem::path& path) noexcept {
     return std::filesystem::is_regular_file(path, ec) && !ec;
 }
 
+void sortCandles(std::vector<CandleRow>& rows) {
+    std::stable_sort(rows.begin(), rows.end(), [](const CandleRow& lhs, const CandleRow& rhs) noexcept {
+        if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
+        return lhs.tier < rhs.tier;
+    });
+}
+
 template <typename RowT, typename Parser>
 Status loadJsonl(const std::filesystem::path& path,
                  std::vector<RowT>& out,
@@ -240,6 +247,7 @@ void SessionReplay::reset() noexcept {
     fundings_.clear();
     priceLimits_.clear();
     candles_.clear();
+    candles2_.clear();
     depths_.clear();
     events_.clear();
     buckets_.clear();
@@ -466,10 +474,28 @@ Status SessionReplay::addCandlesFile(const std::filesystem::path& path) noexcept
         status_ = st;
         return st;
     }
-    std::stable_sort(candles_.begin(), candles_.end(), [](const CandleRow& lhs, const CandleRow& rhs) noexcept {
-        if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
-        return lhs.tier < rhs.tier;
-    });
+    sortCandles(candles_);
+    rebuildBuckets_();
+    return Status::Ok;
+}
+
+Status SessionReplay::addCandles2File(const std::filesystem::path& path) noexcept {
+    if (path.empty()) {
+        errorDetail_ = "candles2 path is empty";
+        ++parseFailureCount_;
+        metrics::recordReplayParseFailure("candles2");
+        return Status::InvalidArgument;
+    }
+
+    std::size_t lineNumber = 0;
+    const auto st = loadJsonl<CandleRow>(path, candles2_, errorDetail_, parseCandleLine, lineNumber);
+    if (!isOk(st)) {
+        ++parseFailureCount_;
+        metrics::recordReplayParseFailure("candles2");
+        status_ = st;
+        return st;
+    }
+    sortCandles(candles2_);
     rebuildBuckets_();
     return Status::Ok;
 }
@@ -811,7 +837,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         return lhs.tsNs < rhs.tsNs;
     });
 
-    candles_.reserve(corpus.candleLines.size() + corpus.candle2Lines.size());
+    candles_.reserve(corpus.candleLines.size());
     for (const auto& line : corpus.candleLines) {
         if (line.empty()) continue;
         CandleRow row{};
@@ -827,6 +853,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         }
         candles_.push_back(std::move(row));
     }
+    candles2_.reserve(corpus.candle2Lines.size());
     for (const auto& line : corpus.candle2Lines) {
         if (line.empty()) continue;
         CandleRow row{};
@@ -840,12 +867,10 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
             maybeWriteIntegrityReport_();
             return status_;
         }
-        candles_.push_back(std::move(row));
+        candles2_.push_back(std::move(row));
     }
-    std::stable_sort(candles_.begin(), candles_.end(), [](const CandleRow& lhs, const CandleRow& rhs) noexcept {
-        if (lhs.tsNs != rhs.tsNs) return lhs.tsNs < rhs.tsNs;
-        return lhs.tier < rhs.tier;
-    });
+    sortCandles(candles_);
+    sortCandles(candles2_);
 
     depths_.reserve(corpus.depthLines.size());
     for (const auto& line : corpus.depthLines) {

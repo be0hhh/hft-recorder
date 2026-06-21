@@ -333,7 +333,8 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     const double spreadPad = std::max(0.25, (ranges.spreadMax - ranges.spreadMin) * 0.10);
     ranges.spreadMin -= spreadPad;
     ranges.spreadMax += spreadPad;
-    if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator) {
+    if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator
+        && lowerPaneKind != CompareLowerPaneKind::CandleSpread) {
         ranges.spreadMin = std::min(ranges.spreadMin, 0.0);
         ranges.spreadMax = std::max(ranges.spreadMax, 1.0);
     }
@@ -405,8 +406,8 @@ QColor sourceColor(std::uint32_t legIndex) noexcept {
     return legIndex == 1u ? QColor{255, 92, 112} : QColor{88, 200, 255};
 }
 
-QColor oppositeSourceColor(std::uint32_t legIndex) noexcept {
-    return legIndex == 1u ? sourceColor(0u) : sourceColor(1u);
+std::uint32_t oppositeLegIndex(std::uint32_t legIndex) noexcept {
+    return legIndex == 1u ? 0u : 1u;
 }
 
 QColor marketBidColor(std::uint32_t legIndex) noexcept {
@@ -415,6 +416,11 @@ QColor marketBidColor(std::uint32_t legIndex) noexcept {
 
 QColor marketAskColor(std::uint32_t legIndex) noexcept {
     return legIndex == 1u ? QColor{255, 92, 112} : QColor{88, 200, 255};
+}
+
+QColor oppositeMarkerColor(std::uint32_t legIndex, bool buy) noexcept {
+    const std::uint32_t markerLeg = oppositeLegIndex(legIndex);
+    return buy ? marketBidColor(markerLeg) : marketAskColor(markerLeg);
 }
 
 QColor orderColor(std::uint32_t legIndex, bool buy) noexcept {
@@ -673,7 +679,7 @@ void drawStrategyOverlay(QPainter& painter,
         const qreal x = xFor(marker.tsNs, ranges, rect);
         const qreal y = priceYFor(marker.priceE8, ranges, rect);
         const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
-        drawSideTriangle(painter, x, y, r, marker.sideBuy, oppositeSourceColor(marker.legIndex));
+        drawSideTriangle(painter, x, y, r, marker.sideBuy, oppositeMarkerColor(marker.legIndex, marker.sideBuy));
     }
 }
 
@@ -771,7 +777,7 @@ void drawStrategySpreadFillMarkers(QPainter& painter,
         const qreal y = spreadYFor(spreadBps, ranges, rect);
         if (x < rect.left() - 12.0 || x > rect.right() + 12.0 || y < rect.top() - 12.0 || y > rect.bottom() + 12.0) continue;
         const qreal r = marker.legIndex == 1u ? 5.0 : 4.0;
-        drawSideTriangle(painter, x, y, r, marker.sideBuy, oppositeSourceColor(marker.legIndex));
+        drawSideTriangle(painter, x, y, r, marker.sideBuy, oppositeMarkerColor(marker.legIndex, marker.sideBuy));
     }
     painter.setRenderHint(QPainter::Antialiasing, false);
 }

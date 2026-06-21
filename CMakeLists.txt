@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(hft-recorder LANGUAGES CXX VERSION 0.1.0)
 
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "hft-recorder is Clang-only. Configure with -DCMAKE_CXX_COMPILER=clang++.")
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

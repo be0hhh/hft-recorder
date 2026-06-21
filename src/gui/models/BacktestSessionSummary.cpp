@@ -29,6 +29,43 @@ QString resultLegSessionId(const QJsonObject& manifest, int legIndex) {
     return {};
 }
 
+QString resultArtifactPath(const QString& manifestPath, const QJsonObject& manifest, const QString& key, const QString& fallback) {
+    QString path = manifest.value(key).toObject().value(QStringLiteral("path")).toString(fallback);
+    if (path.trimmed().isEmpty()) return {};
+    const QFileInfo info(path);
+    if (info.isRelative()) path = QFileInfo(manifestPath).dir().absoluteFilePath(path);
+    return path;
+}
+
+QJsonObject readFirstJsonlObject(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    while (!file.atEnd()) {
+        const QByteArray line = file.readLine().trimmed();
+        if (line.isEmpty()) continue;
+        const QJsonDocument doc = QJsonDocument::fromJson(line);
+        return doc.isObject() ? doc.object() : QJsonObject{};
+    }
+    return {};
+}
+
+QString sweepRowLegSessionId(const QString& manifestPath, const QJsonObject& manifest, int legIndex) {
+    const QStringList keys = {QStringLiteral("rows"), QStringLiteral("curves")};
+    const QStringList fallbacks = {QStringLiteral("sweep_results.jsonl"), QStringLiteral("sweep_curves.jsonl")};
+    for (int i = 0; i < keys.size(); ++i) {
+        const QJsonObject row = readFirstJsonlObject(resultArtifactPath(manifestPath, manifest, keys.at(i), fallbacks.at(i)));
+        const QString id = resultLegSessionId(row, legIndex);
+        if (!id.isEmpty()) return id;
+    }
+    return {};
+}
+
+QString resultLegSessionId(const QString& manifestPath, const QJsonObject& manifest, int legIndex) {
+    QString id = resultLegSessionId(manifest, legIndex);
+    if (!id.isEmpty() || manifest.value(QStringLiteral("type")).toString() != QStringLiteral("sweep.result.v1")) return id;
+    return sweepRowLegSessionId(manifestPath, manifest, legIndex);
+}
+
 QJsonObject readManifestObject(const QString& manifestPath) {
     QFile file(manifestPath);
     if (!file.open(QIODevice::ReadOnly)) return {};
@@ -49,8 +86,8 @@ void scanResultDir(const QDir& dir, const QString& targetSessionId, BacktestLegC
         const QString manifestPath = QDir(resultDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json"));
         const QJsonObject manifest = readManifestObject(manifestPath);
         if (!isBacktestResultManifest(manifest)) continue;
-        if (resultLegSessionId(manifest, 0) == targetSessionId) ++counts.firstLeg;
-        if (resultLegSessionId(manifest, 1) == targetSessionId) ++counts.secondLeg;
+        if (resultLegSessionId(manifestPath, manifest, 0) == targetSessionId) ++counts.firstLeg;
+        if (resultLegSessionId(manifestPath, manifest, 1) == targetSessionId) ++counts.secondLeg;
     }
 }
 
@@ -104,8 +141,8 @@ bool backtestManifestMatchesLegs(const QString& manifestPath, const QString& pri
     const QJsonObject manifest = readManifestObject(manifestPath);
     if (!isBacktestResultManifest(manifest)) return false;
 
-    const QString firstLegId = resultLegSessionId(manifest, 0);
-    const QString secondLegId = resultLegSessionId(manifest, 1);
+    const QString firstLegId = resultLegSessionId(manifestPath, manifest, 0);
+    const QString secondLegId = resultLegSessionId(manifestPath, manifest, 1);
     if (secondaryId.isEmpty()) {
         return firstLegId.isEmpty() || (firstLegId == primaryId && secondLegId.isEmpty());
     }

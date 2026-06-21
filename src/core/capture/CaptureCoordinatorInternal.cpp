@@ -157,6 +157,10 @@ void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
         metadata.contractBaseQtyE8 = result.instrumentSpec.contractBaseQtyRaw;
         metadata.contractBaseQtySource = "hft_trader_exchange_info";
     }
+    if (result.instrumentSpec.priceBasisQtyRaw > 0) {
+        metadata.priceBasisQtyE8 = result.instrumentSpec.priceBasisQtyRaw;
+        metadata.priceBasisQtySource = "hft_trader_exchange_info";
+    }
     metadata.metadataSource = "hft_trader";
     metadata.metadataWarning.reset();
 #else

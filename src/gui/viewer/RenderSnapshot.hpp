@@ -200,6 +200,7 @@ struct RenderSnapshot {
     bool  tradesVisible{true};
     bool  liquidationsVisible{true};
     bool  candlesVisible{false};
+    bool  candles2Visible{false};
     bool  tradeConnectorsVisible{false};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
@@ -248,6 +249,7 @@ struct SnapshotInputs {
     bool  tradesVisible{true};
     bool  liquidationsVisible{true};
     bool  candlesVisible{false};
+    bool  candles2Visible{false};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
     bool  interactiveMode{false};

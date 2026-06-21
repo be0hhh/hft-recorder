@@ -426,16 +426,24 @@ void ChartController::computeInitialViewport_() {
     absorbTs(replay_.fundings());
     absorbTs(replay_.priceLimits());
     if (!hasMarketTs) absorbTs(replay_.liquidations());
-    if (!hasMarketTs) absorbTs(replay_.candles());
+    if (!hasMarketTs) {
+        absorbTs(replay_.candles2());
+        absorbTs(replay_.candles());
+    }
 
     tsMin_ = hasMarketTs ? marketTsMin : replay_.firstTsNs();
     tsMax_ = hasMarketTs ? marketTsMax : replay_.lastTsNs();
     if (tsMax_ == tsMin_) tsMax_ = tsMin_ + 1;
     if ((tsMax_ - tsMin_) < kMinimumRecordedWindowNs) {
-        const std::int64_t centre = tsMin_ + (tsMax_ - tsMin_) / 2;
-        const std::int64_t half = kMinimumRecordedWindowNs / 2;
-        tsMin_ = std::max<std::int64_t>(0, centre - half);
-        tsMax_ = centre + half;
+        if (bookTickerAnchorTs > 0) {
+            tsMin_ = bookTickerAnchorTs;
+            tsMax_ = std::max<std::int64_t>(tsMax_, tsMin_ + kMinimumRecordedWindowNs);
+        } else {
+            const std::int64_t centre = tsMin_ + (tsMax_ - tsMin_) / 2;
+            const std::int64_t half = kMinimumRecordedWindowNs / 2;
+            tsMin_ = std::max<std::int64_t>(0, centre - half);
+            tsMax_ = centre + half;
+        }
     }
 
     std::int64_t pMin = 0;
@@ -487,6 +495,10 @@ void ChartController::computeInitialViewport_() {
     }
 
     if (!hasPrice) {
+        for (const auto& candle : replay_.candles2()) {
+            absorbPrice(candle.lowE8, hasPrice, pMin, pMax);
+            absorbPrice(candle.highE8, hasPrice, pMin, pMax);
+        }
         for (const auto& candle : replay_.candles()) {
             absorbPrice(candle.lowE8, hasPrice, pMin, pMax);
             absorbPrice(candle.highE8, hasPrice, pMin, pMax);
@@ -682,10 +694,12 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         || !liveDataCache_.overlayRows.indexPrices.empty()
         || !liveDataCache_.overlayRows.fundings.empty()
         || !liveDataCache_.overlayRows.priceLimits.empty()
-        || !replay_.candles().empty();
+        || !replay_.candles().empty()
+        || !replay_.candles2().empty();
     snap.tradesVisible = in.tradesVisible;
     snap.liquidationsVisible = in.liquidationsVisible;
-    snap.candlesVisible = in.candlesVisible;
+    snap.candlesVisible = in.candlesVisible || in.candles2Visible;
+    snap.candles2Visible = in.candles2Visible;
     snap.orderbookVisible = in.orderbookVisible;
     snap.bookTickerVisible = in.bookTickerVisible;
     snap.markPriceVisible = in.markPriceVisible;
@@ -848,8 +862,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         }
     }
 
-    if (in.candlesVisible) {
-        const auto& candles = replay_.candles();
+    if (in.candlesVisible || in.candles2Visible) {
         auto candleDurationNs = [](const hftrec::replay::CandleRow& row) noexcept -> std::int64_t {
             if (row.durationNs > 0) return row.durationNs;
             const std::int64_t tier = row.tier;
@@ -861,74 +874,79 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         const std::int64_t candleSearchStart = renderMinTs > (std::numeric_limits<std::int64_t>::min() + kMaxCandleDurationNs)
             ? renderMinTs - kMaxCandleDurationNs
             : std::numeric_limits<std::int64_t>::min();
-        const auto candleBegin = std::lower_bound(
-            candles.begin(),
-            candles.end(),
-            candleSearchStart,
-            [](const hftrec::replay::CandleRow& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
-        const auto candleEnd = std::upper_bound(
-            candleBegin,
-            candles.end(),
-            renderMaxTs,
-            [](std::int64_t ts, const hftrec::replay::CandleRow& row) noexcept { return ts < row.tsNs; });
 
-        std::array<std::int64_t, 4> previousMidByTier{};
-        std::array<bool, 4> hasPreviousByTier{};
-        std::size_t foundPreviousTiers = 0;
-        for (auto it = candleBegin; it != candles.begin() && foundPreviousTiers < 3u;) {
-            --it;
-            if (it->tier < 1 || it->tier > 3) continue;
-            const auto tierIndex = static_cast<std::size_t>(it->tier);
-            if (hasPreviousByTier[tierIndex]) continue;
-            previousMidByTier[tierIndex] = it->lowE8 + (it->highE8 - it->lowE8) / 2;
-            hasPreviousByTier[tierIndex] = true;
-            ++foundPreviousTiers;
-        }
+        auto appendCandleRects = [&](const std::vector<hftrec::replay::CandleRow>& candles) {
+            const auto candleBegin = std::lower_bound(
+                candles.begin(),
+                candles.end(),
+                candleSearchStart,
+                [](const hftrec::replay::CandleRow& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
+            const auto candleEnd = std::upper_bound(
+                candleBegin,
+                candles.end(),
+                renderMaxTs,
+                [](std::int64_t ts, const hftrec::replay::CandleRow& row) noexcept { return ts < row.tsNs; });
 
-        snap.candleRects.reserve(static_cast<std::size_t>(std::distance(candleBegin, candleEnd)));
-        for (auto it = candleBegin; it != candleEnd; ++it) {
-            const auto& row = *it;
-            if (!row.hasOhlc && (row.tier < 1 || row.tier > 3)) continue;
-            const auto tierIndex = static_cast<std::size_t>(row.tier);
-            const std::int64_t mid = row.lowE8 + (row.highE8 - row.lowE8) / 2;
-            bool up = row.hasOhlc ? (row.closeE8 >= row.openE8) : true;
-            if (!row.hasOhlc && row.tier >= 1 && row.tier <= 3) {
-                up = !hasPreviousByTier[tierIndex] || mid >= previousMidByTier[tierIndex];
-                previousMidByTier[tierIndex] = mid;
+            std::array<std::int64_t, 4> previousMidByTier{};
+            std::array<bool, 4> hasPreviousByTier{};
+            std::size_t foundPreviousTiers = 0;
+            for (auto it = candleBegin; it != candles.begin() && foundPreviousTiers < 3u;) {
+                --it;
+                if (it->tier < 1 || it->tier > 3) continue;
+                const auto tierIndex = static_cast<std::size_t>(it->tier);
+                if (hasPreviousByTier[tierIndex]) continue;
+                previousMidByTier[tierIndex] = it->lowE8 + (it->highE8 - it->lowE8) / 2;
                 hasPreviousByTier[tierIndex] = true;
+                ++foundPreviousTiers;
             }
 
-            const std::int64_t durationNs = candleDurationNs(row);
-            if ((row.tsNs + durationNs) < renderMinTs || row.tsNs > renderMaxTs) continue;
-            if (row.highE8 < snap.vp.pMin || row.lowE8 > snap.vp.pMax) continue;
+            snap.candleRects.reserve(snap.candleRects.size() + static_cast<std::size_t>(std::distance(candleBegin, candleEnd)));
+            for (auto it = candleBegin; it != candleEnd; ++it) {
+                const auto& row = *it;
+                if (!row.hasOhlc && (row.tier < 1 || row.tier > 3)) continue;
+                const auto tierIndex = static_cast<std::size_t>(row.tier);
+                const std::int64_t mid = row.lowE8 + (row.highE8 - row.lowE8) / 2;
+                bool up = row.hasOhlc ? (row.closeE8 >= row.openE8) : true;
+                if (!row.hasOhlc && row.tier >= 1 && row.tier <= 3) {
+                    up = !hasPreviousByTier[tierIndex] || mid >= previousMidByTier[tierIndex];
+                    previousMidByTier[tierIndex] = mid;
+                    hasPreviousByTier[tierIndex] = true;
+                }
 
-            const qreal x = snap.vp.toX(row.tsNs);
-            const qreal w = std::clamp(snap.candleWidthPx, 1.0, 80.0);
-            const qreal yHigh = snap.vp.toY(row.highE8);
-            const qreal yLow = snap.vp.toY(row.lowE8);
-            const qreal yOpen = row.hasOhlc ? snap.vp.toY(row.openE8) : yHigh;
-            const qreal yClose = row.hasOhlc ? snap.vp.toY(row.closeE8) : yLow;
-            qreal y = row.hasOhlc ? std::min(yOpen, yClose) : std::min(yHigh, yLow);
-            qreal h = row.hasOhlc ? std::max<qreal>(2.0, std::abs(yClose - yOpen)) : std::max<qreal>(2.0, std::abs(yLow - yHigh));
-            if ((x + w) < 0.0 || x > snap.vp.w || (y + h) < 0.0 || y > snap.vp.h) continue;
-            snap.candleRects.push_back(CandleRect{row.tier,
-                                                  row.tsNs,
-                                                  row.openE8,
-                                                  row.highE8,
-                                                  row.lowE8,
-                                                  row.closeE8,
-                                                  row.quoteAmountE8,
-                                                  x,
-                                                  y,
-                                                  w,
-                                                  h,
-                                                  yOpen,
-                                                  yClose,
-                                                  yHigh,
-                                                  yLow,
-                                                  row.hasOhlc,
-                                                  up});
-        }
+                const std::int64_t durationNs = candleDurationNs(row);
+                if ((row.tsNs + durationNs) < renderMinTs || row.tsNs > renderMaxTs) continue;
+                if (row.highE8 < snap.vp.pMin || row.lowE8 > snap.vp.pMax) continue;
+
+                const qreal x = snap.vp.toX(row.tsNs);
+                const qreal w = std::clamp(snap.candleWidthPx, 1.0, 80.0);
+                const qreal yHigh = snap.vp.toY(row.highE8);
+                const qreal yLow = snap.vp.toY(row.lowE8);
+                const qreal yOpen = row.hasOhlc ? snap.vp.toY(row.openE8) : yHigh;
+                const qreal yClose = row.hasOhlc ? snap.vp.toY(row.closeE8) : yLow;
+                qreal y = row.hasOhlc ? std::min(yOpen, yClose) : std::min(yHigh, yLow);
+                qreal h = row.hasOhlc ? std::max<qreal>(2.0, std::abs(yClose - yOpen)) : std::max<qreal>(2.0, std::abs(yLow - yHigh));
+                if ((x + w) < 0.0 || x > snap.vp.w || (y + h) < 0.0 || y > snap.vp.h) continue;
+                snap.candleRects.push_back(CandleRect{row.tier,
+                                                      row.tsNs,
+                                                      row.openE8,
+                                                      row.highE8,
+                                                      row.lowE8,
+                                                      row.closeE8,
+                                                      row.quoteAmountE8,
+                                                      x,
+                                                      y,
+                                                      w,
+                                                      h,
+                                                      yOpen,
+                                                      yClose,
+                                                      yHigh,
+                                                      yLow,
+                                                      row.hasOhlc,
+                                                      up});
+            }
+        };
+        if (in.candlesVisible) appendCandleRects(replay_.candles());
+        if (in.candles2Visible) appendCandleRects(replay_.candles2());
     }
 
     auto appendMarkRows = [&](const auto& rows) {

@@ -47,7 +47,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
 
     config_ = config;
     manifest_ = {};
-    manifest_.sessionId = makeSessionId(config.exchange, config.market, config.symbols.front(), internal::nowSec());
+    manifest_.sessionId = makeSessionId(config.exchange, config.market, config.symbols.front(), internal::nowNs());
     manifest_.exchange = config.exchange;
     manifest_.market = config.market;
     manifest_.symbols = config.symbols;

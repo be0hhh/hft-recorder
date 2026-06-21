@@ -1,16 +1,33 @@
 ﻿#include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
+#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
+#include "hft_trader/runtime/history/candles/CandleRequestLimits.hpp"
+#endif
+
+#include <QCoreApplication>
+#include <QDate>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
+#include <QTime>
 #include <QVariantMap>
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <string>
+#include <string_view>
 
 namespace hftrec::gui::detail {
 
 namespace {
 
 constexpr int kDetailedCandlesMaxLimit = 1'000'000;
+constexpr std::int64_t kNsPerMs = 1'000'000ll;
+constexpr int kFinamSmartRetryDays = 7;
 
 QString normalizeToken(QString token) {
     return token.trimmed();
@@ -41,6 +58,7 @@ constexpr VenueSpec kVenues[] = {
     {"finam_futures", "FINAM Futures", "finam", "futures"},
     {"finam_spot", "FINAM Spot", "finam", "spot"},
     {"mexc_spot", "MEXC Spot", "mexc", "spot"},
+    {"mexc_futures", "MEXC Futures", "mexc", "futures"},
 };
 
 std::vector<VenueSpec> selectedVenues(const QStringList& venueKeys) {
@@ -86,9 +104,72 @@ bool isFinamVenue(const VenueSpec& venue) noexcept {
            venue.exchange[3] == 'a' && venue.exchange[4] == 'm';
 }
 
+QString detailedCandlesTimeframeForVenue(const VenueSpec& venue, const QString& requestedTimeframe);
+
+#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
+bool candleRequestLimitFor(const VenueSpec& venue,
+                           const QString& timeframe,
+                           hft_trader::runtime::candles::CandleRequestLimit* out) noexcept {
+    const QString normalized = detailedCandlesTimeframeForVenue(venue, timeframe);
+    const std::string tf = normalized.toStdString();
+    return hft_trader::runtime::candles::findCandleRequestLimitByName(
+        std::string_view(venue.exchange),
+        std::string_view(venue.market),
+        std::string_view(tf.data(), tf.size()),
+        out);
+}
+#endif
+
+QString pagingLabelFor(const char* paging) {
+    if (paging == nullptr) return {};
+    const QString value = QString::fromLatin1(paging);
+    if (value == QStringLiteral("date_range")) return QStringLiteral("date range");
+    if (value == QStringLiteral("cursor")) return QStringLiteral("cursor");
+    if (value == QStringLiteral("limit")) return QStringLiteral("limit");
+    return value;
+}
+
+bool isFinamVenueKey(const QString& venueKey) noexcept {
+    const auto* venue = venueByKey(venueKey);
+    return venue != nullptr && isFinamVenue(*venue);
+}
+
+QString formatUtcNs(std::int64_t ns) {
+    if (ns <= 0) return QStringLiteral("now");
+    return QDateTime::fromMSecsSinceEpoch(ns / kNsPerMs, Qt::UTC).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss'Z'"));
+}
+
+std::int64_t dateTimeToNs(const QDate& date, const QTime& time) {
+    QDateTime dt(date, time);
+    dt.setTimeSpec(Qt::UTC);
+    return static_cast<std::int64_t>(dt.toMSecsSinceEpoch()) * kNsPerMs;
+}
+
+QDate previousWeekday(QDate date) {
+    while (date.dayOfWeek() == 6 || date.dayOfWeek() == 7) date = date.addDays(-1);
+    return date;
+}
+
+QDate previousTradingDate(QDate date) {
+    return previousWeekday(date.addDays(-1));
+}
+
+QString normalizeDetailedCandlesEndMode(QString mode) {
+    mode = mode.trimmed().toLower();
+    if (mode == QStringLiteral("manual") || mode == QStringLiteral("manual_utc") ||
+        mode == QStringLiteral("manual-utc")) {
+        return QStringLiteral("manual_utc");
+    }
+    if (mode == QStringLiteral("now")) return QStringLiteral("now");
+    return QStringLiteral("smart");
+}
+
 bool supportsDetailedCandlesVenue(const VenueSpec& venue) noexcept {
-    return !(venue.exchange[0] == 'm' && venue.exchange[1] == 'e' &&
-             venue.exchange[2] == 'x' && venue.exchange[3] == 'c');
+    if (venue.exchange[0] == 'm' && venue.exchange[1] == 'e' &&
+        venue.exchange[2] == 'x' && venue.exchange[3] == 'c') {
+        return venue.market[0] == 's' && venue.market[1] == 'p' && venue.market[2] == 'o' && venue.market[3] == 't';
+    }
+    return true;
 }
 
 QString normalizeDetailedTimeframe(QString timeframe) {
@@ -263,6 +344,9 @@ QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol)
         const QString result = base + QLatin1Char('-') + quote;
         return market == QStringLiteral("futures") ? result + QStringLiteral("-SWAP") : result;
     }
+    if (exchange == QStringLiteral("mexc") && market == QStringLiteral("futures")) {
+        return base + QLatin1Char('_') + quote;
+    }
     if (exchange == QStringLiteral("binance") && market == QStringLiteral("inverse")) {
         return base + quote + QStringLiteral("_PERP");
     }
@@ -393,6 +477,223 @@ int normalizedApiSlot(int apiSlot) noexcept {
     if (apiSlot < 1) return 1;
     if (apiSlot > 255) return 255;
     return apiSlot;
+}
+
+struct FinamSymbolRow {
+    QString symbol;
+    QString ticker;
+    QString name;
+    QString mic;
+    QString market;
+    QString type;
+    QString underlying;
+    QString expiration;
+    QString contractSize;
+    bool isArchived{false};
+};
+
+QString finamCatalogSourcePath() {
+    return QDir(QCoreApplication::applicationDirPath())
+        .absoluteFilePath(QStringLiteral("../src/gui/data/finam_assets.json"));
+}
+
+QByteArray readFinamCatalogBytes() {
+#if defined(HFTRREC_SOURCE_DIR)
+    QFile sourceFile(QStringLiteral(HFTRREC_SOURCE_DIR) + QStringLiteral("/src/gui/data/finam_assets.json"));
+    if (sourceFile.open(QIODevice::ReadOnly)) return sourceFile.readAll();
+#endif
+
+    QFile appRelativeFile(finamCatalogSourcePath());
+    if (appRelativeFile.open(QIODevice::ReadOnly)) return appRelativeFile.readAll();
+
+    QFile resourceFile(QStringLiteral(":/HftRecorder/data/finam_assets.json"));
+    if (resourceFile.open(QIODevice::ReadOnly)) return resourceFile.readAll();
+    return {};
+}
+
+std::vector<FinamSymbolRow> loadFinamSymbolRows() {
+    const QByteArray bytes = readFinamCatalogBytes();
+    if (bytes.isEmpty()) return {};
+    QJsonParseError error{};
+    const QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
+    if (error.error != QJsonParseError::NoError || !doc.isObject()) return {};
+    const QJsonArray assets = doc.object().value(QStringLiteral("assets")).toArray();
+    std::vector<FinamSymbolRow> rows;
+    rows.reserve(static_cast<std::size_t>(assets.size()));
+    for (const auto& raw : assets) {
+        const QJsonObject item = raw.toObject();
+        FinamSymbolRow row{};
+        row.symbol = item.value(QStringLiteral("symbol")).toString().trimmed();
+        row.ticker = item.value(QStringLiteral("ticker")).toString().trimmed();
+        row.name = item.value(QStringLiteral("name")).toString().trimmed();
+        row.mic = item.value(QStringLiteral("mic")).toString().trimmed();
+        row.market = item.value(QStringLiteral("market")).toString().trimmed();
+        row.type = item.value(QStringLiteral("type")).toString().trimmed();
+        row.underlying = item.value(QStringLiteral("underlying")).toString().trimmed().toUpper();
+        row.expiration = item.value(QStringLiteral("expiration")).toString().trimmed();
+        row.isArchived = item.value(QStringLiteral("is_archived")).toBool(false);
+        const auto contractValue = item.value(QStringLiteral("contract_size"));
+        if (contractValue.isDouble()) row.contractSize = QString::number(contractValue.toDouble());
+        else row.contractSize = contractValue.toString().trimmed();
+        if (row.symbol.isEmpty() || row.market.isEmpty()) continue;
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+
+const std::vector<FinamSymbolRow>& finamSymbolRows() {
+    static const std::vector<FinamSymbolRow> rows = loadFinamSymbolRows();
+    return rows;
+}
+
+bool finamRowMatchesMarket(const FinamSymbolRow& row, const VenueSpec& venue) {
+    return row.market == QString::fromLatin1(venue.market);
+}
+
+bool matchesQueryBoundary(const QString& text, const QString& query) {
+    if (query.isEmpty()) return true;
+    qsizetype from = 0;
+    while (from < text.size()) {
+        const qsizetype idx = text.indexOf(query, from, Qt::CaseInsensitive);
+        if (idx < 0) return false;
+        const QChar prev = idx > 0 ? text.at(idx - 1) : QChar{};
+        const qsizetype afterIdx = idx + query.size();
+        const QChar next = afterIdx < text.size() ? text.at(afterIdx) : QChar{};
+        if (idx == 0 || !prev.isLetterOrNumber() || prev.isDigit() || prev == QLatin1Char('@') || next.isDigit()) {
+            return true;
+        }
+        from = idx + 1;
+    }
+    return false;
+}
+
+bool textMatchesQuery(const FinamSymbolRow& row, const QString& query) {
+    const auto normalized = query.trimmed();
+    if (normalized.isEmpty()) return true;
+    return matchesQueryBoundary(row.symbol, normalized) ||
+           matchesQueryBoundary(row.ticker, normalized) ||
+           matchesQueryBoundary(row.name, normalized) ||
+           matchesQueryBoundary(row.underlying, normalized);
+}
+
+QString finamAnchorUnderlying(const QString& anchorSymbolText) {
+    const auto symbols = normalizedSymbols(anchorSymbolText);
+    if (symbols.empty()) return {};
+    const QString anchor = QString::fromStdString(symbols.front()).trimmed().toUpper();
+    for (const auto& row : finamSymbolRows()) {
+        if (row.symbol.compare(anchor, Qt::CaseInsensitive) == 0 ||
+            row.ticker.compare(anchor, Qt::CaseInsensitive) == 0) {
+            if (!row.underlying.isEmpty()) return row.underlying;
+            return row.ticker.toUpper();
+        }
+    }
+    if (anchor.startsWith(QStringLiteral("SBER"))) return QStringLiteral("SBRF");
+    return anchor.section(QLatin1Char('@'), 0, 0);
+}
+
+int finamSuggestionRank(const FinamSymbolRow& row,
+                        const VenueSpec& venue,
+                        const QString& anchorVenueKey,
+                        const QString& anchorSymbolText) {
+    int rank = row.isArchived ? 120 : 100;
+    const QString anchorUnderlying = finamAnchorUnderlying(anchorSymbolText);
+    if (QString::fromLatin1(venue.market) == QStringLiteral("futures") &&
+        !anchorUnderlying.isEmpty() && row.underlying == anchorUnderlying) {
+        rank = row.isArchived ? 20 : 0;
+    }
+    const auto* anchorVenue = venueByKey(anchorVenueKey);
+    if (anchorVenue != nullptr && QString::fromLatin1(anchorVenue->market) == row.market) {
+        rank += 20;
+    }
+    return rank;
+}
+
+QVariantMap finamSuggestionItem(const FinamSymbolRow& row, int rank) {
+    QVariantMap item;
+    item.insert(QStringLiteral("symbol"), row.symbol);
+    item.insert(QStringLiteral("label"), row.name.isEmpty() ? row.symbol : row.symbol + QStringLiteral("  ") + row.name);
+    QStringList detailParts{
+        row.type,
+        row.mic,
+        row.ticker,
+    };
+    if (!row.underlying.isEmpty()) detailParts.push_back(QStringLiteral("underlying ") + row.underlying);
+    if (!row.expiration.isEmpty()) detailParts.push_back(QStringLiteral("exp ") + row.expiration);
+    if (!row.contractSize.isEmpty()) detailParts.push_back(QStringLiteral("contract ") + row.contractSize);
+    detailParts.push_back(row.isArchived ? QStringLiteral("archived") : QStringLiteral("active"));
+    item.insert(QStringLiteral("detail"), detailParts.join(QStringLiteral(" / ")));
+    item.insert(QStringLiteral("rank"), rank);
+    item.insert(QStringLiteral("expiration"), row.expiration);
+    return item;
+}
+
+capture::CaptureConfig makeDetailedCandlesConfig(const QString& outputDirectory,
+                                                 const QString& envPath,
+                                                 int apiSlot,
+                                                 const VenueSpec& venue,
+                                                 const std::string& symbol,
+                                                 const QString& timeframe,
+                                                 int limit,
+                                                 std::int64_t endNs) {
+    capture::CaptureConfig config{};
+    config.exchange = venue.exchange;
+    config.market = venue.market;
+    config.symbols = {symbol};
+    config.envPath = std::filesystem::path{envPath.toStdString()};
+    config.apiSlot = static_cast<std::uint8_t>(normalizedApiSlot(apiSlot));
+    config.outputDir = std::filesystem::path{outputDirectory.toStdString()};
+    config.detailedCandlesTimeframe = timeframe.toStdString();
+    config.detailedCandlesLimit = static_cast<std::uint32_t>(std::clamp(limit, 1, kDetailedCandlesMaxLimit));
+    config.detailedCandlesEndNs = endNs > 0 ? endNs : 0;
+    return config;
+}
+
+bool appendDetailedCandlesConfig(std::vector<capture::CaptureConfig>& configs,
+                                 const QString& outputDirectory,
+                                 const QString& envPath,
+                                 int apiSlot,
+                                 const QString& venueKey,
+                                 const QString& symbolText,
+                                 const QString& timeframe,
+                                 int limit,
+                                 const QString& emptySymbolError,
+                                 QString* errorText,
+                                 std::int64_t endNs) {
+    const auto* venue = venueByKey(venueKey);
+    if (venue == nullptr) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Select detailed candles venue");
+        return false;
+    }
+    if (!supportsDetailedCandlesVenue(*venue)) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Selected venue does not support detailed candles");
+        return false;
+    }
+
+    const QString tf = detailedCandlesTimeframeForVenue(*venue, timeframe);
+    if (tf.isEmpty()) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Enter detailed candles timeframe");
+        return false;
+    }
+    if (!detailedCandlesSupportsTimeframe(*venue, tf)) {
+        if (errorText != nullptr) {
+            *errorText = QStringLiteral("%1 candles support %2; got %3")
+                .arg(QString::fromLatin1(venue->label), detailedCandlesTimeframeSummary(*venue), tf);
+        }
+        return false;
+    }
+
+    const auto symbols = normalizedSymbols(symbolText);
+    if (symbols.empty()) {
+        if (errorText != nullptr) *errorText = emptySymbolError;
+        return false;
+    }
+    if (symbols.size() != 1u) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Enter one detailed candles symbol per row");
+        return false;
+    }
+
+    configs.push_back(makeDetailedCandlesConfig(outputDirectory, envPath, apiSlot, *venue, symbols.front(), tf, limit, endNs));
+    return true;
 }
 
 }  // namespace
@@ -542,6 +843,113 @@ QString venueSymbolPlaceholder(const QString& venueKey) {
     return QStringLiteral("Example: %1").arg(formattedVenueSymbol(kVenues[idx], parseGlobalSymbol(QStringLiteral("BTCUSDT"))));
 }
 
+QVariantList detailedCandlesEndModeChoices() {
+    QVariantList choices;
+    auto append = [&](const QString& label, const QString& value) {
+        QVariantMap item;
+        item.insert(QStringLiteral("label"), label);
+        item.insert(QStringLiteral("value"), value);
+        choices.push_back(item);
+    };
+    append(QStringLiteral("Smart"), QStringLiteral("smart"));
+    append(QStringLiteral("Now"), QStringLiteral("now"));
+    append(QStringLiteral("Manual UTC"), QStringLiteral("manual_utc"));
+    return choices;
+}
+
+std::int64_t parseDetailedCandlesEndUtcText(const QString& text, QString* errorText) {
+    if (errorText != nullptr) errorText->clear();
+    QString normalized = text.trimmed();
+    if (normalized.isEmpty()) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Enter manual UTC end time");
+        return 0;
+    }
+    if (normalized.endsWith(QStringLiteral(" UTC"), Qt::CaseInsensitive)) {
+        normalized.chop(4);
+        normalized += QStringLiteral("Z");
+    }
+
+    QDateTime dt = QDateTime::fromString(normalized, Qt::ISODate);
+    if (!dt.isValid()) {
+        dt = QDateTime::fromString(normalized, QStringLiteral("yyyy-MM-dd HH:mm:ss'Z'"));
+        if (dt.isValid()) dt.setTimeSpec(Qt::UTC);
+    }
+    if (!dt.isValid()) {
+        dt = QDateTime::fromString(normalized, QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+        if (dt.isValid()) dt.setTimeSpec(Qt::UTC);
+    }
+    if (!dt.isValid()) {
+        if (errorText != nullptr) {
+            *errorText = QStringLiteral("End time must be UTC, e.g. 2026-06-19 20:45:00Z");
+        }
+        return 0;
+    }
+    dt = dt.toUTC();
+    const qint64 ms = dt.toMSecsSinceEpoch();
+    if (ms <= 0) {
+        if (errorText != nullptr) *errorText = QStringLiteral("End time must be after Unix epoch");
+        return 0;
+    }
+    return static_cast<std::int64_t>(ms) * kNsPerMs;
+}
+
+std::vector<std::int64_t> detailedCandlesEndCandidatesNs(const QString& mode,
+                                                         const QString& manualUtcText,
+                                                         const QString& leg1VenueKey,
+                                                         const QString& leg2VenueKey,
+                                                         std::int64_t nowNs,
+                                                         QString* resolvedText,
+                                                         QString* errorText) {
+    if (resolvedText != nullptr) resolvedText->clear();
+    if (errorText != nullptr) errorText->clear();
+
+    const QString normalizedMode = normalizeDetailedCandlesEndMode(mode);
+    if (normalizedMode == QStringLiteral("now")) {
+        if (resolvedText != nullptr) *resolvedText = QStringLiteral("now");
+        return {0};
+    }
+    if (normalizedMode == QStringLiteral("manual_utc")) {
+        const std::int64_t endNs = parseDetailedCandlesEndUtcText(manualUtcText, errorText);
+        if (endNs <= 0) return {};
+        if (resolvedText != nullptr) *resolvedText = formatUtcNs(endNs);
+        return {endNs};
+    }
+
+    const bool finam = isFinamVenueKey(leg1VenueKey) || isFinamVenueKey(leg2VenueKey);
+    if (!finam) {
+        if (resolvedText != nullptr) *resolvedText = QStringLiteral("now");
+        return {0};
+    }
+
+    const std::int64_t safeNowNs = nowNs > 0
+        ? nowNs
+        : static_cast<std::int64_t>(QDateTime::currentMSecsSinceEpoch()) * kNsPerMs;
+    const QDateTime now = QDateTime::fromMSecsSinceEpoch(safeNowNs / kNsPerMs, Qt::UTC);
+    const QTime finamClose(20, 45, 0);
+    QDate anchorDate = previousWeekday(now.date());
+    std::int64_t firstEndNs = 0;
+    if (now.date().dayOfWeek() >= 1 && now.date().dayOfWeek() <= 5 && now.time() < finamClose) {
+        firstEndNs = (safeNowNs / 1'000'000'000ll) * 1'000'000'000ll;
+    } else {
+        firstEndNs = dateTimeToNs(anchorDate, finamClose);
+    }
+
+    std::vector<std::int64_t> out;
+    out.reserve(kFinamSmartRetryDays);
+    out.push_back(firstEndNs);
+    QDate cursor = QDateTime::fromMSecsSinceEpoch(firstEndNs / kNsPerMs, Qt::UTC).date();
+    while (static_cast<int>(out.size()) < kFinamSmartRetryDays) {
+        cursor = previousTradingDate(cursor);
+        out.push_back(dateTimeToNs(cursor, finamClose));
+    }
+
+    if (resolvedText != nullptr && !out.empty()) {
+        *resolvedText = QStringLiteral("%1 smart candidates from %2")
+            .arg(QString::number(out.size()), formatUtcNs(out.front()));
+    }
+    return out;
+}
+
 QString venueSymbolExample(const VenueSpec& venue) {
     if (isFinamVenue(venue)) return QStringLiteral("SBER@MISX");
     return formattedVenueSymbol(venue, parseGlobalSymbol(QStringLiteral("BTCUSDT")));
@@ -685,54 +1093,128 @@ std::vector<capture::CaptureConfig> makeDetailedCandlesConfigs(const QString& ou
                                                                const QString& symbolText,
                                                                const QString& timeframe,
                                                                int limit,
-                                                               QString* errorText) {
+                                                               QString* errorText,
+                                                               std::int64_t endNs) {
     if (errorText != nullptr) errorText->clear();
     std::vector<capture::CaptureConfig> configs;
-    const auto* venue = venueByKey(venueKey);
-    if (venue == nullptr) {
-        if (errorText != nullptr) *errorText = QStringLiteral("Select detailed candles venue");
-        return configs;
-    }
-    if (!supportsDetailedCandlesVenue(*venue)) {
-        if (errorText != nullptr) *errorText = QStringLiteral("Selected venue does not support detailed candles");
-        return configs;
-    }
-
-    const QString tf = detailedCandlesTimeframeForVenue(*venue, timeframe);
-    if (tf.isEmpty()) {
-        if (errorText != nullptr) *errorText = QStringLiteral("Enter detailed candles timeframe");
-        return configs;
-    }
-    if (!detailedCandlesSupportsTimeframe(*venue, tf)) {
-        if (errorText != nullptr) {
-            *errorText = QStringLiteral("%1 candles support %2; got %3")
-                .arg(QString::fromLatin1(venue->label), detailedCandlesTimeframeSummary(*venue), tf);
+    if (!appendDetailedCandlesConfig(configs,
+                                     outputDirectory,
+                                     envPath,
+                                     apiSlot,
+                                     venueKey,
+                                     symbolText,
+                                     timeframe,
+                                     limit,
+                                     QStringLiteral("Enter detailed candles symbol"),
+                                     errorText,
+                                     endNs)) {
+        if (errorText != nullptr && *errorText == QStringLiteral("Enter one detailed candles symbol per row")) {
+            *errorText = QStringLiteral("Enter one detailed candles symbol");
         }
         return configs;
     }
+    return configs;
+}
 
-    const auto symbols = normalizedSymbols(symbolText);
-    if (symbols.empty()) {
+std::vector<capture::CaptureConfig> makeDetailedCandlesConfigs(const QString& outputDirectory,
+                                                               const QString& envPath,
+                                                               int apiSlot,
+                                                               const QString& leg1VenueKey,
+                                                               const QString& leg1SymbolText,
+                                                               const QString& leg2VenueKey,
+                                                               const QString& leg2SymbolText,
+                                                               const QString& timeframe,
+                                                               int limit,
+                                                               QString* errorText,
+                                                               std::int64_t endNs) {
+    if (errorText != nullptr) errorText->clear();
+    std::vector<capture::CaptureConfig> configs;
+
+    const bool leg1Filled = !leg1SymbolText.trimmed().isEmpty();
+    const bool leg2Filled = !leg2SymbolText.trimmed().isEmpty();
+    if (!leg1Filled && leg2Filled) {
+        if (errorText != nullptr) *errorText = QStringLiteral("Enter first detailed candles symbol");
+        return configs;
+    }
+    if (!leg1Filled) {
         if (errorText != nullptr) *errorText = QStringLiteral("Enter detailed candles symbol");
         return configs;
     }
-    if (symbols.size() != 1u) {
-        if (errorText != nullptr) *errorText = QStringLiteral("Enter one detailed candles symbol");
-        return configs;
+
+    if (!appendDetailedCandlesConfig(configs,
+                                     outputDirectory,
+                                     envPath,
+                                     apiSlot,
+                                     leg1VenueKey,
+                                     leg1SymbolText,
+                                     timeframe,
+                                     limit,
+                                     QStringLiteral("Enter detailed candles symbol"),
+                                     errorText,
+                                     endNs)) {
+        return {};
     }
-    const std::uint32_t clampedLimit = static_cast<std::uint32_t>(std::clamp(limit, 1, kDetailedCandlesMaxLimit));
-    capture::CaptureConfig config{};
-    config.exchange = venue->exchange;
-    config.market = venue->market;
-    config.symbols = {symbols.front()};
-    config.envPath = std::filesystem::path{envPath.toStdString()};
-    config.apiSlot = static_cast<std::uint8_t>(normalizedApiSlot(apiSlot));
-    config.outputDir = std::filesystem::path{outputDirectory.toStdString()};
-    config.detailedCandlesTimeframe = tf.toStdString();
-    config.detailedCandlesLimit = clampedLimit;
-    config.detailedCandlesEndNs = 0;
-    configs.push_back(std::move(config));
+    if (leg2Filled && !appendDetailedCandlesConfig(configs,
+                                                   outputDirectory,
+                                                   envPath,
+                                                   apiSlot,
+                                                   leg2VenueKey,
+                                                   leg2SymbolText,
+                                                   timeframe,
+                                                   limit,
+                                                   QStringLiteral("Enter second detailed candles symbol"),
+                                                   errorText,
+                                                   endNs)) {
+        return {};
+    }
     return configs;
+}
+
+QVariantList detailedCandlesSymbolSuggestions(const QString& venueKey,
+                                              const QString& query,
+                                              const QString& anchorVenueKey,
+                                              const QString& anchorSymbolText) {
+    QVariantList result;
+    const auto* venue = venueByKey(venueKey);
+    if (venue == nullptr) return result;
+
+    if (isFinamVenue(*venue)) {
+        std::vector<QVariantMap> rows;
+        for (const auto& row : finamSymbolRows()) {
+            if (!finamRowMatchesMarket(row, *venue)) continue;
+            if (!textMatchesQuery(row, query)) continue;
+            rows.push_back(finamSuggestionItem(row, finamSuggestionRank(row, *venue, anchorVenueKey, anchorSymbolText)));
+        }
+        std::stable_sort(rows.begin(), rows.end(), [](const QVariantMap& lhs, const QVariantMap& rhs) {
+            const int leftRank = lhs.value(QStringLiteral("rank")).toInt();
+            const int rightRank = rhs.value(QStringLiteral("rank")).toInt();
+            if (leftRank != rightRank) return leftRank < rightRank;
+            const QString leftExpiration = lhs.value(QStringLiteral("expiration")).toString();
+            const QString rightExpiration = rhs.value(QStringLiteral("expiration")).toString();
+            if (leftExpiration != rightExpiration) return leftExpiration > rightExpiration;
+            return lhs.value(QStringLiteral("symbol")).toString() < rhs.value(QStringLiteral("symbol")).toString();
+        });
+        const qsizetype maxSuggestions = 200;
+        for (const auto& row : rows) {
+            if (result.size() >= maxSuggestions) break;
+            result.push_back(row);
+        }
+        return result;
+    }
+
+    const QString source = query.trimmed().isEmpty() ? anchorSymbolText : query;
+    const QString formatted = venueSymbolsFromGlobalInput(venueKey, source).trimmed();
+    const auto symbols = normalizedSymbols(formatted);
+    if (symbols.empty()) return result;
+
+    const QString symbol = QString::fromStdString(symbols.front()).trimmed();
+    QVariantMap item;
+    item.insert(QStringLiteral("symbol"), symbol);
+    item.insert(QStringLiteral("label"), symbol);
+    item.insert(QStringLiteral("detail"), QStringLiteral("Derived for %1").arg(QString::fromLatin1(venue->label)));
+    item.insert(QStringLiteral("rank"), 0);
+    result.push_back(item);
+    return result;
 }
 
 QVariantList detailedCandlesTimeframeChoices(const QString& venueKey) {
@@ -744,10 +1226,17 @@ QVariantList detailedCandlesTimeframeChoices(const QString& venueKey) {
         QVariantMap item;
         item.insert(QStringLiteral("label"), timeframe);
         item.insert(QStringLiteral("value"), timeframe);
-        if (isFinamVenue(*venue)) {
-            item.insert(QStringLiteral("rightText"), QStringLiteral("FINAM bars"));
-        } else {
-            item.insert(QStringLiteral("rightText"), QStringLiteral("REST pages"));
+#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
+        hft_trader::runtime::candles::CandleRequestLimit limit{};
+        if (candleRequestLimitFor(*venue, timeframe, &limit) && limit.maxCandlesPerRequest != 0u) {
+            item.insert(QStringLiteral("rightText"),
+                        QStringLiteral("page %1").arg(QString::number(limit.maxCandlesPerRequest)));
+        } else
+#endif
+        {
+            item.insert(QStringLiteral("rightText"), isFinamVenue(*venue)
+                ? QStringLiteral("FINAM bars")
+                : QStringLiteral("REST pages"));
         }
         choices.push_back(item);
     }
@@ -759,6 +1248,47 @@ QString defaultDetailedCandlesTimeframe(const QString& venueKey) {
     if (venue == nullptr) venue = &kVenues[0];
     const auto timeframes = detailedCandlesTimeframesForVenue(*venue);
     return timeframes.isEmpty() ? QStringLiteral("1m") : timeframes.front();
+}
+
+QString detailedCandlesLimitHint(const QString& venueKey,
+                                 const QString& timeframe) {
+    const auto* venue = venueByKey(venueKey);
+    if (venue == nullptr) return QStringLiteral("Total candles");
+#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
+    hft_trader::runtime::candles::CandleRequestLimit requestLimit{};
+    if (candleRequestLimitFor(*venue, timeframe, &requestLimit) && requestLimit.maxCandlesPerRequest != 0u) {
+        return QStringLiteral("Page max: %1").arg(QString::number(requestLimit.maxCandlesPerRequest));
+    }
+#endif
+    return QStringLiteral("Total candles");
+}
+
+QString detailedCandlesLimitWarning(const QString& venueKey,
+                                    const QString& timeframe,
+                                    int limit) {
+    const auto* venue = venueByKey(venueKey);
+    const QString totalText = QString::number(std::clamp(limit, 1, kDetailedCandlesMaxLimit));
+    if (venue == nullptr) {
+        return QStringLiteral("Total target: %1 candles. Paging stops when the exchange returns no older candles.").arg(totalText);
+    }
+#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
+    hft_trader::runtime::candles::CandleRequestLimit requestLimit{};
+    if (candleRequestLimitFor(*venue, timeframe, &requestLimit) && requestLimit.maxCandlesPerRequest != 0u) {
+        const QString paging = pagingLabelFor(hft_trader::runtime::candles::candleRequestPagingName(requestLimit.paging));
+        const QString total = requestLimit.maxTotalUnbounded
+            ? QStringLiteral("paged until older candles end")
+            : QStringLiteral("max total %1").arg(QString::number(requestLimit.maxTotalCandles));
+        return QStringLiteral("Total target: %1 candles. Max per REST page for %2/%3/%4: %5; paging: %6, %7. Written rows can be lower than requested.")
+            .arg(totalText,
+                 QString::fromLatin1(venue->exchange),
+                 QString::fromLatin1(venue->market),
+                 detailedCandlesTimeframeForVenue(*venue, timeframe),
+                 QString::number(requestLimit.maxCandlesPerRequest),
+                 paging,
+                 total);
+    }
+#endif
+    return QStringLiteral("Total target: %1 candles. No exchange page limit metadata yet; paging stops when the exchange returns no older candles.").arg(totalText);
 }
 
 QString buildDetailedCandlesPreview(const QString& venueKey,
@@ -782,6 +1312,20 @@ QString buildDetailedCandlesPreview(const QString& venueKey,
     QString command = QStringLiteral("get().object(klines).exchange(%1).market(%2).timeframe(%3).limit(%4).symbol(%5)")
         .arg(exchange, market, tf, limitText, symbol);
     return command + QStringLiteral(" -> ") + path;
+}
+
+QString buildDetailedCandlesPreview(const QString& leg1VenueKey,
+                                    const QString& leg1SymbolText,
+                                    const QString& leg2VenueKey,
+                                    const QString& leg2SymbolText,
+                                    const QString& timeframe,
+                                    int limit) {
+    QStringList previews;
+    previews.push_back(buildDetailedCandlesPreview(leg1VenueKey, leg1SymbolText, timeframe, limit));
+    if (!leg2SymbolText.trimmed().isEmpty()) {
+        previews.push_back(buildDetailedCandlesPreview(leg2VenueKey, leg2SymbolText, timeframe, limit));
+    }
+    return previews.join(QStringLiteral("\n"));
 }
 
 }  // namespace hftrec::gui::detail

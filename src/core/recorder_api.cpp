@@ -167,7 +167,7 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
             loadedCandles = true;
         }
         if (fileExists(candles2Path)) {
-            status = replay.addCandlesFile(candles2Path);
+            status = replay.addCandles2File(candles2Path);
             if (!isOk(status)) return status;
             loadedCandles = true;
         }
@@ -388,8 +388,9 @@ Status loadRecorderSession(const std::filesystem::path& sessionPath,
         for (const auto& row : replay.depths()) out.depthRows.push_back(convert(row));
     }
     if (wants(channels, RecorderChannel_Candles)) {
-        out.candleRows.reserve(replay.candles().size());
+        out.candleRows.reserve(replay.candles().size() + replay.candles2().size());
         for (const auto& row : replay.candles()) out.candleRows.push_back(convert(row));
+        for (const auto& row : replay.candles2()) out.candleRows.push_back(convert(row));
     }
     if (wants(channels, RecorderChannel_Snapshot) && replay.hasSnapshot()) {
         out.snapshot = convert(replay.snapshot());

@@ -42,6 +42,10 @@ void SessionReplay::appendCandleRow(CandleRow row) {
     candles_.push_back(std::move(row));
 }
 
+void SessionReplay::appendCandle2Row(CandleRow row) {
+    candles2_.push_back(std::move(row));
+}
+
 void SessionReplay::appendDepthRow(DepthRow row) {
     depths_.push_back(std::move(row));
 }
@@ -403,9 +407,16 @@ void SessionReplay::rebuildBuckets_() noexcept {
     if (!events_.empty()) {
         firstTsNs_ = buckets_.front().tsNs;
         lastTsNs_ = buckets_.back().tsNs;
-    } else if (!candles_.empty()) {
-        firstTsNs_ = candles_.front().tsNs;
-        lastTsNs_ = candles_.back().tsNs;
+    } else if (!candles_.empty() || !candles2_.empty()) {
+        firstTsNs_ = 0;
+        lastTsNs_ = 0;
+        auto absorbCandleBounds = [&](const std::vector<CandleRow>& rows) noexcept {
+            if (rows.empty()) return;
+            if (firstTsNs_ == 0 || rows.front().tsNs < firstTsNs_) firstTsNs_ = rows.front().tsNs;
+            if (rows.back().tsNs > lastTsNs_) lastTsNs_ = rows.back().tsNs;
+        };
+        absorbCandleBounds(candles_);
+        absorbCandleBounds(candles2_);
     } else if (snapshot_.tsNs != 0) {
         firstTsNs_ = snapshot_.tsNs;
         lastTsNs_ = snapshot_.tsNs;

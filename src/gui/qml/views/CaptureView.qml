@@ -176,12 +176,17 @@ Pane {
 
                                 GridLayout {
                                     Layout.fillWidth: true
-                                    columns: 4
+                                    columns: 5
                                     columnSpacing: 12
                                     rowSpacing: 8
 
+                                    Label {
+                                        text: "Leg 1"
+                                        color: root.mutedTextColor
+                                    }
+
                                     RecorderComboBox {
-                                        id: detailedCandlesVenueCombo
+                                        id: detailedCandlesLeg1VenueCombo
                                         Layout.preferredWidth: 170
                                         Layout.minimumWidth: 150
                                         caption: "Venue"
@@ -196,26 +201,115 @@ Pane {
                                         mutedTextColor: root.mutedTextColor
                                         accentColor: root.accentRequiredColor
                                         model: root.captureVm.detailedCandlesVenueChoices
-                                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(root.captureVm.detailedCandlesVenueKey))
-                                        onActivated: root.captureVm.detailedCandlesVenueKey = currentValue
+                                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(root.captureVm.detailedCandlesLeg1VenueKey))
+                                        onActivated: root.captureVm.detailedCandlesLeg1VenueKey = currentValue
                                     }
 
                                     TextField {
-                                        id: detailedCandlesSymbolField
+                                        id: detailedCandlesLeg1SymbolField
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 180
-                                        text: root.captureVm.detailedCandlesSymbolsText
-                                        placeholderText: root.captureVm.venueSymbolPlaceholder(root.captureVm.detailedCandlesVenueKey)
+                                        text: root.captureVm.detailedCandlesLeg1SymbolsText
+                                        placeholderText: root.captureVm.venueSymbolPlaceholder(root.captureVm.detailedCandlesLeg1VenueKey)
                                         selectByMouse: true
                                         color: root.textColor
                                         placeholderTextColor: root.mutedTextColor
-                                        onTextEdited: root.captureVm.detailedCandlesSymbolsText = text
+                                        onTextEdited: root.captureVm.detailedCandlesLeg1SymbolsText = text
+                                        onAccepted: detailedCandlesColumn.openDetailedSymbolSuggestions(1)
                                         background: Rectangle {
                                             radius: 8
                                             color: root.panelAltColor
                                             border.color: root.borderColor
                                             border.width: 1
                                         }
+                                    }
+
+                                    CaptureAccentActionButton {
+                                        Layout.preferredWidth: 82
+                                        text: "Find"
+                                        accentColor: root.accentRequiredColor
+                                        actionTextColor: "#071419"
+                                        mutedTextColor: root.mutedTextColor
+                                        onClicked: detailedCandlesColumn.openDetailedSymbolSuggestions(1)
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.preferredWidth: 170
+                                        Layout.minimumWidth: 155
+                                        spacing: 4
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: root.captureVm.detailedCandlesLimitHint
+                                            color: root.mutedTextColor
+                                            elide: Text.ElideRight
+                                            font.pixelSize: 11
+                                        }
+
+                                        SpinBox {
+                                            Layout.fillWidth: true
+                                            from: 1
+                                            to: 1000000
+                                            stepSize: 1000
+                                            editable: true
+                                            value: root.captureVm.detailedCandlesLimit
+                                            onValueModified: root.captureVm.detailedCandlesLimit = value
+                                        }
+                                    }
+
+                                    Label {
+                                        text: "Leg 2"
+                                        color: root.mutedTextColor
+                                    }
+
+                                    RecorderComboBox {
+                                        id: detailedCandlesLeg2VenueCombo
+                                        Layout.preferredWidth: 170
+                                        Layout.minimumWidth: 150
+                                        caption: "Venue"
+                                        textRole: "label"
+                                        valueRole: "key"
+                                        popupWidth: 240
+                                        panelColor: root.panelColor
+                                        panelAltColor: root.panelAltColor
+                                        panelDeepColor: root.panelColor
+                                        borderColor: root.borderColor
+                                        textColor: root.textColor
+                                        mutedTextColor: root.mutedTextColor
+                                        accentColor: root.accentRequiredColor
+                                        model: root.captureVm.detailedCandlesVenueChoices
+                                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(root.captureVm.detailedCandlesLeg2VenueKey))
+                                        onActivated: root.captureVm.detailedCandlesLeg2VenueKey = currentValue
+                                    }
+
+                                    TextField {
+                                        id: detailedCandlesLeg2SymbolField
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 180
+                                        text: root.captureVm.detailedCandlesLeg2SymbolsText
+                                        placeholderText: root.captureVm.venueSymbolPlaceholder(root.captureVm.detailedCandlesLeg2VenueKey)
+                                        selectByMouse: true
+                                        color: root.textColor
+                                        placeholderTextColor: root.mutedTextColor
+                                        enabled: root.captureVm.detailedCandlesLeg1SymbolsText !== ""
+                                        onTextEdited: root.captureVm.detailedCandlesLeg2SymbolsText = text
+                                        onAccepted: detailedCandlesColumn.openDetailedSymbolSuggestions(2)
+                                        background: Rectangle {
+                                            radius: 8
+                                            color: root.panelAltColor
+                                            border.color: root.borderColor
+                                            border.width: 1
+                                        }
+                                    }
+
+                                    CaptureAccentActionButton {
+                                        Layout.preferredWidth: 82
+                                        text: "Find"
+                                        accentColor: root.accentRequiredColor
+                                        actionTextColor: "#071419"
+                                        mutedTextColor: root.mutedTextColor
+                                        enabled: root.captureVm.detailedCandlesLeg1SymbolsText !== ""
+                                        onClicked: detailedCandlesColumn.openDetailedSymbolSuggestions(2)
                                     }
 
                                     RecorderComboBox {
@@ -238,29 +332,159 @@ Pane {
                                         onActivated: root.captureVm.detailedCandlesTimeframe = currentValue
                                     }
 
-                                    SpinBox {
-                                        Layout.preferredWidth: 170
-                                        Layout.minimumWidth: 155
-                                        from: 1
-                                        to: 1000000
-                                        stepSize: 1000
-                                        editable: true
-                                        value: root.captureVm.detailedCandlesLimit
-                                        onValueModified: root.captureVm.detailedCandlesLimit = value
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    Label {
+                                        text: "End"
+                                        color: root.mutedTextColor
                                     }
 
+                                    RecorderComboBox {
+                                        id: detailedCandlesEndModeCombo
+                                        Layout.preferredWidth: 170
+                                        Layout.minimumWidth: 150
+                                        caption: "End"
+                                        textRole: "label"
+                                        valueRole: "value"
+                                        popupWidth: 220
+                                        panelColor: root.panelColor
+                                        panelAltColor: root.panelAltColor
+                                        panelDeepColor: root.panelColor
+                                        borderColor: root.borderColor
+                                        textColor: root.textColor
+                                        mutedTextColor: root.mutedTextColor
+                                        accentColor: root.accentRequiredColor
+                                        model: root.captureVm.detailedCandlesEndModeChoices
+                                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(root.captureVm.detailedCandlesEndMode))
+                                        onActivated: root.captureVm.detailedCandlesEndMode = currentValue
+                                    }
+
+                                    TextField {
+                                        id: detailedCandlesManualEndField
+                                        Layout.preferredWidth: 220
+                                        Layout.minimumWidth: 180
+                                        visible: root.captureVm.detailedCandlesEndMode === "manual_utc"
+                                        text: root.captureVm.detailedCandlesEndUtcText
+                                        placeholderText: "2026-06-19 20:45:00Z"
+                                        selectByMouse: true
+                                        color: root.textColor
+                                        placeholderTextColor: root.mutedTextColor
+                                        onTextEdited: root.captureVm.detailedCandlesEndUtcText = text
+                                        background: Rectangle {
+                                            radius: 8
+                                            color: root.panelAltColor
+                                            border.color: root.borderColor
+                                            border.width: 1
+                                        }
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: root.captureVm.detailedCandlesResolvedEndText
+                                        color: root.mutedTextColor
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                function openDetailedSymbolSuggestions(leg) {
+                                    var venueKey = leg === 2 ? root.captureVm.detailedCandlesLeg2VenueKey : root.captureVm.detailedCandlesLeg1VenueKey
+                                    var query = leg === 2 ? detailedCandlesLeg2SymbolField.text : detailedCandlesLeg1SymbolField.text
+                                    symbolSuggestPopup.targetLeg = leg
+                                    symbolSuggestPopup.rows = root.captureVm.detailedCandlesSymbolSuggestions(
+                                        venueKey,
+                                        query,
+                                        root.captureVm.detailedCandlesLeg1VenueKey,
+                                        root.captureVm.detailedCandlesLeg1SymbolsText)
+                                    symbolSuggestPopup.open()
+                                }
+
+                                Popup {
+                                    id: symbolSuggestPopup
+                                    property int targetLeg: 1
+                                    property var rows: []
+                                    modal: false
+                                    focus: true
+                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                                    x: Math.max(0, (detailedCandlesColumn.width - width) / 2)
+                                    y: 88
+                                    width: Math.min(detailedCandlesColumn.width - 20, 640)
+                                    height: Math.min(320, Math.max(86, symbolSuggestionsList.contentHeight + 18))
+                                    padding: 8
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: root.panelColor
+                                        border.color: root.borderColor
+                                        border.width: 1
+                                    }
+
+                                    ListView {
+                                        id: symbolSuggestionsList
+                                        anchors.fill: parent
+                                        clip: true
+                                        model: symbolSuggestPopup.rows
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            width: symbolSuggestionsList.width
+                                            height: 54
+                                            color: mouseArea.containsMouse ? root.panelAltColor : root.panelColor
+
+                                            ColumnLayout {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 10
+                                                anchors.rightMargin: 10
+                                                spacing: 2
+
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    text: modelData.label
+                                                    color: root.textColor
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    text: modelData.detail
+                                                    color: root.mutedTextColor
+                                                    font.pixelSize: 11
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: mouseArea
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                onClicked: {
+                                                    root.captureVm.applyDetailedCandlesSymbolSuggestion(symbolSuggestPopup.targetLeg, modelData.symbol)
+                                                    symbolSuggestPopup.close()
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 Connections {
                                     target: root.captureVm
                                     function onDetailedCandlesChanged() {
-                                        var venueIdx = detailedCandlesVenueCombo.indexOfValue(root.captureVm.detailedCandlesVenueKey)
-                                        if (venueIdx >= 0 && detailedCandlesVenueCombo.currentIndex !== venueIdx)
-                                            detailedCandlesVenueCombo.currentIndex = venueIdx
+                                        var leg1VenueIdx = detailedCandlesLeg1VenueCombo.indexOfValue(root.captureVm.detailedCandlesLeg1VenueKey)
+                                        if (leg1VenueIdx >= 0 && detailedCandlesLeg1VenueCombo.currentIndex !== leg1VenueIdx)
+                                            detailedCandlesLeg1VenueCombo.currentIndex = leg1VenueIdx
+
+                                        var leg2VenueIdx = detailedCandlesLeg2VenueCombo.indexOfValue(root.captureVm.detailedCandlesLeg2VenueKey)
+                                        if (leg2VenueIdx >= 0 && detailedCandlesLeg2VenueCombo.currentIndex !== leg2VenueIdx)
+                                            detailedCandlesLeg2VenueCombo.currentIndex = leg2VenueIdx
 
                                         var tfIdx = detailedCandlesTimeframeCombo.indexOfValue(root.captureVm.detailedCandlesTimeframe)
                                         if (tfIdx >= 0 && detailedCandlesTimeframeCombo.currentIndex !== tfIdx)
                                             detailedCandlesTimeframeCombo.currentIndex = tfIdx
+
+                                        var endIdx = detailedCandlesEndModeCombo.indexOfValue(root.captureVm.detailedCandlesEndMode)
+                                        if (endIdx >= 0 && detailedCandlesEndModeCombo.currentIndex !== endIdx)
+                                            detailedCandlesEndModeCombo.currentIndex = endIdx
                                     }
                                 }
 
@@ -410,6 +634,16 @@ Pane {
                         Label {
                             text: "sec"
                             color: root.mutedTextColor
+                        }
+
+                        CaptureAccentActionButton {
+                            Layout.preferredWidth: 140
+                            text: "Fetch History"
+                            accentColor: root.accentRequiredColor
+                            actionTextColor: "#071419"
+                            mutedTextColor: root.mutedTextColor
+                            enabled: root.captureVm.captureAvailable && !root.captureVm.tradesRunning
+                            onClicked: root.captureVm.startTradesHistory()
                         }
                     }
 

@@ -194,7 +194,10 @@ CachedManifestSummary readManifestSummary(const std::filesystem::path& manifestP
     summary.type = type;
     summary.valid = type == QStringLiteral("run.result.v2") || type == QStringLiteral("sweep.result.v1");
     summary.selectable = type == QStringLiteral("run.result.v2");
-    if (type == QStringLiteral("sweep.result.v1")) summary.rightText = QStringLiteral("sweep");
+    if (type == QStringLiteral("sweep.result.v1")) {
+        const qint64 points = root.value(QStringLiteral("points_evaluated")).toInteger();
+        summary.rightText = points > 0 ? QStringLiteral("sweep %1 pts").arg(points) : QStringLiteral("sweep");
+    }
     if (!summary.valid) {
         return summary;
     }
@@ -815,6 +818,7 @@ bool ChartController::loadSessionForLayers(const QString& dir,
                                            bool tradesVisible,
                                            bool liquidationsVisible,
                                            bool candlesVisible,
+                                           bool candles2Visible,
                                            bool orderbookVisible,
                                            bool bookTickerVisible,
                                            bool markPriceVisible,
@@ -861,8 +865,10 @@ bool ChartController::loadSessionForLayers(const QString& dir,
     if (candlesVisible) {
         loadOptional(sessionChannelPath(path, manifest, QStringLiteral("candles"), "candles.jsonl"),
                      [&](const std::filesystem::path& channelPath) { return replay_.addCandlesFile(channelPath); });
+    }
+    if (candles2Visible) {
         loadOptional(sessionChannelPath(path, manifest, QStringLiteral("candles2"), "candles2.jsonl"),
-                     [&](const std::filesystem::path& channelPath) { return replay_.addCandlesFile(channelPath); });
+                     [&](const std::filesystem::path& channelPath) { return replay_.addCandles2File(channelPath); });
     }
     if (bookTickerVisible) {
         loadOptional(sessionChannelPath(path, manifest, QStringLiteral("bookticker"), "bookticker.jsonl"),
@@ -903,10 +909,11 @@ bool ChartController::loadSessionForLayers(const QString& dir,
 
     refreshLoadedStateFromSources_();
     currentBookTickerIndex_ = -1;
-    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 candles=%3 depth=%4 bookticker=%5")
+    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 C=%3 C2=%4 depth=%5 bookticker=%6")
                        .arg(replay_.trades().size())
                       .arg(replay_.liquidations().size())
                       .arg(replay_.candles().size())
+                      .arg(replay_.candles2().size())
                       .arg(replay_.depths().size())
                       .arg(replay_.bookTickers().size());
     if (!replay_.errorDetail().empty()) {
@@ -923,7 +930,7 @@ bool ChartController::loadSessionForLayers(const QString& dir,
 }
 
 bool ChartController::loadRecordedSession(const QString& dir) {
-    return loadSessionForLayers(dir, true, true, true, false, true, true, true, true, true);
+    return loadSessionForLayers(dir, true, true, true, true, false, true, true, true, true, true);
 }
 
 bool ChartController::loadRecordedOrderbook() {
@@ -956,10 +963,11 @@ bool ChartController::loadRecordedOrderbook() {
 
     if (!loadedAnyChannel) {
         if (hadLoadedData || loaded_) {
-            statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 candles=%3 depth=%4 bookticker=%5")
+            statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 C=%3 C2=%4 depth=%5 bookticker=%6")
                               .arg(replay_.trades().size())
                               .arg(replay_.liquidations().size())
                               .arg(replay_.candles().size())
+                              .arg(replay_.candles2().size())
                               .arg(replay_.depths().size())
                               .arg(replay_.bookTickers().size());
             emit sessionChanged();
@@ -986,10 +994,11 @@ bool ChartController::loadRecordedOrderbook() {
         computeInitialViewport_();
         applyRecordedRenderWindowViewport_();
     }
-    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 candles=%3 depth=%4 bookticker=%5")
+    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 C=%3 C2=%4 depth=%5 bookticker=%6")
                       .arg(replay_.trades().size())
                       .arg(replay_.liquidations().size())
                       .arg(replay_.candles().size())
+                      .arg(replay_.candles2().size())
                       .arg(replay_.depths().size())
                       .arg(replay_.bookTickers().size());
     if (!replay_.errorDetail().empty()) {
@@ -1038,10 +1047,11 @@ bool ChartController::loadSession(const QString& dir) {
 
     refreshLoadedStateFromSources_();
     currentBookTickerIndex_ = -1;
-    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 candles=%3 depth=%4 bookticker=%5")
+    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 C=%3 C2=%4 depth=%5 bookticker=%6")
                        .arg(replay_.trades().size())
                        .arg(replay_.liquidations().size())
                        .arg(replay_.candles().size())
+                       .arg(replay_.candles2().size())
                        .arg(replay_.depths().size())
                        .arg(replay_.bookTickers().size());
     if (!replay_.errorDetail().empty()) {
@@ -1056,7 +1066,7 @@ bool ChartController::loadSession(const QString& dir) {
     emit viewportChanged();
     return true;
 #else
-    return loadSessionForLayers(dir, true, true, true, true, true, true, true, true, true);
+    return loadSessionForLayers(dir, true, true, true, true, true, true, true, true, true, true);
 #endif
 }
 

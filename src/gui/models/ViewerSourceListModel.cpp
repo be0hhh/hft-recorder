@@ -106,7 +106,10 @@ BacktestResultSummary readBacktestResultSummary(const QString& manifestPath) {
     summary.type = type;
     summary.valid = type == QStringLiteral("run.result.v2") || type == QStringLiteral("sweep.result.v1");
     summary.selectable = type == QStringLiteral("run.result.v2");
-    if (type == QStringLiteral("sweep.result.v1")) summary.rightText = QStringLiteral("sweep");
+    if (type == QStringLiteral("sweep.result.v1")) {
+        const qint64 points = root.value(QStringLiteral("points_evaluated")).toInteger();
+        summary.rightText = points > 0 ? QStringLiteral("sweep %1 pts").arg(points) : QStringLiteral("sweep");
+    }
     if (!summary.valid) return summary;
 
     const QJsonObject summaryObject = root.value(QStringLiteral("summary")).toObject();

@@ -190,26 +190,30 @@ bool ChartController::measureTradeHighLowRect(qreal plotWidthPx,
         outerRange.timeEndNs,
         absorbTrade);
 
-    for (const auto& candle : replay_.candles()) {
-        if (candle.tsNs < outerRange.timeStartNs) continue;
-        if (candle.tsNs > outerRange.timeEndNs) break;
-        if (candle.highE8 < outerRange.priceMinE8 || candle.lowE8 > outerRange.priceMaxE8) continue;
-        if (!found) {
-            found = true;
-            highPriceE8 = candle.highE8;
-            lowPriceE8 = candle.lowE8;
-            highTsNs = lowTsNs = candle.tsNs;
-            continue;
+    auto absorbCandleHighLow = [&](const auto& rows) {
+        for (const auto& candle : rows) {
+            if (candle.tsNs < outerRange.timeStartNs) continue;
+            if (candle.tsNs > outerRange.timeEndNs) break;
+            if (candle.highE8 < outerRange.priceMinE8 || candle.lowE8 > outerRange.priceMaxE8) continue;
+            if (!found) {
+                found = true;
+                highPriceE8 = candle.highE8;
+                lowPriceE8 = candle.lowE8;
+                highTsNs = lowTsNs = candle.tsNs;
+                continue;
+            }
+            if (candle.highE8 > highPriceE8) {
+                highPriceE8 = candle.highE8;
+                highTsNs = candle.tsNs;
+            }
+            if (candle.lowE8 < lowPriceE8) {
+                lowPriceE8 = candle.lowE8;
+                lowTsNs = candle.tsNs;
+            }
         }
-        if (candle.highE8 > highPriceE8) {
-            highPriceE8 = candle.highE8;
-            highTsNs = candle.tsNs;
-        }
-        if (candle.lowE8 < lowPriceE8) {
-            lowPriceE8 = candle.lowE8;
-            lowTsNs = candle.tsNs;
-        }
-    }
+    };
+    absorbCandleHighLow(replay_.candles2());
+    absorbCandleHighLow(replay_.candles());
 
     if (!found) {
         selectionSummaryText_ = QStringList{
@@ -345,6 +349,7 @@ ChartController::SelectionRange ChartController::selectionFromRect_(qreal plotWi
     SelectionRange range{};
     const bool hasSelectableRows = loaded_
         || !replay_.candles().empty()
+        || !replay_.candles2().empty()
         || !liveDataCache_.stableRows.trades.empty()
         || !liveDataCache_.stableRows.bookTickers.empty()
         || !liveDataCache_.stableRows.depths.empty()
@@ -438,24 +443,28 @@ ChartController::SelectionSummary ChartController::buildSelectionSummary_(const 
         summary.movePctE8 = percentScaledE8(firstTradePriceE8, lastTradePriceE8);
     }
 
-    for (const auto& candle : replay_.candles()) {
-        if (candle.tsNs < range.timeStartNs) continue;
-        if (candle.tsNs > range.timeEndNs) break;
-        if (candle.highE8 < range.priceMinE8 || candle.lowE8 > range.priceMaxE8) continue;
-        ++summary.candleCount;
-        summary.candleQuoteAmountE8 += candle.quoteAmountE8;
-        if (candle.tier == 1) ++summary.candleM1Count;
-        else if (candle.tier == 2) ++summary.candleM15Count;
-        else if (candle.tier == 3) ++summary.candleD1Count;
-        if (!summary.hasCandleLow || candle.lowE8 < summary.candleLowE8) {
-            summary.hasCandleLow = true;
-            summary.candleLowE8 = candle.lowE8;
+    auto absorbCandleSummary = [&](const auto& rows) {
+        for (const auto& candle : rows) {
+            if (candle.tsNs < range.timeStartNs) continue;
+            if (candle.tsNs > range.timeEndNs) break;
+            if (candle.highE8 < range.priceMinE8 || candle.lowE8 > range.priceMaxE8) continue;
+            ++summary.candleCount;
+            summary.candleQuoteAmountE8 += candle.quoteAmountE8;
+            if (candle.tier == 1) ++summary.candleM1Count;
+            else if (candle.tier == 2) ++summary.candleM15Count;
+            else if (candle.tier == 3) ++summary.candleD1Count;
+            if (!summary.hasCandleLow || candle.lowE8 < summary.candleLowE8) {
+                summary.hasCandleLow = true;
+                summary.candleLowE8 = candle.lowE8;
+            }
+            if (!summary.hasCandleHigh || candle.highE8 > summary.candleHighE8) {
+                summary.hasCandleHigh = true;
+                summary.candleHighE8 = candle.highE8;
+            }
         }
-        if (!summary.hasCandleHigh || candle.highE8 > summary.candleHighE8) {
-            summary.hasCandleHigh = true;
-            summary.candleHighE8 = candle.highE8;
-        }
-    }
+    };
+    absorbCandleSummary(replay_.candles2());
+    absorbCandleSummary(replay_.candles());
 
     for (const auto& ticker : replay_.bookTickers()) {
         if (ticker.tsNs < range.timeStartNs) continue;

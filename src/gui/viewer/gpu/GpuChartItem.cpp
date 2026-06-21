@@ -36,6 +36,7 @@ SnapshotInputs collectInputs(const GpuChartItem& item) {
         item.tradesVisible(),
         item.liquidationsVisible(),
         item.candlesVisible(),
+        item.candles2Visible(),
         item.orderbookVisible(),
         item.bookTickerVisible(),
         item.interactiveMode(),
@@ -279,6 +280,15 @@ void GpuChartItem::setCandlesVisible(bool value) {
     invalidateSnapshotCache_();
     ensureSnapshot_();
     emit candlesVisibleChanged();
+    update();
+}
+
+void GpuChartItem::setCandles2Visible(bool value) {
+    if (candles2Visible_ == value) return;
+    candles2Visible_ = value;
+    invalidateSnapshotCache_();
+    ensureSnapshot_();
+    emit candles2VisibleChanged();
     update();
 }
 void GpuChartItem::setOrderbookVisible(bool value) {

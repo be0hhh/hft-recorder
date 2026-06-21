@@ -35,6 +35,9 @@ struct CaptureConfig {
     std::int64_t durationSec{0};
     std::int64_t snapshotIntervalSec{60};
     std::int64_t tradesHistoryWarmupSec{3600};
+    std::int64_t tradesHistoryEndNs{0};
+    std::uint32_t tradesHistoryPageLimit{1000u};
+    std::uint32_t tradesHistoryMaxRows{0u};
     std::vector<std::string> tradesAliases{};
     std::vector<std::string> liquidationAliases{};
     std::vector<std::string> bookTickerAliases{};
@@ -80,7 +83,9 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status stopPriceLimit() noexcept;
     Status finalizeSession() noexcept;
     Status captureCandlesOnce(const CaptureConfig& config) noexcept;
+    Status probeDetailedCandlesOnce(const CaptureConfig& config) noexcept;
     Status captureDetailedCandlesOnce(const CaptureConfig& config) noexcept;
+    Status captureTradesHistoryOnce(const CaptureConfig& config) noexcept;
     void reapStoppedThreads() noexcept;
 
     const SessionManifest& manifest() const noexcept { return manifest_; }

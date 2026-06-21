@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <filesystem>
+#include <string_view>
 
 #include "core/capture/SessionManifest.hpp"
 #include "core/corpus/CorpusLoader.hpp"
@@ -40,13 +41,16 @@ TEST(InstrumentMetadata, RoundTripsTraderBacktestGridFields) {
     metadata.tickSizeE8 = 10000000;
     metadata.lotSizeE8 = 100000;
     metadata.contractBaseQtyE8 = 100000;
+    metadata.priceBasisQtyE8 = 10000000000LL;
     metadata.tickSizeSource = "hft_trader_exchange_info";
     metadata.lotSizeSource = "hft_trader_exchange_info";
     metadata.contractBaseQtySource = "hft_trader_exchange_info";
+    metadata.priceBasisQtySource = "hft_trader_exchange_info";
     metadata.metadataSource = "hft_trader";
 
     const auto document = hftrec::corpus::renderInstrumentMetadataJson(metadata);
     EXPECT_NE(document.find("\"contract_base_qty_e8\": 100000"), std::string::npos);
+    EXPECT_NE(document.find("\"price_basis_qty_e8\": 10000000000"), std::string::npos);
     EXPECT_NE(document.find("\"metadata_source\": \"hft_trader\""), std::string::npos);
 
     hftrec::corpus::InstrumentMetadata parsed{};
@@ -54,7 +58,25 @@ TEST(InstrumentMetadata, RoundTripsTraderBacktestGridFields) {
     ASSERT_TRUE(parsed.contractBaseQtyE8.has_value());
     EXPECT_EQ(*parsed.contractBaseQtyE8, 100000);
     EXPECT_EQ(parsed.contractBaseQtySource, "hft_trader_exchange_info");
+    ASSERT_TRUE(parsed.priceBasisQtyE8.has_value());
+    EXPECT_EQ(*parsed.priceBasisQtyE8, 10000000000LL);
+    EXPECT_EQ(parsed.priceBasisQtySource, "hft_trader_exchange_info");
     EXPECT_EQ(parsed.metadataSource, "hft_trader");
+}
+
+TEST(InstrumentMetadata, ParsesLegacyDocumentWithoutPriceBasisAsIdentityMissing) {
+    constexpr std::string_view document = R"({
+  "schema_version": "hftrec.instrument_metadata.v1",
+  "exchange": "finam",
+  "market": "spot",
+  "symbol": "SBER@MISX",
+  "metadata_source": "recorder_inference"
+})";
+
+    hftrec::corpus::InstrumentMetadata parsed{};
+    ASSERT_EQ(hftrec::corpus::parseInstrumentMetadataJson(document, parsed), hftrec::Status::Ok);
+    EXPECT_FALSE(parsed.priceBasisQtyE8.has_value());
+    EXPECT_EQ(parsed.priceBasisQtySource, "unknown");
 }
 
 TEST(CorpusLoader, CorruptJsonFixtureReportsArtifactAndLine) {

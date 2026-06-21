@@ -220,6 +220,26 @@ TEST(SessionReplay, RejectsLegacyExtendedTradeRows) {
     fs::remove_all(dir, ec);
 }
 
+TEST(SessionReplay, KeepsCandlesAndCandles2Separate) {
+    const auto dir = makeTmpDir();
+    writeManifest(dir, false, false, false, 0u, 0u, 0u, 0u);
+
+    writeFile(dir / "candles.jsonl",
+              "[1,1000,10000000000,10000000000,10000000000,10000000000,0,0]\n");
+    writeFile(dir / "candles2.jsonl",
+              "[1,2000,20000000000,20000000000,20000000000,20000000000,0,0]\n");
+
+    SessionReplay replay{};
+    ASSERT_EQ(replay.open(dir), Status::Ok);
+    ASSERT_EQ(replay.candles().size(), 1u);
+    ASSERT_EQ(replay.candles2().size(), 1u);
+    EXPECT_EQ(replay.candles().front().tsNs, 1000);
+    EXPECT_EQ(replay.candles2().front().tsNs, 2000);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
     const auto dir = makeTmpDir();
     writeManifest(dir, true, true, true, 1u, 1u, 1u, 1u);

@@ -1,8 +1,10 @@
 ﻿#include "gui/viewmodels/CaptureViewModel.hpp"
 
+#include <QDateTime>
 #include <QStringList>
 #include <QVariantMap>
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <iterator>
 #include <memory>
@@ -17,6 +19,8 @@ namespace hftrec::gui {
 
 namespace {
 
+constexpr qint64 kNsPerMs = 1'000'000ll;
+
 QString buildViewerSourceId(const QString& exchange, const QString& market, const QString& symbol) {
     return QStringLiteral("live:%1:%2:%3")
         .arg(exchange.trimmed().toLower(), market.trimmed().toLower(), symbol.trimmed().toUpper());
@@ -28,6 +32,20 @@ QString buildLiveLabel(const QString& exchange, const QString& market, const QSt
         .arg(exchange.trimmed().isEmpty() ? QStringLiteral("Unknown Exchange") : exchange.trimmed(),
              market.trimmed().isEmpty() ? QStringLiteral("Unknown Market") : market.trimmed(),
              normalizedSymbol.isEmpty() ? QStringLiteral("Unknown Symbol") : normalizedSymbol);
+}
+
+qint64 currentUtcNs() {
+    return QDateTime::currentMSecsSinceEpoch() * kNsPerMs;
+}
+
+bool retryableDetailedCandlesWindowError(const QString& error) {
+    return error.contains(QStringLiteral("fetch returned no valid OHLCV rows")) ||
+           error.contains(QStringLiteral("parsed_rows=0"));
+}
+
+QString endLabelForStatus(std::int64_t endNs) {
+    if (endNs <= 0) return QStringLiteral("now");
+    return QDateTime::fromMSecsSinceEpoch(endNs / kNsPerMs, Qt::UTC).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss'Z'"));
 }
 
 QString configKey(const capture::CaptureConfig& config) {
@@ -118,6 +136,24 @@ void CaptureViewModel::stopTrades() {
     refreshState(detail::CaptureRefreshMode::Full);
 }
 
+bool CaptureViewModel::startTradesHistory() {
+    if (!ensureCoordinatorBatch_()) return false;
+
+    bool ok = true;
+    for (auto& entry : coordinators_) {
+        if (!entry.coordinator) continue;
+        const auto historyStatus = entry.coordinator->captureTradesHistoryOnce(entry.config);
+        if (!isOk(historyStatus)) ok = false;
+    }
+
+    setStatusText(ok
+        ? QStringLiteral("Trades history fetched for %1 stream(s)").arg(coordinators_.size())
+        : joinCoordinatorErrors_());
+    registerLiveSources_();
+    refreshState(detail::CaptureRefreshMode::Full);
+    return ok;
+}
+
 bool CaptureViewModel::startLiquidations() {
     desiredLiquidationsRunning_ = true;
     if (!reconcileCoordinatorBatch_()) return false;
@@ -179,16 +215,101 @@ bool CaptureViewModel::startCandles() {
 
 bool CaptureViewModel::startDetailedCandles() {
     QString errorText;
-    const auto configs = detail::makeDetailedCandlesConfigs(outputDirectory_,
-                                                            envPath_,
-                                                            apiSlot_,
-                                                            detailedCandlesVenueKey_,
-                                                            detailedCandlesSymbolsText_,
-                                                            detailedCandlesTimeframe_,
-                                                            detailedCandlesLimit_,
-                                                            &errorText);
+    const auto endCandidates = detail::detailedCandlesEndCandidatesNs(detailedCandlesEndMode_,
+                                                                      detailedCandlesEndUtcText_,
+                                                                      detailedCandlesVenueKey_,
+                                                                      detailedCandlesLeg2SymbolsText_.trimmed().isEmpty()
+                                                                          ? QString{}
+                                                                          : detailedCandlesLeg2VenueKey_,
+                                                                      currentUtcNs(),
+                                                                      nullptr,
+                                                                      &errorText);
+    if (endCandidates.empty()) {
+        setStatusText(errorText.isEmpty() ? QStringLiteral("Enter detailed candles end time") : errorText);
+        return false;
+    }
+
+    std::vector<capture::CaptureConfig> configs;
+    std::int64_t selectedEndNs = 0;
+    QStringList probeFailures;
+    const bool directNowPath = endCandidates.size() == 1u && endCandidates.front() == 0;
+    if (directNowPath) {
+        errorText.clear();
+        configs = detail::makeDetailedCandlesConfigs(outputDirectory_,
+                                                     envPath_,
+                                                     apiSlot_,
+                                                     detailedCandlesVenueKey_,
+                                                     detailedCandlesSymbolsText_,
+                                                     detailedCandlesLeg2VenueKey_,
+                                                     detailedCandlesLeg2SymbolsText_,
+                                                     detailedCandlesTimeframe_,
+                                                     detailedCandlesLimit_,
+                                                     &errorText,
+                                                     0);
+        if (configs.empty()) {
+            setStatusText(errorText.isEmpty() ? QStringLiteral("Enter detailed candles symbol") : errorText);
+            return false;
+        }
+    } else {
+        for (const auto endNs : endCandidates) {
+            errorText.clear();
+            auto candidateConfigs = detail::makeDetailedCandlesConfigs(outputDirectory_,
+                                                                       envPath_,
+                                                                       apiSlot_,
+                                                                       detailedCandlesVenueKey_,
+                                                                       detailedCandlesSymbolsText_,
+                                                                       detailedCandlesLeg2VenueKey_,
+                                                                       detailedCandlesLeg2SymbolsText_,
+                                                                       detailedCandlesTimeframe_,
+                                                                       detailedCandlesLimit_,
+                                                                       &errorText,
+                                                                       endNs);
+            if (candidateConfigs.empty()) {
+                setStatusText(errorText.isEmpty() ? QStringLiteral("Enter detailed candles symbol") : errorText);
+                return false;
+            }
+
+            bool candidateOk = true;
+            QStringList candidateFailures;
+            for (const auto& config : candidateConfigs) {
+                capture::CaptureCoordinator probe{};
+                const auto probeStatus = probe.probeDetailedCandlesOnce(config);
+                if (isOk(probeStatus)) continue;
+
+                candidateOk = false;
+                const auto symbol = config.symbols.empty() ? QString{} : QString::fromStdString(config.symbols.front());
+                const auto failure = QString::fromStdString(probe.lastError()).trimmed();
+                candidateFailures.push_back(QStringLiteral("%1/%2/%3/%4 end=%5: %6")
+                    .arg(QString::fromStdString(config.exchange),
+                         QString::fromStdString(config.market),
+                         symbol,
+                         QString::fromStdString(config.detailedCandlesTimeframe),
+                         endLabelForStatus(endNs),
+                         failure.isEmpty() ? QString::fromUtf8(hftrec::statusToString(probeStatus).data()) : failure));
+            }
+
+            if (candidateOk) {
+                configs = std::move(candidateConfigs);
+                selectedEndNs = endNs;
+                break;
+            }
+
+            probeFailures = candidateFailures;
+            bool retryable = true;
+            for (const auto& failure : candidateFailures) {
+                if (!retryableDetailedCandlesWindowError(failure)) {
+                    retryable = false;
+                    break;
+                }
+            }
+            if (!retryable) break;
+        }
+    }
+
     if (configs.empty()) {
-        setStatusText(errorText.isEmpty() ? QStringLiteral("Enter detailed candles symbol") : errorText);
+        setStatusText(probeFailures.isEmpty()
+            ? QStringLiteral("Detailed candles2 failed: no valid smart end candidate")
+            : QStringLiteral("Detailed candles2 failed: %1").arg(probeFailures.join(QStringLiteral(" | "))));
         return false;
     }
 
@@ -238,7 +359,8 @@ bool CaptureViewModel::startDetailedCandles() {
     }
 
     if (ok) {
-        setStatusText(QStringLiteral("Detailed candles2 downloaded: %1").arg(successes.join(QStringLiteral(" | "))));
+        setStatusText(QStringLiteral("Detailed candles2 downloaded end=%1: %2")
+            .arg(endLabelForStatus(selectedEndNs), successes.join(QStringLiteral(" | "))));
     } else if (!failures.isEmpty()) {
         setStatusText(QStringLiteral("Detailed candles2 failed: %1").arg(failures.join(QStringLiteral(" | "))));
     } else {

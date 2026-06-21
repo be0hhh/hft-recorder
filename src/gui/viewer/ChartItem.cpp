@@ -65,6 +65,15 @@ void ChartItem::setCandlesVisible(bool value) {
     emit candlesVisibleChanged();
     update();
 }
+
+void ChartItem::setCandles2Visible(bool value) {
+    if (candles2Visible_ == value) return;
+    candles2Visible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit candles2VisibleChanged();
+    update();
+}
 void ChartItem::setOrderbookVisible(bool value) {
     if (orderbookVisible_ == value) return;
     orderbookVisible_ = value;
@@ -220,6 +229,7 @@ SnapshotInputs collectInputs(const ChartItem& item) {
         item.tradesVisible(),
         item.liquidationsVisible(),
         item.candlesVisible(),
+        item.candles2Visible(),
         item.orderbookVisible(),
         item.bookTickerVisible(),
         item.interactiveMode(),

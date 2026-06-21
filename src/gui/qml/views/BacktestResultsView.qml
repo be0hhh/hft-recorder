@@ -290,12 +290,6 @@ Pane {
                         text: root.backtestVm.initialBalanceUsdt
                         onEdited: function(value) { root.backtestVm.initialBalanceUsdt = value }
                     }
-                    CompactField {
-                        caption: "Min equity %"
-                        fieldWidth: 118
-                        text: root.backtestVm.riskMinEquityPct
-                        onEdited: function(value) { root.backtestVm.riskMinEquityPct = value }
-                    }
                     RecorderComboBox {
                         id: secondarySessionBox
                         Layout.fillWidth: true
@@ -668,6 +662,92 @@ Pane {
                                 background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                                 onEditingFinished: root.backtestVm.setStrategyParameterRange(modelData.key, minField.text, maxField.text, text)
                             }
+                        }
+                    }
+                    Item {
+                        width: 420
+                        height: 62
+
+                        Label {
+                            x: 0
+                            y: 0
+                            width: parent.width
+                            height: 18
+                            text: "Risk"
+                            color: root.textColor
+                            font.pixelSize: 11
+                            font.bold: true
+                        }
+
+                        CheckBox {
+                            id: riskEnabledBox
+                            x: 0
+                            y: 22
+                            width: 62
+                            height: 28
+                            checked: root.backtestVm.riskEnabled
+                            text: "On"
+                            font.pixelSize: 12
+                            palette.text: root.textColor
+                            contentItem: Text {
+                                leftPadding: riskEnabledBox.indicator.width + riskEnabledBox.spacing
+                                text: riskEnabledBox.text
+                                color: root.textColor
+                                font: riskEnabledBox.font
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onToggled: root.backtestVm.riskEnabled = checked
+                        }
+
+                        TextField {
+                            x: 70
+                            y: 24
+                            width: 92
+                            height: 26
+                            placeholderText: "equity %"
+                            text: root.backtestVm.riskMinEquityPct
+                            enabled: root.backtestVm.riskEnabled
+                            opacity: enabled ? 1.0 : 0.45
+                            selectByMouse: true
+                            color: root.textColor
+                            placeholderTextColor: root.mutedTextColor
+                            font.pixelSize: 12
+                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                            onEditingFinished: root.backtestVm.riskMinEquityPct = text
+                        }
+
+                        TextField {
+                            x: 170
+                            y: 24
+                            width: 92
+                            height: 26
+                            placeholderText: "leg %"
+                            text: root.backtestVm.riskMinLegEquityPct
+                            enabled: root.backtestVm.riskEnabled
+                            opacity: enabled ? 1.0 : 0.45
+                            selectByMouse: true
+                            color: root.textColor
+                            placeholderTextColor: root.mutedTextColor
+                            font.pixelSize: 12
+                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                            onEditingFinished: root.backtestVm.riskMinLegEquityPct = text
+                        }
+
+                        TextField {
+                            x: 270
+                            y: 24
+                            width: 112
+                            height: 26
+                            placeholderText: "leg USDT"
+                            text: root.backtestVm.riskMinLegEquityUsdt
+                            enabled: root.backtestVm.riskEnabled
+                            opacity: enabled ? 1.0 : 0.45
+                            selectByMouse: true
+                            color: root.textColor
+                            placeholderTextColor: root.mutedTextColor
+                            font.pixelSize: 12
+                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                            onEditingFinished: root.backtestVm.riskMinLegEquityUsdt = text
                         }
                     }
                 }

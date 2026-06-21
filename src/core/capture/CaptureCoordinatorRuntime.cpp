@@ -413,6 +413,114 @@ hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfi
     return venue;
 }
 
+bool validDetailedCandle(const cxet::composite::Ohlcv& candle) noexcept {
+    return candle.ts.raw > 0 &&
+           candle.open.raw > 0 &&
+           candle.high.raw > 0 &&
+           candle.low.raw > 0 &&
+           candle.close.raw > 0 &&
+           candle.high.raw >= candle.low.raw;
+}
+
+std::size_t validDetailedCandleCount(const std::vector<cxet::composite::Ohlcv>& rows,
+                                     std::size_t rowCount) noexcept {
+    std::size_t count = 0u;
+    const std::size_t capped = std::min(rowCount, rows.size());
+    for (std::size_t i = 0u; i < capped; ++i) {
+        if (validDetailedCandle(rows[i])) ++count;
+    }
+    return count;
+}
+
+bool fetchDetailedCandlesRows(const CaptureConfig& config,
+                              std::vector<cxet::composite::Ohlcv>& rows,
+                              std::size_t& rowCount,
+                              std::string& tfText,
+                              std::string& errorText) noexcept {
+    rowCount = 0u;
+    rows.clear();
+    errorText.clear();
+
+    if (config.symbols.empty()) {
+        errorText = "candles2: missing symbol";
+        return false;
+    }
+
+    Symbol symbol{};
+    symbol.copyFrom(config.symbols.front().c_str());
+    if (symbol.data[0] == '\0') {
+        errorText = "candles2: invalid symbol";
+        return false;
+    }
+
+    TimeframeBuf timeframe{};
+    tfText = config.detailedCandlesTimeframe.empty() ? std::string{"15m"} : config.detailedCandlesTimeframe;
+    timeframe.copyFrom(tfText.c_str());
+    if (timeframe.data[0] == '\0') {
+        errorText = "candles2: invalid timeframe";
+        return false;
+    }
+
+    CountVal limit{};
+    const std::uint32_t requestedLimit = config.detailedCandlesLimit == 0u
+        ? kDetailedCandlesDefaultLimit
+        : config.detailedCandlesLimit;
+    limit.raw = std::min<std::uint32_t>(requestedLimit, kDetailedCandlesMaxLimit);
+
+    TimeNs endTime{};
+    endTime.raw = config.detailedCandlesEndNs > 0
+        ? static_cast<std::uint64_t>(config.detailedCandlesEndNs)
+        : static_cast<std::uint64_t>(internal::nowNs());
+
+    rows.resize(static_cast<std::size_t>(limit.raw));
+    MessageBuffer requestBuf{};
+    MessageBuffer recvBuf{};
+    std::string fetchFailure;
+    const bool fetched = hft_trader::runtime::candles::loadOhlcvHistoryForVenue(
+        makeTraderVenueConfig(config),
+        symbol,
+        timeframe,
+        limit,
+        endTime,
+        rows.data(),
+        rows.size(),
+        &rowCount,
+        requestBuf,
+        recvBuf,
+        &fetchFailure);
+    if (!fetched) {
+        errorText = "candles2: trader OHLCV fetch failed exchange=" + config.exchange +
+                    " market=" + config.market +
+                    " symbol=" + config.symbols.front() +
+                    " timeframe=" + tfText;
+        if (!fetchFailure.empty()) errorText += " reason=" + fetchFailure;
+        if (requestBuf.size() != 0u) {
+            errorText += " request=";
+            errorText.append(requestBuf.data(), std::min<std::size_t>(requestBuf.size(), 240u));
+        }
+        errorText += " response_bytes=" + std::to_string(recvBuf.size());
+        return false;
+    }
+    if (validDetailedCandleCount(rows, rowCount) == 0u) {
+        errorText = "candles2: fetch returned no valid OHLCV rows exchange=" + config.exchange +
+                    " market=" + config.market +
+                    " symbol=" + config.symbols.front() +
+                    " timeframe=" + tfText +
+                    " parsed_rows=" + std::to_string(rowCount);
+        return false;
+    }
+    return true;
+}
+
+Status detailedCandlesFetchStatus(std::string_view errorText) noexcept {
+    if (errorText == "candles2: missing symbol" ||
+        errorText == "candles2: invalid symbol" ||
+        errorText == "candles2: invalid timeframe") {
+        return Status::InvalidArgument;
+    }
+    return Status::Unknown;
+}
+
 hft_trader::runtime::HftRuntimeConfig makeTraderMarketDataConfig(
     const CaptureConfig& config,
     Span<const cxet::api::market::PublicMarketDataStream> streams) {
@@ -563,69 +671,38 @@ Status CaptureCoordinator::captureCandlesOnce(const CaptureConfig& config) noexc
     return Status::Ok;
 }
 
+Status CaptureCoordinator::probeDetailedCandlesOnce(const CaptureConfig& config) noexcept {
+    internal::ensureCxetInitialized();
+    if (const auto envStatus = internal::loadCaptureEnv(config, lastError_); !isOk(envStatus)) {
+        return envStatus;
+    }
+    if (const auto validateStatus = internal::validateSupportedConfig(config, lastError_); !isOk(validateStatus)) {
+        return validateStatus;
+    }
+
+    std::vector<cxet::composite::Ohlcv> rows;
+    std::size_t rowCount = 0u;
+    std::string tfText;
+    std::string errorText;
+    if (!fetchDetailedCandlesRows(config, rows, rowCount, tfText, errorText)) {
+        lastError_ = errorText;
+        return detailedCandlesFetchStatus(errorText);
+    }
+    if (lastError_.starts_with("candles2:")) lastError_.clear();
+    return Status::Ok;
+}
+
 Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& config) noexcept {
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
-    if (config.symbols.empty()) {
-        lastError_ = "candles2: missing symbol";
-        return Status::InvalidArgument;
-    }
 
-    Symbol symbol{};
-    symbol.copyFrom(config.symbols.front().c_str());
-    if (symbol.data[0] == '\0') {
-        lastError_ = "candles2: invalid symbol";
-        return Status::InvalidArgument;
-    }
-
-    TimeframeBuf timeframe{};
-    const std::string tfText = config.detailedCandlesTimeframe.empty() ? std::string{"15m"} : config.detailedCandlesTimeframe;
-    timeframe.copyFrom(tfText.c_str());
-    if (timeframe.data[0] == '\0') {
-        lastError_ = "candles2: invalid timeframe";
-        return Status::InvalidArgument;
-    }
-
-    CountVal limit{};
-    const std::uint32_t requestedLimit = config.detailedCandlesLimit == 0u
-        ? kDetailedCandlesDefaultLimit
-        : config.detailedCandlesLimit;
-    limit.raw = std::min<std::uint32_t>(requestedLimit, kDetailedCandlesMaxLimit);
-
-    TimeNs endTime{};
-    endTime.raw = config.detailedCandlesEndNs > 0
-        ? static_cast<std::uint64_t>(config.detailedCandlesEndNs)
-        : static_cast<std::uint64_t>(internal::nowNs());
-
-    std::vector<cxet::composite::Ohlcv> rows(static_cast<std::size_t>(limit.raw));
-    MessageBuffer requestBuf{};
-    MessageBuffer recvBuf{};
+    std::vector<cxet::composite::Ohlcv> rows;
     std::size_t rowCount = 0u;
-    std::string fetchFailure;
-    const bool fetched = hft_trader::runtime::candles::loadOhlcvHistoryForVenue(
-        makeTraderVenueConfig(config),
-        symbol,
-        timeframe,
-        limit,
-        endTime,
-        rows.data(),
-        rows.size(),
-        &rowCount,
-        requestBuf,
-        recvBuf,
-        &fetchFailure);
-    if (!fetched) {
-        lastError_ = "candles2: trader OHLCV fetch failed exchange=" + config.exchange +
-                     " market=" + config.market +
-                     " symbol=" + config.symbols.front() +
-                     " timeframe=" + tfText;
-        if (!fetchFailure.empty()) lastError_ += " reason=" + fetchFailure;
-        if (requestBuf.size() != 0u) {
-            lastError_ += " request=";
-            lastError_.append(requestBuf.data(), std::min<std::size_t>(requestBuf.size(), 240u));
-        }
-        lastError_ += " response_bytes=" + std::to_string(recvBuf.size());
-        return Status::Unknown;
+    std::string tfText;
+    std::string errorText;
+    if (!fetchDetailedCandlesRows(config, rows, rowCount, tfText, errorText)) {
+        lastError_ = errorText;
+        return detailedCandlesFetchStatus(errorText);
     }
 
     const std::string candles2Path = detailedCandlesRelativePath(tfText, true);
@@ -662,8 +739,7 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
         row.volumeE8 = static_cast<std::int64_t>(candle.amount.raw);
         row.quoteAmountE8 = static_cast<std::int64_t>(candle.quoteAmount.raw);
         row.hasOhlc = true;
-        if (row.tsNs <= 0 || row.openE8 <= 0 || row.highE8 <= 0 || row.lowE8 <= 0 ||
-            row.closeE8 <= 0 || row.highE8 < row.lowE8 || row.volumeE8 < 0 || row.quoteAmountE8 < 0) {
+        if (!validDetailedCandle(candle) || row.volumeE8 < 0 || row.quoteAmountE8 < 0) {
             continue;
         }
         const auto line = renderCandleJsonLine(row);
@@ -719,6 +795,137 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
         == manifest_.canonicalArtifacts.end()) {
         manifest_.canonicalArtifacts.push_back(manifest_.candles2Path);
     }
+    return writeManifestFile_();
+}
+
+Status CaptureCoordinator::captureTradesHistoryOnce(const CaptureConfig& config) noexcept {
+    const auto sessionStatus = ensureSession(config);
+    if (!isOk(sessionStatus)) return sessionStatus;
+    if (config.symbols.empty()) {
+        lastError_ = "trades_history: missing symbol";
+        return Status::InvalidArgument;
+    }
+    if (config.tradesHistoryWarmupSec <= 0) {
+        lastError_ = "trades_history: history window must be > 0 seconds";
+        return Status::InvalidArgument;
+    }
+
+    Symbol symbol{};
+    symbol.copyFrom(config.symbols.front().c_str());
+    if (symbol.data[0] == '\0') {
+        lastError_ = "trades_history: invalid symbol";
+        return Status::InvalidArgument;
+    }
+
+    const auto warmupSec = std::min<std::int64_t>(config.tradesHistoryWarmupSec, kTradesHistoryWarmupMaxSec);
+    const auto warmupNs = warmupSec * 1000000000LL;
+    const auto endNs = config.tradesHistoryEndNs > 0 ? config.tradesHistoryEndNs : internal::nowNs();
+    const auto startNs = endNs > warmupNs ? endNs - warmupNs : 0;
+    CountVal pageLimit{};
+    pageLimit.raw = config.tradesHistoryPageLimit == 0u ? kTradesHistoryWarmupPageLimit : config.tradesHistoryPageLimit;
+
+    TradesHistoryWarmupState history{};
+    history.requestedStartNs = startNs;
+    history.requestedEndNs = endNs;
+    TradesHistorySinkContext sinkContext{};
+    sinkContext.state = &history;
+    sinkContext.tradesCaptureSeq = &tradesCaptureSeq_;
+    sinkContext.ingestSeq = &ingestSeq_;
+    sinkContext.exchange = config.exchange;
+    sinkContext.market = config.market;
+    sinkContext.maxRows = config.tradesHistoryMaxRows;
+
+    MessageBuffer requestBuf{};
+    MessageBuffer recvBuf{};
+    cxet::api::trades::HistoricalTradesResult result{};
+    TimeNs startTime{};
+    TimeNs endTime{};
+    startTime.raw = static_cast<std::uint64_t>(startNs > 0 ? startNs : 0);
+    endTime.raw = static_cast<std::uint64_t>(endNs > 0 ? endNs : 0);
+    const bool fetched = hft_trader::runtime::trades::loadPublicTradeHistoryForVenue(
+        makeTraderVenueConfig(config),
+        symbol,
+        startTime,
+        endTime,
+        pageLimit,
+        true,
+        appendHistoricalTradesToWarmup,
+        &sinkContext,
+        result,
+        requestBuf,
+        recvBuf);
+    if (sinkContext.hitRowLimit) {
+        result.rowsTotal.raw = static_cast<std::uint64_t>(history.historyRows.size());
+        result.status = cxet::api::trades::HistoricalTradesStatus::Ok;
+    }
+
+    std::vector<replay::TradeRow> historyRows;
+    {
+        std::lock_guard<std::mutex> lock(history.mutex);
+        historyRows = std::move(history.historyRows);
+    }
+    std::sort(historyRows.begin(), historyRows.end(), tradeLessByEventTime);
+    historyRows.erase(std::unique(historyRows.begin(), historyRows.end(), sameTradeEvent), historyRows.end());
+
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        manifest_.tradesEnabled = true;
+        manifest_.tradesHistoryWarmupSec = warmupSec;
+        manifest_.tradesHistoryRequestedStartNs = startNs;
+        manifest_.tradesHistoryRequestedEndNs = endNs;
+        manifest_.tradesHistoryRows = static_cast<std::uint64_t>(historyRows.size());
+        manifest_.tradesHistoryRequests = static_cast<std::uint64_t>(result.requestsTotal.raw);
+        manifest_.tradesHistoryFeedKind = historicalTradeFeedKindName(result.feedKind);
+        manifest_.tradesHistoryStatus = historicalTradesStatusName(result.status);
+        if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), manifest_.tradesPath)
+            == manifest_.canonicalArtifacts.end()) {
+            manifest_.canonicalArtifacts.push_back(manifest_.tradesPath);
+        }
+    }
+    if (!isOk(jsonSink_.ensureChannelFile(ChannelKind::Trades))) {
+        lastError_ = "trades_history: failed to create trades.jsonl";
+        return Status::IoError;
+    }
+
+    for (const auto& row : historyRows) {
+        const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
+        const auto fileStatus = jsonSink_.appendTradeLine(row, jsonLine);
+        if (!isOk(fileStatus)) {
+            lastError_ = "trades_history: failed to write trades.jsonl";
+            return fileStatus;
+        }
+        const auto liveStatus = liveStore_.appendTrade(row);
+        if (!isOk(liveStatus)) {
+            lastError_ = "trades_history: failed to publish history row";
+            return liveStatus;
+        }
+        tradesCount_.fetch_add(1, std::memory_order_acq_rel);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        manifest_.tradesCount = tradesCount_.load(std::memory_order_relaxed);
+    }
+
+    if (!fetched) {
+        lastError_ = std::string{"trades_history: REST fetch failed status="}
+            + historicalTradesStatusName(result.status);
+        if (requestBuf.size() != 0u) {
+            lastError_ += " request=";
+            lastError_.append(requestBuf.data(), std::min<std::size_t>(requestBuf.size(), 240u));
+        }
+        lastError_ += " response_bytes=" + std::to_string(recvBuf.size());
+        (void)writeManifestFile_();
+        return Status::Unknown;
+    }
+    if (historyRows.empty()) {
+        lastError_ = std::string{"trades_history: no valid rows status="}
+            + historicalTradesStatusName(result.status);
+        (void)writeManifestFile_();
+        return Status::Unknown;
+    }
+
+    if (lastError_.starts_with("trades_history:")) lastError_.clear();
     return writeManifestFile_();
 }
 

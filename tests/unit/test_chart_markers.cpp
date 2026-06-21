@@ -222,15 +222,21 @@ TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
     ASSERT_TRUE(chart.loaded());
     chart.setViewport(0, 70000000000ll, e8(90), e8(110));
 
+    SnapshotInputs inputs{};
+    inputs.tradesVisible = true;
+    inputs.liquidationsVisible = false;
+    inputs.candlesVisible = false;
+    inputs.bookTickerVisible = true;
+
     chart.setRenderWindowSeconds(0);
-    auto snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false, true});
+    auto snap = chart.buildSnapshot(800.0, 600.0, inputs);
     EXPECT_EQ(snap.tradeDots.size(), 3u);
     EXPECT_FALSE(snap.bookTickerTrace.samples.empty());
 
     chart.setRenderWindowSeconds(30);
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
     EXPECT_EQ(chart.tsMin(), 31000000000ll);
-    snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false, true});
+    snap = chart.buildSnapshot(800.0, 600.0, inputs);
     ASSERT_EQ(snap.tradeDots.size(), 2u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 31000000000ll);
     EXPECT_EQ(snap.tradeDots.back().tsNs, 61000000000ll);
@@ -238,7 +244,7 @@ TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
     chart.setRenderWindowSeconds(-1);
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
     EXPECT_EQ(chart.tsMin(), 60999999999ll);
-    snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false, true});
+    snap = chart.buildSnapshot(800.0, 600.0, inputs);
     ASSERT_EQ(snap.tradeDots.size(), 1u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 61000000000ll);
     ASSERT_EQ(snap.bookTickerTrace.samples.size(), 1u);
@@ -271,7 +277,12 @@ TEST(ChartRenderWindow, LoadSessionOpensAtLatestWindowWhenConfigured) {
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
     EXPECT_EQ(chart.tsMin(), 31000000000ll);
 
-    const auto snap = chart.buildSnapshot(800.0, 600.0, SnapshotInputs{true, false, false});
+    SnapshotInputs inputs{};
+    inputs.tradesVisible = true;
+    inputs.liquidationsVisible = false;
+    inputs.candlesVisible = false;
+
+    const auto snap = chart.buildSnapshot(800.0, 600.0, inputs);
     ASSERT_EQ(snap.tradeDots.size(), 1u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 61000000000ll);
 

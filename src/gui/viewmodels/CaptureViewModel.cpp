@@ -3,6 +3,7 @@
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QVariantMap>
 
@@ -11,6 +12,7 @@ namespace hftrec::gui {
 namespace {
 
 constexpr int kDetailedCandlesMaxLimit = 1'000'000;
+constexpr qint64 kNsPerMs = 1'000'000ll;
 
 QString normalizeDetailedCandlesTimeframeForVenue(const QString& venueKey, QString timeframe) {
     timeframe = timeframe.trimmed();
@@ -32,6 +34,20 @@ QString normalizeDetailedCandlesVenueKey(QString venueKey) {
         if (choice.value(QStringLiteral("key")).toString() == venueKey) return venueKey;
     }
     return {};
+}
+
+QString normalizeDetailedCandlesEndMode(QString mode) {
+    mode = mode.trimmed().toLower();
+    if (mode == QStringLiteral("manual") || mode == QStringLiteral("manual_utc") ||
+        mode == QStringLiteral("manual-utc")) {
+        return QStringLiteral("manual_utc");
+    }
+    if (mode == QStringLiteral("now")) return QStringLiteral("now");
+    return QStringLiteral("smart");
+}
+
+qint64 currentUtcNs() {
+    return QDateTime::currentMSecsSinceEpoch() * kNsPerMs;
 }
 
 void syncDetailedVenueFields(const QString& venueKey, QString& exchange, QString& market) {
@@ -69,6 +85,7 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
         QStringLiteral("SBER@MISX"),
         QStringLiteral("SBER@MISX"),
         QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTC_USDT"),
     };
     loadSettings_();
 
@@ -185,21 +202,55 @@ QString CaptureViewModel::detailedCandlesVenueKey() const { return detailedCandl
 QString CaptureViewModel::detailedCandlesExchange() const { return detailedCandlesExchange_; }
 QString CaptureViewModel::detailedCandlesMarket() const { return detailedCandlesMarket_; }
 QString CaptureViewModel::detailedCandlesSymbolsText() const { return detailedCandlesSymbolsText_; }
+QString CaptureViewModel::detailedCandlesLeg1VenueKey() const { return detailedCandlesVenueKey_; }
+QString CaptureViewModel::detailedCandlesLeg1SymbolsText() const { return detailedCandlesSymbolsText_; }
+QString CaptureViewModel::detailedCandlesLeg2VenueKey() const { return detailedCandlesLeg2VenueKey_; }
+QString CaptureViewModel::detailedCandlesLeg2SymbolsText() const { return detailedCandlesLeg2SymbolsText_; }
 QString CaptureViewModel::detailedCandlesTimeframe() const { return detailedCandlesTimeframe_; }
 int CaptureViewModel::detailedCandlesLimit() const noexcept { return detailedCandlesLimit_; }
+QString CaptureViewModel::detailedCandlesEndMode() const { return detailedCandlesEndMode_; }
+QString CaptureViewModel::detailedCandlesEndUtcText() const { return detailedCandlesEndUtcText_; }
+QVariantList CaptureViewModel::detailedCandlesEndModeChoices() const {
+    return detail::detailedCandlesEndModeChoices();
+}
+QString CaptureViewModel::detailedCandlesResolvedEndText() const {
+    QString resolved;
+    QString error;
+    (void)detail::detailedCandlesEndCandidatesNs(detailedCandlesEndMode_,
+                                                 detailedCandlesEndUtcText_,
+                                                 detailedCandlesVenueKey_,
+                                                 detailedCandlesLeg2SymbolsText_.trimmed().isEmpty()
+                                                     ? QString{}
+                                                     : detailedCandlesLeg2VenueKey_,
+                                                 currentUtcNs(),
+                                                 &resolved,
+                                                 &error);
+    return error.isEmpty() ? resolved : error;
+}
 QVariantList CaptureViewModel::detailedCandlesTimeframeChoices() const {
     return detail::detailedCandlesTimeframeChoices(detailedCandlesVenueKey_);
 }
 
+QString CaptureViewModel::detailedCandlesLimitHint() const {
+    return detail::detailedCandlesLimitHint(detailedCandlesVenueKey_, detailedCandlesTimeframe_);
+}
+
 QString CaptureViewModel::detailedCandlesLimitWarning() const {
-    return QStringLiteral("Paged REST download stops when the exchange returns no older candles; written rows can be lower than requested.");
+    return detail::detailedCandlesLimitWarning(detailedCandlesVenueKey_,
+                                               detailedCandlesTimeframe_,
+                                               detailedCandlesLimit_);
 }
 
 QString CaptureViewModel::detailedCandlesRequestPreview() const {
-    return detail::buildDetailedCandlesPreview(detailedCandlesVenueKey_,
-                                               detailedCandlesSymbolsText_,
-                                               detailedCandlesTimeframe_,
-                                               detailedCandlesLimit_);
+    QString preview = detail::buildDetailedCandlesPreview(detailedCandlesVenueKey_,
+                                                          detailedCandlesSymbolsText_,
+                                                          detailedCandlesLeg2VenueKey_,
+                                                          detailedCandlesLeg2SymbolsText_,
+                                                          detailedCandlesTimeframe_,
+                                                          detailedCandlesLimit_);
+    const QString end = detailedCandlesResolvedEndText();
+    if (!end.isEmpty()) preview += QStringLiteral("\nend(%1)").arg(end);
+    return preview;
 }
 
 void CaptureViewModel::setOutputDirectory(const QString& outputDirectory) {
@@ -232,6 +283,10 @@ void CaptureViewModel::setApiSlot(int apiSlot) {
 }
 
 void CaptureViewModel::setDetailedCandlesVenueKey(const QString& venueKey) {
+    setDetailedCandlesLeg1VenueKey(venueKey);
+}
+
+void CaptureViewModel::setDetailedCandlesLeg1VenueKey(const QString& venueKey) {
     const auto normalized = normalizeDetailedCandlesVenueKey(venueKey);
     if (normalized.isEmpty() || normalized == detailedCandlesVenueKey_) return;
     detailedCandlesVenueKey_ = normalized;
@@ -258,9 +313,30 @@ void CaptureViewModel::setDetailedCandlesMarket(const QString& market) {
 }
 
 void CaptureViewModel::setDetailedCandlesSymbolsText(const QString& symbolsText) {
+    setDetailedCandlesLeg1SymbolsText(symbolsText);
+}
+
+void CaptureViewModel::setDetailedCandlesLeg1SymbolsText(const QString& symbolsText) {
     const auto normalized = symbolsText.trimmed();
     if (normalized == detailedCandlesSymbolsText_) return;
     detailedCandlesSymbolsText_ = normalized;
+    saveSettings_();
+    emit detailedCandlesChanged();
+}
+
+void CaptureViewModel::setDetailedCandlesLeg2VenueKey(const QString& venueKey) {
+    const auto normalized = normalizeDetailedCandlesVenueKey(venueKey);
+    if (normalized.isEmpty() || normalized == detailedCandlesLeg2VenueKey_) return;
+    detailedCandlesLeg2VenueKey_ = normalized;
+    detailedCandlesTimeframe_ = normalizeDetailedCandlesTimeframeForVenue(detailedCandlesVenueKey_, detailedCandlesTimeframe_);
+    saveSettings_();
+    emit detailedCandlesChanged();
+}
+
+void CaptureViewModel::setDetailedCandlesLeg2SymbolsText(const QString& symbolsText) {
+    const auto normalized = symbolsText.trimmed();
+    if (normalized == detailedCandlesLeg2SymbolsText_) return;
+    detailedCandlesLeg2SymbolsText_ = normalized;
     saveSettings_();
     emit detailedCandlesChanged();
 }
@@ -273,11 +349,42 @@ void CaptureViewModel::setDetailedCandlesTimeframe(const QString& timeframe) {
     emit detailedCandlesChanged();
 }
 
+QVariantList CaptureViewModel::detailedCandlesSymbolSuggestions(const QString& venueKey,
+                                                                const QString& query,
+                                                                const QString& anchorVenueKey,
+                                                                const QString& anchorSymbolText) const {
+    return detail::detailedCandlesSymbolSuggestions(venueKey, query, anchorVenueKey, anchorSymbolText);
+}
+
+void CaptureViewModel::applyDetailedCandlesSymbolSuggestion(int leg, const QString& symbol) {
+    if (leg == 2) {
+        setDetailedCandlesLeg2SymbolsText(symbol);
+        return;
+    }
+    setDetailedCandlesLeg1SymbolsText(symbol);
+}
+
 void CaptureViewModel::setDetailedCandlesLimit(int limit) {
     if (limit < 1) limit = 1;
     if (limit > kDetailedCandlesMaxLimit) limit = kDetailedCandlesMaxLimit;
     if (limit == detailedCandlesLimit_) return;
     detailedCandlesLimit_ = limit;
+    saveSettings_();
+    emit detailedCandlesChanged();
+}
+
+void CaptureViewModel::setDetailedCandlesEndMode(const QString& mode) {
+    const auto normalized = normalizeDetailedCandlesEndMode(mode);
+    if (normalized == detailedCandlesEndMode_) return;
+    detailedCandlesEndMode_ = normalized;
+    saveSettings_();
+    emit detailedCandlesChanged();
+}
+
+void CaptureViewModel::setDetailedCandlesEndUtcText(const QString& text) {
+    const auto normalized = text.trimmed();
+    if (normalized == detailedCandlesEndUtcText_) return;
+    detailedCandlesEndUtcText_ = normalized;
     saveSettings_();
     emit detailedCandlesChanged();
 }
@@ -499,12 +606,26 @@ void CaptureViewModel::loadSettings_() {
     tradesHistoryWarmupSec_ = warmupSec;
 
     const auto detailedVenueKey = normalizeDetailedCandlesVenueKey(
-        settings_.value(QStringLiteral("capture/detailed_candles_venue_key"), detailedCandlesVenueKey_).toString());
+        settings_.value(QStringLiteral("capture/detailed_candles_leg1_venue_key"),
+                        settings_.value(QStringLiteral("capture/detailed_candles_venue_key"), detailedCandlesVenueKey_))
+            .toString());
     detailedCandlesVenueKey_ = detailedVenueKey.isEmpty() ? QStringLiteral("binance_futures") : detailedVenueKey;
     syncDetailedVenueFields(detailedCandlesVenueKey_, detailedCandlesExchange_, detailedCandlesMarket_);
 
-    const auto detailedSymbol = settings_.value(QStringLiteral("capture/detailed_candles_symbol"), detailedCandlesSymbolsText_).toString().trimmed();
+    const auto detailedSymbol = settings_.value(QStringLiteral("capture/detailed_candles_leg1_symbol"),
+                                                settings_.value(QStringLiteral("capture/detailed_candles_symbol"), detailedCandlesSymbolsText_))
+                                    .toString()
+                                    .trimmed();
     if (!detailedSymbol.isEmpty()) detailedCandlesSymbolsText_ = detailedSymbol;
+
+    const auto detailedLeg2VenueKey = normalizeDetailedCandlesVenueKey(
+        settings_.value(QStringLiteral("capture/detailed_candles_leg2_venue_key"), detailedCandlesLeg2VenueKey_).toString());
+    if (!detailedLeg2VenueKey.isEmpty()) detailedCandlesLeg2VenueKey_ = detailedLeg2VenueKey;
+
+    detailedCandlesLeg2SymbolsText_ =
+        settings_.value(QStringLiteral("capture/detailed_candles_leg2_symbol"), detailedCandlesLeg2SymbolsText_)
+            .toString()
+            .trimmed();
 
     const auto detailedTf = settings_.value(QStringLiteral("capture/detailed_candles_timeframe"), detailedCandlesTimeframe_).toString();
     detailedCandlesTimeframe_ = normalizeDetailedCandlesTimeframeForVenue(detailedCandlesVenueKey_, detailedTf);
@@ -513,6 +634,13 @@ void CaptureViewModel::loadSettings_() {
     if (detailedLimit < 1) detailedLimit = 1;
     if (detailedLimit > kDetailedCandlesMaxLimit) detailedLimit = kDetailedCandlesMaxLimit;
     detailedCandlesLimit_ = detailedLimit;
+
+    detailedCandlesEndMode_ = normalizeDetailedCandlesEndMode(
+        settings_.value(QStringLiteral("capture/detailed_candles_end_mode"), detailedCandlesEndMode_).toString());
+    const auto manualEnd = settings_.value(QStringLiteral("capture/detailed_candles_end_utc"), detailedCandlesEndUtcText_)
+                               .toString()
+                               .trimmed();
+    if (!manualEnd.isEmpty()) detailedCandlesEndUtcText_ = manualEnd;
 }
 
 void CaptureViewModel::saveSettings_() {
@@ -525,8 +653,14 @@ void CaptureViewModel::saveSettings_() {
     settings_.setValue(QStringLiteral("capture/trades_history_warmup_sec"), tradesHistoryWarmupSec_);
     settings_.setValue(QStringLiteral("capture/detailed_candles_venue_key"), detailedCandlesVenueKey_);
     settings_.setValue(QStringLiteral("capture/detailed_candles_symbol"), detailedCandlesSymbolsText_);
+    settings_.setValue(QStringLiteral("capture/detailed_candles_leg1_venue_key"), detailedCandlesVenueKey_);
+    settings_.setValue(QStringLiteral("capture/detailed_candles_leg1_symbol"), detailedCandlesSymbolsText_);
+    settings_.setValue(QStringLiteral("capture/detailed_candles_leg2_venue_key"), detailedCandlesLeg2VenueKey_);
+    settings_.setValue(QStringLiteral("capture/detailed_candles_leg2_symbol"), detailedCandlesLeg2SymbolsText_);
     settings_.setValue(QStringLiteral("capture/detailed_candles_timeframe"), detailedCandlesTimeframe_);
     settings_.setValue(QStringLiteral("capture/detailed_candles_limit"), detailedCandlesLimit_);
+    settings_.setValue(QStringLiteral("capture/detailed_candles_end_mode"), detailedCandlesEndMode_);
+    settings_.setValue(QStringLiteral("capture/detailed_candles_end_utc"), detailedCandlesEndUtcText_);
     settings_.sync();
 }
 

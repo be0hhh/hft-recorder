@@ -45,11 +45,57 @@ _require_linux_build_env() {
         exit 2
     fi
 
-    if ! command -v c++ >/dev/null 2>&1 && ! command -v g++ >/dev/null 2>&1 && ! command -v clang++ >/dev/null 2>&1; then
-        echo "ERROR: no C++ compiler found in the active Linux environment." >&2
-        echo "Install g++ or clang++ in WSL, then rerun ./compile.sh." >&2
+    if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; then
+        echo "ERROR: clang and clang++ are required in the active Linux environment." >&2
+        echo "Install clang/clang++ in WSL, then rerun ./compile.sh." >&2
         exit 2
     fi
+}
+
+_clang_c() {
+    command -v clang
+}
+
+_clang_cxx() {
+    command -v clang++
+}
+
+_clear_cmake_cache_for_clang() {
+    local build_dir="$1"
+    local expected_source="$2"
+    local label="$3"
+    local cache_file="$build_dir/CMakeCache.txt"
+    if [ ! -f "$cache_file" ]; then
+        return 0
+    fi
+
+    local cached_source cached_c cached_cxx
+    cached_source="$(grep -E '^CMAKE_HOME_DIRECTORY:INTERNAL=' "$cache_file" 2>/dev/null | cut -d= -f2- || true)"
+    cached_c="$(grep -E '^CMAKE_C_COMPILER:FILEPATH=' "$cache_file" 2>/dev/null | cut -d= -f2- || true)"
+    cached_cxx="$(grep -E '^CMAKE_CXX_COMPILER:FILEPATH=' "$cache_file" 2>/dev/null | cut -d= -f2- || true)"
+    if [ "$cached_source" = "$expected_source" ] \
+        && { [ -z "$cached_c" ] || [ "$cached_c" = "$(_clang_c)" ]; } \
+        && [ "$cached_cxx" = "$(_clang_cxx)" ]; then
+        return 0
+    fi
+
+    case "$build_dir" in
+        "$CXETCPP/build"|"$APP/build") ;;
+        *)
+            echo "ERROR: refusing to clean unexpected $label build dir: $build_dir" >&2
+            exit 2
+            ;;
+    esac
+
+    echo ">>> $label CMake cache uses a different path or compiler; regenerating"
+    rm -rf "$build_dir/CMakeCache.txt" \
+           "$build_dir/CMakeFiles" \
+           "$build_dir/compile_commands.json" \
+           "$build_dir/cmake_install.cmake" \
+           "$build_dir/Makefile" \
+           "$build_dir/build.ninja" \
+           "$build_dir/.ninja_deps" \
+           "$build_dir/.ninja_log"
 }
 
 _write_start_launcher() {
@@ -107,8 +153,11 @@ cmd_install_cxet() {
     fi
     echo ">>> Building CXETCPP ..."
     cd "$CXETCPP"
+    _clear_cmake_cache_for_clang "$CXETCPP/build" "$CXETCPP" "CXETCPP"
     cmake -B build \
           -DCXET_FULL_BUILD=OFF \
+          -DCMAKE_C_COMPILER="$(_clang_c)" \
+          -DCMAKE_CXX_COMPILER="$(_clang_cxx)" \
           -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_CXX_FLAGS="-w" \
@@ -145,6 +194,7 @@ cmd_build() {
     cd "$APP"
     rm -rf "$APP/build"
     cmake -B build \
+          -DCMAKE_CXX_COMPILER="$(_clang_cxx)" \
           -DCMAKE_BUILD_TYPE=Release \
           -DCXET_PUBLIC_INCLUDE_DIR="$CXET_INCLUDE" \
           -DCXET_SHARED_LIB="$CXET_LIB"

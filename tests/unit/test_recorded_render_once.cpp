@@ -171,6 +171,68 @@ TEST(ViewerBacktestResults, DiscoversTwoLegRunWhenSelectedSessionsAreSwapped) {
     fs::remove_all(sessionB, ec);
 }
 
+TEST(ViewerBacktestResults, DiscoversTwoLegSweepWhenSelectedSessionsAreSwapped) {
+    const auto sessionA = makeTmpDir("hftrec_viewer_sweep_pair_a");
+    const auto sessionB = makeTmpDir("hftrec_viewer_sweep_pair_b");
+    const auto sweepDir = sessionA / "backtests" / "sweeps" / "sweep-ab";
+    fs::create_directories(sweepDir);
+    const QString manifest = QStringLiteral(R"json({
+        "type":"sweep.result.v1",
+        "sweep_id":"sweep-ab",
+        "strategy":"stat_arb_band_ladder",
+        "points_evaluated":2,
+        "summary":{},
+        "errors":[],
+        "legs":[
+            {"leg_index":0,"session_path":"%1"},
+            {"leg_index":1,"session_path":"%2"}
+        ]
+    })json").arg(QString::fromStdString(sessionA.string()), QString::fromStdString(sessionB.string()));
+    writeFile(sweepDir / "manifest.json", manifest.toStdString());
+
+    hftrec::gui::viewer::ChartController chart;
+    chart.refreshBacktestResults(QString::fromStdString(sessionB.string()), QString::fromStdString(sessionA.string()));
+
+    ASSERT_EQ(chart.backtestResults().size(), 1);
+    const QVariantMap row = chart.backtestResults().at(0).toMap();
+    EXPECT_TRUE(row.value(QStringLiteral("path")).toString().endsWith(QStringLiteral("sweep-ab")));
+    EXPECT_EQ(row.value(QStringLiteral("rightText")).toString(), QStringLiteral("sweep 2 pts"));
+    EXPECT_FALSE(row.value(QStringLiteral("selectable")).toBool());
+
+    std::error_code ec;
+    fs::remove_all(sessionA, ec);
+    fs::remove_all(sessionB, ec);
+}
+
+TEST(ViewerBacktestResults, DiscoversLegacyTwoLegSweepFromRowsWhenManifestHasNoLegs) {
+    const auto sessionA = makeTmpDir("hftrec_viewer_legacy_sweep_pair_a");
+    const auto sessionB = makeTmpDir("hftrec_viewer_legacy_sweep_pair_b");
+    const auto sweepDir = sessionA / "backtests" / "sweeps" / "sweep-legacy";
+    fs::create_directories(sweepDir);
+    writeFile(sweepDir / "manifest.json", R"json({
+        "type":"sweep.result.v1",
+        "sweep_id":"sweep-legacy",
+        "strategy":"stat_arb_band_ladder",
+        "points_evaluated":1,
+        "summary":{},
+        "errors":[],
+        "rows":{"path":"sweep_results.jsonl"}
+    })json");
+    const QString row = QStringLiteral(R"json({"point_id":0,"status":"Ok","legs":[{"leg_index":0,"session_path":"%1"},{"leg_index":1,"session_path":"%2"}]})json")
+                            .arg(QString::fromStdString(sessionA.string()), QString::fromStdString(sessionB.string()));
+    writeFile(sweepDir / "sweep_results.jsonl", (row + QStringLiteral("\n")).toStdString());
+
+    hftrec::gui::viewer::ChartController chart;
+    chart.refreshBacktestResults(QString::fromStdString(sessionB.string()), QString::fromStdString(sessionA.string()));
+
+    ASSERT_EQ(chart.backtestResults().size(), 1);
+    EXPECT_TRUE(chart.backtestResults().at(0).toMap().value(QStringLiteral("path")).toString().endsWith(QStringLiteral("sweep-legacy")));
+
+    std::error_code ec;
+    fs::remove_all(sessionA, ec);
+    fs::remove_all(sessionB, ec);
+}
+
 TEST(ViewerBacktestResults, HidesTwoLegSiblingRunUntilBothSessionsAreSelected) {
     const auto tempRoot = makeTmpDir("hftrec_viewer_backtest_sibling_root");
     const auto root = tempRoot / "recordings";

@@ -12,6 +12,11 @@ std::int64_t closePriceE8(const hftrec::replay::CandleRow& row) noexcept {
     return row.lowE8 + ((row.highE8 - row.lowE8) / 2);
 }
 
+std::int64_t normalizedClosePriceE8(const hftrec::replay::CandleRow& row,
+                                    std::int64_t priceBasisQtyE8) noexcept {
+    return normalizeNativePriceE8(closePriceE8(row), priceBasisQtyE8);
+}
+
 bool validCandlePrice(const hftrec::replay::CandleRow& row) noexcept {
     return row.tsNs > 0 && closePriceE8(row) > 0;
 }
@@ -28,9 +33,11 @@ std::int64_t candleDurationNs(const hftrec::replay::CandleRow& row) noexcept {
 }
 
 CandleSpreadPoint makePoint(const hftrec::replay::CandleRow& a,
-                            const hftrec::replay::CandleRow& b) noexcept {
-    const std::int64_t aClose = closePriceE8(a);
-    const std::int64_t bClose = closePriceE8(b);
+                            const hftrec::replay::CandleRow& b,
+                            std::int64_t aPriceBasisQtyE8,
+                            std::int64_t bPriceBasisQtyE8) noexcept {
+    const std::int64_t aClose = normalizedClosePriceE8(a, aPriceBasisQtyE8);
+    const std::int64_t bClose = normalizedClosePriceE8(b, bPriceBasisQtyE8);
     CandleSpreadPoint out{};
     out.tsNs = a.tsNs;
     out.aCloseE8 = aClose;
@@ -94,7 +101,7 @@ std::vector<CandleSpreadPoint> buildBestSideCandleSpread(
             continue;
         }
         if (validCandlePrice(a.rows[ai]) && validCandlePrice(b.rows[bi])) {
-            out.push_back(makePoint(a.rows[ai], b.rows[bi]));
+            out.push_back(makePoint(a.rows[ai], b.rows[bi], a.priceBasisQtyE8, b.priceBasisQtyE8));
         }
         ++ai;
         ++bi;

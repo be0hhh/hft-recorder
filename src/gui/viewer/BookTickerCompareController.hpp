@@ -131,6 +131,7 @@ class BookTickerCompareController : public QObject {
         std::vector<hftrec::replay::FundingRow> fundings{};
         std::vector<hftrec::replay::CandleRow> candles{};
         std::string marketHint{};
+        std::int64_t priceBasisQtyE8{hftrec::arbitrage::kPriceBasisScaleE8};
     };
 
     bool setSource_(SourceState& state, const QString& sourceId, const QString& sourceKind, const QString& sessionPath);

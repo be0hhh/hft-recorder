@@ -2,10 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string_view>
 
+#include "core/arbitrage/PriceBasis.hpp"
+#include "core/corpus/InstrumentMetadata.hpp"
 #include "core/replay/SessionReplay.hpp"
 
 #include <QFile>
+#include <QByteArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSettings>
@@ -116,6 +120,39 @@ std::string manifestMarketHint(const std::filesystem::path& sessionPath) {
     const QJsonObject manifest = readSessionManifestObject(sessionPath);
     const QJsonObject identity = manifest.value(QStringLiteral("identity")).toObject();
     return identity.value(QStringLiteral("market")).toString().trimmed().toLower().toStdString();
+}
+
+std::int64_t metadataPriceBasisQtyE8(const std::filesystem::path& sessionPath) {
+    QFile file(QString::fromStdString((sessionPath / "instrument_metadata.json").string()));
+    if (!file.open(QIODevice::ReadOnly)) return hftrec::arbitrage::kPriceBasisScaleE8;
+
+    const QByteArray bytes = file.readAll();
+    hftrec::corpus::InstrumentMetadata metadata{};
+    const auto status = hftrec::corpus::parseInstrumentMetadataJson(
+        std::string_view{bytes.constData(), static_cast<std::size_t>(bytes.size())},
+        metadata);
+    if (!isOk(status) || !metadata.priceBasisQtyE8.has_value() || *metadata.priceBasisQtyE8 <= 0) {
+        return hftrec::arbitrage::kPriceBasisScaleE8;
+    }
+    return *metadata.priceBasisQtyE8;
+}
+
+void normalizeBookTickerRows(std::vector<hftrec::replay::BookTickerRow>& rows,
+                             std::int64_t priceBasisQtyE8) {
+    for (auto& row : rows) {
+        row.bidPriceE8 = hftrec::arbitrage::normalizeNativePriceE8(row.bidPriceE8, priceBasisQtyE8);
+        row.askPriceE8 = hftrec::arbitrage::normalizeNativePriceE8(row.askPriceE8, priceBasisQtyE8);
+    }
+}
+
+void normalizeCandleRows(std::vector<hftrec::replay::CandleRow>& rows,
+                         std::int64_t priceBasisQtyE8) {
+    for (auto& row : rows) {
+        row.openE8 = hftrec::arbitrage::normalizeNativePriceE8(row.openE8, priceBasisQtyE8);
+        row.highE8 = hftrec::arbitrage::normalizeNativePriceE8(row.highE8, priceBasisQtyE8);
+        row.lowE8 = hftrec::arbitrage::normalizeNativePriceE8(row.lowE8, priceBasisQtyE8);
+        row.closeE8 = hftrec::arbitrage::normalizeNativePriceE8(row.closeE8, priceBasisQtyE8);
+    }
 }
 
 double clampZoom(double value) noexcept {
@@ -440,6 +477,7 @@ void BookTickerCompareController::reloadRecorded_(SourceState& state) {
     state.fundings.clear();
     state.candles.clear();
     state.marketHint = manifestMarketHint(state.sessionPath);
+    state.priceBasisQtyE8 = metadataPriceBasisQtyE8(state.sessionPath);
     const auto bookTickerPath = recordedBookTickerPath(state.sessionPath);
     if (!bookTickerPath.empty()) {
         hftrec::replay::SessionReplay replay{};
@@ -449,6 +487,7 @@ void BookTickerCompareController::reloadRecorded_(SourceState& state) {
         } else {
             replay.finalize();
             state.rows = replay.bookTickers();
+            normalizeBookTickerRows(state.rows, state.priceBasisQtyE8);
             std::sort(state.rows.begin(), state.rows.end(), rowsLessTs);
         }
     }
@@ -466,11 +505,17 @@ void BookTickerCompareController::reloadRecorded_(SourceState& state) {
 
     const auto detailedCandlesPath = recordedDetailedCandlesPath(state.sessionPath);
     const auto tieredCandlesPath = recordedTieredCandlesPath(state.sessionPath);
-    const auto candlePath = !detailedCandlesPath.empty() ? detailedCandlesPath : tieredCandlesPath;
+    const bool useDetailedCandles = !detailedCandlesPath.empty();
+    const auto candlePath = useDetailedCandles ? detailedCandlesPath : tieredCandlesPath;
     if (!candlePath.empty()) {
         hftrec::replay::SessionReplay candleReplay{};
-        if (isOk(candleReplay.addCandlesFile(candlePath))) {
-            state.candles = hftrec::arbitrage::selectCompareCandles(candleReplay.candles());
+        const auto status = useDetailedCandles
+            ? candleReplay.addCandles2File(candlePath)
+            : candleReplay.addCandlesFile(candlePath);
+        if (isOk(status)) {
+            const auto& sourceCandles = useDetailedCandles ? candleReplay.candles2() : candleReplay.candles();
+            state.candles = hftrec::arbitrage::selectCompareCandles(sourceCandles);
+            normalizeCandleRows(state.candles, state.priceBasisQtyE8);
         } else if (state.rows.empty()) {
             setStatus_(QStringLiteral("Failed to load recorded candles"));
         }
@@ -564,16 +609,22 @@ void BookTickerCompareController::updateFullRange_() noexcept {
         if (ts < fullTsMin_) fullTsMin_ = ts;
         if (ts > fullTsMax_) fullTsMax_ = ts;
     };
+    const auto absorbRows = [&](const auto& rows) noexcept {
+        for (const auto& row : rows) absorb(row.tsNs);
+    };
 
-    for (const auto& point : strategyOverlay_.spreadPoints) absorb(point.tsNs);
-    for (const auto& point : strategyIndicator_.points) absorb(point.tsNs);
-    for (const auto& point : spreadPoints_) absorb(point.tsNs);
-    for (const auto& point : candleSpreadPoints_) absorb(point.tsNs);
-    if (!hasTs) {
-        for (const auto& row : primaryRows_) absorb(row.tsNs);
-        for (const auto& row : secondaryRows_) absorb(row.tsNs);
-        for (const auto& row : primaryCandles_) absorb(row.tsNs);
-        for (const auto& row : secondaryCandles_) absorb(row.tsNs);
+    if (!primaryRows_.empty() || !secondaryRows_.empty()) {
+        absorbRows(primaryRows_);
+        absorbRows(secondaryRows_);
+    } else {
+        for (const auto& point : strategyOverlay_.spreadPoints) absorb(point.tsNs);
+        for (const auto& point : strategyIndicator_.points) absorb(point.tsNs);
+        for (const auto& point : spreadPoints_) absorb(point.tsNs);
+        for (const auto& point : candleSpreadPoints_) absorb(point.tsNs);
+        if (!hasTs) {
+            absorbRows(primaryCandles_);
+            absorbRows(secondaryCandles_);
+        }
     }
 
     if (!hasTs) {

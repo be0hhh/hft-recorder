@@ -356,6 +356,7 @@ void ChartController::refreshLoadedStateFromSources_() noexcept {
         || !replay_.trades().empty()
         || !replay_.liquidations().empty()
         || !replay_.candles().empty()
+        || !replay_.candles2().empty()
         || !replay_.bookTickers().empty()
         || !replay_.markPrices().empty()
         || !replay_.indexPrices().empty()
@@ -412,6 +413,7 @@ std::int64_t ChartController::latestRenderableTsNs_() const noexcept {
     absorbRows(latest, replay_.indexPrices());
     absorbRows(latest, replay_.fundings());
     absorbRows(latest, replay_.priceLimits());
+    absorbRows(latest, replay_.candles2());
     absorbRows(latest, replay_.candles());
     absorbRows(latest, replay_.depths());
     absorbRows(latestLiquidation, replay_.liquidations());

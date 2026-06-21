@@ -346,6 +346,39 @@ TEST(ViewerBookTickerCompare, RebuildPreservesManualTimeViewport) {
     fs::remove_all(dirB, ec);
 }
 
+TEST(ViewerBookTickerCompare, InitialViewportPrefersBookTickerRangeWhenCandlesAreLonger) {
+    const auto dirSpot = makeTmpDir();
+    const auto dirFutures = makeTmpDir();
+    fs::create_directories(dirSpot / "jsonl");
+    fs::create_directories(dirFutures / "jsonl");
+    writeFile(dirSpot / "jsonl" / "bookticker.jsonl",
+              bookTickerLine(1000000000000ll, 1, e8(100), e8(101))
+                  + bookTickerLine(1001000000000ll, 2, e8(102), e8(103)));
+    writeFile(dirFutures / "jsonl" / "bookticker.jsonl",
+              bookTickerLine(1000000000000ll, 1, e8(103), e8(104))
+                  + bookTickerLine(1001000000000ll, 2, e8(105), e8(106)));
+    writeFile(dirSpot / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("spot", 0, e8(90), e8(91), e8(89), e8(90))
+                  + detailedCandleLine("spot", 2000000000000ll, e8(110), e8(111), e8(109), e8(110)));
+    writeFile(dirFutures / "jsonl" / "candles2.jsonl",
+              detailedCandleLine("futures", 0, e8(92), e8(93), e8(91), e8(92))
+                  + detailedCandleLine("futures", 2000000000000ll, e8(112), e8(113), e8(111), e8(112)));
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
+
+    EXPECT_TRUE(compare.ready());
+    EXPECT_EQ(compare.spreadCount(), 2);
+    EXPECT_EQ(compare.candleSpreadCount(), 2);
+    EXPECT_EQ(compare.tsMin(), 1000000000000ll);
+    EXPECT_EQ(compare.tsMax(), 1001000000000ll);
+
+    std::error_code ec;
+    fs::remove_all(dirSpot, ec);
+    fs::remove_all(dirFutures, ec);
+}
+
 TEST(ViewerBookTickerCompare, RecordedSourceUsesBookTickerWithoutFullSessionReplay) {
     const auto dirA = makeTmpDir();
     const auto dirB = makeTmpDir();
@@ -382,6 +415,28 @@ TEST(ViewerBookTickerCompare, RecordedSourceUsesBookTickerWithoutFullSessionRepl
     std::error_code ec;
     fs::remove_all(dirA, ec);
     fs::remove_all(dirB, ec);
+}
+
+TEST(ViewerBookTickerTrace, AutoFitAnchorsShortRecordedWindowAtBookTickerStart) {
+    const auto dir = makeTmpDir();
+    writeFile(dir / "bookticker.jsonl",
+              bookTickerLine(1000000000000ll, 1, e8(100), e8(101))
+                  + bookTickerLine(1001000000000ll, 2, e8(102), e8(103)));
+    writeFile(dir / "candles2.jsonl",
+              detailedCandleLine("spot", 0, e8(90), e8(91), e8(89), e8(90))
+                  + detailedCandleLine("spot", 2000000000000ll, e8(110), e8(111), e8(109), e8(110)));
+
+    ChartController chart;
+    ASSERT_TRUE(chart.addBookTickerFile(QString::fromStdString((dir / "bookticker.jsonl").string())));
+    ASSERT_TRUE(chart.addCandlesFile(QString::fromStdString((dir / "candles2.jsonl").string())));
+    chart.finalizeFiles();
+    ASSERT_TRUE(chart.loaded());
+
+    EXPECT_EQ(chart.tsMin(), 1000000000000ll);
+    EXPECT_EQ(chart.tsMax(), 1180000000000ll);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
 }
 
 TEST(ViewerBookTickerCompare, UsesDefaultSpreadLowerPaneWithoutBacktestResult) {
