@@ -8,8 +8,10 @@
 namespace hftrec::app {
 
 int runCapture(int argc, char** argv);
+int runTui(int argc, char** argv);
 int runAnalyze(int argc, char** argv);
 int runReportExport(int argc, char** argv);
+int runRecordings(int argc, char** argv);
 
 }  // namespace hftrec::app
 
@@ -23,6 +25,8 @@ void printUsage() {
     std::puts("");
     std::puts("Subcommands:");
     std::puts("  capture   legacy/support capture path");
+    std::puts("  tui       terminal recorder UI");
+    std::puts("  recordings organize recorded session folders");
     std::puts("  analyze   inspect a captured session or derived artifact");
     std::puts("  report    export benchmark and ranking data");
     std::puts("  --version print version and exit");
@@ -45,6 +49,8 @@ int main(int argc, char** argv) {
     if (sub == "--version" || sub == "-v") { printVersion(); return 0; }
     if (sub == "--help"    || sub == "-h") { printUsage();   return 0; }
     if (sub == "capture")  return hftrec::app::runCapture(argc - 1, argv + 1);
+    if (sub == "tui")      return hftrec::app::runTui(argc - 1, argv + 1);
+    if (sub == "recordings") return hftrec::app::runRecordings(argc - 1, argv + 1);
     if (sub == "analyze")  return hftrec::app::runAnalyze(argc - 1, argv + 1);
     if (sub == "report")   return hftrec::app::runReportExport(argc - 1, argv + 1);
 

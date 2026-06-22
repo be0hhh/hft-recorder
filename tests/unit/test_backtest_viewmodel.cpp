@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 
+#include "core/capture/SessionManifest.hpp"
 #include "gui/viewmodels/BacktestViewModel.hpp"
 
 namespace {
@@ -28,6 +29,27 @@ void writeFile(const QString& path, const QByteArray& data) {
     QFile file(path);
     ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
     ASSERT_EQ(file.write(data), data.size());
+}
+
+void writeRecordingManifest(const QString& sessionDir,
+                            const QString& sessionId,
+                            const QString& exchange,
+                            const QString& market,
+                            const QString& symbol,
+                            qint64 startedAtNs) {
+    QDir().mkpath(sessionDir);
+    hftrec::capture::SessionManifest manifest{};
+    manifest.sessionId = sessionId.toStdString();
+    manifest.exchange = exchange.toStdString();
+    manifest.market = market.toStdString();
+    manifest.symbols = {symbol.toStdString()};
+    manifest.sessionStatus = "complete";
+    manifest.startedAtNs = startedAtNs;
+    manifest.endedAtNs = startedAtNs + 60'000'000'000LL;
+    manifest.bookTickerEnabled = true;
+    manifest.bookTickerCount = 12;
+    writeFile(QDir(sessionDir).absoluteFilePath(QStringLiteral("manifest.json")),
+              QByteArray::fromStdString(hftrec::capture::renderManifestJson(manifest)));
 }
 
 QString makeRunDir(const QString& session, const QString& runId, const QByteArray& manifest, const QByteArray& equity = {}) {
@@ -682,6 +704,61 @@ TEST(BacktestViewModel, SessionRowsAreCachedUntilExplicitReload) {
     ASSERT_FALSE(sessionRow.isEmpty());
     EXPECT_EQ(sessionRow.value(QStringLiteral("backtestCount")).toInt(), 2);
     EXPECT_TRUE(sessionRow.value(QStringLiteral("rightText")).toString().contains(QStringLiteral("BT 2")));
+}
+
+TEST(BacktestViewModel, GroupedSessionRowsUseGroupsAsTreeHeaders) {
+    isolateSettings(QStringLiteral("grouped_session_tree_rows"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString unique = QStringLiteral("TREESEL%1").arg(std::rand());
+    const QString groupId = QStringLiteral("2026-06-22_18-25-31_%1").arg(unique);
+    const QString groupDir = QDir(vm.recordingsRoot()).absoluteFilePath(groupId);
+    const qint64 startNs = 1782141931000000000LL;
+    const QString binanceId = QStringLiteral("tree_binance_%1").arg(unique);
+    const QString asterId = QStringLiteral("tree_aster_%1").arg(unique);
+
+    writeRecordingManifest(QDir(groupDir).absoluteFilePath(binanceId),
+                           binanceId,
+                           QStringLiteral("binance"),
+                           QStringLiteral("futures"),
+                           unique,
+                           startNs);
+    writeRecordingManifest(QDir(groupDir).absoluteFilePath(asterId),
+                           asterId,
+                           QStringLiteral("aster"),
+                           QStringLiteral("futures"),
+                           unique,
+                           startNs + 1'000'000LL);
+
+    vm.reloadSessions();
+
+    QVariantMap groupRow;
+    QVariantMap binanceRow;
+    QVariantMap asterRow;
+    for (const QVariant& row : vm.sessions()) {
+        const QVariantMap map = row.toMap();
+        if (map.value(QStringLiteral("id")).toString() == QStringLiteral("group:%1").arg(groupId)) groupRow = map;
+        if (map.value(QStringLiteral("id")).toString() == binanceId) binanceRow = map;
+        if (map.value(QStringLiteral("id")).toString() == asterId) asterRow = map;
+    }
+    QDir(groupDir).removeRecursively();
+
+    ASSERT_FALSE(groupRow.isEmpty());
+    EXPECT_TRUE(groupRow.value(QStringLiteral("isGroup")).toBool());
+    EXPECT_FALSE(groupRow.value(QStringLiteral("selectable")).toBool());
+    EXPECT_EQ(groupRow.value(QStringLiteral("groupId")).toString(), groupId);
+    EXPECT_TRUE(groupRow.value(QStringLiteral("label")).toString().contains(unique));
+
+    ASSERT_FALSE(binanceRow.isEmpty());
+    EXPECT_FALSE(binanceRow.value(QStringLiteral("isGroup")).toBool());
+    EXPECT_TRUE(binanceRow.value(QStringLiteral("selectable")).toBool());
+    EXPECT_EQ(binanceRow.value(QStringLiteral("parentGroupId")).toString(), groupId);
+    EXPECT_EQ(binanceRow.value(QStringLiteral("label")).toString(), QStringLiteral("binance/futures %1").arg(unique));
+
+    ASSERT_FALSE(asterRow.isEmpty());
+    EXPECT_TRUE(asterRow.value(QStringLiteral("selectable")).toBool());
+    EXPECT_EQ(asterRow.value(QStringLiteral("parentGroupId")).toString(), groupId);
+    EXPECT_EQ(asterRow.value(QStringLiteral("label")).toString(), QStringLiteral("aster/futures %1").arg(unique));
 }
 
 TEST(BacktestViewModel, ExplainsWhenSelectedStrategyDoesNotSupportExtraSessions) {

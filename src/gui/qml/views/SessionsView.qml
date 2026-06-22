@@ -56,9 +56,27 @@ Pane {
         }
 
         Label {
-            text: "Current lightweight browser scans ./recordings for created session folders."
+            text: "Grouped recordings from ./recordings"
             color: root.mutedTextColor
             wrapMode: Text.WordWrap
+        }
+
+        TextField {
+            id: searchField
+            Layout.fillWidth: true
+            placeholderText: "Search date, time, symbol, exchange, session"
+            text: sessionsModel.searchText
+            color: root.textColor
+            placeholderTextColor: root.mutedTextColor
+            selectionColor: root.accentBuyColor
+            selectedTextColor: root.windowColor
+            onTextChanged: sessionsModel.searchText = text
+            background: Rectangle {
+                radius: 8
+                color: root.panelColor
+                border.color: searchField.activeFocus ? root.accentBuyColor : root.borderColor
+                border.width: 1
+            }
         }
 
         Rectangle {
@@ -79,18 +97,24 @@ Pane {
 
                 delegate: Rectangle {
                     required property string sessionId
+                    required property string label
                     required property string sessionSummary
+                    required property bool isGroup
+                    required property int indent
 
                     width: ListView.view.width
-                    height: 56
-                    radius: 10
-                    color: root.panelAltColor
-                    border.color: root.accentBuyColor
+                    height: isGroup ? 58 : 48
+                    radius: 8
+                    color: isGroup ? root.panelAltColor : root.panelColor
+                    border.color: isGroup ? root.accentBuyColor : root.borderColor
                     border.width: 1
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.margins: 12
+                        anchors.leftMargin: 12 + indent * 18
+                        anchors.rightMargin: 12
+                        anchors.topMargin: 8
+                        anchors.bottomMargin: 8
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -98,8 +122,8 @@ Pane {
 
                             Label {
                                 Layout.fillWidth: true
-                                text: sessionId
-                                font.bold: true
+                                text: label.length > 0 ? label : sessionId
+                                font.bold: isGroup
                                 color: root.textColor
                                 elide: Text.ElideRight
                             }

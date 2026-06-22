@@ -100,7 +100,8 @@ Pane {
         var rows = root.backtestVm.sessions || []
         for (var i = 0; i < rows.length; ++i) {
             var id = String(rows[i].id || "").trim()
-            if (id !== "" && id !== primary) return id
+            var selectable = rows[i].selectable !== false
+            if (selectable && id !== "" && id !== primary) return id
         }
         return ""
     }
@@ -242,36 +243,34 @@ Pane {
                     SegmentButton { text: "1 leg"; checked: root.resultLegMode === 1; onClicked: root.setResultLegMode(1) }
                     SegmentButton { text: "2 legs"; checked: root.resultLegMode === 2; onClicked: root.setResultLegMode(2) }
                 }
-                RecorderComboBox {
+                SessionPickerCombo {
                     id: sessionBox
                     Layout.fillWidth: false
                     Layout.preferredWidth: root.resultLegMode === 2 ? 280 : 360
                     caption: root.resultLegMode === 2 ? "Leg 1" : "Session"
-                    textRole: "label"
-                    valueRole: "id"
-                    model: root.backtestVm.sessions
+                    rows: root.backtestVm.sessions
+                    emptyLabel: "Select session"
                     popupWidth: 640
-                    onActivated: {
-                        root.backtestVm.setSelectedSessionId(currentValue)
-                        if (root.resultLegMode === 2 && root.secondarySessionId() === currentValue)
+                    onPicked: function(id) {
+                        root.backtestVm.setSelectedSessionId(id)
+                        if (root.resultLegMode === 2 && root.secondarySessionId() === id)
                             root.backtestVm.setExtraSessionIds(root.fallbackSecondarySessionId())
                         Qt.callLater(root.syncSelections)
                     }
                     Component.onCompleted: root.syncSelections()
                 }
-                RecorderComboBox {
+                SessionPickerCombo {
                     id: secondarySessionBox
                     visible: root.resultLegMode === 2
                     Layout.fillWidth: false
                     Layout.preferredWidth: visible ? 280 : 0
                     caption: "Leg 2"
-                    textRole: "label"
-                    valueRole: "id"
-                    model: root.backtestVm.sessions
+                    rows: root.backtestVm.sessions
+                    emptyLabel: "Select session"
                     popupWidth: 640
-                    onActivated: {
-                        if (currentValue !== root.backtestVm.selectedSessionId)
-                            root.backtestVm.setExtraSessionIds(currentValue)
+                    onPicked: function(id) {
+                        if (id !== root.backtestVm.selectedSessionId)
+                            root.backtestVm.setExtraSessionIds(id)
                         Qt.callLater(root.syncSelections)
                     }
                     Component.onCompleted: root.syncSelections()

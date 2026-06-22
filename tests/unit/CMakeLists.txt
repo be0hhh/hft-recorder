@@ -8,6 +8,7 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_json_line_parser.cpp
     test_validation_runner.cpp
     test_recorder_api.cpp
+    test_recording_discovery.cpp
     test_backtest_runner.cpp
     test_book_state.cpp
     test_session_replay.cpp
@@ -15,6 +16,7 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_bookticker_spread.cpp
     test_candle_spread.cpp
     test_event_storage.cpp
+    test_tui_preset.cpp
 )
 
 if(HFTREC_WITH_CXET)
@@ -53,6 +55,7 @@ if(Qt6_FOUND)
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/CaptureViewModelRequests.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/BacktestViewModel.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/models/BacktestSessionSummary.cpp
     )
 endif()
 
@@ -83,6 +86,7 @@ if(Qt6_FOUND)
         PRIVATE
             Qt6::Core
             Qt6::Gui
+            Qt6::Quick
             Qt6::Network
             hft_backtest_core
     )

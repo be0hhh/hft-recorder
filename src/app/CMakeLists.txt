@@ -8,8 +8,10 @@ add_executable(hft-recorder
     main.cpp
     metrics_bootstrap.cpp
     capture_cli.cpp
+    tui_cli.cpp
     analyze_cli.cpp
     report_export.cpp
+    recordings_cli.cpp
 )
 
 target_include_directories(hft-recorder

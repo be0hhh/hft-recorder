@@ -12,6 +12,7 @@
 
 #include "gui/models/BacktestSessionSummary.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
+#include "core/recordings/RecordingDiscovery.hpp"
 
 namespace hftrec::gui {
 
@@ -53,37 +54,6 @@ QString buildLiveLabel(const QString& exchange, const QString& market, const QSt
         .arg(displayExchange(exchange),
              displayMarket(market),
              symbol.trimmed().isEmpty() ? QStringLiteral("Unknown Symbol") : symbol.trimmed());
-}
-
-struct RecordedIdentity {
-    QString exchange{};
-    QString market{};
-    int bookTickerCount{0};
-    int candleCount{0};
-    qint64 startedAtNs{0};
-};
-
-RecordedIdentity readRecordedIdentity(const QString& sessionPath) {
-    RecordedIdentity out{};
-    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
-    if (!file.open(QIODevice::ReadOnly)) return out;
-    const auto doc = QJsonDocument::fromJson(file.readAll());
-    if (!doc.isObject()) return out;
-    const auto manifest = doc.object();
-    const auto identity = manifest.value(QStringLiteral("identity")).toObject();
-    out.exchange = identity.value(QStringLiteral("exchange")).toString();
-    out.market = identity.value(QStringLiteral("market")).toString();
-    const auto capture = manifest.value(QStringLiteral("capture")).toObject();
-    out.startedAtNs = capture.value(QStringLiteral("started_at_ns")).toInteger();
-    const auto channels = manifest.value(QStringLiteral("channels")).toObject();
-    const auto bookTicker = channels.value(QStringLiteral("bookticker")).toObject();
-    out.bookTickerCount = bookTicker.value(QStringLiteral("declared_event_count")).toInt();
-    const auto candles = channels.value(QStringLiteral("candles")).toObject();
-    const auto candles2 = channels.value(QStringLiteral("candles2")).toObject();
-    const int candlesCount = candles.value(QStringLiteral("declared_event_count")).toInt();
-    const int candles2Count = candles2.value(QStringLiteral("declared_event_count")).toInt();
-    out.candleCount = candles2Count > 0 ? candles2Count : candlesCount;
-    return out;
 }
 
 struct BacktestResultSummary {
@@ -269,6 +239,79 @@ int ViewerSourceListModel::backtestCount(const QString& sourceId) const {
     return 0;
 }
 
+QVariantList ViewerSourceListModel::sourceRows() const {
+    auto groupIdFor = [](const Entry& entry) {
+        if (entry.sourceKind == QStringLiteral("live")) return QStringLiteral("live");
+        return entry.group.trimmed().isEmpty() ? QStringLiteral("recorded") : entry.group;
+    };
+    auto groupTitleFor = [&groupIdFor](const Entry& entry) {
+        if (entry.sourceKind == QStringLiteral("live")) return QStringLiteral("Live");
+        return entry.groupTitle.trimmed().isEmpty() ? groupIdFor(entry) : entry.groupTitle;
+    };
+    auto childLabelFor = [](const Entry& entry) {
+        const QString exchange = entry.exchange.trimmed().isEmpty() ? QStringLiteral("unknown") : entry.exchange.trimmed();
+        const QString market = entry.market.trimmed().isEmpty() ? QStringLiteral("unknown") : entry.market.trimmed();
+        const QString symbol = entry.symbol.trimmed().isEmpty() ? QStringLiteral("UNKNOWN") : entry.symbol.trimmed();
+        return QStringLiteral("%1/%2 %3").arg(exchange, market, symbol);
+    };
+
+    QStringList groupOrder;
+    for (const Entry& entry : entries_) {
+        const QString groupId = groupIdFor(entry);
+        if (!groupOrder.contains(groupId)) groupOrder.push_back(groupId);
+    }
+
+    QVariantList rows;
+    for (const QString& groupId : groupOrder) {
+        QList<const Entry*> children;
+        int groupBacktests = 0;
+        QString groupTitle;
+        for (const Entry& entry : entries_) {
+            if (groupIdFor(entry) != groupId) continue;
+            children.push_back(&entry);
+            groupBacktests += entry.backtestCount;
+            if (groupTitle.isEmpty()) groupTitle = groupTitleFor(entry);
+        }
+        if (children.empty()) continue;
+
+        QVariantMap groupRow;
+        groupRow.insert(QStringLiteral("id"), QStringLiteral("group:%1").arg(groupId));
+        groupRow.insert(QStringLiteral("label"), groupTitle);
+        groupRow.insert(QStringLiteral("rightText"), groupBacktests > 0
+                                               ? QStringLiteral("%1 sources | BT %2").arg(children.size()).arg(groupBacktests)
+                                               : QStringLiteral("%1 sources").arg(children.size()));
+        groupRow.insert(QStringLiteral("isGroup"), true);
+        groupRow.insert(QStringLiteral("selectable"), false);
+        groupRow.insert(QStringLiteral("groupId"), groupId);
+        groupRow.insert(QStringLiteral("searchText"), QStringLiteral("%1 %2").arg(groupTitle, groupId));
+        rows.push_back(groupRow);
+
+        for (const Entry* entry : children) {
+            QVariantMap row;
+            row.insert(QStringLiteral("id"), entry->id);
+            row.insert(QStringLiteral("label"), childLabelFor(*entry));
+            row.insert(QStringLiteral("rightText"), entry->sourceSummary);
+            row.insert(QStringLiteral("isGroup"), false);
+            row.insert(QStringLiteral("selectable"), true);
+            row.insert(QStringLiteral("parentGroupId"), groupId);
+            row.insert(QStringLiteral("sourceKind"), entry->sourceKind);
+            row.insert(QStringLiteral("sessionPath"), entry->sessionPath);
+            row.insert(QStringLiteral("exchange"), entry->exchange);
+            row.insert(QStringLiteral("market"), entry->market);
+            row.insert(QStringLiteral("symbol"), entry->symbol);
+            row.insert(QStringLiteral("searchText"), QStringLiteral("%1 %2 %3 %4 %5 %6")
+                                                    .arg(entry->id,
+                                                         entry->label,
+                                                         groupTitle,
+                                                         entry->exchange,
+                                                         entry->market,
+                                                         entry->symbol));
+            rows.push_back(row);
+        }
+    }
+    return rows;
+}
+
 QVariantList ViewerSourceListModel::backtestResultRows(const QString& primarySourceId, const QString& secondarySourceId) const {
     QVariantList rows;
     QStringList seen;
@@ -376,25 +419,29 @@ void ViewerSourceListModel::rebuildEntries_() {
     QDir recordingsDir(recordingsRoot());
     if (recordingsDir.exists()) {
         const auto backtestCountsBySession = backtestLegCountsBySession(recordingsRoot());
-        const auto recordedEntries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot,
-                                                             QDir::Time | QDir::Reversed);
-        for (const auto& recordedId : recordedEntries) {
+        const auto discovery = hftrec::recordings::discoverRecordings(recordingsRoot().toStdString());
+        for (const auto& recorded : discovery.sessions) {
+            const QString recordedId = QString::fromStdString(recorded.sessionId);
             Entry entry{};
             entry.id = QStringLiteral("recorded:%1").arg(recordedId);
-            entry.label = recordedId;
-            entry.group = QStringLiteral("recorded");
-            entry.groupTitle = QStringLiteral("Recorded");
+            entry.label = QStringLiteral("%1 | %2/%3 %4")
+                              .arg(QString::fromStdString(recorded.groupTitle),
+                                   displayExchange(QString::fromStdString(recorded.exchange)),
+                                   displayMarket(QString::fromStdString(recorded.market)),
+                                   QString::fromStdString(recorded.symbols.empty() ? recorded.normalizedSymbol : recorded.symbols.front()));
+            entry.group = QString::fromStdString(recorded.groupId);
+            entry.groupTitle = QString::fromStdString(recorded.groupTitle);
             entry.sourceKind = QStringLiteral("recorded");
-            entry.sessionPath = recordingsDir.absoluteFilePath(recordedId);
+            entry.sessionPath = QString::fromStdString(recorded.path.string());
             const BacktestLegCounts backtestCounts = backtestCountsBySession.value(recordedId);
             entry.backtestCount = backtestCounts.firstLeg;
-            const auto identity = readRecordedIdentity(entry.sessionPath);
-            entry.exchange = identity.exchange;
-            entry.market = identity.market;
-            entry.bookTickerCount = identity.bookTickerCount;
-            entry.sourceSummary = sessionBacktestSummaryText(entry.bookTickerCount, backtestCounts, identity.startedAtNs);
-            if (identity.candleCount > 0) {
-                entry.sourceSummary += QStringLiteral(" | C %1").arg(identity.candleCount);
+            entry.exchange = QString::fromStdString(recorded.exchange);
+            entry.market = QString::fromStdString(recorded.market);
+            entry.symbol = QString::fromStdString(recorded.symbols.empty() ? recorded.normalizedSymbol : recorded.symbols.front());
+            entry.bookTickerCount = static_cast<int>(recorded.bookTickerCount);
+            entry.sourceSummary = sessionBacktestSummaryText(entry.bookTickerCount, backtestCounts, recorded.startedAtNs);
+            if (recorded.candleCount > 0) {
+                entry.sourceSummary += QStringLiteral(" | C %1").arg(recorded.candleCount);
             }
             nextEntries.push_back(std::move(entry));
         }

@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <QAbstractListModel>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QVariantList>
@@ -47,6 +48,7 @@ class ViewerSourceListModel : public QAbstractListModel {
     Q_INVOKABLE int bookTickerCount(const QString& sourceId) const;
     Q_INVOKABLE QString sourceSummary(const QString& sourceId) const;
     Q_INVOKABLE int backtestCount(const QString& sourceId) const;
+    Q_INVOKABLE QVariantList sourceRows() const;
     Q_INVOKABLE QVariantList backtestResultRows(const QString& primarySourceId, const QString& secondarySourceId = QString{}) const;
 
     QString recordingsRoot() const;

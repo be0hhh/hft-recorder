@@ -124,6 +124,8 @@ Pane {
         if (index <= 0 || index >= root.compareSourceRows.length)
             return ""
         var row = root.compareSourceRows[index]
+        if (!row || row.selectable === false || row.isGroup === true)
+            return ""
         return row && row.id ? row.id : ""
     }
 
@@ -428,13 +430,9 @@ Pane {
 
     function rebuildCompareSourceRows() {
         var rows = [{ id: "", label: "Select session" }]
-        for (var i = 0; i < sourcesModel.rowCount(); ++i) {
-            var id = sourcesModel.sourceIdAt(i)
-            if (id !== "") {
-                var label = sourcesModel.labelAt(i)
-                var summary = sourcesModel.sourceSummary(id)
-                rows.push({ id: id, label: label, rightText: summary })
-            }
+        var sourceRows = sourcesModel.sourceRows()
+        for (var i = 0; i < sourceRows.length; ++i) {
+            rows.push(sourceRows[i])
         }
         root.compareSourceRows = rows
         root.syncCompareIndexesFromIds()
@@ -484,181 +482,6 @@ Pane {
         root.syncCompareIndexesFromIds()
         root.applyCompareSelection()
     }
-
-    component DarkSourceCombo: ComboBox {
-        id: combo
-        Layout.preferredWidth: 520
-        model: root.compareSourceRows
-        textRole: "label"
-        valueRole: "id"
-        property string searchText: ""
-        property var filteredRows: []
-        signal sourcePicked(string sourceId)
-        function rebuildFilter() {
-            var needle = combo.searchText.trim().toLowerCase()
-            var rows = []
-            for (var i = 0; i < root.compareSourceRows.length; ++i) {
-                var row = root.compareSourceRows[i]
-                var haystack = (row.label + " " + row.id + " " + (row.rightText || "")).toLowerCase()
-                if (needle.length === 0 || haystack.indexOf(needle) !== -1)
-                    rows.push({ "index": i, "label": row.label, "id": row.id, "rightText": row.rightText || "" })
-            }
-            combo.filteredRows = rows
-        }
-        function selectFilteredRow(row) {
-            if (!row || row.index < 0)
-                return
-            combo.currentIndex = row.index
-            combo.popup.close()
-            combo.sourcePicked(row.id || "")
-        }
-        onSearchTextChanged: rebuildFilter()
-        onModelChanged: rebuildFilter()
-        contentItem: RowLayout {
-            spacing: 8
-            Text {
-                Layout.fillWidth: true
-                text: combo.currentIndex <= 0 ? "Select session" : combo.displayText
-                color: combo.currentIndex <= 0 ? root.mutedTextColor : root.textColor
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-                leftPadding: 10
-            }
-            Text {
-                Layout.preferredWidth: visible ? Math.max(210, implicitWidth + 8) : 0
-                rightPadding: 28
-                text: combo.currentIndex > 0 && root.compareSourceRows[combo.currentIndex] ? (root.compareSourceRows[combo.currentIndex].rightText || "") : ""
-                visible: text.length > 0
-                color: root.mutedTextColor
-                font.pixelSize: 12
-                font.bold: true
-                horizontalAlignment: Text.AlignRight
-                verticalAlignment: Text.AlignVCenter
-            }
-        }
-        background: Rectangle {
-            radius: 7
-            color: combo.down ? root.panelAltColor : root.panelColor
-            border.color: combo.activeFocus ? root.accentBuyColor : root.borderColor
-            border.width: 1
-        }
-        delegate: Component {
-            ItemDelegate {
-                width: combo.popup.width
-                text: modelData.label
-                highlighted: combo.highlightedIndex === index
-                contentItem: RowLayout {
-                    spacing: 8
-                    Text {
-                        Layout.fillWidth: true
-                        text: modelData.label
-                        color: modelData.index === 0 ? root.mutedTextColor : root.textColor
-                        elide: Text.ElideRight
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    Text {
-                        Layout.preferredWidth: visible ? Math.max(210, implicitWidth + 8) : 0
-                        text: modelData.rightText || ""
-                        visible: text.length > 0
-                        color: root.mutedTextColor
-                        font.pixelSize: 12
-                        font.bold: true
-                        horizontalAlignment: Text.AlignRight
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-                background: Rectangle {
-                    color: highlighted ? root.panelAltColor : root.panelColor
-                }
-                onClicked: combo.selectFilteredRow(modelData)
-            }
-        }
-        popup: Popup {
-            y: combo.height + 2
-            width: Math.max(combo.width, 760)
-            implicitHeight: Math.min(contentItem.implicitHeight, 400)
-            padding: 1
-            onOpened: {
-                combo.searchText = ""
-                combo.rebuildFilter()
-                sourceSearchField.forceActiveFocus()
-            }
-            contentItem: Column {
-                width: combo.popup.width
-                spacing: 4
-
-                Rectangle {
-                    width: parent.width - 8
-                    x: 4
-                    height: 30
-                    radius: 5
-                    color: root.panelDeepColor
-                    border.color: sourceSearchField.activeFocus ? root.accentBuyColor : root.borderColor
-                    border.width: 1
-
-                    Text { anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; text: "Search"; visible: sourceSearchField.text.length === 0; color: root.mutedTextColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
-                    TextInput {
-                        id: sourceSearchField
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        text: combo.searchText
-                        color: root.textColor
-                        selectionColor: root.accentBuyColor
-                        selectedTextColor: root.panelDeepColor
-                        font.pixelSize: 12
-                        selectByMouse: true
-                        clip: true
-                        verticalAlignment: TextInput.AlignVCenter
-                        onTextChanged: combo.searchText = text
-                        Keys.onPressed: function(event) {
-                            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && combo.filteredRows.length > 0) {
-                                combo.selectFilteredRow(combo.filteredRows[0])
-                                event.accepted = true
-                            } else if (event.key === Qt.Key_Escape) {
-                                if (combo.searchText.length > 0) {
-                                    combo.searchText = ""
-                                    sourceSearchField.text = ""
-                                } else {
-                                    combo.popup.close()
-                                }
-                                event.accepted = true
-                            }
-                        }
-                    }
-                }
-
-                ListView {
-                    id: sourceResultList
-                    width: parent.width
-                    height: Math.min(contentHeight, 330)
-                    clip: true
-                    model: combo.popup.visible ? combo.filteredRows : []
-                    currentIndex: 0
-                    delegate: combo.delegate
-                }
-
-                Text {
-                    id: sourceEmptyText
-                    width: parent.width
-                    height: 30
-                    visible: combo.filteredRows.length === 0
-                    text: "No matches"
-                    color: root.mutedTextColor
-                    font.pixelSize: 12
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-            background: Rectangle {
-                color: root.panelColor
-                border.color: root.borderColor
-                radius: 7
-            }
-        }
-        Component.onCompleted: currentIndex = 0
-    }
-
 
     component MeanSecondsField: TextField {
         id: meanField
@@ -825,20 +648,21 @@ Pane {
                 spacing: 8
 
                 Label { text: "Source A"; color: root.mutedTextColor }
-                DarkSourceCombo {
+                SessionPickerCombo {
                     id: compareComboA
+                    Layout.preferredWidth: 520
+                    rows: root.compareSourceRows
+                    caption: "Source A"
+                    emptyLabel: "Select session"
+                    popupWidth: 760
                     currentIndex: root.selectedCompareIndexA
-                    onSourcePicked: function(sourceId) {
+                    onPicked: function(sourceId) {
                         root.userHasExplicitCompareSelection = true
                         root.selectedCompareSourceA = sourceId
                         if (root.selectedCompareSourceB === root.selectedCompareSourceA)
                             root.selectedCompareSourceB = ""
                         root.syncCompareIndexesFromIds()
                         root.applyCompareSelection()
-                    }
-                    onActivated: function(index) {
-                        var sourceId = index <= 0 || index >= root.compareSourceRows.length ? "" : root.compareSourceRows[index].id
-                        compareComboA.sourcePicked(sourceId)
                     }
                 }
 
@@ -852,20 +676,21 @@ Pane {
                 }
 
                 Label { text: "Source B"; color: root.mutedTextColor }
-                DarkSourceCombo {
+                SessionPickerCombo {
                     id: compareComboB
+                    Layout.preferredWidth: 520
+                    rows: root.compareSourceRows
+                    caption: "Source B"
+                    emptyLabel: "Select session"
+                    popupWidth: 760
                     currentIndex: root.selectedCompareIndexB
-                    onSourcePicked: function(sourceId) {
+                    onPicked: function(sourceId) {
                         root.userHasExplicitCompareSelection = true
                         root.selectedCompareSourceB = sourceId
                         if (root.selectedCompareSourceB === root.selectedCompareSourceA)
                             root.selectedCompareSourceB = ""
                         root.syncCompareIndexesFromIds()
                         root.applyCompareSelection()
-                    }
-                    onActivated: function(index) {
-                        var sourceId = index <= 0 || index >= root.compareSourceRows.length ? "" : root.compareSourceRows[index].id
-                        compareComboB.sourcePicked(sourceId)
                     }
                 }
 

@@ -4,10 +4,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QJsonDocument>
-#include <QJsonObject>
 
 #include "gui/models/BacktestSessionSummary.hpp"
+#include "core/recordings/RecordingDiscovery.hpp"
 
 namespace hftrec::gui {
 
@@ -19,15 +18,23 @@ QString resolveRecordingsRoot() {
     return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
 }
 
-QString sessionSummary(const BacktestLegCounts& backtestCounts, const QString& sessionPath) {
-    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
-    if (!file.open(QIODevice::ReadOnly)) return sessionBacktestSummaryText(0, backtestCounts, 0);
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    const QJsonObject manifest = doc.object();
-    const QJsonObject bookTicker = manifest.value(QStringLiteral("channels")).toObject().value(QStringLiteral("bookticker")).toObject();
-    return sessionBacktestSummaryText(bookTicker.value(QStringLiteral("declared_event_count")).toInt(),
-                                      backtestCounts,
-                                      manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
+QString sessionSummary(const hftrec::recordings::RecordedSessionInfo& session, const BacktestLegCounts& backtestCounts) {
+    QString summary = sessionBacktestSummaryText(static_cast<int>(session.bookTickerCount), backtestCounts, session.startedAtNs);
+    if (session.candleCount > 0) summary += QStringLiteral(" | C %1").arg(session.candleCount);
+    return summary;
+}
+
+QString groupSummary(const hftrec::recordings::RecordingGroupInfo& group) {
+    return QStringLiteral("%1 venues | rows %2")
+        .arg(group.sessions.size())
+        .arg(QString::number(static_cast<qulonglong>(group.totalRows)));
+}
+
+QString sessionLabel(const hftrec::recordings::RecordedSessionInfo& session) {
+    return QStringLiteral("%1/%2 %3")
+        .arg(QString::fromStdString(session.exchange),
+             QString::fromStdString(session.market),
+             QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front()));
 }
 
 }  // namespace
@@ -39,27 +46,57 @@ SessionListModel::SessionListModel(QObject* parent)
 
 void SessionListModel::reload() {
     beginResetModel();
+    allSessions_.clear();
     sessions_.clear();
 
-    QDir recordingsDir(recordingsRoot());
-    if (recordingsDir.exists()) {
-        const auto backtestCounts = backtestLegCountsBySession(recordingsRoot());
-        const auto entries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
-        for (const auto& entry : entries) {
-            sessions_.push_back(Entry{entry, sessionSummary(backtestCounts.value(entry), recordingsDir.absoluteFilePath(entry))});
+    const auto backtestCounts = backtestLegCountsBySession(recordingsRoot());
+    const auto discovery = hftrec::recordings::discoverRecordings(recordingsRoot().toStdString());
+    for (const auto& group : discovery.groups) {
+        Entry groupEntry{};
+        groupEntry.sessionId = QStringLiteral("group:%1").arg(QString::fromStdString(group.id));
+        groupEntry.label = QString::fromStdString(group.title);
+        groupEntry.summary = groupSummary(group);
+        groupEntry.path = QString::fromStdString(group.path.string());
+        groupEntry.searchText = QString::fromStdString(group.searchText).toLower();
+        groupEntry.isGroup = true;
+        allSessions_.push_back(groupEntry);
+
+        for (const auto& session : group.sessions) {
+            Entry entry{};
+            entry.sessionId = QString::fromStdString(session.sessionId);
+            entry.label = sessionLabel(session);
+            entry.summary = sessionSummary(session, backtestCounts.value(entry.sessionId));
+            entry.path = QString::fromStdString(session.path.string());
+            entry.searchText = QString::fromStdString(session.searchText).toLower();
+            entry.isGroup = false;
+            entry.indent = 1;
+            allSessions_.push_back(std::move(entry));
         }
     }
 
+    sessions_ = allSessions_;
     endResetModel();
+    applyFilter_();
 }
 
 QString SessionListModel::sessionPath(const QString& sessionId) const {
     if (sessionId.trimmed().isEmpty()) return {};
+    for (const auto& entry : allSessions_) {
+        if (entry.sessionId == sessionId) return entry.path;
+    }
     return QDir(recordingsRoot()).absoluteFilePath(sessionId);
 }
 
 QString SessionListModel::recordingsRoot() const {
     return resolveRecordingsRoot();
+}
+
+void SessionListModel::setSearchText(const QString& searchText) {
+    const QString next = searchText.trimmed();
+    if (searchText_ == next) return;
+    searchText_ = next;
+    applyFilter_();
+    emit searchTextChanged();
 }
 
 int SessionListModel::rowCount(const QModelIndex& parent) const {
@@ -68,8 +105,14 @@ int SessionListModel::rowCount(const QModelIndex& parent) const {
 
 QVariant SessionListModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= sessions_.size()) return {};
-    if (role == SessionIdRole) return sessions_.at(index.row()).sessionId;
-    if (role == SessionSummaryRole) return sessions_.at(index.row()).summary;
+    const Entry& entry = sessions_.at(index.row());
+    if (role == SessionIdRole) return entry.sessionId;
+    if (role == SessionSummaryRole) return entry.summary;
+    if (role == LabelRole) return entry.label;
+    if (role == PathRole) return entry.path;
+    if (role == SearchTextRole) return entry.searchText;
+    if (role == IsGroupRole) return entry.isGroup;
+    if (role == IndentRole) return entry.indent;
     return {};
 }
 
@@ -77,7 +120,29 @@ QHash<int, QByteArray> SessionListModel::roleNames() const {
     return {
         {SessionIdRole, "sessionId"},
         {SessionSummaryRole, "sessionSummary"},
+        {LabelRole, "label"},
+        {PathRole, "path"},
+        {SearchTextRole, "searchText"},
+        {IsGroupRole, "isGroup"},
+        {IndentRole, "indent"},
     };
+}
+
+void SessionListModel::applyFilter_() {
+    const QString needle = searchText_.trimmed().toLower();
+    beginResetModel();
+    sessions_.clear();
+    if (needle.isEmpty()) {
+        sessions_ = allSessions_;
+    } else {
+        for (const auto& entry : allSessions_) {
+            const QString haystack = (entry.label + QLatin1Char(' ') + entry.sessionId + QLatin1Char(' ') +
+                                      entry.summary + QLatin1Char(' ') + entry.path + QLatin1Char(' ') +
+                                      entry.searchText).toLower();
+            if (haystack.contains(needle)) sessions_.push_back(entry);
+        }
+    }
+    endResetModel();
 }
 
 }  // namespace hftrec::gui

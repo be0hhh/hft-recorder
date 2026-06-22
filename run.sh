@@ -6,6 +6,7 @@
 #   build          - configure + build all hft-recorder targets
 #   gui            - run the Qt GUI [--gpu]
 #   cli            - run the support CLI
+#   tui            - run the terminal recorder UI
 #   clean          - remove build/ (prompts)
 #   help           - show this message
 set -e
@@ -164,9 +165,21 @@ if [ "$NEW_INSTANCE" != "1" ]; then
     fi
 fi
 
-exec "$APP_DIR/build/bin/hft-recorder-gui" "$@"
+    exec "$APP_DIR/build/bin/hft-recorder-gui" "$@"
 EOF
     chmod +x "$APP/build/start"
+
+    cat > "$APP/build/cli" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+INSTALL_DIR="${HOME}/.local/cxet"
+export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${LD_LIBRARY_PATH:-}"
+
+exec "$APP_DIR/build/bin/hft-recorder" tui "$@"
+EOF
+    chmod +x "$APP/build/cli"
 }
 
 cmd_install_cxet() {
@@ -235,6 +248,7 @@ cmd_build() {
     _write_start_launcher
     echo ">>> Build complete"
     echo ">>> GUI launcher: $APP/build/start"
+    echo ">>> TUI launcher: $APP/build/cli"
 }
 
 cmd_gui() {
@@ -274,6 +288,14 @@ cmd_cli() {
     exec "$APP/build/bin/hft-recorder" "$@"
 }
 
+cmd_tui() {
+    _require_linux_build_env
+    _resolve_cxet_paths
+    export LD_LIBRARY_PATH="$INSTALL_DIR/lib:${LD_LIBRARY_PATH:-}"
+    cd "$APP"
+    exec "$APP/build/bin/hft-recorder" tui "$@"
+}
+
 cmd_clean() {
     read -r -p "Remove $APP/build ? [y/N] " a
     case "$a" in
@@ -283,7 +305,7 @@ cmd_clean() {
 }
 
 cmd_help() {
-    sed -n '2,10p' "$0"
+    sed -n '2,11p' "$0"
 }
 
 case "${1:-help}" in
@@ -291,6 +313,7 @@ case "${1:-help}" in
     build)        shift; cmd_build "$@" ;;
     gui)          shift; cmd_gui "$@" ;;
     cli)          shift; cmd_cli "$@" ;;
+    tui)          shift; cmd_tui "$@" ;;
     clean)        shift; cmd_clean "$@" ;;
     help|-h|--help) cmd_help ;;
     *) echo "unknown subcommand: $1" >&2; cmd_help; exit 2 ;;

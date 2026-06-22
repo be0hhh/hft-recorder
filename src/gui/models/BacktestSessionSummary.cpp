@@ -10,6 +10,8 @@
 #include <QJsonObject>
 #include <QStringList>
 
+#include "core/recordings/RecordingDiscovery.hpp"
+
 namespace hftrec::gui {
 namespace {
 
@@ -119,12 +121,9 @@ QString sessionIdFromSessionPathText(const QString& sessionPath) {
 
 QHash<QString, BacktestLegCounts> backtestLegCountsBySession(const QString& recordingsRoot) {
     QHash<QString, BacktestLegCounts> counts;
-    const QDir recordingsDir(recordingsRoot);
-    if (!recordingsDir.exists()) return counts;
-    const QStringList entries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    for (const QString& entry : entries) {
-        if (entry == QStringLiteral("backtest_profiles")) continue;
-        scanSessionBacktests(recordingsDir.absoluteFilePath(entry), counts);
+    const auto discovery = hftrec::recordings::discoverRecordings(recordingsRoot.toStdString());
+    for (const auto& session : discovery.sessions) {
+        scanSessionBacktests(QString::fromStdString(session.path.string()), counts);
     }
     return counts;
 }

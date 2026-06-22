@@ -29,6 +29,7 @@
 #include "hft_backtest/backtest.hpp"
 #include "hft_backtest/backtest_sweep.hpp"
 #include "core/common/Status.hpp"
+#include "core/recordings/RecordingDiscovery.hpp"
 #include "gui/models/BacktestSessionSummary.hpp"
 
 namespace hftrec::gui {
@@ -753,7 +754,51 @@ QString sessionPathFromToken(const QString& recordingsRoot, const QString& token
     if (trimmed.isEmpty()) return {};
     const QFileInfo info(trimmed);
     if (info.isAbsolute()) return QDir::cleanPath(info.absoluteFilePath());
+    const auto discovery = hftrec::recordings::discoverRecordings(recordingsRoot.toStdString());
+    const QString groupPrefix = QStringLiteral("group:");
+    if (trimmed.startsWith(groupPrefix)) {
+        const QString groupId = trimmed.mid(groupPrefix.size());
+        for (const auto& group : discovery.groups) {
+            if (QString::fromStdString(group.id) != groupId || group.sessions.empty()) continue;
+            return QString::fromStdString(group.sessions.front().path.string());
+        }
+    }
+    for (const auto& session : discovery.sessions) {
+        if (QString::fromStdString(session.sessionId) == trimmed) return QString::fromStdString(session.path.string());
+    }
     return QDir(recordingsRoot).absoluteFilePath(trimmed);
+}
+
+QVariantMap sessionRowById(const QVariantList& rows, const QString& id) {
+    for (const QVariant& value : rows) {
+        const QVariantMap row = value.toMap();
+        if (row.value(QStringLiteral("id")).toString() == id) return row;
+    }
+    return {};
+}
+
+bool sessionRowSelectable(const QVariantMap& row) {
+    return row.value(QStringLiteral("selectable"), true).toBool();
+}
+
+QString firstSelectableSessionId(const QVariantList& rows) {
+    for (const QVariant& value : rows) {
+        const QVariantMap row = value.toMap();
+        if (sessionRowSelectable(row)) return row.value(QStringLiteral("id")).toString();
+    }
+    return {};
+}
+
+QStringList sessionPathsFromRow(const QVariantMap& row) {
+    QStringList paths;
+    const QVariantList rowPaths = row.value(QStringLiteral("sessionPaths")).toList();
+    for (const QVariant& value : rowPaths) {
+        const QString path = value.toString().trimmed();
+        if (!path.isEmpty() && !paths.contains(path)) paths.push_back(path);
+    }
+    const QString path = row.value(QStringLiteral("path")).toString().trimmed();
+    if (paths.empty() && !path.isEmpty()) paths.push_back(path);
+    return paths;
 }
 
 QString normalizedFeeMarket(QString market) {
@@ -1179,7 +1224,7 @@ BacktestViewModel::BacktestViewModel(QObject* parent) : QObject(parent) {
     connect(&watcher_, &QFileSystemWatcher::fileChanged, this, [this]() { scheduleRefresh_(); });
     loadPersistentConfig_();
     sessions_ = loadSessions_();
-    if (!sessions_.empty()) selectedSessionId_ = sessions_.front().toMap().value(QStringLiteral("id")).toString();
+    selectedSessionId_ = firstSelectableSessionId(sessions_);
     ensureSelectedStrategySupportsSessionCount_();
     refresh();
 }
@@ -1200,28 +1245,65 @@ QVariantList BacktestViewModel::sessions() const {
 QVariantList BacktestViewModel::loadSessions_() const {
     QVariantList out;
     const QString root = recordingsRoot();
-    QDir recordingsDir(root);
-    if (!recordingsDir.exists()) return out;
-
     const auto backtestCountsBySession = backtestLegCountsBySession(root);
-    const auto entries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
-    for (const auto& entry : entries) {
-        if (entry == QStringLiteral("backtest_profiles")) continue;
-        const QString path = recordingsDir.absoluteFilePath(entry);
-        const QDir backtestsDir(QDir(path).absoluteFilePath(QStringLiteral("backtests")));
-        const BacktestLegCounts backtestCounts = backtestCountsBySession.value(entry);
-        QVariantMap row;
-        row.insert(QStringLiteral("id"), entry);
-        row.insert(QStringLiteral("label"), entry);
-        row.insert(QStringLiteral("path"), path);
-        row.insert(QStringLiteral("hasManifest"), QFileInfo::exists(QDir(path).absoluteFilePath(QStringLiteral("manifest.json"))));
-        row.insert(QStringLiteral("hasBacktests"), backtestsDir.exists());
-        row.insert(QStringLiteral("backtestCount"), backtestCounts.firstLeg);
-        row.insert(QStringLiteral("firstLegBacktestCount"), backtestCounts.firstLeg);
-        row.insert(QStringLiteral("secondLegBacktestCount"), backtestCounts.secondLeg);
-        QString rightText = sessionSourceSummary(path, backtestCounts);
-        row.insert(QStringLiteral("rightText"), rightText);
-        out.push_back(row);
+    const auto discovery = hftrec::recordings::discoverRecordings(root.toStdString());
+    for (const auto& group : discovery.groups) {
+        QVariantList groupPaths;
+        int groupFirstLegBacktests = 0;
+        int groupSecondLegBacktests = 0;
+        for (const auto& session : group.sessions) {
+            const QString sessionId = QString::fromStdString(session.sessionId);
+            groupPaths.push_back(QString::fromStdString(session.path.string()));
+            const BacktestLegCounts counts = backtestCountsBySession.value(sessionId);
+            groupFirstLegBacktests += counts.firstLeg;
+            groupSecondLegBacktests += counts.secondLeg;
+        }
+        if (!group.sessions.empty()) {
+            QVariantMap groupRow;
+            groupRow.insert(QStringLiteral("id"), QStringLiteral("group:%1").arg(QString::fromStdString(group.id)));
+            groupRow.insert(QStringLiteral("label"), QString::fromStdString(group.title));
+            groupRow.insert(QStringLiteral("path"), QString::fromStdString(group.sessions.front().path.string()));
+            groupRow.insert(QStringLiteral("sessionPaths"), groupPaths);
+            groupRow.insert(QStringLiteral("hasManifest"), true);
+            groupRow.insert(QStringLiteral("hasBacktests"), groupFirstLegBacktests > 0 || groupSecondLegBacktests > 0);
+            groupRow.insert(QStringLiteral("backtestCount"), groupFirstLegBacktests);
+            groupRow.insert(QStringLiteral("firstLegBacktestCount"), groupFirstLegBacktests);
+            groupRow.insert(QStringLiteral("secondLegBacktestCount"), groupSecondLegBacktests);
+            groupRow.insert(QStringLiteral("isGroup"), true);
+            groupRow.insert(QStringLiteral("selectable"), false);
+            groupRow.insert(QStringLiteral("groupId"), QString::fromStdString(group.id));
+            groupRow.insert(QStringLiteral("rightText"), QStringLiteral("%1 legs | rows %2 | 1BT %3 | 2BT %4")
+                                                    .arg(group.sessions.size())
+                                                    .arg(QString::number(static_cast<qulonglong>(group.totalRows)))
+                                                    .arg(groupFirstLegBacktests)
+                                                    .arg(groupSecondLegBacktests));
+            out.push_back(groupRow);
+        }
+
+        for (const auto& session : group.sessions) {
+            const QString id = QString::fromStdString(session.sessionId);
+            const QString path = QString::fromStdString(session.path.string());
+            const QDir backtestsDir(QDir(path).absoluteFilePath(QStringLiteral("backtests")));
+            const BacktestLegCounts backtestCounts = backtestCountsBySession.value(id);
+            QVariantMap row;
+            row.insert(QStringLiteral("id"), id);
+            row.insert(QStringLiteral("label"), QStringLiteral("%1/%2 %3")
+                                            .arg(QString::fromStdString(session.exchange),
+                                                 QString::fromStdString(session.market),
+                                                 QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front())));
+            row.insert(QStringLiteral("path"), path);
+            row.insert(QStringLiteral("sessionPaths"), QVariantList{path});
+            row.insert(QStringLiteral("hasManifest"), QFileInfo::exists(QDir(path).absoluteFilePath(QStringLiteral("manifest.json"))));
+            row.insert(QStringLiteral("hasBacktests"), backtestsDir.exists());
+            row.insert(QStringLiteral("backtestCount"), backtestCounts.firstLeg);
+            row.insert(QStringLiteral("firstLegBacktestCount"), backtestCounts.firstLeg);
+            row.insert(QStringLiteral("secondLegBacktestCount"), backtestCounts.secondLeg);
+            row.insert(QStringLiteral("isGroup"), false);
+            row.insert(QStringLiteral("selectable"), true);
+            row.insert(QStringLiteral("parentGroupId"), QString::fromStdString(group.id));
+            row.insert(QStringLiteral("rightText"), sessionSourceSummary(path, backtestCounts));
+            out.push_back(row);
+        }
     }
     return out;
 }
@@ -1229,19 +1311,37 @@ QVariantList BacktestViewModel::loadSessions_() const {
 QString BacktestViewModel::selectedSessionPath() const {
     if (!manualSessionPath_.trimmed().isEmpty()) return manualSessionPath_;
     if (selectedSessionId_.trimmed().isEmpty()) return {};
-    return QDir(recordingsRoot()).absoluteFilePath(selectedSessionId_);
+    const QVariantMap row = sessionRowById(sessions_, selectedSessionId_);
+    const QStringList paths = sessionPathsFromRow(row);
+    if (!paths.empty()) return paths.front();
+    return sessionPathFromToken(recordingsRoot(), selectedSessionId_);
 }
 
 QStringList BacktestViewModel::selectedSessionPaths_() const {
     QStringList out;
-    const QString primary = selectedSessionPath();
-    if (!primary.trimmed().isEmpty()) out.push_back(primary);
+    if (!manualSessionPath_.trimmed().isEmpty()) {
+        out.push_back(manualSessionPath_);
+    } else {
+        const QStringList primaryPaths = sessionPathsFromRow(sessionRowById(sessions_, selectedSessionId_));
+        for (const QString& path : primaryPaths) {
+            if (!path.trimmed().isEmpty() && !out.contains(path)) out.push_back(path);
+            if (out.size() >= 8) break;
+        }
+        if (out.empty()) {
+            const QString primary = selectedSessionPath();
+            if (!primary.trimmed().isEmpty()) out.push_back(primary);
+        }
+    }
     const QStringList tokens = extraSessionIds_.split(QRegularExpression(QStringLiteral("[,;\\n]+")), Qt::SkipEmptyParts);
     const QString root = recordingsRoot();
     for (const QString& token : tokens) {
-        const QString path = sessionPathFromToken(root, token);
-        if (path.isEmpty() || out.contains(path)) continue;
-        out.push_back(path);
+        const QStringList rowPaths = sessionPathsFromRow(sessionRowById(sessions_, token.trimmed()));
+        const QStringList paths = rowPaths.empty() ? QStringList{sessionPathFromToken(root, token)} : rowPaths;
+        for (const QString& path : paths) {
+            if (path.isEmpty() || out.contains(path)) continue;
+            out.push_back(path);
+            if (out.size() >= 8) break;
+        }
         if (out.size() >= 8) break;
     }
     return out;
@@ -1823,8 +1923,15 @@ bool BacktestViewModel::canRun() const {
 
 void BacktestViewModel::reloadSessions() {
     sessions_ = loadSessions_();
+    if (manualSessionPath_.trimmed().isEmpty()) {
+        const QVariantMap selectedRow = sessionRowById(sessions_, selectedSessionId_);
+        if (selectedSessionId_.trimmed().isEmpty() || selectedRow.isEmpty() || !sessionRowSelectable(selectedRow)) {
+            selectedSessionId_ = firstSelectableSessionId(sessions_);
+        }
+    }
     const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit sessionsChanged();
+    emit selectedSessionChanged();
     emit multiSessionChanged();
     if (!strategyChanged) emit selectedStrategyChanged();
     emit canRunChanged();

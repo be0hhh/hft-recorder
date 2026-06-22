@@ -62,6 +62,7 @@ qt_add_qml_module(hft-recorder-gui
         qml/components/CaptureSessionSummaryCard.qml
         qml/components/CaptureChannelCard.qml
         qml/components/RecorderComboBox.qml
+        qml/components/SessionPickerCombo.qml
         qml/components/ViewerChromeButton.qml
         qml/components/ViewerChannelButton.qml
         qml/components/ViewerInteractionState.qml

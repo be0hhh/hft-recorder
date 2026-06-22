@@ -622,6 +622,8 @@ QByteArray userEventJson(const hftrec::execution::ExecutionEvent& event) {
     out.insert(QStringLiteral("wallet_balance_raw"), QString::number(event.walletBalanceRaw));
     out.insert(QStringLiteral("available_balance_raw"), QString::number(event.availableBalanceRaw));
     out.insert(QStringLiteral("equity_raw"), QString::number(event.equityRaw));
+    out.insert(QStringLiteral("exchange_event_time_ns"), QString::number(event.tsNs));
+    out.insert(QStringLiteral("exchange_transaction_time_ns"), QString::number(event.tsNs));
     out.insert(QStringLiteral("event_time_ns"), QString::number(event.tsNs));
     out.insert(QStringLiteral("update_time_ns"), QString::number(event.tsNs));
     out.insert(QStringLiteral("success"), event.success);

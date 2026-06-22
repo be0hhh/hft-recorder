@@ -539,6 +539,31 @@ nudge_cursor_after_spawn
 echo ">>> hft-recorder gui started pid=\$gui_pid, log: \$LOG_FILE"
 EOF
     chmod +x "$APP/build/start"
+
+    cat > "$APP/build/cli" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
+INSTALL_DIR="\${HOME}/.local/cxet"
+COMPRESSOR_LIB_DIR="$compressor_lib_dir"
+BACKTEST_LIB_DIR="\$APP_DIR/../hft-backtest/build"
+TRADER_LIB_DIR="\$APP_DIR/../hft-trader/build"
+TRADER_CXET_LIB_DIR="\$APP_DIR/../hft-trader/build/cxetcpp/lib"
+if [ ! -f "\$BACKTEST_LIB_DIR/libhft_backtest_core.so" ]; then
+    BACKTEST_LIB_DIR="$backtest_lib_dir"
+fi
+if [ ! -f "\$TRADER_LIB_DIR/libhft_trader_runtime.so" ]; then
+    TRADER_LIB_DIR="$trader_lib_dir"
+fi
+if [ ! -f "\$TRADER_CXET_LIB_DIR/libcxet_lib.so" ]; then
+    TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir"
+fi
+export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
+
+exec "\$APP_DIR/build/bin/hft-recorder" tui "\$@"
+EOF
+    chmod +x "$APP/build/cli"
 }
 
 _build_recorder_app() {
@@ -592,6 +617,7 @@ _build_recorder_app() {
     echo ">>> Done."
     echo ">>> Launch: ./build/start        (CPU-safe software mode)"
     echo ">>> Launch: ./build/start --gpu  (Qt Quick OpenGL mode)"
+    echo ">>> TUI:    ./build/cli          (terminal recorder UI)"
 }
 
 _require_linux_build_env

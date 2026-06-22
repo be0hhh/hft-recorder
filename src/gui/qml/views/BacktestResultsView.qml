@@ -97,7 +97,12 @@ Pane {
             if (!row)
                 continue
             var id = String(row.id || "")
-            if (id.length === 0 || id === primaryId)
+            var selectable = row.selectable !== false
+            if (row.isGroup === true) {
+                rows.push(row)
+                continue
+            }
+            if (!selectable || id.length === 0 || id === primaryId)
                 continue
             if (id === currentExtra)
                 currentFound = true
@@ -217,19 +222,18 @@ Pane {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
-                    RecorderComboBox {
+                    SessionPickerCombo {
                         id: sessionBox
                         Layout.fillWidth: true
                         Layout.preferredWidth: 520
                         caption: "Session"
-                        textRole: "label"
-                        valueRole: "id"
-                        model: root.backtestVm.sessions
+                        rows: root.backtestVm.sessions
+                        emptyLabel: "Select session"
                         popupWidth: 720
-                        onActivated: {
-                            if (root.firstExtraSessionId() === currentValue)
+                        onPicked: function(id) {
+                            if (root.firstExtraSessionId() === id)
                                 root.backtestVm.setExtraSessionIds("")
-                            root.backtestVm.setSelectedSessionId(currentValue)
+                            root.backtestVm.setSelectedSessionId(id)
                         }
                         Component.onCompleted: root.syncSelections()
                     }
@@ -290,18 +294,17 @@ Pane {
                         text: root.backtestVm.initialBalanceUsdt
                         onEdited: function(value) { root.backtestVm.initialBalanceUsdt = value }
                     }
-                    RecorderComboBox {
+                    SessionPickerCombo {
                         id: secondarySessionBox
                         Layout.fillWidth: true
                         Layout.preferredWidth: 260
                         caption: "Second leg"
-                        textRole: "label"
-                        valueRole: "id"
-                        model: root.secondarySessionRows
+                        rows: root.secondarySessionRows
+                        emptyLabel: "No second leg"
                         popupWidth: 720
                         enabled: root.secondarySessionRows.length > 1 || root.firstExtraSessionId().length > 0
                         opacity: enabled ? 1.0 : 0.55
-                        onActivated: root.backtestVm.setExtraSessionIds(currentValue)
+                        onPicked: function(id) { root.backtestVm.setExtraSessionIds(id) }
                         Component.onCompleted: root.syncSelections()
                     }
                     CompactField {

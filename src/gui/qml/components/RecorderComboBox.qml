@@ -22,24 +22,40 @@ ComboBox {
     property var filteredRows: []
     readonly property bool compactDisplay: caption.length === 0 || height < 36
 
+    function sourceRowAt(index) {
+        if (!combo.model || index < 0)
+            return ({})
+        var row = combo.model[index]
+        return row ? row : ({})
+    }
+
+    function rowRightText(row) {
+        return row && row.rightText ? row.rightText : ""
+    }
+
+    function rowSelectable(row) {
+        return !(row && row.selectable === false)
+    }
+
     function rebuildFilter() {
         var needle = searchText.trim().toLowerCase()
         var rows = []
         for (var i = 0; i < combo.count; ++i) {
             var label = combo.textAt(i)
             var value = combo.valueAt(i)
-            var rightText = ""
-            if (combo.model && combo.model[i] && combo.model[i].rightText)
-                rightText = combo.model[i].rightText
+            var row = combo.sourceRowAt(i)
+            var rightText = combo.rowRightText(row)
             var haystack = (label + " " + value).toLowerCase()
             if (needle.length === 0 || haystack.indexOf(needle) !== -1)
-                rows.push({ "index": i, "label": label, "value": value, "rightText": rightText })
+                rows.push({ "index": i, "label": label, "value": value, "rightText": rightText, "selectable": combo.rowSelectable(row) })
         }
         filteredRows = rows
     }
 
     function selectFilteredRow(row) {
         if (!row || row.index < 0)
+            return
+        if (row.selectable === false)
             return
         combo.currentIndex = row.index
         combo.popup.close()
@@ -58,7 +74,9 @@ ComboBox {
 
     onSearchTextChanged: rebuildFilter()
     onCountChanged: rebuildFilter()
-    onModelChanged: rebuildFilter()
+    onModelChanged: {
+        rebuildFilter()
+    }
 
     contentItem: Item {
         Text {
@@ -208,7 +226,10 @@ ComboBox {
                 verticalAlignment: Text.AlignVCenter
             }
         }
-        background: Rectangle { color: highlighted ? Qt.rgba(combo.accentColor.r, combo.accentColor.g, combo.accentColor.b, 0.16) : combo.panelColor }
+        background: Rectangle {
+            color: highlighted ? Qt.rgba(combo.accentColor.r, combo.accentColor.g, combo.accentColor.b, 0.16)
+                               : combo.panelColor
+        }
         onClicked: combo.selectFilteredRow(modelData)
     }
 }

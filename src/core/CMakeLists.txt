@@ -33,8 +33,10 @@ set(HFTREC_CORE_SOURCES
     replay/CxetReplaySessionLoader.cpp
     replay/SessionReplay.cpp
     replay/SessionReplayTimeline.cpp
+    recordings/RecordingDiscovery.cpp
     storage/EventStorage.cpp
     storage/JsonSessionStorage.cpp
+    tui/RecorderTuiPreset.cpp
     validation/ValidationRunner.cpp
 )
 
