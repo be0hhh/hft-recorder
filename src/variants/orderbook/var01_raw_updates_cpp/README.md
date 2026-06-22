@@ -45,7 +45,7 @@ OrderBookDeltaEvent stream (first_update_id, final_update_id, is_bid,
 
 ## Acceptance gate
 
-- `./run.sh build` → 0
+- `./compile.sh` → 0
 - Roundtrip unit test green
 - `compression_ratio = 1.0` ± epsilon (expected)
 - `kOnlineFeasible = true` (memcpy-only pipeline)

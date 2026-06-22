@@ -223,7 +223,7 @@ _resolve_cxet_paths() {
         CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so.1"
     fi
     if [ ! -d "$CXET_INCLUDE" ] || [ ! -f "$CXET_LIB" ]; then
-        echo "ERROR: CXETCPP not installed. Run: ./run.sh install-cxet" >&2
+        echo "ERROR: CXETCPP not installed." >&2
         exit 2
     fi
 }

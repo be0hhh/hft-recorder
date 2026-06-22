@@ -1,4 +1,5 @@
 #include <poll.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -22,6 +23,7 @@
 #include "core/capture/CaptureCoordinator.hpp"
 #include "core/recordings/RecordingDiscovery.hpp"
 #include "core/tui/RecorderTuiPreset.hpp"
+#include "core/tui/TerminalRender.hpp"
 
 namespace hftrec::app {
 
@@ -83,14 +85,17 @@ class TerminalGuard {
         raw_.c_cc[VMIN] = 0;
         raw_.c_cc[VTIME] = 0;
         resume();
-        std::fputs("\033[?25l", stdout);
+        std::fputs("\033[?1049h\033[2J\033[H\033[?25l", stdout);
+        alternateScreen_ = true;
         std::fflush(stdout);
     }
 
     ~TerminalGuard() {
         if (!interactive_) return;
         suspend();
-        std::fputs("\033[?25h\033[0m\n", stdout);
+        std::fputs("\033[?25h\033[0m", stdout);
+        if (alternateScreen_) std::fputs("\033[?1049l", stdout);
+        std::putchar('\n');
         std::fflush(stdout);
     }
 
@@ -106,6 +111,7 @@ class TerminalGuard {
 
   private:
     bool interactive_{false};
+    bool alternateScreen_{false};
     termios original_{};
     termios raw_{};
 };
@@ -157,6 +163,21 @@ Key readKey(int timeoutMs) {
 
 void clearScreen() {
     std::fputs("\033[2J\033[H", stdout);
+}
+
+tui::TerminalViewport currentViewport() noexcept {
+    winsize size{};
+    if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_row > 0 && size.ws_col > 0) {
+        return tui::sanitizeViewport(
+            tui::TerminalViewport{.rows = static_cast<int>(size.ws_row), .cols = static_cast<int>(size.ws_col)});
+    }
+    return tui::sanitizeViewport({});
+}
+
+void printLine(std::string_view line, tui::TerminalViewport viewport) {
+    const std::string text = tui::truncateForTerminal(line, viewport.cols);
+    std::fputs(text.c_str(), stdout);
+    std::putchar('\n');
 }
 
 std::string promptLine(TerminalGuard& terminal, std::string_view label, std::string_view current = {}) {
@@ -239,25 +260,30 @@ const char* channelNameByIndex(int index) {
 }
 
 void renderEditJob(const tui::RecorderTuiJob& job, int row, std::string_view message) {
+    const auto viewport = currentViewport();
     clearScreen();
-    std::printf("hft-recorder TUI / edit job\n\n");
+    printLine("hft-recorder TUI / edit job", viewport);
+    std::putchar('\n');
     const std::string durationText = job.durationMin == 0 ? "until stop" : std::to_string(job.durationMin) + "m";
     const char* marker = row == 0 ? ">" : " ";
-    std::printf("%s name         %s\n", marker, job.name.c_str());
+    printLine(std::string(marker) + " symbol       " + job.symbol, viewport);
     marker = row == 1 ? ">" : " ";
-    std::printf("%s exchange     %s\n", marker, job.exchange.c_str());
+    printLine(std::string(marker) + " name         " + job.name, viewport);
     marker = row == 2 ? ">" : " ";
-    std::printf("%s market       %s\n", marker, job.market.c_str());
+    printLine(std::string(marker) + " exchange     " + job.exchange, viewport);
     marker = row == 3 ? ">" : " ";
-    std::printf("%s symbol       %s\n", marker, job.symbol.c_str());
+    printLine(std::string(marker) + " market       " + job.market, viewport);
     marker = row == 4 ? ">" : " ";
-    std::printf("%s duration     %s\n", marker, durationText.c_str());
+    printLine(std::string(marker) + " duration     " + durationText, viewport);
     for (int i = 0; i < 8; ++i) {
         marker = row == i + 5 ? ">" : " ";
-        std::printf("%s [%c] %-13s\n", marker, channelByIndex(job.channels, i) ? 'x' : ' ', channelNameByIndex(i));
+        printLine(std::string(marker) + " [" + (channelByIndex(job.channels, i) ? "x" : " ") + "] " +
+                      channelNameByIndex(i),
+                  viewport);
     }
-    std::printf("\nEnter edit/toggle | arrows move | Esc save/back\n");
-    if (!message.empty()) std::printf("%s\n", std::string(message).c_str());
+    std::putchar('\n');
+    printLine("Enter edit/toggle | arrows move | Esc save/back", viewport);
+    if (!message.empty()) printLine(message, viewport);
     std::fflush(stdout);
 }
 
@@ -272,10 +298,10 @@ void editJob(TerminalGuard& terminal, tui::RecorderTuiJob& job) {
         else if (key.kind == KeyKind::Down) row = std::min(12, row + 1);
         else if (key.kind == KeyKind::Escape) return;
         else if (key.kind == KeyKind::Enter || (key.kind == KeyKind::Character && key.ch == ' ')) {
-            if (row == 0) job.name = promptLine(terminal, "name", job.name);
-            else if (row == 1) job.exchange = lower(promptLine(terminal, "exchange", job.exchange));
-            else if (row == 2) job.market = lower(promptLine(terminal, "market", job.market));
-            else if (row == 3) job.symbol = promptLine(terminal, "symbol", job.symbol);
+            if (row == 0) job.symbol = promptLine(terminal, "symbol", job.symbol);
+            else if (row == 1) job.name = promptLine(terminal, "name", job.name);
+            else if (row == 2) job.exchange = lower(promptLine(terminal, "exchange", job.exchange));
+            else if (row == 3) job.market = lower(promptLine(terminal, "market", job.market));
             else if (row == 4) {
                 const std::string value = promptLine(terminal, "duration minutes (0/none = until stop)",
                                                      job.durationMin == 0 ? "0" : std::to_string(job.durationMin));
@@ -291,21 +317,32 @@ void editJob(TerminalGuard& terminal, tui::RecorderTuiJob& job) {
 }
 
 void renderMainMenu(const tui::RecorderTuiPreset& preset, std::size_t selected, const std::filesystem::path& presetPath, std::string_view message) {
+    const auto viewport = currentViewport();
     clearScreen();
-    std::printf("hft-recorder TUI\n");
-    std::printf("output: %s | preset: %s | progress: %ds\n\n",
-                preset.outputDir.string().c_str(),
-                presetPath.string().c_str(),
-                preset.progressSec);
+    printLine("hft-recorder TUI", viewport);
+    printLine("output: " + preset.outputDir.string() + " | preset: " + presetPath.string() +
+                  " | progress: " + std::to_string(preset.progressSec) + "s",
+              viewport);
+    std::putchar('\n');
     if (preset.jobs.empty()) {
-        std::printf("No jobs. Press 'a' to add one.\n");
+        printLine("No jobs. Press 'a' to add one.", viewport);
     } else {
+        std::vector<std::string> jobLines;
+        jobLines.reserve(preset.jobs.size());
         for (std::size_t i = 0; i < preset.jobs.size(); ++i) {
-            std::printf("%c %2zu  %s\n", i == selected ? '>' : ' ', i + 1u, jobLabel(preset.jobs[i]).c_str());
+            std::ostringstream line;
+            line << (i == selected ? '>' : ' ') << ' ' << (i + 1u) << "  " << jobLabel(preset.jobs[i]);
+            jobLines.push_back(line.str());
+        }
+        const int reserved = message.empty() ? 6 : 7;
+        for (const auto& line : tui::limitLinesForViewport(jobLines, viewport, reserved)) {
+            printLine(line, viewport);
         }
     }
-    std::printf("\n[a] add  [e/Enter] edit  [c] copy  [d] delete  [o] output  [p] progress  [w] save  [s] save as  [l] load  [r] start all  [q] quit\n");
-    if (!message.empty()) std::printf("%s\n", std::string(message).c_str());
+    std::putchar('\n');
+    printLine("[a] add  [e/Enter] edit  [c] copy  [d] delete  [o] output  [p] progress  [w] save  [s] save as  [l] load  [r/R] start all  [q] quit",
+              viewport);
+    if (!message.empty()) printLine(message, viewport);
     std::fflush(stdout);
 }
 
@@ -426,6 +463,7 @@ std::uint64_t totalRows(const capture::CaptureCoordinator& coordinator) noexcept
 }
 
 void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, std::string_view message) {
+    const auto viewport = currentViewport();
     clearScreen();
     std::uint64_t aggregateRows = 0;
     int runningCount = 0;
@@ -433,44 +471,50 @@ void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, st
         if (job.coordinator) aggregateRows += totalRows(*job.coordinator);
         if (job.running) ++runningCount;
     }
-    std::printf("hft-recorder TUI / running  jobs=%zu running=%d rows=%llu\n\n",
-                jobs.size(),
-                runningCount,
-                static_cast<unsigned long long>(aggregateRows));
+    printLine("hft-recorder TUI / running  jobs=" + std::to_string(jobs.size()) +
+                  " running=" + std::to_string(runningCount) +
+                  " rows=" + std::to_string(static_cast<unsigned long long>(aggregateRows)),
+              viewport);
+    std::putchar('\n');
 
+    std::vector<std::string> lines;
     for (std::size_t i = 0; i < jobs.size(); ++i) {
         const auto& job = jobs[i];
         const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - job.started).count();
         const auto durationSec = job.job.durationMin > 0 ? job.job.durationMin * 60 : 0;
-        std::printf("%c %2zu %-10s %-8s %s/%s %-14s elapsed=%llds",
-                    i == selected ? '>' : ' ',
-                    i + 1u,
-                    job.job.name.c_str(),
-                    job.status.c_str(),
-                    job.job.exchange.c_str(),
-                    job.job.market.c_str(),
-                    job.job.symbol.c_str(),
-                    static_cast<long long>(elapsed));
-        if (durationSec > 0) std::printf("/%llds", static_cast<long long>(durationSec));
-        if (job.coordinator) std::printf(" session=%s", job.coordinator->sessionDirCopy().string().c_str());
-        std::putchar('\n');
+        std::ostringstream head;
+        head << (i == selected ? '>' : ' ') << ' ' << (i + 1u) << ' ' << job.job.name << ' ' << job.status << ' '
+             << job.job.exchange << '/' << job.job.market << ' ' << job.job.symbol << " elapsed="
+             << static_cast<long long>(elapsed) << 's';
+        if (durationSec > 0) head << '/' << static_cast<long long>(durationSec) << 's';
         if (job.coordinator) {
-            std::printf("      trades=%llu liq=%llu bbo=%llu depth=%llu mark=%llu index=%llu funding=%llu limits=%llu\n",
-                        static_cast<unsigned long long>(job.coordinator->tradesCount()),
-                        static_cast<unsigned long long>(job.coordinator->liquidationsCount()),
-                        static_cast<unsigned long long>(job.coordinator->bookTickerCount()),
-                        static_cast<unsigned long long>(job.coordinator->depthCount()),
-                        static_cast<unsigned long long>(job.coordinator->markPriceCount()),
-                        static_cast<unsigned long long>(job.coordinator->indexPriceCount()),
-                        static_cast<unsigned long long>(job.coordinator->fundingCount()),
-                        static_cast<unsigned long long>(job.coordinator->priceLimitCount()));
+            head << " session="
+                 << tui::compactSessionPath(job.coordinator->sessionDirCopy(), std::max(16, viewport.cols / 2));
+        }
+        lines.push_back(head.str());
+        if (job.coordinator) {
+            std::ostringstream counts;
+            counts << "      trades=" << static_cast<unsigned long long>(job.coordinator->tradesCount())
+                   << " liq=" << static_cast<unsigned long long>(job.coordinator->liquidationsCount())
+                   << " bbo=" << static_cast<unsigned long long>(job.coordinator->bookTickerCount())
+                   << " depth=" << static_cast<unsigned long long>(job.coordinator->depthCount())
+                   << " mark=" << static_cast<unsigned long long>(job.coordinator->markPriceCount())
+                   << " index=" << static_cast<unsigned long long>(job.coordinator->indexPriceCount())
+                   << " funding=" << static_cast<unsigned long long>(job.coordinator->fundingCount())
+                   << " limits=" << static_cast<unsigned long long>(job.coordinator->priceLimitCount());
+            lines.push_back(counts.str());
         }
         const std::string last = job.coordinator ? job.coordinator->lastError() : std::string{};
         const std::string error = !job.error.empty() ? job.error : last;
-        if (!error.empty()) std::printf("      warn/error: %s\n", error.c_str());
+        if (!error.empty()) lines.push_back("      warn/error: " + error);
     }
-    std::printf("\n[s/c] stop selected  [a/q] stop all and return\n");
-    if (!message.empty()) std::printf("%s\n", std::string(message).c_str());
+    const int reserved = message.empty() ? 5 : 6;
+    for (const auto& line : tui::limitLinesForViewport(lines, viewport, reserved)) {
+        printLine(line, viewport);
+    }
+    std::putchar('\n');
+    printLine("[s/c] stop selected  [a/q] stop all and return", viewport);
+    if (!message.empty()) printLine(message, viewport);
     std::fflush(stdout);
 }
 
@@ -483,6 +527,8 @@ void runJobs(TerminalGuard&, const tui::RecorderTuiPreset& preset) {
     std::size_t selected = 0;
     std::string message;
     auto nextProgress = Clock::now();
+    bool dirty = true;
+    std::string lastIdleMessage;
     while (true) {
         if (gInterrupted) {
             for (auto& job : jobs) requestStopJob(job);
@@ -491,35 +537,41 @@ void runJobs(TerminalGuard&, const tui::RecorderTuiPreset& preset) {
         }
 
         const auto now = Clock::now();
+        bool stateChanged = false;
         for (auto& job : jobs) {
             if (job.stopRequested && !job.finalized && job.coordinator && !anyRunningChannel(*job.coordinator)) {
                 finalizeJob(job);
+                stateChanged = true;
                 continue;
             }
             if (!job.running || job.job.durationMin <= 0) continue;
             const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - job.started).count();
-            if (elapsed >= job.job.durationMin * 60) requestStopJob(job);
+            if (elapsed >= job.job.durationMin * 60) {
+                requestStopJob(job);
+                stateChanged = true;
+            }
         }
 
-        if (now >= nextProgress) {
+        if (dirty || stateChanged || now >= nextProgress) {
             renderRunning(jobs, selected, message);
             message.clear();
+            dirty = false;
             nextProgress = now + std::chrono::seconds(std::max(1, preset.progressSec));
         }
 
         const Key key = readKey(200);
         if (key.kind == KeyKind::Up && selected > 0) {
             --selected;
-            renderRunning(jobs, selected, message);
+            dirty = true;
         } else if (key.kind == KeyKind::Down && selected + 1u < jobs.size()) {
             ++selected;
-            renderRunning(jobs, selected, message);
+            dirty = true;
         } else if (key.kind == KeyKind::Character && (key.ch == 's' || key.ch == 'S' || key.ch == 'c' || key.ch == 'C')) {
             if (selected < jobs.size()) requestStopJob(jobs[selected]);
-            renderRunning(jobs, selected, message);
+            dirty = true;
         } else if (key.kind == KeyKind::Character && (key.ch == 'a' || key.ch == 'A')) {
             for (auto& job : jobs) requestStopJob(job);
-            renderRunning(jobs, selected, message);
+            dirty = true;
         } else if (key.kind == KeyKind::Character && (key.ch == 'q' || key.ch == 'Q')) {
             for (auto& job : jobs) requestStopJob(job);
             renderRunning(jobs, selected, "stop requested; finalizing sessions");
@@ -528,10 +580,18 @@ void runJobs(TerminalGuard&, const tui::RecorderTuiPreset& preset) {
 
         const bool anyLive = std::any_of(jobs.begin(), jobs.end(), [](const RunningJob& job) { return job.running; });
         const bool anyPending = std::any_of(jobs.begin(), jobs.end(), [](const RunningJob& job) { return !job.finalized; });
-        if (!anyLive && anyPending && key.kind == KeyKind::None) {
-            renderRunning(jobs, selected, "stop requested; finalizing sessions");
-        } else if (!anyLive && key.kind == KeyKind::None) {
-            renderRunning(jobs, selected, "all jobs finalized; press q to return");
+        std::string idleMessage;
+        if (!anyLive && anyPending) {
+            idleMessage = "stop requested; finalizing sessions";
+        } else if (!anyLive) {
+            idleMessage = "all jobs finalized; press q to return";
+        }
+        if (idleMessage.empty()) {
+            lastIdleMessage.clear();
+        } else if (idleMessage != lastIdleMessage) {
+            message = idleMessage;
+            lastIdleMessage = idleMessage;
+            dirty = true;
         }
     }
     for (auto& job : jobs) requestStopJob(job);
@@ -629,31 +689,50 @@ int runTui(int argc, char** argv) {
     std::signal(SIGTERM, handleSignal);
 
     std::size_t selected = 0;
+    bool dirty = true;
     while (!gInterrupted) {
-        if (selected >= preset.jobs.size()) selected = preset.jobs.empty() ? 0 : preset.jobs.size() - 1u;
-        renderMainMenu(preset, selected, presetPath, message);
-        message.clear();
+        if (selected >= preset.jobs.size()) {
+            selected = preset.jobs.empty() ? 0 : preset.jobs.size() - 1u;
+            dirty = true;
+        }
+        if (dirty) {
+            renderMainMenu(preset, selected, presetPath, message);
+            message.clear();
+            dirty = false;
+        }
         const Key key = readKey(250);
-        if (key.kind == KeyKind::Up && selected > 0) --selected;
-        else if (key.kind == KeyKind::Down && selected + 1u < preset.jobs.size()) ++selected;
-        else if (key.kind == KeyKind::Character && key.ch == 'a') {
+        if (key.kind == KeyKind::None) continue;
+        if (key.kind == KeyKind::Up && selected > 0) {
+            --selected;
+            dirty = true;
+        } else if (key.kind == KeyKind::Down && selected + 1u < preset.jobs.size()) {
+            ++selected;
+            dirty = true;
+        } else if (key.kind == KeyKind::Character && key.ch == 'a') {
             addDefaultJob(preset);
             selected = preset.jobs.size() - 1u;
+            dirty = true;
         } else if ((key.kind == KeyKind::Character && key.ch == 'e') || key.kind == KeyKind::Enter) {
             if (!preset.jobs.empty()) editJob(terminal, preset.jobs[selected]);
+            dirty = true;
         } else if (key.kind == KeyKind::Character && key.ch == 'c') {
             duplicateJob(preset, selected);
             if (!preset.jobs.empty()) ++selected;
+            dirty = true;
         } else if (key.kind == KeyKind::Character && key.ch == 'd') {
             if (!preset.jobs.empty()) preset.jobs.erase(preset.jobs.begin() + static_cast<std::ptrdiff_t>(selected));
+            dirty = true;
         } else if (key.kind == KeyKind::Character && key.ch == 'o') {
             preset.outputDir = promptLine(terminal, "output directory", preset.outputDir.string());
+            dirty = true;
         } else if (key.kind == KeyKind::Character && key.ch == 'p') {
             const std::string value = promptLine(terminal, "progress seconds", std::to_string(preset.progressSec));
             preset.progressSec = std::max(1, std::atoi(value.c_str()));
+            dirty = true;
         } else if (key.kind == KeyKind::Character && (key.ch == 'w' || key.ch == 'W')) {
             std::string error;
             message = tui::savePresetFile(presetPath, preset, error) ? "saved " + presetPath.string() : error;
+            dirty = true;
         } else if (key.kind == KeyKind::Character && (key.ch == 's' || key.ch == 'S')) {
             const std::string maybePath = promptLine(terminal, "save as new preset path");
             if (maybePath.empty()) {
@@ -672,16 +751,23 @@ int runTui(int argc, char** argv) {
                     }
                 }
             }
+            dirty = true;
         } else if (key.kind == KeyKind::Character && key.ch == 'l') {
             const std::string maybePath = promptLine(terminal, "load preset path", presetPath.string());
             if (!maybePath.empty()) presetPath = tui::resolvePresetPath(maybePath);
             std::string error;
             message = tui::loadPresetFile(presetPath, preset, error) ? "loaded " + presetPath.string() : error;
-        } else if (key.kind == KeyKind::Character && key.ch == 'r') {
+            dirty = true;
+        } else if (key.kind == KeyKind::Character && (key.ch == 'r' || key.ch == 'R')) {
             if (preset.jobs.empty()) {
                 message = "add at least one job";
+                dirty = true;
+            } else if (tui::requiresHeavyRunConfirmation(preset) && key.ch != 'R') {
+                message = tui::heavyRunWarning(preset);
+                dirty = true;
             } else {
                 runJobs(terminal, preset);
+                dirty = true;
             }
         } else if (key.kind == KeyKind::Character && key.ch == 'q') {
             break;

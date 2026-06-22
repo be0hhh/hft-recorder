@@ -217,6 +217,36 @@ _require_linux_build_env() {
     fi
 }
 
+_running_recorder_processes() {
+    local exe target pid
+    for exe in /proc/[0-9]*/exe; do
+        target="$(readlink "$exe" 2>/dev/null || true)"
+        case "$target" in
+            "$APP/build/bin/hft-recorder"|"$APP/build/bin/hft-recorder (deleted)"|"$APP/build/bin/hft-recorder-gui"|"$APP/build/bin/hft-recorder-gui (deleted)")
+                pid="${exe#/proc/}"
+                printf '%s %s\n' "${pid%/exe}" "$target"
+                ;;
+        esac
+    done
+}
+
+_refuse_build_with_running_recorder() {
+    if [ "${HFT_RECORDER_ALLOW_BUILD_WITH_RUNNING:-0}" = "1" ]; then
+        return 0
+    fi
+
+    local running
+    running="$(_running_recorder_processes)"
+    if [ -z "$running" ]; then
+        return 0
+    fi
+
+    echo "ERROR: hft-recorder is still running from this build tree:" >&2
+    echo "$running" >&2
+    echo "Stop it before rebuilding, or set HFT_RECORDER_ALLOW_BUILD_WITH_RUNNING=1 to override." >&2
+    exit 2
+}
+
 _require_compressor_tree() {
     if [ ! -x "$COMPRESSOR/compile.sh" ]; then
         echo "ERROR: hft-compressor compile script not found: $COMPRESSOR/compile.sh" >&2
@@ -485,10 +515,12 @@ if [ "\$NEW_INSTANCE" != "1" ]; then
     existing_pids="\$(
         for exe in /proc/[0-9]*/exe; do
             target="\$(readlink "\$exe" 2>/dev/null || true)"
-            if [ "\$target" = "\$APP_DIR/build/bin/hft-recorder-gui" ]; then
-                pid="\${exe#/proc/}"
-                printf '%s\n' "\${pid%/exe}"
-            fi
+            case "\$target" in
+                "\$APP_DIR/build/bin/hft-recorder-gui"|"\$APP_DIR/build/bin/hft-recorder-gui (deleted)")
+                    pid="\${exe#/proc/}"
+                    printf '%s\n' "\${pid%/exe}"
+                    ;;
+            esac
         done
     )"
     if [ -n "\$existing_pids" ]; then
@@ -497,6 +529,28 @@ if [ "\$NEW_INSTANCE" != "1" ]; then
         exit 0
     fi
 fi
+
+warn_if_tui_running() {
+    local exe target pid cmdline
+    for exe in /proc/[0-9]*/exe; do
+        target="\$(readlink "\$exe" 2>/dev/null || true)"
+        case "\$target" in
+            "\$APP_DIR/build/bin/hft-recorder"|"\$APP_DIR/build/bin/hft-recorder (deleted)")
+                pid="\${exe#/proc/}"
+                pid="\${pid%/exe}"
+                cmdline="\$(tr '\0' ' ' <"/proc/\$pid/cmdline" 2>/dev/null || true)"
+                case "\$cmdline" in
+                    *" tui"*)
+                        echo ">>> warning: hft-recorder tui already running pid=\$pid"
+                        return 0
+                        ;;
+                esac
+                ;;
+        esac
+    done
+}
+
+warn_if_tui_running
 
 : > "\$LOG_FILE"
 {
@@ -561,6 +615,28 @@ if [ ! -f "\$TRADER_CXET_LIB_DIR/libcxet_lib.so" ]; then
 fi
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 
+warn_if_another_tui_running() {
+    local exe target pid cmdline
+    for exe in /proc/[0-9]*/exe; do
+        target="\$(readlink "\$exe" 2>/dev/null || true)"
+        case "\$target" in
+            "\$APP_DIR/build/bin/hft-recorder"|"\$APP_DIR/build/bin/hft-recorder (deleted)")
+                pid="\${exe#/proc/}"
+                pid="\${pid%/exe}"
+                [ "\$pid" = "\$\$" ] && continue
+                cmdline="\$(tr '\0' ' ' <"/proc/\$pid/cmdline" 2>/dev/null || true)"
+                case "\$cmdline" in
+                    *" tui"*)
+                        echo ">>> warning: hft-recorder tui already running pid=\$pid"
+                        return 0
+                        ;;
+                esac
+                ;;
+        esac
+    done
+}
+
+warn_if_another_tui_running
 exec "\$APP_DIR/build/bin/hft-recorder" tui "\$@"
 EOF
     chmod +x "$APP/build/cli"
@@ -569,6 +645,7 @@ EOF
 _build_recorder_app() {
     local compressor_lib="$1"
     local backtest_lib="$2"
+    _refuse_build_with_running_recorder
     _resolve_cxet_paths
     local trader_lib trader_cxet_lib_dir
     trader_lib="$(_resolve_trader_lib)"

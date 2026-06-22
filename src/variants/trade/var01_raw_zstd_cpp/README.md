@@ -49,7 +49,7 @@ payload → zstd decompress → contiguous row block → split by sizeof(row)
 
 ## Acceptance gate
 
-- `./run.sh build` → 0
+- `./compile.sh` → 0
 - Roundtrip unit test green
 - `doc/COMPARISON_MATRIX.md` fields populated: `input_bytes`, `output_bytes`,
   `compression_ratio`, `encode_ns`, `decode_ns`, `online_feasible = true`

@@ -17,6 +17,7 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_candle_spread.cpp
     test_event_storage.cpp
     test_tui_preset.cpp
+    test_tui_terminal_render.cpp
 )
 
 if(HFTREC_WITH_CXET)

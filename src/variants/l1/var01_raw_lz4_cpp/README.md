@@ -38,7 +38,7 @@ BookTickerData stream
 
 ## Acceptance gate
 
-- `./run.sh build` → 0
+- `./compile.sh` → 0
 - Roundtrip unit test green
 - `kOnlineFeasible = true` is honest: lz4 sustains > 500 MB/s on a single core,
   well above any L1 ingest rate.

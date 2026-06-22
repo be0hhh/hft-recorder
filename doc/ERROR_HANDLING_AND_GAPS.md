@@ -137,7 +137,7 @@ The control thread (CPU 7) provides:
 | 3 | filesystem error (permission denied, path does not exist) | fix permissions |
 | 4 | all producers failed to start (library dispatch lookup failure → check exchange enum) | check library version |
 | 5 | unrecoverable runtime error (watchdog forced exit) | check logs, re-run |
-| 127 | `libcxet_lib.so` missing (from loader) | `./run.sh build` or install CXETCPP |
+| 127 | `libcxet_lib.so` missing (from loader) | `./compile.sh` or install CXETCPP |
 
 ---
 
