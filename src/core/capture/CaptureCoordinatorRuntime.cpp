@@ -905,11 +905,7 @@ Status CaptureCoordinator::captureTradesHistoryOnce(const CaptureConfig& config)
             lastError_ = "trades_history: failed to write trades.jsonl";
             return fileStatus;
         }
-        const auto liveStatus = liveStore_.appendTrade(row);
-        if (!isOk(liveStatus)) {
-            lastError_ = "trades_history: failed to publish history row";
-            return liveStatus;
-        }
+        (void)appendLiveTrade(row);
         tradesCount_.fetch_add(1, std::memory_order_acq_rel);
     }
 
@@ -1365,8 +1361,7 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
             const auto row = makeLiquidationRow(capturedLiquidation, config.exchange, config.market, sequenceIds);
             const auto jsonLine = renderLiquidationJsonLine(row, config.liquidationAliases);
             local_exchange::globalLocalMarketDataBus().publish("liquidations", row.symbol, jsonLine);
-            const auto liveStatus = liveStore_.appendLiquidation(row);
-            const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendLiquidationLine(row, jsonLine) : liveStatus;
+            const auto fileStatus = jsonSink_.appendLiquidationLine(row, jsonLine);
             if (!isOk(fileStatus)) {
                 metrics::recordCaptureWriteError("liquidations");
                 std::lock_guard<std::mutex> lock(stateMutex_);
@@ -1374,6 +1369,7 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
                 liquidationsStop_.store(true, std::memory_order_release);
                 break;
             }
+            (void)appendLiveLiquidation(row);
             liquidationsCount_.fetch_add(1, std::memory_order_acq_rel);
             metrics::recordCaptureEvent("liquidations",
                                         capturedLiquidation.tsNs,
@@ -1485,8 +1481,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
 
     auto writeMarkPrice = [&](const replay::MarkPriceRow& row) -> bool {
         const auto line = renderMarkPriceJsonLine(row);
-        const auto liveStatus = liveStore_.appendMarkPrice(row);
-        const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendMarkPriceLine(row, line) : liveStatus;
+        const auto fileStatus = jsonSink_.appendMarkPriceLine(row, line);
         if (!isOk(fileStatus)) {
             metrics::recordCaptureWriteError("mark_price");
             std::lock_guard<std::mutex> lock(stateMutex_);
@@ -1494,6 +1489,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
             referenceDataStop_.store(true, std::memory_order_release);
             return false;
         }
+        (void)appendLiveMarkPrice(row);
         markPriceCount_.fetch_add(1, std::memory_order_acq_rel);
         metrics::recordCaptureEvent("mark_price", static_cast<std::uint64_t>(row.tsNs),
                                     static_cast<std::uint64_t>(line.size() + 1u),
@@ -1503,8 +1499,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
 
     auto writeIndexPrice = [&](const replay::IndexPriceRow& row) -> bool {
         const auto line = renderIndexPriceJsonLine(row);
-        const auto liveStatus = liveStore_.appendIndexPrice(row);
-        const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendIndexPriceLine(row, line) : liveStatus;
+        const auto fileStatus = jsonSink_.appendIndexPriceLine(row, line);
         if (!isOk(fileStatus)) {
             metrics::recordCaptureWriteError("index_price");
             std::lock_guard<std::mutex> lock(stateMutex_);
@@ -1512,6 +1507,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
             referenceDataStop_.store(true, std::memory_order_release);
             return false;
         }
+        (void)appendLiveIndexPrice(row);
         indexPriceCount_.fetch_add(1, std::memory_order_acq_rel);
         metrics::recordCaptureEvent("index_price", static_cast<std::uint64_t>(row.tsNs),
                                     static_cast<std::uint64_t>(line.size() + 1u),
@@ -1522,8 +1518,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
     auto writeFunding = [&](const replay::FundingRow& row) -> bool {
         if (haveLastFunding && sameFundingTuple(lastFunding, row)) return true;
         const auto line = renderFundingJsonLine(row);
-        const auto liveStatus = liveStore_.appendFunding(row);
-        const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendFundingLine(row, line) : liveStatus;
+        const auto fileStatus = jsonSink_.appendFundingLine(row, line);
         if (!isOk(fileStatus)) {
             metrics::recordCaptureWriteError("funding");
             std::lock_guard<std::mutex> lock(stateMutex_);
@@ -1531,6 +1526,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
             referenceDataStop_.store(true, std::memory_order_release);
             return false;
         }
+        (void)appendLiveFunding(row);
         lastFunding = row;
         haveLastFunding = true;
         fundingCount_.fetch_add(1, std::memory_order_acq_rel);
@@ -1542,8 +1538,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
 
     auto writePriceLimit = [&](const replay::PriceLimitRow& row) -> bool {
         const auto line = renderPriceLimitJsonLine(row);
-        const auto liveStatus = liveStore_.appendPriceLimit(row);
-        const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendPriceLimitLine(row, line) : liveStatus;
+        const auto fileStatus = jsonSink_.appendPriceLimitLine(row, line);
         if (!isOk(fileStatus)) {
             metrics::recordCaptureWriteError("price_limit");
             std::lock_guard<std::mutex> lock(stateMutex_);
@@ -1551,6 +1546,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
             referenceDataStop_.store(true, std::memory_order_release);
             return false;
         }
+        (void)appendLivePriceLimit(row);
         priceLimitCount_.fetch_add(1, std::memory_order_acq_rel);
         metrics::recordCaptureEvent("price_limit", static_cast<std::uint64_t>(row.tsNs),
                                     static_cast<std::uint64_t>(line.size() + 1u),
@@ -1655,16 +1651,14 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                         if (row.tsNs <= 0) row.tsNs = internal::nowNs();
                         const auto tapeLine = renderDepthTapeJsonLine(row);
                         const auto sidecarLine = renderDepthRleSidecarJsonLine(row);
-                        const auto liveStatus = liveStore_.appendDepth(row);
-                        const auto fileStatus = isOk(liveStatus)
-                            ? jsonSink_.appendDepthTapeSidecarLines(row, tapeLine, sidecarLine)
-                            : liveStatus;
+                        const auto fileStatus = jsonSink_.appendDepthTapeSidecarLines(row, tapeLine, sidecarLine);
                         if (!isOk(fileStatus)) {
                             metrics::recordCaptureWriteError("depth");
                             std::lock_guard<std::mutex> lock(stateMutex_);
                             lastError_ = "orderbook: failed to write initial trader snapshot into depth_tape/depth_sidecar";
                             return false;
                         }
+                        (void)appendLiveDepth(row);
                         depthCount_.fetch_add(1, std::memory_order_acq_rel);
                         metrics::recordCaptureEvent("depth", static_cast<std::uint64_t>(row.tsNs),
                                                     static_cast<std::uint64_t>(tapeLine.size() + sidecarLine.size() + 2u),
@@ -1679,7 +1673,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
     auto appendTradeRowToLiveOnly = [&](const replay::TradeRow& row, const std::string& jsonLine) -> bool {
         static constexpr char kTradesText[] = {'t', 'r', 'a', 'd', 'e', 's', '\0'};
         local_exchange::globalLocalMarketDataBus().publish(kTradesText, row.symbol, jsonLine);
-        const auto liveStatus = liveStore_.appendTrade(row);
+        const auto liveStatus = appendLiveTrade(row);
         if (!isOk(liveStatus)) {
             metrics::recordCaptureWriteError(kTradesText);
             std::lock_guard<std::mutex> lock(stateMutex_);
@@ -1697,7 +1691,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
 
     auto appendTradeRowToLiveCacheOnly = [&](const replay::TradeRow& row) -> bool {
         static constexpr char kTradesText[] = {'t', 'r', 'a', 'd', 'e', 's', '\0'};
-        const auto liveStatus = liveStore_.appendTrade(row);
+        const auto liveStatus = appendLiveTrade(row);
         if (!isOk(liveStatus)) {
             metrics::recordCaptureWriteError(kTradesText);
             std::lock_guard<std::mutex> lock(stateMutex_);
@@ -1921,8 +1915,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 local_exchange::globalLocalMarketDataBus().publish("trades", row.symbol, jsonLine);
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
-                const auto liveStatus = liveStore_.appendTrade(row);
-                const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendTradeLine(row, jsonLine) : liveStatus;
+                const auto fileStatus = jsonSink_.appendTradeLine(row, jsonLine);
                 if (!isOk(fileStatus)) {
                     recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                     metrics::recordCaptureWriteError("trades");
@@ -1931,6 +1924,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                     marketDataStop_.store(true, std::memory_order_release);
                     break;
                 }
+                (void)appendLiveTrade(row);
                 tradesCount_.fetch_add(1, std::memory_order_acq_rel);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                 metrics::recordCaptureEvent("trades", capturedTrade.tsNs,
@@ -1959,8 +1953,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 local_exchange::globalLocalMarketDataBus().publish("bookticker", row.symbol, jsonLine);
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
-                const auto liveStatus = liveStore_.appendBookTicker(row);
-                const auto fileStatus = isOk(liveStatus) ? jsonSink_.appendBookTickerLine(row, jsonLine) : liveStatus;
+                const auto fileStatus = jsonSink_.appendBookTickerLine(row, jsonLine);
                 if (!isOk(fileStatus)) {
                     recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                     metrics::recordCaptureWriteError("bookticker");
@@ -1969,6 +1962,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                     marketDataStop_.store(true, std::memory_order_release);
                     break;
                 }
+                (void)appendLiveBookTicker(row);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                 metrics::recordCaptureEvent("bookticker", capturedBookTicker.tsNs,
                                             static_cast<std::uint64_t>(jsonLine.size() + 1u),
@@ -1992,10 +1986,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 local_exchange::globalLocalMarketDataBus().publish("orderbook.delta", std::string_view{meta.symbol.data}, localBusLine);
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
-                const auto liveStatus = liveStore_.appendDepth(row);
-                const auto fileStatus = isOk(liveStatus)
-                    ? jsonSink_.appendDepthTapeSidecarLines(row, tapeLine, sidecarLine)
-                    : liveStatus;
+                const auto fileStatus = jsonSink_.appendDepthTapeSidecarLines(row, tapeLine, sidecarLine);
                 if (!isOk(fileStatus)) {
                     recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                     metrics::recordCaptureWriteError("depth");
@@ -2004,6 +1995,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                     marketDataStop_.store(true, std::memory_order_release);
                     break;
                 }
+                (void)appendLiveDepth(row);
                 depthCount_.fetch_add(1, std::memory_order_acq_rel);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderEventSink, eventSinkStartTsc, captureMetrics);
                 metrics::recordCaptureEvent("depth", capturedDepth.tsNs,

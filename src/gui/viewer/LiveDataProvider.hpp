@@ -134,6 +134,7 @@ class JsonTailLiveDataProvider final : public ILiveDataProvider {
     std::vector<hftrec::replay::FundingRow> fundingHistory_{};
     std::vector<hftrec::replay::PriceLimitRow> priceLimitHistory_{};
     std::vector<hftrec::replay::DepthRow> depthHistory_{};
+    LiveDataStats observedStats_{};
     std::uint64_t version_{0};
 };
 

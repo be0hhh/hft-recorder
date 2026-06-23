@@ -57,7 +57,7 @@ class WorkspaceViewModel : public QObject {
     bool removeTabFromHost_(const QString& tabId, QString* previousHostId = nullptr);
     void appendTabIfMissing_(HostState& host, const QString& tabId);
     void repairLayout_();
-    void emitLayoutChanged_();
+    void emitLayoutChanged_(bool persist = true);
     void loadLayout_();
     void saveLayout_();
     QVariantMap hostToVariant_(const HostState& host) const;

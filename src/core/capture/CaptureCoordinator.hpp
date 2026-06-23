@@ -25,6 +25,11 @@ struct OrderBookSnapshot;
 
 namespace hftrec::capture {
 
+enum class LiveCacheMode : std::uint8_t {
+    Off,
+    Full
+};
+
 struct CaptureConfig {
     std::string exchange{"binance"};
     std::string market{"futures"};
@@ -49,6 +54,7 @@ struct CaptureConfig {
     std::string detailedCandlesTimeframe{"15m"};
     std::uint32_t detailedCandlesLimit{5000u};
     std::int64_t detailedCandlesEndNs{0};
+    LiveCacheMode liveCacheMode{LiveCacheMode::Off};
 };
 
 class CaptureCoordinator : public market_data::IMarketDataIngress {
@@ -112,9 +118,13 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::uint64_t candles2Count() const noexcept { return candles2Count_.load(std::memory_order_relaxed); }
     std::string lastError() const;
     storage::EventBatch liveEventsCopy() const;
-    const storage::IEventSource* liveEventSource() const noexcept { return &liveStore_; }
-    const storage::IEventSource* eventSource() const noexcept override { return &liveStore_; }
-    const storage::IHotEventCache* hotCache() const noexcept override { return &liveStore_; }
+    const storage::IEventSource* liveEventSource() const noexcept {
+        return liveCacheEnabled_.load(std::memory_order_acquire) ? &liveStore_ : nullptr;
+    }
+    const storage::IEventSource* eventSource() const noexcept override { return liveEventSource(); }
+    const storage::IHotEventCache* hotCache() const noexcept override {
+        return liveCacheEnabled_.load(std::memory_order_acquire) ? &liveStore_ : nullptr;
+    }
 
   private:
     void resetSessionState() noexcept;
@@ -147,6 +157,15 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status writeManifestFile_() noexcept;
     Status writeInstrumentMetadataFile() noexcept;
     Status writeSupportArtifacts() noexcept;
+    bool liveCacheEnabled() const noexcept { return liveCacheEnabled_.load(std::memory_order_acquire); }
+    Status appendLiveTrade(const replay::TradeRow& row) noexcept;
+    Status appendLiveLiquidation(const replay::LiquidationRow& row) noexcept;
+    Status appendLiveBookTicker(const replay::BookTickerRow& row) noexcept;
+    Status appendLiveMarkPrice(const replay::MarkPriceRow& row) noexcept;
+    Status appendLiveIndexPrice(const replay::IndexPriceRow& row) noexcept;
+    Status appendLiveFunding(const replay::FundingRow& row) noexcept;
+    Status appendLivePriceLimit(const replay::PriceLimitRow& row) noexcept;
+    Status appendLiveDepth(const replay::DepthRow& row) noexcept;
 
     SessionManifest manifest_{};
     std::filesystem::path sessionDir_{};
@@ -191,6 +210,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::atomic<std::uint64_t> liquidationsCaptureSeq_{0};
     std::atomic<std::uint64_t> bookTickerCaptureSeq_{0};
     std::atomic<std::uint64_t> ingestSeq_{0};
+    std::atomic<bool> liveCacheEnabled_{false};
     bool instrumentMetadataReady_{false};
     mutable std::mutex stateMutex_{};
     std::thread marketDataThread_{};

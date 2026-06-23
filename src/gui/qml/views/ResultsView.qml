@@ -95,6 +95,24 @@ Pane {
         return ""
     }
 
+    function sessionGroupId(sessionId) {
+        var target = String(sessionId || "").trim()
+        if (target.length === 0)
+            return ""
+        var rows = root.backtestVm.sessions || []
+        for (var i = 0; i < rows.length; ++i) {
+            var row = rows[i]
+            if (!row || String(row.id || "") !== target)
+                continue
+            if (row.parentGroupId)
+                return String(row.parentGroupId)
+            if (row.groupId)
+                return String(row.groupId)
+            return ""
+        }
+        return ""
+    }
+
     function fallbackSecondarySessionId() {
         var primary = String(root.backtestVm.selectedSessionId || "").trim()
         var rows = root.backtestVm.sessions || []
@@ -268,6 +286,8 @@ Pane {
                     rows: root.backtestVm.sessions
                     emptyLabel: "Select session"
                     popupWidth: 640
+                    preferredOpenGroupId: root.sessionGroupId(root.backtestVm.selectedSessionId)
+                    scrollToPreferredGroupOnOpen: true
                     onPicked: function(id) {
                         if (id !== root.backtestVm.selectedSessionId)
                             root.backtestVm.setExtraSessionIds(id)

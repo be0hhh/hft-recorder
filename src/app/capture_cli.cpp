@@ -53,6 +53,7 @@ capture::CaptureConfig makeDefaultConfig() {
     config.outputDir = "./recordings";
     config.durationSec = 10;
     config.snapshotIntervalSec = 60;
+    config.liveCacheMode = capture::LiveCacheMode::Off;
     return config;
 }
 

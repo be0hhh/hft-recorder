@@ -99,13 +99,14 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
         lastError_ = "failed to write initial manifest.json";
         return manifestStatus;
     }
+    liveCacheEnabled_.store(config.liveCacheMode == LiveCacheMode::Full, std::memory_order_release);
     liveStore_.clear();
     if (const auto storageStatus = jsonSink_.open(sessionDir_); !isOk(storageStatus)) {
         lastError_ = "failed to open JSON session storage";
         return storageStatus;
     }
     eventSink_.clearSinks();
-    eventSink_.addSink(&liveStore_);
+    if (liveCacheEnabled()) eventSink_.addSink(&liveStore_);
     eventSink_.addSink(&jsonSink_);
     manifest_.supportArtifacts = {
         manifest_.sessionAuditPath,
@@ -197,7 +198,40 @@ std::filesystem::path CaptureCoordinator::sessionDirCopy() const {
 }
 
 storage::EventBatch CaptureCoordinator::liveEventsCopy() const {
+    if (!liveCacheEnabled()) return {};
     return liveStore_.readAll();
+}
+
+Status CaptureCoordinator::appendLiveTrade(const replay::TradeRow& row) noexcept {
+    return liveCacheEnabled() ? liveStore_.appendTrade(row) : Status::Ok;
+}
+
+Status CaptureCoordinator::appendLiveLiquidation(const replay::LiquidationRow& row) noexcept {
+    return liveCacheEnabled() ? liveStore_.appendLiquidation(row) : Status::Ok;
+}
+
+Status CaptureCoordinator::appendLiveBookTicker(const replay::BookTickerRow& row) noexcept {
+    return liveCacheEnabled() ? liveStore_.appendBookTicker(row) : Status::Ok;
+}
+
+Status CaptureCoordinator::appendLiveMarkPrice(const replay::MarkPriceRow& row) noexcept {
+    return liveCacheEnabled() ? liveStore_.appendMarkPrice(row) : Status::Ok;
+}
+
+Status CaptureCoordinator::appendLiveIndexPrice(const replay::IndexPriceRow& row) noexcept {
+    return liveCacheEnabled() ? liveStore_.appendIndexPrice(row) : Status::Ok;
+}
+
+Status CaptureCoordinator::appendLiveFunding(const replay::FundingRow& row) noexcept {
+    return liveCacheEnabled() ? liveStore_.appendFunding(row) : Status::Ok;
+}
+
+Status CaptureCoordinator::appendLivePriceLimit(const replay::PriceLimitRow& row) noexcept {
+    return liveCacheEnabled() ? liveStore_.appendPriceLimit(row) : Status::Ok;
+}
+
+Status CaptureCoordinator::appendLiveDepth(const replay::DepthRow& row) noexcept {
+    return liveCacheEnabled() ? liveStore_.appendDepth(row) : Status::Ok;
 }
 
 void CaptureCoordinator::resetSessionState() noexcept {
@@ -245,6 +279,7 @@ void CaptureCoordinator::resetSessionState() noexcept {
     (void)depthWriter_.close();
     liveStore_.clear();
     eventSink_.clearSinks();
+    liveCacheEnabled_.store(false, std::memory_order_release);
 }
 
 bool CaptureCoordinator::sessionOpen() const noexcept {

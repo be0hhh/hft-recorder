@@ -86,6 +86,24 @@ Pane {
         return text.split(/[,;\n]+/)[0].trim()
     }
 
+    function sessionGroupId(sessionId) {
+        var target = String(sessionId || "").trim()
+        if (target.length === 0)
+            return ""
+        var sessions = root.backtestVm.sessions || []
+        for (var i = 0; i < sessions.length; ++i) {
+            var row = sessions[i]
+            if (!row || String(row.id || "") !== target)
+                continue
+            if (row.parentGroupId)
+                return String(row.parentGroupId)
+            if (row.groupId)
+                return String(row.groupId)
+            return ""
+        }
+        return ""
+    }
+
     function rebuildSecondarySessionRows() {
         var rows = [{ "id": "", "label": "No second leg", "rightText": "" }]
         var sessions = root.backtestVm.sessions || []
@@ -302,6 +320,8 @@ Pane {
                         rows: root.secondarySessionRows
                         emptyLabel: "No second leg"
                         popupWidth: 720
+                        preferredOpenGroupId: root.sessionGroupId(root.backtestVm.selectedSessionId)
+                        scrollToPreferredGroupOnOpen: true
                         enabled: root.secondarySessionRows.length > 1 || root.firstExtraSessionId().length > 0
                         opacity: enabled ? 1.0 : 0.55
                         onPicked: function(id) { root.backtestVm.setExtraSessionIds(id) }

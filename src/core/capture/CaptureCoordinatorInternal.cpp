@@ -285,7 +285,8 @@ bool sessionConfigMatches(const CaptureConfig& lhs, const CaptureConfig& rhs) no
         && lhs.symbols == rhs.symbols
         && lhs.envPath == rhs.envPath
         && normalizedApiSlot(lhs) == normalizedApiSlot(rhs)
-        && lhs.outputDir == rhs.outputDir;
+        && lhs.outputDir == rhs.outputDir
+        && lhs.liveCacheMode == rhs.liveCacheMode;
 }
 
 }  // namespace hftrec::capture::internal

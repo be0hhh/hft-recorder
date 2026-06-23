@@ -33,6 +33,31 @@ bool hasRows(const LiveDataBatch& batch) noexcept {
         || !batch.snapshots.empty();
 }
 
+constexpr std::size_t kMaxTradeHistoryRows = 200'000u;
+constexpr std::size_t kMaxLiquidationHistoryRows = 50'000u;
+constexpr std::size_t kMaxBookTickerHistoryRows = 200'000u;
+constexpr std::size_t kMaxReferenceHistoryRows = 50'000u;
+constexpr std::size_t kMaxDepthHistoryRows = 20'000u;
+constexpr std::uintmax_t kMaxTailReadBytes = 8u * 1024u * 1024u;
+
+template <typename Row>
+void keepRecentRows(std::vector<Row>& rows, std::size_t cap) {
+    if (rows.size() <= cap) return;
+    rows.erase(rows.begin(), rows.begin() + static_cast<std::ptrdiff_t>(rows.size() - cap));
+}
+
+void addObservedRows(LiveDataStats& stats, const LiveDataBatch& batch) noexcept {
+    stats.tradesTotal += static_cast<std::uint64_t>(batch.trades.size());
+    stats.liquidationsTotal += static_cast<std::uint64_t>(batch.liquidations.size());
+    stats.bookTickersTotal += static_cast<std::uint64_t>(batch.bookTickers.size());
+    stats.markPricesTotal += static_cast<std::uint64_t>(batch.markPrices.size());
+    stats.indexPricesTotal += static_cast<std::uint64_t>(batch.indexPrices.size());
+    stats.fundingsTotal += static_cast<std::uint64_t>(batch.fundings.size());
+    stats.priceLimitsTotal += static_cast<std::uint64_t>(batch.priceLimits.size());
+    stats.depthsTotal += static_cast<std::uint64_t>(batch.depths.size());
+    stats.snapshotsTotal += static_cast<std::uint64_t>(batch.snapshots.size());
+}
+
 template <typename Row>
 void appendRowsSince(const std::vector<Row>& src, std::size_t offset, std::vector<Row>& out) {
     if (offset >= src.size()) return;
@@ -101,6 +126,7 @@ void tailRows(JsonTailLiveDataProvider::TailFile& file,
         return;
     }
     if (fileSize == file.offset) return;
+    const auto bytesToRead = std::min<std::uintmax_t>(fileSize - file.offset, kMaxTailReadBytes);
 
     std::ifstream in(file.path, std::ios::binary);
     if (!in) {
@@ -110,7 +136,7 @@ void tailRows(JsonTailLiveDataProvider::TailFile& file,
     }
 
     in.seekg(static_cast<std::streamoff>(file.offset), std::ios::beg);
-    std::string chunk(static_cast<std::size_t>(fileSize - file.offset), '\0');
+    std::string chunk(static_cast<std::size_t>(bytesToRead), '\0');
     in.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
     const auto bytesRead = static_cast<std::size_t>(in.gcount());
     chunk.resize(bytesRead);
@@ -162,6 +188,7 @@ void collectTailLines(JsonTailLiveDataProvider::TailFile& file,
         return;
     }
     if (fileSize == file.offset) return;
+    const auto bytesToRead = std::min<std::uintmax_t>(fileSize - file.offset, kMaxTailReadBytes);
 
     std::ifstream in(file.path, std::ios::binary);
     if (!in) {
@@ -171,7 +198,7 @@ void collectTailLines(JsonTailLiveDataProvider::TailFile& file,
     }
 
     in.seekg(static_cast<std::streamoff>(file.offset), std::ios::beg);
-    std::string chunk(static_cast<std::size_t>(fileSize - file.offset), '\0');
+    std::string chunk(static_cast<std::size_t>(bytesToRead), '\0');
     in.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
     const auto bytesRead = static_cast<std::size_t>(in.gcount());
     chunk.resize(bytesRead);
@@ -241,6 +268,7 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
     fundingHistory_.clear();
     priceLimitHistory_.clear();
     depthHistory_.clear();
+    observedStats_ = LiveDataStats{};
     ++version_;
     trades_ = TailFile{liveChannelPath(sessionDir_, "trades.jsonl"), 0, {}};
     liquidations_ = TailFile{liveChannelPath(sessionDir_, "liquidations.jsonl"), 0, {}};
@@ -277,6 +305,8 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
             snapshotLoaded_ = isOk(hftrec::replay::parseSnapshotDocument(std::string_view{blob}, snapshot_));
         }
     }
+    observedStats_.snapshotsTotal = snapshotLoaded_ ? 1u : 0u;
+    observedStats_.version = version_;
 
 }
 
@@ -301,8 +331,14 @@ void JsonTailLiveDataProvider::stop() noexcept {
     tradesHistory_.clear();
     liquidationHistory_.clear();
     bookTickerHistory_.clear();
+    markPriceHistory_.clear();
+    indexPriceHistory_.clear();
+    fundingHistory_.clear();
+    priceLimitHistory_.clear();
     depthHistory_.clear();
+    observedStats_ = LiveDataStats{};
     ++version_;
+    observedStats_.version = version_;
 }
 
 LiveDataPollResult JsonTailLiveDataProvider::pollHot(std::uint64_t nextBatchId) {
@@ -434,6 +470,15 @@ LiveDataPollResult JsonTailLiveDataProvider::pollHot(std::uint64_t nextBatchId) 
 
     result.appendedRows = result.appendedRows || hasRows(result.batch);
     if (hasRows(result.batch)) {
+        addObservedRows(observedStats_, result.batch);
+        keepRecentRows(result.batch.trades, kMaxTradeHistoryRows);
+        keepRecentRows(result.batch.liquidations, kMaxLiquidationHistoryRows);
+        keepRecentRows(result.batch.bookTickers, kMaxBookTickerHistoryRows);
+        keepRecentRows(result.batch.markPrices, kMaxReferenceHistoryRows);
+        keepRecentRows(result.batch.indexPrices, kMaxReferenceHistoryRows);
+        keepRecentRows(result.batch.fundings, kMaxReferenceHistoryRows);
+        keepRecentRows(result.batch.priceLimits, kMaxReferenceHistoryRows);
+        keepRecentRows(result.batch.depths, kMaxDepthHistoryRows);
         tradesHistory_.insert(tradesHistory_.end(), result.batch.trades.begin(), result.batch.trades.end());
         liquidationHistory_.insert(liquidationHistory_.end(), result.batch.liquidations.begin(), result.batch.liquidations.end());
         bookTickerHistory_.insert(bookTickerHistory_.end(), result.batch.bookTickers.begin(), result.batch.bookTickers.end());
@@ -442,7 +487,16 @@ LiveDataPollResult JsonTailLiveDataProvider::pollHot(std::uint64_t nextBatchId) 
         fundingHistory_.insert(fundingHistory_.end(), result.batch.fundings.begin(), result.batch.fundings.end());
         priceLimitHistory_.insert(priceLimitHistory_.end(), result.batch.priceLimits.begin(), result.batch.priceLimits.end());
         depthHistory_.insert(depthHistory_.end(), result.batch.depths.begin(), result.batch.depths.end());
+        keepRecentRows(tradesHistory_, kMaxTradeHistoryRows);
+        keepRecentRows(liquidationHistory_, kMaxLiquidationHistoryRows);
+        keepRecentRows(bookTickerHistory_, kMaxBookTickerHistoryRows);
+        keepRecentRows(markPriceHistory_, kMaxReferenceHistoryRows);
+        keepRecentRows(indexPriceHistory_, kMaxReferenceHistoryRows);
+        keepRecentRows(fundingHistory_, kMaxReferenceHistoryRows);
+        keepRecentRows(priceLimitHistory_, kMaxReferenceHistoryRows);
+        keepRecentRows(depthHistory_, kMaxDepthHistoryRows);
         ++version_;
+        observedStats_.version = version_;
     }
     return result;
 }
@@ -559,18 +613,9 @@ LiveDataBatch JsonTailLiveDataProvider::materializeRange(const LiveDataRangeRequ
 }
 
 LiveDataStats JsonTailLiveDataProvider::stats() const noexcept {
-    return LiveDataStats{
-        static_cast<std::uint64_t>(tradesHistory_.size()),
-        static_cast<std::uint64_t>(liquidationHistory_.size()),
-        static_cast<std::uint64_t>(bookTickerHistory_.size()),
-        static_cast<std::uint64_t>(markPriceHistory_.size()),
-        static_cast<std::uint64_t>(indexPriceHistory_.size()),
-        static_cast<std::uint64_t>(fundingHistory_.size()),
-        static_cast<std::uint64_t>(priceLimitHistory_.size()),
-        static_cast<std::uint64_t>(depthHistory_.size()),
-        snapshotLoaded_ ? 1u : 0u,
-        version_,
-    };
+    auto stats = observedStats_;
+    stats.version = version_;
+    return stats;
 }
 
 InMemoryLiveDataProvider::InMemoryLiveDataProvider(std::vector<SourceRef> sources) {

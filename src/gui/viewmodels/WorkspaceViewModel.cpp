@@ -104,7 +104,7 @@ void WorkspaceViewModel::setActiveTab(const QString& hostId, const QString& tabI
     if (host == nullptr || !containsTab(host->tabs, tabId)) return;
     if (host->activeTab == tabId) return;
     host->activeTab = tabId;
-    emitLayoutChanged_();
+    emitLayoutChanged_(false);
 }
 
 QString WorkspaceViewModel::detachTab(const QString& tabId, int x, int y, int width, int height) {
@@ -255,9 +255,9 @@ void WorkspaceViewModel::repairLayout_() {
     if (mainHost->activeTab.isEmpty() && !mainHost->tabs.isEmpty()) mainHost->activeTab = mainHost->tabs.constFirst();
 }
 
-void WorkspaceViewModel::emitLayoutChanged_() {
+void WorkspaceViewModel::emitLayoutChanged_(bool persist) {
     ++layoutRevision_;
-    saveLayout_();
+    if (persist) saveLayout_();
     emit layoutChanged();
 }
 

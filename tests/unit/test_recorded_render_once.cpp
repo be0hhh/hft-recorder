@@ -116,6 +116,34 @@ TEST(LiveTailProvider, PollHotPublishesNewSnapshotAfterStart) {
     fs::remove_all(dir, ec);
 }
 
+TEST(LiveTailProvider, KeepsOnlyRecentTradeWindowButCountsAllRows) {
+    constexpr std::int64_t kRows = 200005;
+    const auto dir = makeTmpDir("hftrec_live_tail_bounded_trades");
+    fs::create_directories(dir / "jsonl");
+
+    hftrec::gui::viewer::JsonTailLiveDataProvider provider;
+    provider.start(hftrec::gui::viewer::LiveDataProviderConfig{dir, {}, {}});
+
+    std::string trades;
+    trades.reserve(static_cast<std::size_t>(kRows) * 32u);
+    for (std::int64_t ts = 1; ts <= kRows; ++ts) {
+        trades += tradeLine(ts, 10000000000ll);
+    }
+    writeFile(dir / "jsonl" / "trades.jsonl", trades);
+
+    const auto poll = provider.pollHot(1u);
+    ASSERT_TRUE(poll.appendedRows);
+    EXPECT_EQ(provider.stats().tradesTotal, static_cast<std::uint64_t>(kRows));
+
+    const auto range = provider.materializeRange(hftrec::gui::viewer::LiveDataRangeRequest{"", 1, kRows}, 2u);
+    ASSERT_EQ(range.trades.size(), 200000u);
+    EXPECT_EQ(range.trades.front().tsNs, 6);
+    EXPECT_EQ(range.trades.back().tsNs, kRows);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST(ViewerBacktestResults, DiscoversRunDirectoriesAndVisibleSweepsOnly) {
     const auto session = makeTmpDir("hftrec_viewer_backtest_results");
     fs::create_directories(session / "backtests");

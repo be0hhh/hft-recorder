@@ -354,6 +354,7 @@ capture::CaptureConfig makeCaptureConfig(const tui::RecorderTuiPreset& preset, c
     config.outputDir = preset.outputDir;
     config.durationSec = job.durationMin > 0 ? job.durationMin * 60 : 0;
     config.snapshotIntervalSec = 60;
+    config.liveCacheMode = capture::LiveCacheMode::Off;
     return config;
 }
 

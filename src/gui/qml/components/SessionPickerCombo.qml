@@ -18,6 +18,8 @@ ComboBox {
     property int popupWidth: width
     property int popupMaxWidth: 0
     property bool popupAlignRight: false
+    property string preferredOpenGroupId: ""
+    property bool scrollToPreferredGroupOnOpen: false
     property string searchText: ""
     property var filteredRows: []
     property var expandedGroups: ({})
@@ -63,6 +65,43 @@ ComboBox {
         if (row.parentGroupId)
             return String(row.parentGroupId)
         return ""
+    }
+
+    function normalizedPreferredOpenGroupId() {
+        return String(picker.preferredOpenGroupId || "").trim()
+    }
+
+    function resetPopupGroups() {
+        var nextExpanded = ({})
+        var groupId = picker.normalizedPreferredOpenGroupId()
+        if (groupId.length > 0)
+            nextExpanded[groupId] = true
+        picker.expandedGroups = nextExpanded
+    }
+
+    function preferredFilteredRowIndex() {
+        var groupId = picker.normalizedPreferredOpenGroupId()
+        if (groupId.length === 0)
+            return -1
+        var firstChild = -1
+        for (var i = 0; i < picker.filteredRows.length; ++i) {
+            var row = picker.filteredRows[i]
+            if (!row || String(row.groupId || "") !== groupId)
+                continue
+            if (row.isGroup)
+                return i
+            if (firstChild < 0)
+                firstChild = i
+        }
+        return firstChild
+    }
+
+    function positionAtPreferredGroup() {
+        if (!picker.scrollToPreferredGroupOnOpen)
+            return
+        var rowIndex = picker.preferredFilteredRowIndex()
+        if (rowIndex >= 0)
+            popupList.positionViewAtIndex(rowIndex, ListView.Beginning)
     }
 
     function rowMatches(row, label, value, needle) {
@@ -153,8 +192,17 @@ ComboBox {
     onSearchTextChanged: rebuildFilter()
     onCountChanged: rebuildFilter()
     onRowsChanged: {
-        expandedGroups = ({})
+        resetPopupGroups()
         rebuildFilter()
+        if (popup.visible)
+            Qt.callLater(positionAtPreferredGroup)
+    }
+    onPreferredOpenGroupIdChanged: {
+        if (popup.visible) {
+            resetPopupGroups()
+            rebuildFilter()
+            Qt.callLater(positionAtPreferredGroup)
+        }
     }
 
     contentItem: Item {
@@ -217,8 +265,9 @@ ComboBox {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside | Popup.CloseOnReleaseOutside
         onOpened: {
             picker.searchText = ""
-            picker.expandedGroups = ({})
+            picker.resetPopupGroups()
             picker.rebuildFilter()
+            Qt.callLater(picker.positionAtPreferredGroup)
             searchField.forceActiveFocus()
         }
         background: Rectangle { color: picker.panelColor; border.color: picker.borderColor; radius: 7 }
@@ -278,6 +327,7 @@ ComboBox {
             }
 
             ListView {
+                id: popupList
                 width: parent.width
                 height: Math.min(contentHeight, 330)
                 clip: true

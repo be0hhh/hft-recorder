@@ -137,6 +137,23 @@ Pane {
         return root.selectedCompareSourceB !== "" ? root.selectedCompareSourceB : root.compareComboSourceId(compareComboB)
     }
 
+    function compareSourceGroupId(sourceId) {
+        var target = String(sourceId || "").trim()
+        if (target.length === 0)
+            return ""
+        for (var i = 0; i < root.compareSourceRows.length; ++i) {
+            var row = root.compareSourceRows[i]
+            if (!row || String(row.id || "") !== target)
+                continue
+            if (row.parentGroupId)
+                return String(row.parentGroupId)
+            if (row.groupId)
+                return String(row.groupId)
+            return ""
+        }
+        return ""
+    }
+
     function backtestPrimarySessionPath() {
         if (root.compareMode)
             return sourcesModel.sessionPath(root.effectiveCompareSourceA())
@@ -527,7 +544,6 @@ Pane {
     ViewerSourceListModel {
         id: sourcesModel
         captureViewModel: root.captureVm
-        Component.onCompleted: reload()
     }
 
     ChartController { id: chart; objectName: "chartController" }
@@ -683,6 +699,8 @@ Pane {
                     caption: "Source B"
                     emptyLabel: "Select session"
                     popupWidth: 760
+                    preferredOpenGroupId: root.compareSourceGroupId(root.effectiveCompareSourceA())
+                    scrollToPreferredGroupOnOpen: true
                     currentIndex: root.selectedCompareIndexB
                     onPicked: function(sourceId) {
                         root.userHasExplicitCompareSelection = true

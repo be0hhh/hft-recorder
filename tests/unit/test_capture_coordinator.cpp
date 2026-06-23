@@ -16,6 +16,7 @@ namespace {
 using hftrec::Status;
 using hftrec::capture::CaptureConfig;
 using hftrec::capture::CaptureCoordinator;
+using hftrec::capture::LiveCacheMode;
 
 bool mockFetchMetadata(cxet::UnifiedRequestBuilder& builder,
                        MessageBuffer&,
@@ -105,6 +106,34 @@ TEST(CaptureCoordinator, WritesManifestAsSoonAsSessionIsEnsured) {
     ASSERT_TRUE(manifestStream.is_open());
     const std::string manifest((std::istreambuf_iterator<char>(manifestStream)), std::istreambuf_iterator<char>());
     EXPECT_NE(manifest.find("\"session_status\": \"recording\""), std::string::npos);
+
+    std::error_code ec;
+    coordinator.finalizeSession();
+    fs::remove_all(config.outputDir, ec);
+}
+
+TEST(CaptureCoordinator, DisablesLiveCacheByDefault) {
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+
+    ASSERT_EQ(coordinator.ensureSession(config), Status::Ok);
+    EXPECT_EQ(coordinator.eventSource(), nullptr);
+    EXPECT_EQ(coordinator.hotCache(), nullptr);
+    EXPECT_TRUE(coordinator.liveEventsCopy().trades.empty());
+
+    std::error_code ec;
+    coordinator.finalizeSession();
+    fs::remove_all(config.outputDir, ec);
+}
+
+TEST(CaptureCoordinator, ExposesLiveCacheWhenExplicitlyEnabled) {
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+    config.liveCacheMode = LiveCacheMode::Full;
+
+    ASSERT_EQ(coordinator.ensureSession(config), Status::Ok);
+    EXPECT_NE(coordinator.eventSource(), nullptr);
+    EXPECT_NE(coordinator.hotCache(), nullptr);
 
     std::error_code ec;
     coordinator.finalizeSession();

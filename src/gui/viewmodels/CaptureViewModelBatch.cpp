@@ -624,6 +624,7 @@ void CaptureViewModel::registerLiveSources_() {
             || coordinator->markPriceRunning() || coordinator->indexPriceRunning()
             || coordinator->fundingRunning() || coordinator->priceLimitRunning();
         if (!hasLiveChannel) continue;
+        if (coordinator->eventSource() == nullptr) continue;
 
         const QString exchange = QString::fromStdString(manifest.exchange);
         const QString market = QString::fromStdString(manifest.market);

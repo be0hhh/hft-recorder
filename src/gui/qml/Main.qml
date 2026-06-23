@@ -20,20 +20,32 @@ ApplicationWindow {
 
     property var createdTabs: ({})
     property var floatingWindows: ({})
+    property var compressionVmObject: null
     property string workspaceErrorText: ""
 
     AppViewModel { id: rootAppVm; objectName: "appVm" }
     CaptureViewModel { id: rootCaptureVm; objectName: "captureVm" }
     BacktestViewModel { id: rootBacktestVm; objectName: "backtestVm" }
-    CompressionViewModel { id: rootCompressionVm; objectName: "compressionVm" }
     WorkspaceViewModel { id: rootWorkspaceVm; objectName: "workspaceVm" }
 
     Item { id: inactiveTabStorage; visible: false; anchors.fill: parent }
+    Component { id: compressionVmComponent; CompressionViewModel { objectName: "compressionVm" } }
     Component { id: captureComponent; CaptureView { captureVm: rootCaptureVm; tabActive: false } }
     Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; backtestVm: rootBacktestVm; tabActive: false } }
-    Component { id: compressComponent; CompressView { compressionVm: rootCompressionVm; tabActive: false } }
+    Component { id: compressComponent; CompressView { compressionVm: root.ensureCompressionVm(); tabActive: false } }
     Component { id: backtestsComponent; BacktestResultsView { backtestVm: rootBacktestVm; captureVm: rootCaptureVm; tabActive: false } }
     Component { id: resultsComponent; ResultsView { backtestVm: rootBacktestVm; tabActive: false } }
+
+    function ensureCompressionVm() {
+        if (compressionVmObject !== null)
+            return compressionVmObject
+        compressionVmObject = compressionVmComponent.createObject(root)
+        if (compressionVmObject === null) {
+            workspaceErrorText = "Failed to create compression model"
+            console.error(workspaceErrorText)
+        }
+        return compressionVmObject
+    }
 
     function componentForTab(tabId) {
         if (tabId === "capture") return captureComponent
