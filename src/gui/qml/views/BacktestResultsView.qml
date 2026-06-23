@@ -688,7 +688,7 @@ Pane {
                         }
                     }
                     Item {
-                        width: 420
+                        width: 520
                         height: 62
 
                         Label {
@@ -771,6 +771,23 @@ Pane {
                             font.pixelSize: 12
                             background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
                             onEditingFinished: root.backtestVm.riskMinLegEquityUsdt = text
+                        }
+
+                        TextField {
+                            x: 390
+                            y: 24
+                            width: 120
+                            height: 26
+                            placeholderText: "max pos USDT"
+                            text: root.backtestVm.riskMaxPositionUsdt
+                            enabled: root.backtestVm.riskEnabled
+                            opacity: enabled ? 1.0 : 0.45
+                            selectByMouse: true
+                            color: root.textColor
+                            placeholderTextColor: root.mutedTextColor
+                            font.pixelSize: 12
+                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
+                            onEditingFinished: root.backtestVm.riskMaxPositionUsdt = text
                         }
                     }
                 }

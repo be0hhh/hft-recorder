@@ -37,6 +37,7 @@ set(HFTREC_CORE_SOURCES
     storage/EventStorage.cpp
     storage/JsonSessionStorage.cpp
     tui/RecorderTuiPreset.cpp
+    tui/RecorderTuiSymbols.cpp
     tui/TerminalRender.cpp
     validation/ValidationRunner.cpp
 )

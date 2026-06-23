@@ -54,6 +54,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString riskMinEquityPct READ riskMinEquityPct WRITE setRiskMinEquityPct NOTIFY accountingChanged)
     Q_PROPERTY(QString riskMinLegEquityPct READ riskMinLegEquityPct WRITE setRiskMinLegEquityPct NOTIFY accountingChanged)
     Q_PROPERTY(QString riskMinLegEquityUsdt READ riskMinLegEquityUsdt WRITE setRiskMinLegEquityUsdt NOTIFY accountingChanged)
+    Q_PROPERTY(QString riskMaxPositionUsdt READ riskMaxPositionUsdt WRITE setRiskMaxPositionUsdt NOTIFY accountingChanged)
     Q_PROPERTY(QString makerFeeBps READ makerFeeBps WRITE setMakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString takerFeeBps READ takerFeeBps WRITE setTakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString orderLatencyUs READ orderLatencyUs WRITE setOrderLatencyUs NOTIFY latencyChanged)
@@ -141,6 +142,7 @@ class BacktestViewModel : public QObject {
     QString riskMinEquityPct() const { return riskMinEquityPct_; }
     QString riskMinLegEquityPct() const { return riskMinLegEquityPct_; }
     QString riskMinLegEquityUsdt() const { return riskMinLegEquityUsdt_; }
+    QString riskMaxPositionUsdt() const { return riskMaxPositionUsdt_; }
     QString makerFeeBps() const { return makerFeeBps_; }
     QString takerFeeBps() const { return takerFeeBps_; }
     QString orderLatencyUs() const { return marketOrderLatencyUs_; }
@@ -218,6 +220,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setRiskMinEquityPct(const QString& value);
     Q_INVOKABLE void setRiskMinLegEquityPct(const QString& value);
     Q_INVOKABLE void setRiskMinLegEquityUsdt(const QString& value);
+    Q_INVOKABLE void setRiskMaxPositionUsdt(const QString& value);
     Q_INVOKABLE void setMakerFeeBps(const QString& value);
     Q_INVOKABLE void setTakerFeeBps(const QString& value);
     Q_INVOKABLE void setOrderLatencyUs(const QString& value);
@@ -402,6 +405,7 @@ class BacktestViewModel : public QObject {
     QString riskMinEquityPct_{};
     QString riskMinLegEquityPct_{};
     QString riskMinLegEquityUsdt_{};
+    QString riskMaxPositionUsdt_{};
     QString makerFeeBps_{QStringLiteral("0")};
     QString takerFeeBps_{QStringLiteral("0")};
     QString sweepBudget_{QStringLiteral("64")};

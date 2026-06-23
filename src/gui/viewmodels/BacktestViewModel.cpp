@@ -2242,6 +2242,14 @@ void BacktestViewModel::setRiskMinLegEquityUsdt(const QString& value) {
     emit accountingChanged();
 }
 
+void BacktestViewModel::setRiskMaxPositionUsdt(const QString& value) {
+    const QString next = value.trimmed();
+    if (riskMaxPositionUsdt_ == next) return;
+    riskMaxPositionUsdt_ = next;
+    savePersistentConfig_();
+    emit accountingChanged();
+}
+
 void BacktestViewModel::setMakerFeeBps(const QString& value) {
     const QString next = value.trimmed();
     if (makerFeeBps_ == next) return;
@@ -2368,6 +2376,7 @@ void BacktestViewModel::saveProfile() {
     out << "risk_min_equity_pct=" << riskMinEquityPct_ << "\n";
     out << "risk_min_leg_equity_pct=" << riskMinLegEquityPct_ << "\n";
     out << "risk_min_leg_equity_usdt=" << riskMinLegEquityUsdt_ << "\n";
+    out << "risk_max_position_usdt=" << riskMaxPositionUsdt_ << "\n";
     out << "maker_fee_bps=" << makerFeeBps_ << "\n";
     out << "taker_fee_bps=" << takerFeeBps_ << "\n";
     out << "sweep_budget=" << sweepBudget_ << "\n";
@@ -2431,6 +2440,7 @@ void BacktestViewModel::loadProfile() {
     const QString riskMinEquity = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_min_equity_pct"));
     const QString riskMinLegEquityPct = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_min_leg_equity_pct"));
     const QString riskMinLegEquityUsdt = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_min_leg_equity_usdt"));
+    const QString riskMaxPositionUsdt = iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_max_position_usdt"));
     const QString makerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("maker_fee_bps"));
     const QString takerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("taker_fee_bps"));
     const QString sweepBudget = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_budget"));
@@ -2458,6 +2468,7 @@ void BacktestViewModel::loadProfile() {
     riskMinEquityPct_ = riskMinEquity;
     riskMinLegEquityPct_ = riskMinLegEquityPct;
     riskMinLegEquityUsdt_ = riskMinLegEquityUsdt;
+    riskMaxPositionUsdt_ = riskMaxPositionUsdt;
     if (!makerFee.isEmpty()) makerFeeBps_ = makerFee;
     if (!takerFee.isEmpty()) takerFeeBps_ = takerFee;
     if (!sweepBudget.isEmpty()) sweepBudget_ = sweepBudget;
@@ -3616,6 +3627,7 @@ void BacktestViewModel::loadStrategyDefaults_() {
     riskMinEquityPct_ = iniValue(templateText, QStringLiteral("risk"), QStringLiteral("min_equity_pct"));
     riskMinLegEquityPct_ = iniValue(templateText, QStringLiteral("risk"), QStringLiteral("min_leg_equity_pct"));
     riskMinLegEquityUsdt_ = iniValue(templateText, QStringLiteral("risk"), QStringLiteral("min_leg_equity_usdt"));
+    riskMaxPositionUsdt_ = iniValue(templateText, QStringLiteral("risk"), QStringLiteral("max_position_usdt"));
 }
 
 void BacktestViewModel::loadPersistentConfig_() {
@@ -3664,6 +3676,21 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (initialBalanceUsdt_.isEmpty()) initialBalanceUsdt_ = QStringLiteral("1000");
     loadStrategyDefaults_();
     loadSavedParameterValues_();
+    if (settings_.contains(QStringLiteral("backtests/risk_enabled"))) {
+        riskEnabled_ = settings_.value(QStringLiteral("backtests/risk_enabled"), riskEnabled_).toBool();
+    }
+    if (settings_.contains(QStringLiteral("backtests/risk_min_equity_pct"))) {
+        riskMinEquityPct_ = settings_.value(QStringLiteral("backtests/risk_min_equity_pct"), riskMinEquityPct_).toString().trimmed();
+    }
+    if (settings_.contains(QStringLiteral("backtests/risk_min_leg_equity_pct"))) {
+        riskMinLegEquityPct_ = settings_.value(QStringLiteral("backtests/risk_min_leg_equity_pct"), riskMinLegEquityPct_).toString().trimmed();
+    }
+    if (settings_.contains(QStringLiteral("backtests/risk_min_leg_equity_usdt"))) {
+        riskMinLegEquityUsdt_ = settings_.value(QStringLiteral("backtests/risk_min_leg_equity_usdt"), riskMinLegEquityUsdt_).toString().trimmed();
+    }
+    if (settings_.contains(QStringLiteral("backtests/risk_max_position_usdt"))) {
+        riskMaxPositionUsdt_ = settings_.value(QStringLiteral("backtests/risk_max_position_usdt"), riskMaxPositionUsdt_).toString().trimmed();
+    }
     makerFeeBps_ = settings_.value(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_).toString().trimmed();
     if (makerFeeBps_.isEmpty()) makerFeeBps_ = QStringLiteral("0");
     takerFeeBps_ = settings_.value(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_).toString().trimmed();
@@ -3716,6 +3743,11 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/user_data_latency_us"), userDataLatencyUs_);
     settings_.setValue(QStringLiteral("backtests/user_data_jitter_us"), userDataJitterUs_);
     settings_.setValue(QStringLiteral("backtests/initial_balance_usdt"), initialBalanceUsdt_);
+    settings_.setValue(QStringLiteral("backtests/risk_enabled"), riskEnabled_);
+    settings_.setValue(QStringLiteral("backtests/risk_min_equity_pct"), riskMinEquityPct_);
+    settings_.setValue(QStringLiteral("backtests/risk_min_leg_equity_pct"), riskMinLegEquityPct_);
+    settings_.setValue(QStringLiteral("backtests/risk_min_leg_equity_usdt"), riskMinLegEquityUsdt_);
+    settings_.setValue(QStringLiteral("backtests/risk_max_position_usdt"), riskMaxPositionUsdt_);
     settings_.setValue(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/sweep_budget"), sweepBudget_);
@@ -3822,11 +3854,13 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         if (!value.isEmpty()) out << key << "=" << value << "\n";
     }
     if (riskEnabled_) {
+        const bool hasRiskMaxPosition = !riskMaxPositionUsdt_.trimmed().isEmpty();
         out << "\n[risk]\n";
-        out << "enabled=true\n";
+        out << "enabled=" << (riskEnabled_ ? "true" : "false") << "\n";
         if (!riskMinEquityPct_.trimmed().isEmpty()) out << "min_equity_pct=" << riskMinEquityPct_.trimmed() << "\n";
         if (!riskMinLegEquityPct_.trimmed().isEmpty()) out << "min_leg_equity_pct=" << riskMinLegEquityPct_.trimmed() << "\n";
         if (!riskMinLegEquityUsdt_.trimmed().isEmpty()) out << "min_leg_equity_usdt=" << riskMinLegEquityUsdt_.trimmed() << "\n";
+        if (hasRiskMaxPosition) out << "max_position_usdt=" << riskMaxPositionUsdt_.trimmed() << "\n";
     }
     for (const QString& venue : venueOrder) {
         out << "\n[venue." << venue << "]\n";

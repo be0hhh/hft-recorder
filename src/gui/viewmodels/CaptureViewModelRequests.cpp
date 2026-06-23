@@ -22,6 +22,8 @@
 #include <string>
 #include <string_view>
 
+#include "core/tui/RecorderTuiSymbols.hpp"
+
 namespace hftrec::gui::detail {
 
 namespace {
@@ -869,28 +871,26 @@ QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symb
     const qsizetype idx = venueIndex(venueKey);
     if (idx < 0) return {};
 
-    QStringList formatted;
-    const auto symbols = normalizedSymbols(symbolsText);
-    formatted.reserve(static_cast<qsizetype>(symbols.size()));
     if (isFinamVenue(kVenues[idx])) {
+        QStringList formatted;
+        const auto symbols = normalizedSymbols(symbolsText);
+        formatted.reserve(static_cast<qsizetype>(symbols.size()));
         for (const auto& symbol : symbols) {
             const QString value = QString::fromStdString(symbol).trimmed();
             if (!value.isEmpty()) formatted.push_back(value);
         }
         return formatted.join(QLatin1Char('\n'));
     }
-    for (const auto& symbol : symbols) {
-        const auto parsed = parseGlobalSymbol(QString::fromStdString(symbol));
-        if (!parsed.base.isEmpty()) formatted.push_back(formattedVenueSymbol(kVenues[idx], parsed));
-    }
-    return formatted.join(QLatin1Char('\n'));
+    return QString::fromStdString(
+        hftrec::tui::venueSymbolsFromGlobalInput(venueKey.toStdString(), symbolsText.toStdString()));
 }
 
 QString venueSymbolPlaceholder(const QString& venueKey) {
     const qsizetype idx = venueIndex(venueKey);
     if (idx < 0) return QStringLiteral("Example: BTCUSDT");
     if (isFinamVenue(kVenues[idx])) return QStringLiteral("Example: SBER@MISX");
-    return QStringLiteral("Example: %1").arg(formattedVenueSymbol(kVenues[idx], parseGlobalSymbol(QStringLiteral("BTCUSDT"))));
+    return QStringLiteral("Example: %1")
+        .arg(QString::fromStdString(hftrec::tui::venueSymbolsFromGlobalInput(venueKey.toStdString(), "BTCUSDT")));
 }
 
 QVariantList detailedCandlesEndModeChoices() {
@@ -1002,7 +1002,7 @@ std::vector<std::int64_t> detailedCandlesEndCandidatesNs(const QString& mode,
 
 QString venueSymbolExample(const VenueSpec& venue) {
     if (isFinamVenue(venue)) return QStringLiteral("SBER@MISX");
-    return formattedVenueSymbol(venue, parseGlobalSymbol(QStringLiteral("BTCUSDT")));
+    return QString::fromStdString(hftrec::tui::venueSymbolsFromGlobalInput(venue.key, "BTCUSDT"));
 }
 
 QString missingVenueSymbolsText(const QStringList& venueKeys, const QStringList& venueSymbolsTexts) {
