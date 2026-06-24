@@ -31,24 +31,13 @@ void writeFile(const fs::path& p, const std::string& data) {
     out << data;
 }
 
-std::string makeSnapshotJson(std::int64_t tsNs,
-                             std::int64_t,
-                             std::int64_t,
-                             std::int64_t,
-                             std::int64_t) {
-    return "[[30000,5,0],[29900,3,0],[30100,4,1],"
-        + std::to_string(tsNs)
-        + "]\n";
-}
-
 void writeManifest(const fs::path& dir,
                    bool tradesEnabled,
                    bool bookTickerEnabled,
                    bool orderbookEnabled,
                    std::uint64_t tradesCount,
                    std::uint64_t bookTickerCount,
-                   std::uint64_t depthCount,
-                   std::uint64_t snapshotCount) {
+                   std::uint64_t depthCount) {
     SessionManifest manifest{};
     manifest.sessionId = "test_session";
     manifest.exchange = "binance";
@@ -60,19 +49,15 @@ void writeManifest(const fs::path& dir,
     manifest.tradesCount = tradesCount;
     manifest.bookTickerCount = bookTickerCount;
     manifest.depthCount = depthCount;
-    manifest.snapshotCount = snapshotCount;
-    if (snapshotCount != 0u) manifest.snapshotFiles = {"snapshot_000.json"};
     writeFile(dir / "manifest.json", renderManifestJson(manifest));
 }
 
 TEST(SessionReplay, EndToEnd) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, false, true, 2u, 0u, 2u, 1u);
-
-    writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
+    writeManifest(dir, true, false, true, 2u, 0u, 2u);
 
     writeFile(dir / "depth.jsonl",
-              "[[30000,7,0],2000]\n"
+              "[[30000,7,0],[30100,4,1],2000]\n"
               "[[30100,0,1],[30200,8,1],3500]\n");
 
     writeFile(dir / "trades.jsonl",
@@ -84,7 +69,7 @@ TEST(SessionReplay, EndToEnd) {
     EXPECT_FALSE(replay.sequenceValidationAvailable());
     EXPECT_FALSE(replay.gapDetected());
     EXPECT_EQ(replay.integritySummary().sessionHealth, hftrec::SessionHealth::Clean);
-    EXPECT_FALSE(replay.integritySummary().depth.exactReplayEligible);
+    EXPECT_TRUE(replay.integritySummary().depth.exactReplayEligible);
 
     EXPECT_EQ(replay.trades().size(), 2u);
     EXPECT_EQ(replay.depths().size(), 2u);
@@ -109,9 +94,9 @@ TEST(SessionReplay, EndToEnd) {
     EXPECT_EQ(replay.cursor(), replay.buckets().size());
 
     replay.seek(1000);
-    EXPECT_EQ(replay.book().bestBidPrice(), 30000);
-    EXPECT_EQ(replay.book().bestBidQty(), 5);
-    EXPECT_EQ(replay.book().bestAskPrice(), 30100);
+    EXPECT_EQ(replay.book().bestBidPrice(), 0);
+    EXPECT_EQ(replay.book().bestBidQty(), 0);
+    EXPECT_EQ(replay.book().bestAskPrice(), 0);
     EXPECT_EQ(replay.cursor(), 0u);
 
     std::error_code ec;
@@ -126,7 +111,7 @@ TEST(SessionReplay, MissingDirectoryReturnsError) {
 
 TEST(SessionReplay, InvalidJsonLineReportsFileAndLine) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
+    writeManifest(dir, true, false, false, 2u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
               "[30050,1,1,2500]\n"
@@ -143,7 +128,7 @@ TEST(SessionReplay, InvalidJsonLineReportsFileAndLine) {
 
 TEST(SessionReplay, MinimalRowsHaveNoSequenceValidation) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
+    writeManifest(dir, true, false, false, 2u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
               "[30050,1,1,2500]\n"
@@ -160,7 +145,7 @@ TEST(SessionReplay, MinimalRowsHaveNoSequenceValidation) {
 
 TEST(SessionReplay, RejectsMalformedMinimalTradeLine) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, false, false, 2u, 0u, 0u, 0u);
+    writeManifest(dir, true, false, false, 2u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
               "[30050,1,1,2500]\n"
@@ -178,7 +163,7 @@ TEST(SessionReplay, RejectsMalformedMinimalTradeLine) {
 TEST(SessionReplay, PartialDepthTapeSidecarLoadKeepsValidPrefix) {
     const auto dir = makeTmpDir();
     fs::create_directories(dir / "jsonl");
-    writeManifest(dir, false, false, true, 0u, 0u, 3u, 0u);
+    writeManifest(dir, false, false, true, 0u, 0u, 3u);
 
     writeFile(dir / "jsonl" / "depth_tape.jsonl",
               "[10936540037604775808,30000,10,30001,20]\n"
@@ -206,7 +191,7 @@ TEST(SessionReplay, PartialDepthTapeSidecarLoadKeepsValidPrefix) {
 
 TEST(SessionReplay, RejectsLegacyExtendedTradeRows) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, false, false, 1u, 0u, 0u, 0u);
+    writeManifest(dir, true, false, false, 1u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
               "[30050,1,1,2500,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]\n");
@@ -222,7 +207,7 @@ TEST(SessionReplay, RejectsLegacyExtendedTradeRows) {
 
 TEST(SessionReplay, KeepsCandlesAndCandles2Separate) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, false, false, false, 0u, 0u, 0u, 0u);
+    writeManifest(dir, false, false, false, 0u, 0u, 0u);
 
     writeFile(dir / "candles.jsonl",
               "[1,1000,10000000000,10000000000,10000000000,10000000000,0,0]\n");
@@ -242,12 +227,10 @@ TEST(SessionReplay, KeepsCandlesAndCandles2Separate) {
 
 TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, true, true, 1u, 1u, 1u, 1u);
-
-    writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
+    writeManifest(dir, true, true, true, 1u, 1u, 1u);
 
     writeFile(dir / "depth.jsonl",
-              "[[30000,7,0],2000]\n");
+              "[[30000,7,0],[30100,4,1],2000]\n");
 
     writeFile(dir / "trades.jsonl",
               "[30050,1,1,2000]\n");
@@ -264,7 +247,7 @@ TEST(SessionReplay, SameTimestampRowsShareOneReplayBucket) {
 
     replay.seek(1999);
     EXPECT_EQ(replay.cursor(), 0u);
-    EXPECT_EQ(replay.book().bestBidQty(), 5);
+    EXPECT_EQ(replay.book().bestBidQty(), 0);
 
     replay.seek(2000);
     EXPECT_EQ(replay.cursor(), 1u);
@@ -328,11 +311,10 @@ TEST(SessionReplay, OpenLoadsReferenceChannelsFromSessionCorpus) {
 
 TEST(SessionReplay, CrossChannelIngestSequenceDoesNotDegradeWhenTimestampOrderDiffers) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, true, true, 1u, 1u, 1u, 1u);
+    writeManifest(dir, true, true, true, 1u, 1u, 1u);
 
-    writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 4, 10, 10));
     writeFile(dir / "depth.jsonl",
-              "[[30000,7,0],3000]\n");
+              "[[30000,7,0],[30100,4,1],3000]\n");
     writeFile(dir / "trades.jsonl",
               "[30050,1,1,2000]\n");
     writeFile(dir / "bookticker.jsonl",
@@ -352,7 +334,7 @@ TEST(SessionReplay, CrossChannelIngestSequenceDoesNotDegradeWhenTimestampOrderDi
 
 TEST(SessionReplay, MissingEnabledChannelDegradesSessionAndWritesIntegrityReport) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, true, false, false, 1u, 0u, 0u, 0u);
+    writeManifest(dir, true, false, false, 1u, 0u, 0u);
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::CorruptData);
@@ -366,9 +348,7 @@ TEST(SessionReplay, MissingEnabledChannelDegradesSessionAndWritesIntegrityReport
 
 TEST(SessionReplay, ShortDepthArrayIsCorrupt) {
     const auto dir = makeTmpDir();
-    writeManifest(dir, false, false, true, 0u, 0u, 1u, 1u);
-
-    writeFile(dir / "snapshot_000.json", makeSnapshotJson(1000, 1, 1, 10, 10));
+    writeManifest(dir, false, false, true, 0u, 0u, 1u);
 
     writeFile(dir / "depth.jsonl",
               "[[30000,7],2000]\n");
@@ -394,11 +374,8 @@ TEST(SessionReplay, NormalizesBitgetFixedDepthSnapshotsOnLoad) {
     manifest.bookTickerEnabled = false;
     manifest.orderbookEnabled = true;
     manifest.depthCount = 2u;
-    manifest.snapshotCount = 1u;
-    manifest.snapshotFiles = {"snapshot_000.json"};
     writeFile(dir / "manifest.json", renderManifestJson(manifest));
 
-    writeFile(dir / "snapshot_000.json", "[[100,5,0],[110,3,1],1000]\n");
     writeFile(dir / "depth.jsonl",
               "[[100,5,0],[101,4,0],[110,3,1],2000]\n"
               "[[101,7,0],[111,2,1],3000]\n");

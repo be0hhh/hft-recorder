@@ -24,7 +24,6 @@ struct SessionCorpus {
     std::vector<std::string> candleLines;
     std::vector<std::string> candle2Lines;
     std::vector<std::string> depthLines;
-    std::vector<std::string> snapshotDocuments;
     std::string instrumentMetadataDocument;
     std::string sessionAuditDocument;
     std::string integrityReportDocument;

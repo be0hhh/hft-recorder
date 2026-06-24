@@ -1,11 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
-#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <thread>
 
 #include <QString>
 
@@ -97,20 +95,24 @@ TEST(ViewerTradeRendering, DenseTradesRemainExactDots) {
     fs::remove_all(dir, ec);
 }
 
-TEST(LiveTailProvider, PollHotPublishesNewSnapshotAfterStart) {
-    const auto dir = makeTmpDir("hftrec_live_tail_snapshot");
-    writeFile(dir / "snapshot_000.json", "[[9900000000,100000000,1],100]\n");
+TEST(LiveTailProvider, PollHotPublishesDepthTapeAfterStart) {
+    const auto dir = makeTmpDir("hftrec_live_tail_depth");
+    fs::create_directories(dir / "jsonl");
+    writeFile(dir / "jsonl" / "depth_tape.jsonl", "");
+    writeFile(dir / "jsonl" / "depth_sidecar.jsonl", "");
 
     hftrec::gui::viewer::JsonTailLiveDataProvider provider;
     provider.start(hftrec::gui::viewer::LiveDataProviderConfig{dir, {}, {}});
-    EXPECT_EQ(provider.stats().snapshotsTotal, 1u);
-    EXPECT_TRUE(provider.pollHot(1u).batch.snapshots.empty());
+    EXPECT_EQ(provider.stats().snapshotsTotal, 0u);
+    EXPECT_TRUE(provider.pollHot(1u).batch.depths.empty());
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    writeFile(dir / "snapshot_001.json", "[[9900000000,100000000,1],200]\n");
+    writeFile(dir / "jsonl" / "depth_tape.jsonl", "[9223372036854775908,9900000000,100000000]\n");
+    writeFile(dir / "jsonl" / "depth_sidecar.jsonl", "[9223372036854775908,1,1]\n");
     const auto poll = provider.pollHot(2u);
-    ASSERT_EQ(poll.batch.snapshots.size(), 1u);
-    EXPECT_EQ(poll.batch.snapshots.front().tsNs, 200);
+    ASSERT_EQ(poll.batch.depths.size(), 1u);
+    EXPECT_EQ(poll.batch.depths.front().tsNs, 100);
+    ASSERT_EQ(poll.batch.depths.front().levels.size(), 1u);
+    EXPECT_EQ(poll.batch.depths.front().levels.front().side, 1);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

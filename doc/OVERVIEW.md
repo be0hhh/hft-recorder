@@ -34,10 +34,8 @@ Each recorded session is stored as:
 ```text
 recordings/<session_id>/
   manifest.json
-  snapshot_000.json
-  snapshot_001.json
-  ...
-  depth.jsonl
+  jsonl/depth_tape.jsonl
+  jsonl/depth_sidecar.jsonl
   trades.jsonl
   bookticker.jsonl
   derived/
@@ -64,7 +62,7 @@ Examples:
 - trade-like events are saved as normalized trade records
 - book ticker events are saved as normalized L1 records
 - orderbook delta events are saved as normalized changed-level events
-- snapshots are saved as normalized full-book snapshots
+- an initial full-book snapshot, when available, is saved as a depth row
 
 ## Compression research goal
 

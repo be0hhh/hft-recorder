@@ -90,14 +90,5 @@ void CaptureCoordinator::reapStoppedThreads() noexcept {
     if (orderbookThread_.joinable() && !orderbookRunning_.load(std::memory_order_acquire)) orderbookThread_.join();
 }
 
-Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSnapshot&,
-                                             std::uint64_t,
-                                             std::string_view,
-                                             std::string_view,
-                                             bool) noexcept {
-    lastError_ = kNoCxet;
-    return Status::Unimplemented;
-}
-
 }  // namespace hftrec::capture
 

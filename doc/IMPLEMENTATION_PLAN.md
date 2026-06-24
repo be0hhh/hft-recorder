@@ -72,7 +72,7 @@ Implement:
 
 Deliverable:
 - a session folder with `manifest.json`, `trades.jsonl`, `bookticker.jsonl`,
-  `depth.jsonl`, and `snapshot_*.json`
+  `depth_tape.jsonl`, and `depth_sidecar.jsonl`
 
 ### Phase B. Replay and validation
 

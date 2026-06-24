@@ -156,20 +156,6 @@ QString formatLoadNsAsMs(std::uint64_t ns) {
         .arg(static_cast<int>(hundredths), 2, 10, QLatin1Char('0'));
 }
 
-std::filesystem::path firstSnapshotPath(const std::filesystem::path& sessionPath) {
-    std::error_code ec;
-    if (!std::filesystem::is_directory(sessionPath, ec) || ec) return {};
-    std::vector<std::filesystem::path> snapshots;
-    for (const auto& entry : std::filesystem::directory_iterator(sessionPath, ec)) {
-        if (ec) break;
-        if (!entry.is_regular_file(ec) || ec) continue;
-        const auto name = entry.path().filename().string();
-        if (name.rfind("snapshot_", 0) == 0 && entry.path().extension() == ".json") snapshots.push_back(entry.path());
-    }
-    std::sort(snapshots.begin(), snapshots.end());
-    return snapshots.empty() ? std::filesystem::path{} : snapshots.front();
-}
-
 bool mergeStatus(Status& aggregate, Status next) noexcept {
     if (isOk(next)) return true;
     aggregate = next;
@@ -807,25 +793,6 @@ bool ChartController::addDepthFile(const QString& path) {
     return true;
 }
 
-bool ChartController::addSnapshotFile(const QString& path) {
-    if (path.trimmed().isEmpty()) {
-        statusText_ = QStringLiteral("No path. Enter a snapshot_*.json path first.");
-        emit statusChanged();
-        return false;
-    }
-
-    const auto st = replay_.addSnapshotFile(stripFileUrl(path));
-    if (!isOk(st)) {
-        statusText_ = replayFailureText(replay_, st, QStringLiteral("snapshot load failed"));
-        emit statusChanged();
-        return false;
-    }
-
-    statusText_ = QStringLiteral("+ snapshot");
-    emit statusChanged();
-    return true;
-}
-
 void ChartController::finalizeFiles() {
     stopLiveData_();
     clearSelection();
@@ -1116,9 +1083,6 @@ bool ChartController::loadSessionForLayers(const QString& dir,
                      });
     }
     if (orderbookVisible) {
-        loadOptional(QStringLiteral("snapshot"),
-                     firstSnapshotPath(path),
-                     [&](const std::filesystem::path& channelPath) { return replay_.addSnapshotFile(channelPath); });
         loadOptional(QStringLiteral("depth"),
                      sessionChannelPath(path, manifest, QStringLiteral("depth"), "depth.jsonl"),
                      [&](const std::filesystem::path& channelPath) {
@@ -1240,8 +1204,6 @@ bool ChartController::loadRecordedOrderbook() {
 
     const auto rowsBefore = replayRowCount(replay_);
     const auto loadStartedAt = std::chrono::steady_clock::now();
-    loadOptional(firstSnapshotPath(path),
-                 [&](const std::filesystem::path& channelPath) { return replay_.addSnapshotFile(channelPath); });
     loadOptional(sessionChannelPath(path, manifest, QStringLiteral("depth"), "depth.jsonl"),
                  [&](const std::filesystem::path& channelPath) {
                      const auto depthStatus = replay_.addDepthFileAllowPartial(channelPath, channelDeclaredCount(manifest, QStringLiteral("depth")));

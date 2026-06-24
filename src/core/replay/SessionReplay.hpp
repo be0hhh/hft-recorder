@@ -51,7 +51,7 @@ class SessionReplay {
     Status open(const std::filesystem::path& sessionDir) noexcept;
 
     // Individual-file loaders. Useful from the GUI when the user wants to
-    // pick trades.jsonl, bookticker.jsonl, depth_tape.jsonl/depth_sidecar.jsonl, depth.jsonl or a snapshot file
+    // pick trades.jsonl, bookticker.jsonl, depth_tape.jsonl/depth_sidecar.jsonl or depth.jsonl
     // from unrelated paths. Call reset() first, then any combination of
     // addXxx(), then finalize(). Each addXxx() may be called multiple times
     // to merge files.
@@ -71,7 +71,6 @@ class SessionReplay {
                            bool rebuildTimeline = true) noexcept;
     Status addDepthFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
     Status addDepthFileAllowPartial(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
-    Status addSnapshotFile(const std::filesystem::path& path) noexcept;
     void   finalize() noexcept;
     Status status() const noexcept { return status_; }
     std::string_view errorDetail() const noexcept { return errorDetail_; }

@@ -41,23 +41,15 @@ Stored in:
 
 Capture:
 - normalized raw orderbook delta events
-- `source_quality=canonical` only after snapshot anchoring and sequence/gap
+- `source_quality=canonical` only after initial depth image and sequence/gap
   validation are proven for the session
 
 Stored in:
-- `depth.jsonl`
+- `depth_tape.jsonl`
+- `depth_sidecar.jsonl`
 
-### Snapshot
-
-Capture:
-- full normalized snapshots
-- one at start
-- periodic refreshes every 60 s
-- snapshots are anchors/supporting truth, not tick-by-tick market truth by
-  themselves
-
-Stored in:
-- `snapshot_*.json`
+The initial full-book snapshot, when available, is stored as a depth row. There
+is no standalone snapshot artifact in the current corpus contract.
 
 ## Research families
 
@@ -66,7 +58,7 @@ Compression work is still organized into three families:
 - L1 / bookTicker
 - orderbook
 
-Snapshots are supporting truth data for orderbook reconstruction, not a fourth
+Initial full-depth rows are supporting truth data for orderbook reconstruction, not a fourth
 independent ranking family.
 
 ## Replay semantics
@@ -85,7 +77,8 @@ Replay is bucketed by timestamp:
   a stable tie-breaker before CXETCPP fanout
 
 State reconstruction rules:
-- exact L2 reconstruction is driven by `snapshot + depth`
+- exact L2 reconstruction is driven by depth rows; the first full-depth row seeds
+  the book when available
 - `bookticker` is observational L1 data
 - `trades` are observational tape data
 - `bookticker` and `trades` must not mutate reconstructed L2 state

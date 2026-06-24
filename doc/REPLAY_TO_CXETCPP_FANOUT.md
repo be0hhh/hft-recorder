@@ -35,7 +35,7 @@ exchange id. For an algorithm and for chart consumers, Binance and
 Already available:
 
 - `hft-recorder` records canonical session files: `trades.jsonl`,
-  `bookticker.jsonl`, `depth.jsonl`, and `snapshot_*.json`.
+  `bookticker.jsonl`, and depth tape/sidecar files.
 - `cxet_replay_core::streamSession()` can stream rows from canonical JSONL and,
   when linked with `hft-compressor`, from `.hfc` artifacts.
 - CXETCPP already has `hftrecorder_local` as an exchange id for local order
@@ -46,7 +46,7 @@ Already available:
 Important limitation:
 
 - `cxet_replay_core::streamSession()` currently streams by artifact/channel
-  order: snapshots, then trades, then bookticker, then depth. That is useful for
+  order: trades, then bookticker, then depth. That is useful for
   loading or conversion, but it is not a live-like market clock.
 
 Live-like replay requires a merged timeline ordered by:
@@ -158,7 +158,7 @@ Implemented v1 event families:
 - `trades` from canonical `trades.jsonl` rows;
 - `bookticker` from canonical `bookticker.jsonl` rows;
 - `orderbook.delta` from canonical `depth.jsonl` rows;
-- `orderbook.snapshot` from canonical snapshot documents;
+- `orderbook.snapshot` from the initial full-depth row when a replay bridge needs that shape;
 - `funding` reserved for future funding rows.
 
 Implemented payloads intentionally carry no envelope or metadata because the

@@ -582,98 +582,6 @@ Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allo
     return st;
 }
 
-Status SessionReplay::addSnapshotFile(const std::filesystem::path& path) noexcept {
-    if (path.empty()) {
-        errorDetail_ = "snapshot path is empty";
-        ++parseFailureCount_;
-        metrics::recordReplayParseFailure("snapshot");
-        noteIncident_(IntegrityIncident{
-            IntegrityChannel::Snapshot,
-            IntegrityIncidentKind::ParseError,
-            IntegritySeverity::Error,
-            "invalid_argument",
-            errorDetail_,
-            0,
-            0,
-            {},
-            {},
-            true
-        });
-        return Status::InvalidArgument;
-    }
-    if (!std::filesystem::exists(path)) {
-        errorDetail_ = "snapshot file does not exist: " + path.string();
-        ++parseFailureCount_;
-        metrics::recordReplayParseFailure("snapshot");
-        auto& summary = summaryFor_(IntegrityChannel::Snapshot);
-        summary.state = ChannelHealthState::Missing;
-        summary.exactReplayEligible = false;
-        noteIncident_(IntegrityIncident{
-            IntegrityChannel::Snapshot,
-            IntegrityIncidentKind::MissingFile,
-            IntegritySeverity::Warning,
-            "missing_file",
-            errorDetail_,
-            0,
-            0,
-            {},
-            path.filename().string(),
-            true
-        });
-        return Status::InvalidArgument;
-    }
-    std::string blob;
-    if (!readWholeFile(path, blob)) {
-        errorDetail_ = "failed to read snapshot file: " + path.string();
-        ++parseFailureCount_;
-        metrics::recordReplayParseFailure("snapshot");
-        auto& summary = summaryFor_(IntegrityChannel::Snapshot);
-        summary.state = ChannelHealthState::Corrupt;
-        summary.exactReplayEligible = false;
-        noteIncident_(IntegrityIncident{
-            IntegrityChannel::Snapshot,
-            IntegrityIncidentKind::ParseError,
-            IntegritySeverity::Error,
-            "read_failed",
-            errorDetail_,
-            0,
-            0,
-            {},
-            path.filename().string(),
-            true
-        });
-        return Status::IoError;
-    }
-    SnapshotDocument snap{};
-    const auto st = parseSnapshotDocument(blob, snap);
-    if (!isOk(st)) {
-        errorDetail_ = "failed to parse snapshot file " + path.filename().string()
-            + ": " + std::string{statusToString(st)};
-        ++parseFailureCount_;
-        metrics::recordReplayParseFailure("snapshot");
-        auto& summary = summaryFor_(IntegrityChannel::Snapshot);
-        summary.state = ChannelHealthState::Corrupt;
-        summary.exactReplayEligible = false;
-        noteIncident_(IntegrityIncident{
-            IntegrityChannel::Snapshot,
-            IntegrityIncidentKind::ParseError,
-            IntegritySeverity::Error,
-            "parse_error",
-            errorDetail_,
-            0,
-            0,
-            {},
-            path.filename().string(),
-            true
-        });
-        return st;
-    }
-    snapshot_ = snap;
-    snapshotLoaded_ = true;
-    book_.applySnapshot(snapshot_);
-    return Status::Ok;
-}
-
 Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
     const auto startedAt = std::chrono::steady_clock::now();
     reset();
@@ -900,21 +808,6 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         normalizeFixedDepthSnapshotDeltas(depths_);
     }
 
-    if (!corpus.snapshotDocuments.empty()) {
-        const auto st = parseSnapshotDocument(std::string_view{corpus.snapshotDocuments.front()}, snapshot_);
-        if (!isOk(st)) {
-            errorDetail_ = "failed to parse canonical snapshot document from loaded corpus";
-            ++parseFailureCount_;
-            metrics::recordReplayParseFailure("snapshot");
-            status_ = st;
-            refreshHealthSummary_();
-            maybeWriteIntegrityReport_();
-            return status_;
-        }
-        snapshotLoaded_ = true;
-        book_.applySnapshot(snapshot_);
-    }
-
     finalize();
     maybeWriteIntegrityReport_();
     if (isOk(status_)) {
@@ -1095,7 +988,7 @@ void SessionReplay::finalizeChannelStates_() noexcept {
         snapshotSummary.state = ChannelHealthState::NotCaptured;
         snapshotSummary.exactReplayEligible = false;
         if (snapshotSummary.reasonCode.empty()) snapshotSummary.reasonCode = "optional_not_captured";
-        if (snapshotSummary.reasonText.empty()) snapshotSummary.reasonText = "optional orderbook snapshot was not captured";
+        if (snapshotSummary.reasonText.empty()) snapshotSummary.reasonText = "separate orderbook snapshot file is not part of the corpus";
     } else if (snapshotSummary.incidentCount == 0u) {
         snapshotSummary.state = ChannelHealthState::Clean;
         snapshotSummary.exactReplayEligible = true;
@@ -1116,19 +1009,9 @@ void SessionReplay::finalizeChannelStates_() noexcept {
         depthSummary.exactReplayEligible = false;
         if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "missing_file";
         if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth channel enabled but file has no rows";
-    } else if (!snapshotLoaded_) {
-        if (depthSummary.incidentCount == 0u) {
-            depthSummary.state = ChannelHealthState::Clean;
-            depthSummary.exactReplayEligible = false;
-            if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "ok_without_snapshot";
-            if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth rows loaded without optional snapshot anchor";
-        } else {
-            depthSummary.state = ChannelHealthState::Degraded;
-            depthSummary.exactReplayEligible = false;
-        }
     } else if (depthSummary.incidentCount == 0u) {
         depthSummary.state = ChannelHealthState::Clean;
-        depthSummary.exactReplayEligible = false;
+        depthSummary.exactReplayEligible = true;
         if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "ok";
         if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth rows loaded";
     } else {
@@ -1139,8 +1022,7 @@ void SessionReplay::finalizeChannelStates_() noexcept {
 
 void SessionReplay::refreshHealthSummary_() noexcept {
     finalizeChannelStates_();
-    integritySummary_.exactReplayEligible =
-        integritySummary_.snapshot.exactReplayEligible && integritySummary_.depth.exactReplayEligible;
+    integritySummary_.exactReplayEligible = integritySummary_.depth.exactReplayEligible;
 
     integritySummary_.sessionHealth = SessionHealth::Clean;
     const ChannelIntegritySummary* channels[] = {

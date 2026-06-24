@@ -18,8 +18,8 @@ Current Phase-1 capture target:
   - `BookTicker`
   - `Orderbook`
 - orderbook contract:
-  - first write `snapshot_000.json` from REST
-  - then append WS deltas into `depth.jsonl`
+  - write the initial full book as the first depth row when REST seed is available
+  - then append WS deltas into `depth_tape.jsonl` + `depth_sidecar.jsonl`
 
 User build/run entrypoints:
 - `./compile.sh`

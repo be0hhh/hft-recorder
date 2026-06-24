@@ -9,7 +9,7 @@ Status ChannelJsonWriter::open(ChannelKind channel, const std::filesystem::path&
         return Status::Ok;
     }
     channel_ = channel;
-    return openRelativePath(sessionDir, std::string{channelJsonlRelativePath(channel)}, channel != ChannelKind::Snapshot);
+    return openRelativePath(sessionDir, std::string{channelJsonlRelativePath(channel)}, true);
 }
 
 Status ChannelJsonWriter::openRelativePath(const std::filesystem::path& sessionDir,

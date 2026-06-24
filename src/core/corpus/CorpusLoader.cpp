@@ -428,78 +428,6 @@ Status loadDepthTapeSidecarLines(const std::filesystem::path& tapePath,
     return Status::Ok;
 }
 
-Status loadSnapshots(const std::filesystem::path& sessionDir,
-                     const std::vector<std::string>& declaredSnapshotFiles,
-                     bool required,
-                     std::vector<std::string>& out,
-                     LoadReport& report,
-                     ChannelLoadState& channelState) noexcept {
-    channelState = ChannelLoadState::NotCaptured;
-    std::vector<std::filesystem::path> snapshotPaths;
-    if (!declaredSnapshotFiles.empty()) {
-        for (const auto& file : declaredSnapshotFiles) {
-            snapshotPaths.push_back(sessionDir / file);
-        }
-    } else {
-        for (const auto& entry : std::filesystem::directory_iterator(sessionDir)) {
-            if (!entry.is_regular_file()) continue;
-            const auto name = entry.path().filename().string();
-            if (name.rfind("snapshot_", 0) == 0 && entry.path().extension() == ".json") {
-                snapshotPaths.push_back(entry.path());
-            }
-        }
-        std::sort(snapshotPaths.begin(), snapshotPaths.end());
-    }
-
-    if (snapshotPaths.empty()) {
-        channelState = required ? ChannelLoadState::Missing : ChannelLoadState::NotCaptured;
-        if (required) {
-            addIssue(report,
-                     LoadIssueCode::MissingRequiredArtifact,
-                     LoadIssueSeverity::Fatal,
-                     Status::CorruptData,
-                     "snapshot",
-                     "snapshot_000.json",
-                     0,
-                     "required snapshot artifact is missing");
-            return Status::CorruptData;
-        }
-        return Status::Ok;
-    }
-
-    channelState = ChannelLoadState::Clean;
-    for (std::size_t i = 0; i < snapshotPaths.size(); ++i) {
-        std::string document;
-        if (!readWholeFile(snapshotPaths[i], document)) {
-            channelState = ChannelLoadState::Corrupt;
-            addIssue(report,
-                     LoadIssueCode::UnreadableArtifact,
-                     LoadIssueSeverity::Fatal,
-                     Status::IoError,
-                     "snapshot",
-                     snapshotPaths[i].filename().string(),
-                     i + 1u,
-                     "failed to open snapshot artifact");
-            return Status::IoError;
-        }
-        hftrec::replay::SnapshotDocument snapshot{};
-        if (!isOk(hftrec::replay::parseSnapshotDocument(document, snapshot))) {
-            channelState = ChannelLoadState::Corrupt;
-            addIssue(report,
-                     LoadIssueCode::InvalidJsonDocument,
-                     LoadIssueSeverity::Fatal,
-                     Status::CorruptData,
-                     "snapshot",
-                     snapshotPaths[i].filename().string(),
-                     i + 1u,
-                     "failed to parse canonical snapshot document");
-            return Status::CorruptData;
-        }
-        out.push_back(std::move(document));
-    }
-    return Status::Ok;
-}
-
 void bindSeekIndex(const std::filesystem::path& sessionDir,
                    const SessionCorpus& corpus,
                    LoadReport& report) {
@@ -827,16 +755,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         return report.finalStatus;
     }
 
-    const auto declaredSnapshots = report.manifestPresent ? out.manifest.snapshotFiles : std::vector<std::string>{};
-    if (!isOk(loadSnapshots(sessionDir,
-                            declaredSnapshots,
-                            false,
-                            out.snapshotDocuments,
-                            report,
-                            report.snapshotState))) {
-        out.report = report;
-        return report.finalStatus;
-    }
+    report.snapshotState = ChannelLoadState::NotCaptured;
 
     if (report.manifestPresent) {
         if (!readWholeFileOptional(sessionDir / out.manifest.instrumentMetadataPath, out.instrumentMetadataDocument)) {

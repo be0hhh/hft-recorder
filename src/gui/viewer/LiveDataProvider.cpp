@@ -291,21 +291,6 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
     syncTailOffset_(priceLimit_);
     syncTailOffset_(depthTape_);
     syncTailOffset_(depth_);
-    snapshotPath_.clear();
-    snapshotDiscoveredPath_.clear();
-    snapshotDirWriteTime_ = std::filesystem::file_time_type{};
-    snapshotDirWriteTimeValid_ = false;
-    snapshotPath_ = findLatestSnapshotPath_();
-    snapshot_ = hftrec::replay::SnapshotDocument{};
-    snapshotLoaded_ = false;
-    if (!snapshotPath_.empty()) {
-        std::ifstream snapshotIn(snapshotPath_, std::ios::binary);
-        if (snapshotIn) {
-            std::string blob{std::istreambuf_iterator<char>{snapshotIn}, std::istreambuf_iterator<char>{}};
-            snapshotLoaded_ = isOk(hftrec::replay::parseSnapshotDocument(std::string_view{blob}, snapshot_));
-        }
-    }
-    observedStats_.snapshotsTotal = snapshotLoaded_ ? 1u : 0u;
     observedStats_.version = version_;
 
 }
@@ -322,12 +307,6 @@ void JsonTailLiveDataProvider::stop() noexcept {
     depthTape_ = TailFile{};
     depth_ = TailFile{};
     depthTapeSidecarMode_ = false;
-    snapshotPath_.clear();
-    snapshotDiscoveredPath_.clear();
-    snapshotDirWriteTime_ = std::filesystem::file_time_type{};
-    snapshotDirWriteTimeValid_ = false;
-    snapshotLoaded_ = false;
-    snapshot_ = hftrec::replay::SnapshotDocument{};
     tradesHistory_.clear();
     liquidationHistory_.clear();
     bookTickerHistory_.clear();
@@ -348,34 +327,6 @@ LiveDataPollResult JsonTailLiveDataProvider::pollHot(std::uint64_t nextBatchId) 
 
     std::error_code ec;
     if (!std::filesystem::exists(sessionDir_, ec) || ec) return result;
-
-    const auto latestSnapshotPath = findLatestSnapshotPath_();
-    if (!latestSnapshotPath.empty() && latestSnapshotPath != snapshotPath_) {
-        hftrec::replay::SnapshotDocument nextSnapshot{};
-        std::ifstream snapshotIn(latestSnapshotPath, std::ios::binary);
-        if (!snapshotIn) {
-            result.failureStatus = Status::IoError;
-            result.failureDetail = "live snapshot read failed";
-            return result;
-        }
-
-        std::string blob{std::istreambuf_iterator<char>{snapshotIn}, std::istreambuf_iterator<char>{}};
-        const auto st = hftrec::replay::parseSnapshotDocument(std::string_view{blob}, nextSnapshot);
-        if (!isOk(st)) {
-            result.failureStatus = st;
-            result.failureDetail = "live snapshot parse failed";
-            return result;
-        }
-
-        snapshotPath_ = latestSnapshotPath;
-        snapshotLoaded_ = true;
-        snapshot_ = nextSnapshot;
-        result.batch.snapshots.push_back(snapshot_);
-        result.appendedRows = true;
-    } else if (!snapshotLoaded_ && !latestSnapshotPath.empty()) {
-        result.reloadRequired = true;
-        return result;
-    }
 
     tailRows(trades_,
              [&result](std::string_view line) {
@@ -506,10 +457,6 @@ LiveDataBatch JsonTailLiveDataProvider::materializeRange(const LiveDataRangeRequ
     LiveDataBatch batch{};
     batch.id = batchId;
     if (request.tsMax <= request.tsMin) return batch;
-
-    if (snapshotLoaded_ && snapshot_.tsNs <= request.tsMax) {
-        batch.snapshots.push_back(snapshot_);
-    }
 
     const auto tradesBegin = std::lower_bound(
         tradesHistory_.begin(),
@@ -863,30 +810,6 @@ void JsonTailLiveDataProvider::syncTailOffset_(TailFile& file) noexcept {
     }
     file.pending.clear();
     file.ready.clear();
-}
-
-std::filesystem::path JsonTailLiveDataProvider::findLatestSnapshotPath_() {
-    std::filesystem::path latest{};
-    if (sessionDir_.empty()) return latest;
-
-    std::error_code ec;
-    const auto dirWriteTime = std::filesystem::last_write_time(sessionDir_, ec);
-    const bool dirWriteTimeOk = !ec;
-    if (dirWriteTimeOk && snapshotDirWriteTimeValid_ && dirWriteTime == snapshotDirWriteTime_) return snapshotDiscoveredPath_;
-    ec.clear();
-    for (const auto& entry : std::filesystem::directory_iterator(sessionDir_, ec)) {
-        if (ec) break;
-        if (!entry.is_regular_file()) continue;
-        const auto filename = entry.path().filename().string();
-        if (!filename.starts_with("snapshot_") || entry.path().extension() != ".json") continue;
-        if (latest.empty() || filename > latest.filename().string()) latest = entry.path();
-    }
-    if (!ec && dirWriteTimeOk) {
-        snapshotDiscoveredPath_ = latest;
-        snapshotDirWriteTime_ = dirWriteTime;
-        snapshotDirWriteTimeValid_ = true;
-    }
-    return latest;
 }
 
 }  // namespace hftrec::gui::viewer

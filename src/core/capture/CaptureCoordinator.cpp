@@ -75,7 +75,6 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.depthRowSchema = "cxet_orderbook_tape_rle_sidecar_v1";
     manifest_.candlesRowSchema = "cxet_candle_lite_tiered_v1";
     manifest_.candles2RowSchema = "cxet_ohlcv_numeric_v3";
-    manifest_.snapshotSchema = "cxet_orderbook_snapshot_flat_levels_v1";
     manifest_.sessionStatus = "recording";
 
     sessionDir_ = config.outputDir / manifest_.sessionId;
@@ -147,7 +146,6 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
-    manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
     manifest_.warningSummary = lastError_;
     manifest_.structuralBlockers.clear();
     manifest_.structurallyLoadable = true;
@@ -266,7 +264,6 @@ void CaptureCoordinator::resetSessionState() noexcept {
     depthCount_.store(0, std::memory_order_release);
     candlesCount_.store(0, std::memory_order_release);
     candles2Count_.store(0, std::memory_order_release);
-    snapshotCount_.store(0, std::memory_order_release);
     tradesCaptureSeq_.store(0, std::memory_order_release);
     liquidationsCaptureSeq_.store(0, std::memory_order_release);
     bookTickerCaptureSeq_.store(0, std::memory_order_release);
@@ -302,7 +299,6 @@ void CaptureCoordinator::refreshRecordingManifestLocked_(std::int64_t nowNs) noe
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
-    manifest_.snapshotCount = snapshotCount_.load(std::memory_order_relaxed);
     manifest_.warningSummary = lastError_;
     manifest_.structuralBlockers.clear();
     manifest_.structurallyLoadable = true;

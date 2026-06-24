@@ -29,11 +29,10 @@ TEST(CorpusLoader, CleanFixtureLoadsAndUsesSeekIndex) {
     EXPECT_EQ(report.tradesState, hftrec::corpus::ChannelLoadState::Clean);
     EXPECT_EQ(report.bookTickerState, hftrec::corpus::ChannelLoadState::Clean);
     EXPECT_EQ(report.depthState, hftrec::corpus::ChannelLoadState::Clean);
-    EXPECT_EQ(report.snapshotState, hftrec::corpus::ChannelLoadState::Clean);
+    EXPECT_EQ(report.snapshotState, hftrec::corpus::ChannelLoadState::NotCaptured);
     EXPECT_GE(corpus.tradeLines.size(), 1u);
     EXPECT_GE(corpus.bookTickerLines.size(), 1u);
     EXPECT_GE(corpus.depthLines.size(), 2u);
-    EXPECT_EQ(corpus.snapshotDocuments.size(), 1u);
 }
 
 TEST(InstrumentMetadata, RoundTripsTraderBacktestGridFields) {

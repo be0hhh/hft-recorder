@@ -334,27 +334,6 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
 }
 
 
-bool parseSnapshotsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
-    if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
-    std::string key;
-    do {
-        if (!parser.parseKey(key)) return false;
-        if (key == "schema") {
-            if (!parser.parseString(manifest.snapshotSchema)) return false;
-        } else if (key == "files") {
-            if (!parseStringArray(parser, manifest.snapshotFiles)) return false;
-        } else if (key == "declared_snapshot_count") {
-            if (!parseUint64Field(parser, manifest.snapshotCount)) return false;
-        } else {
-            if (!parser.skipValue()) return false;
-        }
-        if (parser.peek('}')) break;
-    } while (parser.parseComma());
-    return parser.parseObjectEnd();
-}
-
-
 bool parseArtifactsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return parser.parseObjectEnd();
@@ -539,11 +518,6 @@ bool isSupportedPriceLimitRowSchema(std::string_view schema) noexcept {
     return schema == "cxet_price_limit_ref_v1";
 }
 
-bool isSupportedSnapshotSchema(std::string_view schema) noexcept {
-    return schema == "cxet_orderbook_snapshot_flat_levels_v1"
-        || schema == "cxet_orderbook_snapshot_alias_first_v5";
-}
-
 void populateCanonicalArtifacts(SessionManifest& manifest) {
     manifest.canonicalArtifacts.clear();
     manifest.canonicalArtifacts.push_back("manifest.json");
@@ -563,9 +537,6 @@ void populateCanonicalArtifacts(SessionManifest& manifest) {
     if (manifest.indexPriceEnabled && !manifest.indexPricePath.empty()) manifest.canonicalArtifacts.push_back(manifest.indexPricePath);
     if (manifest.fundingEnabled && !manifest.fundingPath.empty()) manifest.canonicalArtifacts.push_back(manifest.fundingPath);
     if (manifest.priceLimitEnabled && !manifest.priceLimitPath.empty()) manifest.canonicalArtifacts.push_back(manifest.priceLimitPath);
-    for (const auto& snapshotFile : manifest.snapshotFiles) {
-        manifest.canonicalArtifacts.push_back(snapshotFile);
-    }
 }
 
 void populateSupportArtifacts(SessionManifest& manifest) {
@@ -652,12 +623,6 @@ bool validateStructurally(SessionManifest& manifest) {
     }
     if (manifest.priceLimitEnabled && !isSupportedPriceLimitRowSchema(manifest.priceLimitRowSchema)) {
         manifest.structuralBlockers.push_back("unsupported price_limit row schema");
-    }
-    if (manifest.snapshotCount > 0u && manifest.snapshotFiles.empty()) {
-        manifest.structuralBlockers.push_back("missing snapshot file inventory");
-    }
-    if (manifest.snapshotCount > 0u && !isSupportedSnapshotSchema(manifest.snapshotSchema)) {
-        manifest.structuralBlockers.push_back("unsupported snapshot schema");
     }
     manifest.structurallyLoadable = manifest.structuralBlockers.empty();
     return manifest.structurallyLoadable;
@@ -788,13 +753,6 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"declared_event_count\": " << manifest.priceLimitCount << "\n";
     out << "    }\n";
     out << "  },\n";
-    out << "  \"snapshots\": {\n";
-    out << "    \"schema\": " << json::quote(manifest.snapshotSchema) << ",\n";
-    out << "    \"files\": ";
-    appendStringArray(out, manifest.snapshotFiles);
-    out << ",\n";
-    out << "    \"declared_snapshot_count\": " << manifest.snapshotCount << "\n";
-    out << "  },\n";
     out << "  \"artifacts\": {\n";
     out << "    \"instrument_metadata_path\": " << json::quote(manifest.instrumentMetadataPath) << ",\n";
     out << "    \"session_audit_path\": " << json::quote(manifest.sessionAuditPath) << ",\n";
@@ -853,7 +811,7 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
             } else if (key == "channels") {
                 if (!parseChannelsObject(parser, parsed)) return Status::CorruptData;
             } else if (key == "snapshots") {
-                if (!parseSnapshotsObject(parser, parsed)) return Status::CorruptData;
+                if (!parser.skipValue()) return Status::CorruptData;
             } else if (key == "artifacts") {
                 if (!parseArtifactsObject(parser, parsed)) return Status::CorruptData;
             } else if (key == "integrity") {

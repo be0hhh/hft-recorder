@@ -174,7 +174,6 @@ class ChartController : public QObject {
     Q_INVOKABLE bool addCandlesFile(const QString& path);
     Q_INVOKABLE bool addBookTickerFile(const QString& path);
     Q_INVOKABLE bool addDepthFile(const QString& path);
-    Q_INVOKABLE bool addSnapshotFile(const QString& path);
     Q_INVOKABLE void finalizeFiles();
     Q_INVOKABLE void setLiveUpdateIntervalMs(int intervalMs);
     Q_INVOKABLE int liveUpdateIntervalMs() const noexcept;

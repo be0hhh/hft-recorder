@@ -11,8 +11,7 @@
     "bookticker": { "enabled": false, "required_when_enabled": false, "path": "bookticker.jsonl", "row_schema": "cxet_bookticker_strict_v1", "declared_event_count": 0 },
     "depth": { "enabled": true, "required_when_enabled": true, "path": "depth.jsonl", "row_schema": "cxet_orderbook_flat_levels_v1", "declared_event_count": 2 }
   },
-  "snapshots": { "schema": "cxet_orderbook_snapshot_flat_levels_v1", "files": ["snapshot_000.json", "snapshot_001.json"], "declared_snapshot_count": 2 },
-  "artifacts": { "instrument_metadata_path": "derived/instrument_metadata.json", "session_audit_path": "reports/session_audit.json", "loader_diagnostics_path": "reports/loader_diagnostics.json", "canonical": ["manifest.json", "depth.jsonl", "snapshot_000.json", "snapshot_001.json"], "support": [] },
+  "artifacts": { "instrument_metadata_path": "derived/instrument_metadata.json", "session_audit_path": "reports/session_audit.json", "loader_diagnostics_path": "reports/loader_diagnostics.json", "canonical": ["manifest.json", "depth.jsonl"], "support": [] },
   "integrity": {
     "session_health": "clean",
     "exact_replay_eligible": true,

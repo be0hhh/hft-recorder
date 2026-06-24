@@ -122,7 +122,7 @@ Rules:
    This is a temporary service locator in the presentation path.
 
 3. JsonTailLiveDataProvider still encodes current file-layout truth.
-   It tails trades.jsonl, bookticker.jsonl, depth.jsonl, discovers snapshot_*.json, and keeps its own full history vectors.
+   It tails trades.jsonl, bookticker.jsonl, depth_tape.jsonl/depth_sidecar.jsonl, and keeps its own full history vectors.
 
 4. SessionReplay remains file-oriented and JSON-oriented.
    It is a working replay implementation, but not yet a backend-neutral materialization contract.
@@ -138,8 +138,7 @@ Rules:
 2. Session artifact names still appear as direct control flow in viewer/replay code:
    - trades.jsonl
    - bookticker.jsonl
-   - depth.jsonl
-   - snapshot_*.json
+   - depth_tape.jsonl/depth_sidecar.jsonl
 
 3. Current hot/live provider path can accumulate exact full history in RAM, which does not scale as the long-session contract.
 

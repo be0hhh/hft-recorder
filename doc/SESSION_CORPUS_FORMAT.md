@@ -38,10 +38,8 @@ Example:
 manifest.json
 trades.jsonl
 bookticker.jsonl
-depth.jsonl
-snapshot_000.json
-snapshot_001.json
-...
+jsonl/depth_tape.jsonl
+jsonl/depth_sidecar.jsonl
 ```
 
 Optional subdirectories:
@@ -74,18 +72,16 @@ Current canonical top-level groups:
 - `capture`
 - `replay`
 - `channels`
-- `snapshots`
 - `artifacts`
 - `summary`
 
 For each entry under `channels`, metadata must make source quality explicit:
 - `source_quality`: `canonical`, `canonical_available_but_aggregated`,
   `degraded`, `diagnostic`, or `unknown`
-- `source_format`: for example `json`, `sbe`, `binary`, `rest_snapshot`, or
+- `source_format`: for example `json`, `sbe`, `binary`, `rest_depth_seed`, or
   `derived`
 - `origin`: exchange/product/channel/raw stream name
-- `feed_kind`: for example `raw_trade`, `agg_trade`, `l1_bbo`, `l2_delta`, or
-  `snapshot`
+- `feed_kind`: for example `raw_trade`, `agg_trade`, `l1_bbo`, or `l2_delta`
 - `sequence_policy` and `timestamp_policy`
 
 Important implemented rules:
@@ -152,7 +148,8 @@ Current implemented fields (v3 optional-tail schema):
 
 ### `depth.jsonl`
 
-One line per normalized orderbook delta event.
+Legacy one-line-per-normalized-orderbook delta event file. Current sessions use
+`jsonl/depth_tape.jsonl` plus `jsonl/depth_sidecar.jsonl`.
 
 Current implemented fields (v3 optional-tail schema):
 - `tsNs`
@@ -169,6 +166,9 @@ Each `bids` / `asks` item:
 
 These sequence ids are the current replay integrity seam for orderbook gap
 validation.
+
+The initial full-book snapshot, when available, is represented as a depth row in
+the depth stream instead of a standalone artifact.
 
 `captureSeq` is per-channel and strictly increasing within one persisted channel
 file.

@@ -74,8 +74,6 @@ struct SessionManifest {
     std::string indexPriceRowSchema{"cxet_index_price_ref_v1"};
     std::string fundingRowSchema{"cxet_funding_ref_dedup_v1"};
     std::string priceLimitRowSchema{"cxet_price_limit_ref_v1"};
-    std::string snapshotSchema{"cxet_orderbook_snapshot_flat_levels_v1"};
-    std::vector<std::string> snapshotFiles{};
     std::vector<std::string> canonicalArtifacts{};
     std::vector<std::string> supportArtifacts{};
     std::uint64_t tradesCount{0};
@@ -88,7 +86,6 @@ struct SessionManifest {
     std::uint64_t depthCount{0};
     std::uint64_t candlesCount{0};
     std::uint64_t candles2Count{0};
-    std::uint64_t snapshotCount{0};
     std::int64_t tradesHistoryWarmupSec{0};
     std::int64_t tradesHistoryRequestedStartNs{0};
     std::int64_t tradesHistoryRequestedEndNs{0};

@@ -69,18 +69,6 @@ Status sampleGroundTruthBookFrames(const corpus::SessionCorpus& corpus,
     out.clear();
 
     replay::BookState book{};
-    replay::SnapshotDocument chosenSnapshot{};
-    bool hasSnapshot = false;
-
-    for (const auto& document : corpus.snapshotDocuments) {
-        replay::SnapshotDocument parsed{};
-        const auto st = replay::parseSnapshotDocument(document, parsed);
-        if (!isOk(st)) return st;
-        if (!hasSnapshot || parsed.tsNs < chosenSnapshot.tsNs) {
-            chosenSnapshot = std::move(parsed);
-            hasSnapshot = true;
-        }
-    }
 
     std::vector<replay::DepthRow> depths;
     depths.reserve(corpus.depthLines.size());
@@ -100,11 +88,6 @@ Status sampleGroundTruthBookFrames(const corpus::SessionCorpus& corpus,
         const auto st = replay::parseBookTickerLine(line, row);
         if (!isOk(st)) return st;
         tickers.push_back(std::move(row));
-    }
-
-    if (hasSnapshot) {
-        book.applySnapshot(chosenSnapshot);
-        out.push_back(makeFrame(book, nullptr, chosenSnapshot.tsNs, topLevelsPerSide));
     }
 
     std::vector<TimedEvent> events;

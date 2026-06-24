@@ -11,17 +11,11 @@ namespace {
 
 constexpr char kJsonSessionBackendId[] = {'j', 's', 'o', 'n', '_', 's', 'e', 's', 's', 'i', 'o', 'n', '\0'};
 
-std::string snapshotFileName(std::uint64_t snapshotIndex) {
-    if (snapshotIndex == 0u) return std::string{capture::channelFileName(capture::ChannelKind::Snapshot)};
-    std::string fileName{"snapshot_"};
-    if (snapshotIndex < 10u) {
-        fileName += "00";
-    } else if (snapshotIndex < 100u) {
-        fileName += "0";
-    }
-    fileName += std::to_string(snapshotIndex);
-    fileName += ".json";
-    return fileName;
+replay::DepthRow depthRowFromSnapshot(const replay::SnapshotDocument& snapshot) {
+    replay::DepthRow row{};
+    row.tsNs = snapshot.tsNs;
+    row.levels = snapshot.levels;
+    return row;
 }
 
 }  // namespace
@@ -203,17 +197,19 @@ Status JsonSessionSink::appendDepthTapeSidecarLines(const replay::DepthRow&,
 
 Status JsonSessionSink::appendSnapshot(const replay::SnapshotDocument& snapshot,
                                        std::uint64_t snapshotIndex) noexcept {
+    (void)snapshotIndex;
+    const auto row = depthRowFromSnapshot(snapshot);
+    const auto tapeLine = capture::renderDepthTapeJsonLine(row);
+    const auto sidecarLine = capture::renderDepthRleSidecarJsonLine(row);
     std::lock_guard<std::mutex> lock(mutex_);
-    if (sessionDir_.empty()) return Status::InvalidArgument;
-    std::ofstream out(sessionDir_ / snapshotFileName(snapshotIndex), std::ios::out | std::ios::trunc);
-    if (!out.is_open()) return Status::IoError;
-    out << capture::renderSnapshotJson(snapshot);
-    const auto status = out.good() ? Status::Ok : Status::IoError;
-    if (isOk(status)) {
-        ++stats_.snapshotsTotal;
+    const auto tapeStatus = writeLine_(capture::ChannelKind::DepthTape, depthTape_, tapeLine);
+    if (!isOk(tapeStatus)) return tapeStatus;
+    const auto sidecarStatus = writeLine_(capture::ChannelKind::DepthSidecar, depthSidecar_, sidecarLine);
+    if (isOk(sidecarStatus)) {
+        ++stats_.depthsTotal;
         ++stats_.version;
     }
-    return status;
+    return sidecarStatus;
 }
 
 Status JsonSessionSink::flush() noexcept {

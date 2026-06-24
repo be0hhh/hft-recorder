@@ -13,7 +13,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -231,7 +230,6 @@ void duplicateJob(tui::RecorderTuiPreset& preset, std::size_t index) {
 }
 
 struct GeneratedJobsAppendResult {
-    std::vector<std::string> symbolsList{};
     std::size_t symbols{0};
     std::size_t added{0};
     std::size_t skipped{0};
@@ -249,7 +247,6 @@ GeneratedJobsAppendResult appendGeneratedSymbolJobs(tui::RecorderTuiPreset& pres
     }
 
     result.symbols = batch.symbols.size();
-    result.symbolsList = batch.symbols;
     result.loadedFiles = std::move(batch.loadedFiles);
     const auto generated = tui::generateJobsForSymbols(batch.symbols, tui::allCryptoVenueSpecs(), preset.jobs.size());
     for (const auto& job : generated) {
@@ -270,52 +267,6 @@ std::string generatedJobsMessage(const GeneratedJobsAppendResult& result, std::s
     if (result.skipped != 0u) out << ", skipped " << result.skipped << " duplicate(s)";
     if (!result.loadedFiles.empty()) out << ", loaded " << result.loadedFiles.front().string();
     return out.str();
-}
-
-std::filesystem::path resolveSymbolListSavePath(std::string_view text) {
-    std::filesystem::path path{trim(text)};
-    if (path.empty()) return {};
-    const std::string value = path.string();
-    const bool explicitPath = !value.empty() && (value.front() == '.' || value.find('/') != std::string::npos ||
-                                                 value.find('\\') != std::string::npos);
-    if (path.is_absolute() || explicitPath) return path;
-    return tui::symbolListConfigDir() / path;
-}
-
-bool saveSymbolListFile(const std::filesystem::path& path,
-                        const std::vector<std::string>& symbols,
-                        std::string& error) {
-    error.clear();
-    if (path.empty()) {
-        error = "symbol list path is empty";
-        return false;
-    }
-    if (path.extension() != ".ini") {
-        error = "symbol list save requires .ini filename";
-        return false;
-    }
-    const std::string text = tui::renderSymbolListText(symbols);
-    if (text.empty()) {
-        error = "no generated symbols to save";
-        return false;
-    }
-    std::error_code ec;
-    if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path(), ec);
-    if (ec) {
-        error = "failed to create symbol list directory: " + path.parent_path().string();
-        return false;
-    }
-    std::ofstream file(path);
-    if (!file) {
-        error = "failed to write symbol list: " + path.string();
-        return false;
-    }
-    file << text;
-    if (!file) {
-        error = "failed to flush symbol list: " + path.string();
-        return false;
-    }
-    return true;
 }
 
 void toggleChannelByIndex(tui::ChannelSelection& channels, int index) {
@@ -442,7 +393,7 @@ void renderMainMenu(const tui::RecorderTuiPreset& preset, std::size_t selected, 
         }
     }
     std::putchar('\n');
-    printLine("[a] add  [g] gen symbols  [G] gen+run  [e/Enter] edit  [c] copy  [d] delete  [o] output  [p] progress  [w] save preset  [s] save symbols  [P] preset as  [l] load  [r/R] start all  [q] quit",
+    printLine("[a] add  [g] gen symbols  [Enter] edit  [c] copy  [d] delete  [w] save  [s] save as  [l] load  [r] start  [q] quit",
               viewport);
     if (!message.empty()) printLine(message, viewport);
     std::fflush(stdout);
@@ -621,9 +572,7 @@ void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, st
     std::fflush(stdout);
 }
 
-void runJobs(TerminalGuard& terminal,
-             const tui::RecorderTuiPreset& preset,
-             std::vector<std::string>* generatedSymbolsForSave = nullptr) {
+void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
     tui::RecorderTuiPreset runPreset = presetForRunGroup(preset);
     std::vector<RunningJob> jobs;
     jobs.reserve(runPreset.jobs.size());
@@ -684,9 +633,6 @@ void runJobs(TerminalGuard& terminal,
             } else {
                 const std::size_t before = runPreset.jobs.size();
                 const GeneratedJobsAppendResult result = appendGeneratedSymbolJobs(runPreset, input);
-                if (generatedSymbolsForSave != nullptr && result.error.empty() && !result.symbolsList.empty()) {
-                    *generatedSymbolsForSave = result.symbolsList;
-                }
                 for (std::size_t i = before; i < runPreset.jobs.size(); ++i) {
                     jobs.push_back(startJob(runPreset, runPreset.jobs[i]));
                 }
@@ -817,7 +763,6 @@ int runTui(int argc, char** argv) {
     std::signal(SIGTERM, handleSignal);
 
     std::size_t selected = 0;
-    std::vector<std::string> generatedSymbolsForSave;
     bool dirty = true;
     while (!gInterrupted) {
         if (selected >= preset.jobs.size()) {
@@ -841,8 +786,7 @@ int runTui(int argc, char** argv) {
             addDefaultJob(preset);
             selected = preset.jobs.size() - 1u;
             dirty = true;
-        } else if (key.kind == KeyKind::Character && (key.ch == 'g' || key.ch == 'G')) {
-            const bool runAfterGenerate = key.ch == 'G';
+        } else if (key.kind == KeyKind::Character && key.ch == 'g') {
             const std::string input = promptLine(terminal, "symbols or .ini list");
             if (input.empty()) {
                 message = "symbol generation canceled";
@@ -851,14 +795,10 @@ int runTui(int argc, char** argv) {
             }
             const std::size_t before = preset.jobs.size();
             const GeneratedJobsAppendResult result = appendGeneratedSymbolJobs(preset, input);
-            if (result.error.empty() && !result.symbolsList.empty()) generatedSymbolsForSave = result.symbolsList;
             if (preset.jobs.size() > before) selected = before;
-            message = generatedJobsMessage(result, runAfterGenerate ? "generated" : "added");
+            message = generatedJobsMessage(result, "added");
             dirty = true;
-            if (runAfterGenerate && result.error.empty() && result.added != 0u) {
-                runJobs(terminal, preset, &generatedSymbolsForSave);
-            }
-        } else if ((key.kind == KeyKind::Character && key.ch == 'e') || key.kind == KeyKind::Enter) {
+        } else if (key.kind == KeyKind::Enter) {
             if (!preset.jobs.empty()) editJob(terminal, preset.jobs[selected]);
             dirty = true;
         } else if (key.kind == KeyKind::Character && key.ch == 'c') {
@@ -868,45 +808,22 @@ int runTui(int argc, char** argv) {
         } else if (key.kind == KeyKind::Character && key.ch == 'd') {
             if (!preset.jobs.empty()) preset.jobs.erase(preset.jobs.begin() + static_cast<std::ptrdiff_t>(selected));
             dirty = true;
-        } else if (key.kind == KeyKind::Character && key.ch == 'o') {
-            preset.outputDir = promptLine(terminal, "output directory", preset.outputDir.string());
-            dirty = true;
-        } else if (key.kind == KeyKind::Character && key.ch == 'p') {
-            const std::string value = promptLine(terminal, "progress seconds", std::to_string(preset.progressSec));
-            preset.progressSec = std::max(1, std::atoi(value.c_str()));
-            dirty = true;
         } else if (key.kind == KeyKind::Character && (key.ch == 'w' || key.ch == 'W')) {
             std::string error;
             message = tui::savePresetFile(presetPath, preset, error) ? "saved " + presetPath.string() : error;
             dirty = true;
         } else if (key.kind == KeyKind::Character && key.ch == 's') {
-            const std::string maybePath = promptLine(terminal, "save symbols as .ini path");
-            if (maybePath.empty()) {
-                message = "save symbols canceled";
-            } else {
-                const std::filesystem::path savePath = resolveSymbolListSavePath(maybePath);
-                std::string error;
-                message = saveSymbolListFile(savePath, generatedSymbolsForSave, error)
-                    ? "saved symbol list " + savePath.string()
-                    : error;
-            }
-            dirty = true;
-        } else if (key.kind == KeyKind::Character && key.ch == 'P') {
-            const std::string maybePath = promptLine(terminal, "save as new preset path");
+            const std::string maybePath = promptLine(terminal, "save preset as path");
             if (maybePath.empty()) {
                 message = "save as canceled";
             } else {
-                const std::filesystem::path saveAsPath = tui::resolvePresetPath(maybePath);
-                if (std::filesystem::exists(saveAsPath)) {
-                    message = "save as refused: target exists " + saveAsPath.string();
+                const std::filesystem::path savePath = tui::resolvePresetPath(maybePath);
+                std::string error;
+                if (tui::savePresetFile(savePath, preset, error)) {
+                    presetPath = savePath;
+                    message = "saved " + presetPath.string();
                 } else {
-                    std::string error;
-                    if (tui::savePresetFile(saveAsPath, preset, error)) {
-                        presetPath = saveAsPath;
-                        message = "saved new preset " + presetPath.string();
-                    } else {
-                        message = error;
-                    }
+                    message = error;
                 }
             }
             dirty = true;
@@ -916,15 +833,12 @@ int runTui(int argc, char** argv) {
             std::string error;
             message = tui::loadPresetFile(presetPath, preset, error) ? "loaded " + presetPath.string() : error;
             dirty = true;
-        } else if (key.kind == KeyKind::Character && (key.ch == 'r' || key.ch == 'R')) {
+        } else if (key.kind == KeyKind::Character && key.ch == 'r') {
             if (preset.jobs.empty()) {
                 message = "add at least one job";
                 dirty = true;
-            } else if (tui::requiresHeavyRunConfirmation(preset) && key.ch != 'R') {
-                message = tui::heavyRunWarning(preset);
-                dirty = true;
             } else {
-                runJobs(terminal, preset, &generatedSymbolsForSave);
+                runJobs(terminal, preset);
                 dirty = true;
             }
         } else if (key.kind == KeyKind::Character && key.ch == 'q') {

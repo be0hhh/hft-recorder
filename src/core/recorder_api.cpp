@@ -95,27 +95,6 @@ std::filesystem::path resolveDepthJsonlPath(const std::filesystem::path& session
     return resolveJsonlPath(sessionPath, manifestPresent, manifestPath, "depth.jsonl");
 }
 
-std::filesystem::path resolveSnapshotPath(const std::filesystem::path& sessionPath,
-                                          bool manifestPresent,
-                                          const capture::SessionManifest& manifest) {
-    if (manifestPresent) {
-        for (const auto& file : manifest.snapshotFiles) {
-            const auto path = sessionPath / file;
-            if (fileExists(path)) return path;
-        }
-    }
-
-    std::error_code ec;
-    std::filesystem::path bestPath;
-    for (std::filesystem::directory_iterator it(sessionPath, ec), end; !ec && it != end; it.increment(ec)) {
-        if (!it->is_regular_file(ec)) continue;
-        const auto name = it->path().filename().string();
-        if (name.rfind("snapshot_", 0) != 0 || it->path().extension() != ".json") continue;
-        if (bestPath.empty() || name < bestPath.filename().string()) bestPath = it->path();
-    }
-    return bestPath;
-}
-
 Status openSelectedReplay(const std::filesystem::path& sessionPath,
                           RecorderChannelMask channels,
                           replay::SessionReplay& replay,
@@ -181,14 +160,6 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
                         resolveDepthJsonlPath(sessionPath, manifestPresent, manifest.depthPath),
                         &replay::SessionReplay::addDepthFile);
     if (!isOk(status)) return status;
-
-    if (wants(channels, RecorderChannel_Snapshot)) {
-        const auto snapshotPath = resolveSnapshotPath(sessionPath, manifestPresent, manifest);
-        if (!snapshotPath.empty()) {
-            status = replay.addSnapshotFile(snapshotPath);
-            if (!isOk(status)) return status;
-        }
-    }
 
     replay.finalize();
     return replay.status();

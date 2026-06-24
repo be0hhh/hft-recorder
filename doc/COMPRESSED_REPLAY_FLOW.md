@@ -8,8 +8,8 @@
 manifest.json
 trades.jsonl
 bookticker.jsonl
-depth.jsonl
-snapshot_*.json
+depth_tape.jsonl
+depth_sidecar.jsonl
 ```
 
 The `Compress` tab is the only GUI surface that talks to the standalone

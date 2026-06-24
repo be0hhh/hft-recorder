@@ -2025,46 +2025,6 @@ void CaptureCoordinator::reapStoppedThreads() noexcept {
     if (referenceDataThread_.joinable() && !referenceDataRunning_.load(std::memory_order_acquire)) referenceDataThread_.join();
     if (liquidationsThread_.joinable() && !liquidationsRunning_.load(std::memory_order_acquire)) liquidationsThread_.join();
 }
-Status CaptureCoordinator::writeSnapshotFile(const cxet::composite::OrderBookSnapshot& snapshot,
-                                             std::uint64_t snapshotIndex,
-                                             std::string_view snapshotKind,
-                                             std::string_view source,
-                                             bool trustedReplayAnchor) noexcept {
-    std::string fileName;
-    if (snapshotIndex == 0u) {
-        fileName = std::string{channelFileName(ChannelKind::Snapshot)};
-    } else {
-        fileName = "snapshot_";
-        if (snapshotIndex < 10u) {
-            fileName += "00";
-        } else if (snapshotIndex < 100u) {
-            fileName += "0";
-        }
-        fileName += std::to_string(snapshotIndex);
-        fileName += ".json";
-    }
-    (void)snapshotKind;
-    (void)source;
-    (void)trustedReplayAnchor;
-    const auto capturedSnapshot = cxet_bridge::CxetCaptureBridge::captureOrderBook(snapshot);
-    const auto document = makeSnapshotDocument(capturedSnapshot);
-    std::string snapshotPayload = renderSnapshotJson(document);
-    if (!snapshotPayload.empty() && snapshotPayload.back() == '\n') snapshotPayload.pop_back();
-    local_exchange::globalLocalMarketDataBus().publish("orderbook.snapshot", std::string_view{}, snapshotPayload);
-    if (!isOk(eventSink_.appendSnapshot(document, snapshotIndex))) return Status::IoError;
-    {
-        std::lock_guard<std::mutex> lock(stateMutex_);
-        if (std::find(manifest_.snapshotFiles.begin(), manifest_.snapshotFiles.end(), fileName) == manifest_.snapshotFiles.end()) {
-            manifest_.snapshotFiles.push_back(fileName);
-        }
-        if (std::find(manifest_.canonicalArtifacts.begin(), manifest_.canonicalArtifacts.end(), fileName) == manifest_.canonicalArtifacts.end()) {
-            manifest_.canonicalArtifacts.push_back(fileName);
-        }
-    }
-    snapshotCount_.fetch_add(1, std::memory_order_acq_rel);
-    return Status::Ok;
-}
-
 }  // namespace hftrec::capture
 
 

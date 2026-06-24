@@ -129,11 +129,6 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
   private:
     void resetSessionState() noexcept;
     bool sessionOpen() const noexcept;
-    Status writeSnapshotFile(const cxet::composite::OrderBookSnapshot& snapshot,
-                             std::uint64_t snapshotIndex,
-                             std::string_view snapshotKind,
-                             std::string_view source,
-                             bool trustedReplayAnchor) noexcept;
     enum class ManagedStreamKind : std::uint8_t {
         Trades,
         BookTicker,
@@ -205,7 +200,6 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::atomic<std::uint64_t> depthCount_{0};
     std::atomic<std::uint64_t> candlesCount_{0};
     std::atomic<std::uint64_t> candles2Count_{0};
-    std::atomic<std::uint64_t> snapshotCount_{0};
     std::atomic<std::uint64_t> tradesCaptureSeq_{0};
     std::atomic<std::uint64_t> liquidationsCaptureSeq_{0};
     std::atomic<std::uint64_t> bookTickerCaptureSeq_{0};

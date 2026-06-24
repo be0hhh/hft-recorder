@@ -20,14 +20,6 @@ std::size_t totalBytes(const std::vector<std::string>& rows) noexcept {
     return total;
 }
 
-std::size_t totalDocumentBytes(const std::vector<std::string>& documents) noexcept {
-    std::size_t total = 0;
-    for (const auto& document : documents) {
-        total += document.size();
-    }
-    return total;
-}
-
 }  // namespace
 
 std::vector<PipelineResult> LabRunner::run(const corpus::SessionCorpus& corpus,
@@ -36,8 +28,7 @@ std::vector<PipelineResult> LabRunner::run(const corpus::SessionCorpus& corpus,
     results.reserve(pipelines.size());
     const auto inputBytes = totalBytes(corpus.tradeLines)
         + totalBytes(corpus.bookTickerLines)
-        + totalBytes(corpus.depthLines)
-        + totalDocumentBytes(corpus.snapshotDocuments);
+        + totalBytes(corpus.depthLines);
     std::vector<BookFrame> groundTruthFrames;
     const auto groundTruthStatus = sampleGroundTruthBookFrames(corpus, 16, groundTruthFrames);
 
