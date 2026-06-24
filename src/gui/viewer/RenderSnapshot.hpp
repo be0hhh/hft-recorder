@@ -164,12 +164,32 @@ struct HoverInfo {
 
     // Strategy/backtest fill hit-test result.
     bool         strategyFillHit{false};
+    std::uint64_t strategyFillOrderId{0};
     std::int64_t strategyFillTsNs{0};
     std::int64_t strategyFillPriceE8{0};
     std::int64_t strategyFillQtyE8{0};
     std::int64_t strategyFillAmountE8{0};
     bool         strategyFillSideBuy{true};
     bool         strategyFillReduceOnly{false};
+    std::uint8_t strategyFillReason{0};
+    std::uint8_t strategyFillLiquidity{0};
+    std::int64_t strategyFillOrderQtyE8{0};
+    std::int64_t strategyFillCumulativeFilledQtyE8{0};
+    std::int64_t strategyFillRemainingQtyE8{0};
+    std::int64_t strategyFillAvgPriceE8{0};
+    std::int64_t strategyFillBookLevelQtyE8{0};
+    std::int64_t strategyFillBookVisibleExecutableQtyE8{0};
+    std::int64_t strategyFillBookConsumedPctE8{0};
+    std::int64_t strategyFillQueueAheadBeforeE8{0};
+    std::int64_t strategyFillQueueAheadAfterE8{0};
+    std::uint32_t strategyFillChunkIndex{0};
+    std::uint32_t strategyFillChunkCount{0};
+    std::int64_t strategyFillExecutionQtyE8{0};
+    std::int64_t strategyFillExecutionAvgPriceE8{0};
+    std::int64_t strategyFillReferencePriceE8{0};
+    std::int64_t strategyFillSlippageE8{0};
+    std::int64_t strategyFillSlippageBpsE8{0};
+    std::int64_t strategyFillExecutionBookConsumedPctE8{0};
 
     // Book hit-test result. 0 none, 1 bid ticker, 2 ask ticker, 3 bid book, 4 ask book.
     int          bookKind{0};

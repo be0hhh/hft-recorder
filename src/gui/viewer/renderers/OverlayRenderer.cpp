@@ -82,6 +82,25 @@ void renderObjectCard(QPainter* painter,
     drawTextCard(painter, card, accent, lines);
 }
 
+QString strategyFillReasonName(std::uint8_t reason) {
+    switch (reason) {
+        case 1: return QStringLiteral("top");
+        case 2: return QStringLiteral("trade");
+        case 3: return QStringLiteral("aggressive_book");
+        case 4: return QStringLiteral("passive_queue");
+        default: return QStringLiteral("unknown");
+    }
+}
+
+QString strategyFillLiquidityName(std::uint8_t liquidity) {
+    return liquidity == 1u ? QStringLiteral("taker") : QStringLiteral("maker");
+}
+
+QString formatSignedE8(std::int64_t value) {
+    if (value > 0) return QStringLiteral("+%1").arg(detail::formatTrimmedE8(value));
+    return detail::formatTrimmedE8(value);
+}
+
 qreal fundingStripY(const RenderSnapshot& snap) noexcept {
     if (snap.vp.h <= 36.0) return std::max<qreal>(8.0, snap.vp.h * 0.5);
     return std::clamp<qreal>(snap.vp.h - 18.0, 18.0, snap.vp.h - 8.0);
@@ -289,6 +308,25 @@ void renderStrategyFillOverlay(const RenderContext& ctx) {
     const QPointF center{snap.vp.toX(hov.strategyFillTsNs), snap.vp.toY(hov.strategyFillPriceE8)};
     const QColor accent = hov.strategyFillSideBuy ? QColor(0xFF, 0xD8, 0x4D) : QColor(0xFF, 0x1A, 0xC8);
 
+    if (hov.strategyFillOrderId != 0u && hov.strategyFillChunkCount > 1u) {
+        QColor bundleColor = accent;
+        bundleColor.setAlpha(165);
+        QPen bundlePen(bundleColor);
+        bundlePen.setWidthF(1.5);
+        bundlePen.setCosmetic(true);
+        ctx.p->setPen(bundlePen);
+        ctx.p->setBrush(Qt::NoBrush);
+        for (const auto& marker : snap.strategyFillMarkers) {
+            if (marker.orderId != hov.strategyFillOrderId) continue;
+            if (marker.tsNs != hov.strategyFillTsNs) continue;
+            if (marker.chunkCount != hov.strategyFillChunkCount) continue;
+            if (marker.executionQtyE8 != hov.strategyFillExecutionQtyE8) continue;
+            if (marker.executionAvgPriceE8 != hov.strategyFillExecutionAvgPriceE8) continue;
+            const QPointF point{snap.vp.toX(marker.tsNs), snap.vp.toY(marker.priceE8)};
+            ctx.p->drawEllipse(point, 6.0, 6.0);
+        }
+    }
+
     QPen focusPen(accent);
     focusPen.setWidthF(2.0);
     focusPen.setCosmetic(true);
@@ -300,9 +338,61 @@ void renderStrategyFillOverlay(const RenderContext& ctx) {
     lines << QStringLiteral("My %1 %2")
                  .arg(hov.strategyFillSideBuy ? QStringLiteral("BUY") : QStringLiteral("SELL"))
                  .arg(hov.strategyFillReduceOnly ? QStringLiteral("close") : QStringLiteral("fill"));
+    if (hov.strategyFillOrderId != 0u) {
+        lines << QStringLiteral("Order# %1").arg(static_cast<qulonglong>(hov.strategyFillOrderId));
+    }
     lines << QStringLiteral("Price  %1").arg(detail::formatTrimmedE8(hov.strategyFillPriceE8));
     lines << QStringLiteral("Qty    %1").arg(detail::formatTrimmedE8(hov.strategyFillQtyE8));
     lines << QStringLiteral("Amount %1").arg(detail::formatTrimmedE8(hov.strategyFillAmountE8));
+    if (hov.strategyFillReason != 0u) {
+        lines << QStringLiteral("Reason %1 %2")
+                     .arg(strategyFillReasonName(hov.strategyFillReason))
+                     .arg(strategyFillLiquidityName(hov.strategyFillLiquidity));
+    }
+    if (hov.strategyFillChunkCount > 1u && hov.strategyFillChunkIndex > 0u) {
+        lines << QStringLiteral("Chunk  %1 / %2")
+                     .arg(static_cast<qulonglong>(hov.strategyFillChunkIndex))
+                     .arg(static_cast<qulonglong>(hov.strategyFillChunkCount));
+    }
+    if (hov.strategyFillAvgPriceE8 > 0 && hov.strategyFillAvgPriceE8 != hov.strategyFillPriceE8) {
+        lines << QStringLiteral("Avg    %1").arg(detail::formatTrimmedE8(hov.strategyFillAvgPriceE8));
+    }
+    if (hov.strategyFillExecutionQtyE8 > 0) {
+        lines << QStringLiteral("Exec   %1 @ %2")
+                     .arg(detail::formatTrimmedE8(hov.strategyFillExecutionQtyE8))
+                     .arg(detail::formatTrimmedE8(hov.strategyFillExecutionAvgPriceE8 > 0
+                              ? hov.strategyFillExecutionAvgPriceE8
+                              : hov.strategyFillAvgPriceE8));
+    }
+    if (hov.strategyFillReferencePriceE8 > 0) {
+        lines << QStringLiteral("Ref    %1").arg(detail::formatTrimmedE8(hov.strategyFillReferencePriceE8));
+    }
+    if (hov.strategyFillSlippageE8 != 0 || hov.strategyFillSlippageBpsE8 != 0) {
+        lines << QStringLiteral("Slip   %1 / %2 bps")
+                     .arg(formatSignedE8(hov.strategyFillSlippageE8))
+                     .arg(formatSignedE8(hov.strategyFillSlippageBpsE8));
+    }
+    if (hov.strategyFillOrderQtyE8 > 0) {
+        lines << QStringLiteral("Order  %1 / %2")
+                     .arg(detail::formatTrimmedE8(hov.strategyFillCumulativeFilledQtyE8))
+                     .arg(detail::formatTrimmedE8(hov.strategyFillOrderQtyE8));
+    }
+    if (hov.strategyFillRemainingQtyE8 > 0) {
+        lines << QStringLiteral("Remain %1").arg(detail::formatTrimmedE8(hov.strategyFillRemainingQtyE8));
+    }
+    if (hov.strategyFillBookVisibleExecutableQtyE8 > 0) {
+        lines << QStringLiteral("Level  %1").arg(detail::formatTrimmedE8(hov.strategyFillBookLevelQtyE8));
+        lines << QStringLiteral("Book   %1 / %2%")
+                     .arg(detail::formatTrimmedE8(hov.strategyFillBookVisibleExecutableQtyE8))
+                     .arg(detail::formatTrimmedE8(hov.strategyFillExecutionBookConsumedPctE8 > 0
+                              ? hov.strategyFillExecutionBookConsumedPctE8
+                              : hov.strategyFillBookConsumedPctE8));
+    }
+    if (hov.strategyFillReason == 4u || hov.strategyFillQueueAheadBeforeE8 > 0 || hov.strategyFillQueueAheadAfterE8 > 0) {
+        lines << QStringLiteral("Queue  %1 -> %2")
+                     .arg(detail::formatTrimmedE8(hov.strategyFillQueueAheadBeforeE8))
+                     .arg(detail::formatTrimmedE8(hov.strategyFillQueueAheadAfterE8));
+    }
     lines << QStringLiteral("Time   %1").arg(detail::formatTimeNs(hov.strategyFillTsNs));
 
     renderObjectCard(ctx.p, lines, accent, center.x(), center.y(), snap.vp.w, snap.vp.h);

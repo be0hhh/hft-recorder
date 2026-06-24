@@ -29,6 +29,25 @@ struct FillRow {
     std::int64_t qtyE8{0};
     bool reduceOnly{false};
     std::uint32_t legIndex{0};
+    std::uint8_t fillReason{0};
+    std::uint8_t liquidity{0};
+    std::int64_t orderQtyE8{0};
+    std::int64_t cumulativeFilledQtyE8{0};
+    std::int64_t remainingQtyE8{0};
+    std::int64_t avgPriceE8{0};
+    std::int64_t bookLevelQtyE8{0};
+    std::int64_t bookVisibleExecutableQtyE8{0};
+    std::int64_t bookConsumedPctE8{0};
+    std::int64_t queueAheadBeforeE8{0};
+    std::int64_t queueAheadAfterE8{0};
+    std::uint32_t chunkIndex{0};
+    std::uint32_t chunkCount{0};
+    std::int64_t executionQtyE8{0};
+    std::int64_t executionAvgPriceE8{0};
+    std::int64_t referencePriceE8{0};
+    std::int64_t slippageE8{0};
+    std::int64_t slippageBpsE8{0};
+    std::int64_t executionBookConsumedPctE8{0};
 };
 
 struct LegacyOrderRow {
@@ -180,7 +199,53 @@ bool parseFillLine(std::string_view line, FillRow& out) noexcept {
     if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
     if (!parser.parseInt64(ignored) || !parser.parseComma()) return false;
     if (!parseBoolByte(parser, out.reduceOnly)) return false;
-    return parseOptionalLegIndexAndTrailingFields(parser, out.legIndex);
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    std::int64_t legIndex = 0;
+    if (!parser.parseInt64(legIndex) || legIndex < 0) return false;
+    out.legIndex = static_cast<std::uint32_t>(legIndex);
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parseByte(parser, out.fillReason)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parseByte(parser, out.liquidity)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.orderQtyE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.cumulativeFilledQtyE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.remainingQtyE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.avgPriceE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.bookLevelQtyE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.bookVisibleExecutableQtyE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.bookConsumedPctE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.queueAheadBeforeE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.queueAheadAfterE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    std::int64_t chunkIndex = 0;
+    if (!parser.parseInt64(chunkIndex) || chunkIndex < 0) return false;
+    out.chunkIndex = static_cast<std::uint32_t>(chunkIndex);
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    std::int64_t chunkCount = 0;
+    if (!parser.parseInt64(chunkCount) || chunkCount < 0) return false;
+    out.chunkCount = static_cast<std::uint32_t>(chunkCount);
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.executionQtyE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.executionAvgPriceE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.referencePriceE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.slippageE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.slippageBpsE8)) return false;
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parser.parseInt64(out.executionBookConsumedPctE8)) return false;
+    return skipOptionalTrailingFields(parser);
 }
 
 bool parseRangeLine(std::string_view line, RangeRow& out) noexcept {
@@ -238,7 +303,7 @@ bool sideBuy(std::uint8_t side) noexcept {
 }
 
 bool legacyStatusEffective(std::uint8_t status) noexcept {
-    return status == 2u || status == 3u || status == 4u;
+    return status == 2u || status == 3u || status == 4u || status == 7u;
 }
 
 bool legacyStatusOpen(std::uint8_t status) noexcept {
@@ -357,7 +422,7 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
     for (const FillRow& fill : parsed.fills) {
         if (fill.exitTsNs <= 0 || fill.priceE8 <= 0 || fill.qtyE8 <= 0) continue;
         const bool buy = sideBuy(fill.side);
-        out.fillMarkers.push_back(StrategyFillMarker{
+        StrategyFillMarker marker{
             fill.exitTsNs,
             fill.priceE8,
             fill.qtyE8,
@@ -366,7 +431,28 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
             false,
             fill.reduceOnly,
             buy ? StrategyFillShape::BuyUp : StrategyFillShape::SellDown,
-        });
+        };
+        marker.fillReason = fill.fillReason;
+        marker.liquidity = fill.liquidity;
+        marker.orderQtyE8 = fill.orderQtyE8;
+        marker.cumulativeFilledQtyE8 = fill.cumulativeFilledQtyE8;
+        marker.remainingQtyE8 = fill.remainingQtyE8;
+        marker.avgPriceE8 = fill.avgPriceE8;
+        marker.bookLevelQtyE8 = fill.bookLevelQtyE8;
+        marker.bookVisibleExecutableQtyE8 = fill.bookVisibleExecutableQtyE8;
+        marker.bookConsumedPctE8 = fill.bookConsumedPctE8;
+        marker.queueAheadBeforeE8 = fill.queueAheadBeforeE8;
+        marker.queueAheadAfterE8 = fill.queueAheadAfterE8;
+        marker.chunkIndex = fill.chunkIndex;
+        marker.chunkCount = fill.chunkCount;
+        marker.executionQtyE8 = fill.executionQtyE8;
+        marker.executionAvgPriceE8 = fill.executionAvgPriceE8;
+        marker.referencePriceE8 = fill.referencePriceE8;
+        marker.slippageE8 = fill.slippageE8;
+        marker.slippageBpsE8 = fill.slippageBpsE8;
+        marker.executionBookConsumedPctE8 = fill.executionBookConsumedPctE8;
+        marker.orderId = fill.orderId;
+        out.fillMarkers.push_back(marker);
     }
 
     for (const RangeRow& row : parsed.ranges) {

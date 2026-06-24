@@ -285,12 +285,32 @@ void computeHover(const RenderSnapshot& snap,
             if (distSq <= bestSq) {
                 bestSq = distSq;
                 out.strategyFillHit = true;
+                out.strategyFillOrderId = marker.orderId;
                 out.strategyFillTsNs = marker.tsNs;
                 out.strategyFillPriceE8 = marker.priceE8;
                 out.strategyFillQtyE8 = marker.qtyE8;
                 out.strategyFillAmountE8 = detail::multiplyScaledE8(marker.qtyE8, marker.priceE8);
                 out.strategyFillSideBuy = marker.sideBuy;
                 out.strategyFillReduceOnly = marker.reduceOnly;
+                out.strategyFillReason = marker.fillReason;
+                out.strategyFillLiquidity = marker.liquidity;
+                out.strategyFillOrderQtyE8 = marker.orderQtyE8;
+                out.strategyFillCumulativeFilledQtyE8 = marker.cumulativeFilledQtyE8;
+                out.strategyFillRemainingQtyE8 = marker.remainingQtyE8;
+                out.strategyFillAvgPriceE8 = marker.avgPriceE8;
+                out.strategyFillBookLevelQtyE8 = marker.bookLevelQtyE8;
+                out.strategyFillBookVisibleExecutableQtyE8 = marker.bookVisibleExecutableQtyE8;
+                out.strategyFillBookConsumedPctE8 = marker.bookConsumedPctE8;
+                out.strategyFillQueueAheadBeforeE8 = marker.queueAheadBeforeE8;
+                out.strategyFillQueueAheadAfterE8 = marker.queueAheadAfterE8;
+                out.strategyFillChunkIndex = marker.chunkIndex;
+                out.strategyFillChunkCount = marker.chunkCount;
+                out.strategyFillExecutionQtyE8 = marker.executionQtyE8;
+                out.strategyFillExecutionAvgPriceE8 = marker.executionAvgPriceE8;
+                out.strategyFillReferencePriceE8 = marker.referencePriceE8;
+                out.strategyFillSlippageE8 = marker.slippageE8;
+                out.strategyFillSlippageBpsE8 = marker.slippageBpsE8;
+                out.strategyFillExecutionBookConsumedPctE8 = marker.executionBookConsumedPctE8;
             }
         }
         if (out.strategyFillHit) return;

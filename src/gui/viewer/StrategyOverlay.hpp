@@ -33,6 +33,26 @@ struct StrategyFillMarker {
     bool marketOrder{false};
     bool reduceOnly{false};
     StrategyFillShape shape{StrategyFillShape::BuyUp};
+    std::uint8_t fillReason{0};
+    std::uint8_t liquidity{0};
+    std::int64_t orderQtyE8{0};
+    std::int64_t cumulativeFilledQtyE8{0};
+    std::int64_t remainingQtyE8{0};
+    std::int64_t avgPriceE8{0};
+    std::int64_t bookLevelQtyE8{0};
+    std::int64_t bookVisibleExecutableQtyE8{0};
+    std::int64_t bookConsumedPctE8{0};
+    std::int64_t queueAheadBeforeE8{0};
+    std::int64_t queueAheadAfterE8{0};
+    std::uint32_t chunkIndex{0};
+    std::uint32_t chunkCount{0};
+    std::int64_t executionQtyE8{0};
+    std::int64_t executionAvgPriceE8{0};
+    std::int64_t referencePriceE8{0};
+    std::int64_t slippageE8{0};
+    std::int64_t slippageBpsE8{0};
+    std::int64_t executionBookConsumedPctE8{0};
+    std::uint64_t orderId{0};
 };
 
 struct StrategyRangePoint {

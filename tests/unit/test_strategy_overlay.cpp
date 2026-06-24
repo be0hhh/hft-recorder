@@ -93,7 +93,7 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
         "[3000,3500,10500000000,200000000,0,0,0]\n"
         "[5000,6000,11000000000,100000000,0,0,0]\n"
         "[6000,6500,11200000000,100000000,0,0,0]\n",
-        "[3,3000,3500,0,10500000000,200000000,0,0]\n"
+        "[3,3000,3500,0,10500000000,200000000,0,0,0,3,1,500000000,200000000,300000000,10550000000,250000000,700000000,2857142857,0,0,1,2,200000000,10550000000,10500000000,-50000000,-4761904761,2857142857]\n"
         "[4,4000,4100,1,10100000000,300000000,0,1]\n"
         "[7,6000,6500,0,11200000000,100000000,0,0]\n"
         "[8,7000,7100,0,11300000000,100000000,0,1]\n");
@@ -126,13 +126,32 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_FALSE(overlay.orderSegments[3].openEnded);
 
     ASSERT_EQ(overlay.fillMarkers.size(), 4u);
+    EXPECT_EQ(overlay.fillMarkers[0].orderId, 3u);
     EXPECT_EQ(overlay.fillMarkers[0].tsNs, 3500);
     EXPECT_EQ(overlay.fillMarkers[0].priceE8, e8(105));
     EXPECT_FALSE(overlay.fillMarkers[0].sideBuy);
     EXPECT_FALSE(overlay.fillMarkers[0].marketOrder);
     EXPECT_EQ(overlay.fillMarkers[0].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
+    EXPECT_EQ(overlay.fillMarkers[0].fillReason, 3);
+    EXPECT_EQ(overlay.fillMarkers[0].liquidity, 1);
+    EXPECT_EQ(overlay.fillMarkers[0].orderQtyE8, e8(5));
+    EXPECT_EQ(overlay.fillMarkers[0].cumulativeFilledQtyE8, e8(2));
+    EXPECT_EQ(overlay.fillMarkers[0].remainingQtyE8, e8(3));
+    EXPECT_EQ(overlay.fillMarkers[0].avgPriceE8, 10550000000);
+    EXPECT_EQ(overlay.fillMarkers[0].bookLevelQtyE8, 250000000);
+    EXPECT_EQ(overlay.fillMarkers[0].bookVisibleExecutableQtyE8, 700000000);
+    EXPECT_EQ(overlay.fillMarkers[0].bookConsumedPctE8, 2857142857);
+    EXPECT_EQ(overlay.fillMarkers[0].chunkIndex, 1u);
+    EXPECT_EQ(overlay.fillMarkers[0].chunkCount, 2u);
+    EXPECT_EQ(overlay.fillMarkers[0].executionQtyE8, e8(2));
+    EXPECT_EQ(overlay.fillMarkers[0].executionAvgPriceE8, 10550000000);
+    EXPECT_EQ(overlay.fillMarkers[0].referencePriceE8, e8(105));
+    EXPECT_EQ(overlay.fillMarkers[0].slippageE8, -50000000);
+    EXPECT_EQ(overlay.fillMarkers[0].slippageBpsE8, -4761904761);
+    EXPECT_EQ(overlay.fillMarkers[0].executionBookConsumedPctE8, 2857142857);
 
     EXPECT_EQ(overlay.fillMarkers[1].tsNs, 4100);
+    EXPECT_EQ(overlay.fillMarkers[1].orderId, 4u);
     EXPECT_EQ(overlay.fillMarkers[1].priceE8, e8(101));
     EXPECT_TRUE(overlay.fillMarkers[1].sideBuy);
     EXPECT_FALSE(overlay.fillMarkers[1].marketOrder);
@@ -140,6 +159,7 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_EQ(overlay.fillMarkers[1].shape, hftrec::gui::viewer::StrategyFillShape::BuyUp);
 
     EXPECT_EQ(overlay.fillMarkers[2].tsNs, 6500);
+    EXPECT_EQ(overlay.fillMarkers[2].orderId, 7u);
     EXPECT_EQ(overlay.fillMarkers[2].priceE8, e8(112));
     EXPECT_FALSE(overlay.fillMarkers[2].sideBuy);
     EXPECT_FALSE(overlay.fillMarkers[2].marketOrder);
@@ -147,6 +167,7 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_EQ(overlay.fillMarkers[2].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
 
     EXPECT_EQ(overlay.fillMarkers[3].tsNs, 7100);
+    EXPECT_EQ(overlay.fillMarkers[3].orderId, 8u);
     EXPECT_EQ(overlay.fillMarkers[3].priceE8, e8(113));
     EXPECT_FALSE(overlay.fillMarkers[3].sideBuy);
     EXPECT_TRUE(overlay.fillMarkers[3].reduceOnly);
