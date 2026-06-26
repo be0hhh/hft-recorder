@@ -74,6 +74,13 @@ TEST(BacktestExecutionConfigHelpers, BuildsFeeScheduleFromVenueRowWithPresetFall
     QVariantMap row;
     row.insert(QStringLiteral("exchange"), QStringLiteral("binance"));
     row.insert(QStringLiteral("market"), QStringLiteral("futures_usdt"));
+    const hft_backtest::BacktestFeeSchedule presetSchedule = hftrec::gui::feeScheduleFromVenueRow(row);
+
+    EXPECT_EQ(presetSchedule.exchange, "binance");
+    EXPECT_EQ(presetSchedule.market, "futures_usdt");
+    EXPECT_EQ(presetSchedule.makerFeeBpsE8, 200000000);
+    EXPECT_EQ(presetSchedule.takerFeeBpsE8, 500000000);
+
     row.insert(QStringLiteral("makerFeeBps"), QStringLiteral("0"));
     row.insert(QStringLiteral("takerFeeBps"), QStringLiteral("1.23"));
 

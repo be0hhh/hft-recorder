@@ -379,6 +379,7 @@ class BacktestViewModel : public QObject {
     qint64 decimalE8Value_(const QString& value, qint64 fallback) const noexcept;
     quint64 latencyValue_(const QString& value, quint64 fallback) const noexcept;
     QString venueExecutionValue_(const QString& venueKey, const QString& field, const QString& fallback) const;
+    QString venueExecutionOverrideValue_(const QString& venueKey, const QString& field) const;
     std::vector<QVariantMap> venueExecutionRows_() const;
     QString effectiveResultScopeId_(const RunRecord& record) const;
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);

@@ -901,15 +901,23 @@ TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetS
     QVariantList rows = vm.selectedSessionLegs();
     ASSERT_EQ(rows.size(), 2);
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("okx"));
-    EXPECT_TRUE(rows.at(0).toMap().contains(QStringLiteral("makerFeeBps")));
-    EXPECT_TRUE(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString().isEmpty());
+    EXPECT_FALSE(rows.at(0).toMap().contains(QStringLiteral("makerFeeBps")));
+    EXPECT_FALSE(rows.at(0).toMap().contains(QStringLiteral("takerFeeBps")));
     EXPECT_TRUE(rows.at(0).toMap().value(QStringLiteral("executionPresetSummary")).toString().contains(QStringLiteral("Fees M/T")));
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("111"));
     EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("bybit"));
-    EXPECT_TRUE(rows.at(1).toMap().contains(QStringLiteral("makerFeeBps")));
-    EXPECT_TRUE(rows.at(1).toMap().value(QStringLiteral("makerFeeBps")).toString().isEmpty());
+    EXPECT_FALSE(rows.at(1).toMap().contains(QStringLiteral("makerFeeBps")));
+    EXPECT_FALSE(rows.at(1).toMap().contains(QStringLiteral("takerFeeBps")));
     EXPECT_TRUE(rows.at(1).toMap().value(QStringLiteral("executionPresetSummary")).toString().contains(QStringLiteral("RL")));
     EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
+
+    vm.setVenueExecutionValue(0, QStringLiteral("maker_fee_bps"), QStringLiteral("0.7"));
+    vm.setVenueExecutionValue(0, QStringLiteral("taker_fee_bps"), QStringLiteral("1.1"));
+    rows = vm.selectedSessionLegs();
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.7"));
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("takerFeeBps")).toString(), QStringLiteral("1.1"));
+    EXPECT_FALSE(rows.at(1).toMap().contains(QStringLiteral("makerFeeBps")));
 
     hftrec::gui::BacktestViewModel restored;
     restored.setSessionPath(primary);
@@ -917,6 +925,8 @@ TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetS
     rows = restored.selectedSessionLegs();
     ASSERT_EQ(rows.size(), 2);
     EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.7"));
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("takerFeeBps")).toString(), QStringLiteral("1.1"));
 
     QDir(primary).removeRecursively();
     QDir(secondary).removeRecursively();
@@ -1024,8 +1034,6 @@ TEST(BacktestViewModel, PersistsConfigButNotSession) {
         vm.setLimitOrderLatencyUs(QStringLiteral("1800"));
         vm.setLimitOrderJitterUs(QStringLiteral("700"));
         vm.setInitialBalanceUsdt(QStringLiteral("750.25"));
-        vm.setMakerFeeBps(QStringLiteral("0.2"));
-        vm.setTakerFeeBps(QStringLiteral("0.5"));
         vm.setStrategyParameter(QStringLiteral("distance_bps"), QStringLiteral("700"));
     }
 
@@ -1041,8 +1049,8 @@ TEST(BacktestViewModel, PersistsConfigButNotSession) {
     EXPECT_EQ(restored.limitOrderLatencyUs(), QStringLiteral("1800"));
     EXPECT_EQ(restored.limitOrderJitterUs(), QStringLiteral("700"));
     EXPECT_EQ(restored.initialBalanceUsdt(), QStringLiteral("750.25"));
-    EXPECT_EQ(restored.makerFeeBps(), QStringLiteral("0.2"));
-    EXPECT_EQ(restored.takerFeeBps(), QStringLiteral("0.5"));
+    EXPECT_EQ(restored.makerFeeBps(), QStringLiteral("0"));
+    EXPECT_EQ(restored.takerFeeBps(), QStringLiteral("0"));
     EXPECT_TRUE(hasParamKey(restored.strategyParameters(), QStringLiteral("distance_bps")));
     EXPECT_NE(restored.sessionPath(), session);
 }

@@ -500,8 +500,6 @@ void BacktestViewModel::saveProfile() {
     out << "order_latency_us=" << marketOrderLatencyUs_ << "\n";
     out << "cancel_latency_us=" << cancelOrderLatencyUs_ << "\n";
     out << "initial_balance_usdt=" << initialBalanceUsdt_ << "\n";
-    out << "maker_fee_bps=" << makerFeeBps_ << "\n";
-    out << "taker_fee_bps=" << takerFeeBps_ << "\n";
     out << "risk_enabled=" << (riskEnabled_ ? "true" : "false") << "\n";
     out << "risk_min_equity_pct=" << riskMinEquityPct_ << "\n";
     out << "risk_min_leg_equity_pct=" << riskMinLegEquityPct_ << "\n";
@@ -590,8 +588,6 @@ void BacktestViewModel::loadProfile() {
     const QString riskRateLimitGuardMinRemaining =
         iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_rate_limit_guard_min_remaining"));
     const QString rateLimitsEnabled = iniValue(text, QStringLiteral("backtest"), QStringLiteral("rate_limits_enabled"));
-    const QString makerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("maker_fee_bps"));
-    const QString takerFee = iniValue(text, QStringLiteral("backtest"), QStringLiteral("taker_fee_bps"));
     const QString sweepBudget = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_budget"));
     const QString sweepSeed = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_seed"));
     const QString mode = iniValue(text, QStringLiteral("backtest"), QStringLiteral("config_mode"));
@@ -620,8 +616,6 @@ void BacktestViewModel::loadProfile() {
     riskMaxPositionUsdt_ = riskMaxPositionUsdt;
     riskRateLimitGuardMinRemaining_ = riskRateLimitGuardMinRemaining;
     if (!rateLimitsEnabled.isEmpty()) rateLimitsEnabled_ = boolIniValue(rateLimitsEnabled, rateLimitsEnabled_);
-    if (!makerFee.isEmpty()) makerFeeBps_ = makerFee;
-    if (!takerFee.isEmpty()) takerFeeBps_ = takerFee;
     if (!sweepBudget.isEmpty()) sweepBudget_ = sweepBudget;
     if (!sweepSeed.isEmpty()) sweepSeed_ = sweepSeed;
     if (!mode.isEmpty()) configMode_ = normalizeConfigMode(mode);
@@ -814,10 +808,8 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (settings_.contains(QStringLiteral("backtests/rate_limits_enabled"))) {
         rateLimitsEnabled_ = settings_.value(QStringLiteral("backtests/rate_limits_enabled"), rateLimitsEnabled_).toBool();
     }
-    makerFeeBps_ = settings_.value(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_).toString().trimmed();
-    if (makerFeeBps_.isEmpty()) makerFeeBps_ = QStringLiteral("0");
-    takerFeeBps_ = settings_.value(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_).toString().trimmed();
-    if (takerFeeBps_.isEmpty()) takerFeeBps_ = QStringLiteral("0");
+    makerFeeBps_ = QStringLiteral("0");
+    takerFeeBps_ = QStringLiteral("0");
     sweepBudget_ = settings_.value(QStringLiteral("backtests/sweep_budget"), sweepBudget_).toString().trimmed();
     if (sweepBudget_.isEmpty()) sweepBudget_ = QStringLiteral("64");
     sweepSeed_ = settings_.value(QStringLiteral("backtests/sweep_seed"), sweepSeed_).toString().trimmed();
@@ -873,8 +865,6 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/risk_max_position_usdt"), riskMaxPositionUsdt_);
     settings_.setValue(QStringLiteral("backtests/risk_rate_limit_guard_min_remaining"), riskRateLimitGuardMinRemaining_);
     settings_.setValue(QStringLiteral("backtests/rate_limits_enabled"), rateLimitsEnabled_);
-    settings_.setValue(QStringLiteral("backtests/maker_fee_bps"), makerFeeBps_);
-    settings_.setValue(QStringLiteral("backtests/taker_fee_bps"), takerFeeBps_);
     settings_.setValue(QStringLiteral("backtests/sweep_budget"), sweepBudget_);
     settings_.setValue(QStringLiteral("backtests/sweep_seed"), sweepSeed_);
     settings_.beginGroup(QStringLiteral("backtests/params/%1").arg(selectedStrategy_));
@@ -934,8 +924,6 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
     QHash<QString, QStringList> venueSymbols;
     QHash<QString, QString> venueApiSlots;
     QHash<QString, QVariantMap> venueExecutionByVenue;
-    const QString makerFeeFallback = makerFeeBps_.trimmed() == QStringLiteral("0") ? QString{} : makerFeeBps_;
-    const QString takerFeeFallback = takerFeeBps_.trimmed() == QStringLiteral("0") ? QString{} : takerFeeBps_;
     for (int i = 0; i < sessionPaths.size(); ++i) {
         const QString path = sessionPaths.at(i);
         const QString venue = venueSectionForSession(path);
@@ -951,10 +939,12 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         if (!venueApiSlots.contains(venue)) venueApiSlots.insert(venue, apiSlot);
         if (!venueExecutionByVenue.contains(venue)) {
             const QString venueKey = venueExecutionKey(path);
+            const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
+            const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
             QVariantMap row;
             row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
-            row.insert(QStringLiteral("makerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), makerFeeFallback));
-            row.insert(QStringLiteral("takerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), takerFeeFallback));
+            if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
+            if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);
             row.insert(QStringLiteral("rateLimitOrdersLimit"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_orders_limit"), QString{}));
             row.insert(QStringLiteral("rateLimitOrdersIntervalMs"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_orders_interval_ms"), QString{}));
             row.insert(QStringLiteral("rateLimitCancelOrdersLimit"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_cancel_orders_limit"), QString{}));
@@ -983,8 +973,6 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
     if (!filteredBase.endsWith(QLatin1Char('\n'))) out << "\n";
     out << "\n# recorder backtest overrides\n";
     out << "[backtest]\n";
-    out << "maker_fee_bps=" << makerFeeBps_.trimmed() << "\n";
-    out << "taker_fee_bps=" << takerFeeBps_.trimmed() << "\n";
     writeBacktestRateLimitConfig(out, rateLimitsEnabled_);
     out << "\n";
     out << "[strategy]\n";
@@ -996,7 +984,7 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         const QString value = overrides.value(key, paramValues_.value(key)).trimmed();
         if (!value.isEmpty()) out << key << "=" << value << "\n";
     }
-    const bool hasRiskRateLimitGuard = !riskRateLimitGuardMinRemaining_.trimmed().isEmpty();
+    const bool hasRiskRateLimitGuard = rateLimitsEnabled_ && !riskRateLimitGuardMinRemaining_.trimmed().isEmpty();
     if (riskEnabled_ || hasRiskRateLimitGuard) {
         const bool hasRiskMaxPosition = !riskMaxPositionUsdt_.trimmed().isEmpty();
         out << "\n[risk]\n";

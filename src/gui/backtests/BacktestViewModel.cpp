@@ -251,12 +251,12 @@ QStringList BacktestViewModel::orderedSessionPathsForRun_() const {
 QVariantList BacktestViewModel::selectedSessionLegs() const {
     QVariantList out;
     const QStringList paths = selectedSessionPaths_();
-    const QString makerFeeFallback = makerFeeBps_.trimmed() == QStringLiteral("0") ? QString{} : makerFeeBps_;
-    const QString takerFeeFallback = takerFeeBps_.trimmed() == QStringLiteral("0") ? QString{} : takerFeeBps_;
     for (int i = 0; i < paths.size(); ++i) {
         QVariantMap row;
         const QString path = paths.at(i);
         const QString venueKey = venueExecutionKey(path);
+        const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
+        const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
         row.insert(QStringLiteral("index"), i);
         row.insert(QStringLiteral("path"), path);
         row.insert(QStringLiteral("id"), sessionIdFromPath_(path));
@@ -266,8 +266,8 @@ QVariantList BacktestViewModel::selectedSessionLegs() const {
         row.insert(QStringLiteral("exchange"), manifestValue(path, QStringLiteral("exchange")).trimmed().toLower());
         row.insert(QStringLiteral("market"), normalizedFeeMarket(manifestValue(path, QStringLiteral("market"))));
         row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
-        row.insert(QStringLiteral("makerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), makerFeeFallback));
-        row.insert(QStringLiteral("takerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), takerFeeFallback));
+        if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
+        if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);
         row.insert(QStringLiteral("executionPresetSummary"),
                    exchangeExecutionPresetSummary(row.value(QStringLiteral("exchange")).toString(),
                                                   row.value(QStringLiteral("market")).toString(),
@@ -306,23 +306,34 @@ QString BacktestViewModel::venueExecutionValue_(const QString& venueKey, const Q
         .trimmed();
 }
 
+QString BacktestViewModel::venueExecutionOverrideValue_(const QString& venueKey, const QString& field) const {
+    const QString normalizedField = field.trimmed().toLower();
+    if (venueKey.isEmpty() || normalizedField.isEmpty()) return {};
+    const QString mapKey = venueExecutionMapKey(venueKey, normalizedField);
+    if (venueExecutionValues_.contains(mapKey)) return venueExecutionValues_.value(mapKey).trimmed();
+    const QString settingsKey = QStringLiteral("backtests/venue_execution/%1/%2")
+                                    .arg(venueExecutionSettingKey(venueKey), normalizedField);
+    if (!settings_.contains(settingsKey)) return {};
+    return settings_.value(settingsKey).toString().trimmed();
+}
+
 std::vector<QVariantMap> BacktestViewModel::venueExecutionRows_() const {
     std::vector<QVariantMap> out;
     QSet<QString> emitted;
     const QStringList paths = orderedSessionPathsForRun_();
-    const QString makerFeeFallback = makerFeeBps_.trimmed() == QStringLiteral("0") ? QString{} : makerFeeBps_;
-    const QString takerFeeFallback = takerFeeBps_.trimmed() == QStringLiteral("0") ? QString{} : takerFeeBps_;
     out.reserve(static_cast<std::size_t>(paths.size()));
     for (const QString& path : paths) {
         const QString venueKey = venueExecutionKey(path);
         if (venueKey.isEmpty() || emitted.contains(venueKey)) continue;
         emitted.insert(venueKey);
+        const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
+        const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
         QVariantMap row;
         row.insert(QStringLiteral("exchange"), manifestValue(path, QStringLiteral("exchange")).trimmed().toLower());
         row.insert(QStringLiteral("market"), normalizedFeeMarket(manifestValue(path, QStringLiteral("market"))));
         row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
-        row.insert(QStringLiteral("makerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), makerFeeFallback));
-        row.insert(QStringLiteral("takerFeeBps"), venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), takerFeeFallback));
+        if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
+        if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);
         row.insert(QStringLiteral("marketDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_));
         row.insert(QStringLiteral("marketDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_));
         row.insert(QStringLiteral("marketOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_));
@@ -561,8 +572,6 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     const quint64 orderLatency = marketOrderLatency;
     const quint64 cancelLatency = cancelOrderLatency;
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
-    const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
-    const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
     const bool rateLimitsEnabled = rateLimitsEnabled_;
     std::vector<std::int64_t> legInitialBalances;
     std::vector<hft_backtest::BacktestFeeSchedule> feeSchedules;
@@ -597,7 +606,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) rateLimitSchedules.push_back(std::move(rateLimit));
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, makerFee, takerFee, rateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, rateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules)] {
         try {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPaths.front().toStdString();
@@ -632,8 +641,6 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.cancelLatencyUs = cancelLatency;
         request.initialBalanceE8 = initialBalance;
         request.legInitialBalancesE8 = legInitialBalances;
-        request.makerFeeBpsE8 = makerFee;
-        request.takerFeeBpsE8 = takerFee;
         request.feeSchedules = feeSchedules;
         request.latencySchedules = latencySchedules;
         request.rateLimitSchedules = rateLimitSchedules;
@@ -756,8 +763,6 @@ void BacktestViewModel::startSweep() {
     const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
     const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
-    const qint64 makerFee = decimalE8Value_(makerFeeBps_, 0);
-    const qint64 takerFee = decimalE8Value_(takerFeeBps_, 0);
     const bool rateLimitsEnabled = rateLimitsEnabled_;
     std::vector<std::int64_t> legInitialBalances;
     std::vector<hft_backtest::BacktestFeeSchedule> feeSchedules;
@@ -793,7 +798,7 @@ void BacktestViewModel::startSweep() {
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
 
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, makerFee, takerFee, rateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules), ranges = std::move(ranges)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, rateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules), ranges = std::move(ranges)] {
         try {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPaths.front().toStdString();
@@ -826,8 +831,6 @@ void BacktestViewModel::startSweep() {
         request.baseRun.cancelLatencyUs = cancelOrderLatency;
         request.baseRun.initialBalanceE8 = initialBalance;
         request.baseRun.legInitialBalancesE8 = legInitialBalances;
-        request.baseRun.makerFeeBpsE8 = makerFee;
-        request.baseRun.takerFeeBpsE8 = takerFee;
         request.baseRun.feeSchedules = feeSchedules;
         request.baseRun.latencySchedules = latencySchedules;
         request.baseRun.rateLimitSchedules = rateLimitSchedules;
