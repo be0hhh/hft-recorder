@@ -55,6 +55,8 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString riskMinLegEquityPct READ riskMinLegEquityPct WRITE setRiskMinLegEquityPct NOTIFY accountingChanged)
     Q_PROPERTY(QString riskMinLegEquityUsdt READ riskMinLegEquityUsdt WRITE setRiskMinLegEquityUsdt NOTIFY accountingChanged)
     Q_PROPERTY(QString riskMaxPositionUsdt READ riskMaxPositionUsdt WRITE setRiskMaxPositionUsdt NOTIFY accountingChanged)
+    Q_PROPERTY(QString riskRateLimitGuardMinRemaining READ riskRateLimitGuardMinRemaining WRITE setRiskRateLimitGuardMinRemaining NOTIFY accountingChanged)
+    Q_PROPERTY(bool rateLimitsEnabled READ rateLimitsEnabled WRITE setRateLimitsEnabled NOTIFY rateLimitsChanged)
     Q_PROPERTY(QString makerFeeBps READ makerFeeBps WRITE setMakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString takerFeeBps READ takerFeeBps WRITE setTakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString orderLatencyUs READ orderLatencyUs WRITE setOrderLatencyUs NOTIFY latencyChanged)
@@ -143,6 +145,8 @@ class BacktestViewModel : public QObject {
     QString riskMinLegEquityPct() const { return riskMinLegEquityPct_; }
     QString riskMinLegEquityUsdt() const { return riskMinLegEquityUsdt_; }
     QString riskMaxPositionUsdt() const { return riskMaxPositionUsdt_; }
+    QString riskRateLimitGuardMinRemaining() const { return riskRateLimitGuardMinRemaining_; }
+    bool rateLimitsEnabled() const noexcept { return rateLimitsEnabled_; }
     QString makerFeeBps() const { return makerFeeBps_; }
     QString takerFeeBps() const { return takerFeeBps_; }
     QString orderLatencyUs() const { return marketOrderLatencyUs_; }
@@ -221,6 +225,8 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setRiskMinLegEquityPct(const QString& value);
     Q_INVOKABLE void setRiskMinLegEquityUsdt(const QString& value);
     Q_INVOKABLE void setRiskMaxPositionUsdt(const QString& value);
+    Q_INVOKABLE void setRiskRateLimitGuardMinRemaining(const QString& value);
+    Q_INVOKABLE void setRateLimitsEnabled(bool enabled);
     Q_INVOKABLE void setMakerFeeBps(const QString& value);
     Q_INVOKABLE void setTakerFeeBps(const QString& value);
     Q_INVOKABLE void setOrderLatencyUs(const QString& value);
@@ -264,6 +270,7 @@ class BacktestViewModel : public QObject {
     void configChanged();
     void indicatorProfileChanged();
     void accountingChanged();
+    void rateLimitsChanged();
     void strategyParametersChanged();
     void profileChanged();
     void latencyChanged();
@@ -384,6 +391,7 @@ class BacktestViewModel : public QObject {
     QString extraSessionIds_{};
     QString symbolOverride_{};
     QString selectedRunId_{};
+    QString activeRunId_{};
     QString selectedStrategy_{QStringLiteral("spread_maker1and2")};
     QString configMode_{QStringLiteral("fixed")};
     QString selectedIndicatorProfile_{};
@@ -406,6 +414,8 @@ class BacktestViewModel : public QObject {
     QString riskMinLegEquityPct_{};
     QString riskMinLegEquityUsdt_{};
     QString riskMaxPositionUsdt_{};
+    QString riskRateLimitGuardMinRemaining_{};
+    bool rateLimitsEnabled_{true};
     QString makerFeeBps_{QStringLiteral("0")};
     QString takerFeeBps_{QStringLiteral("0")};
     QString sweepBudget_{QStringLiteral("64")};

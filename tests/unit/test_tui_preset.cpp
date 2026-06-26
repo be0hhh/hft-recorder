@@ -98,6 +98,9 @@ channels=trades,bookticker,orderbook
     ASSERT_EQ(preset.jobs.size(), 2u);
     EXPECT_EQ(preset.outputDir.string(), "/mnt/d/cxet-recordings");
     EXPECT_EQ(preset.progressSec, 10);
+    EXPECT_EQ(preset.launchWaveSize, 4);
+    EXPECT_EQ(preset.launchStaggerMs, 250);
+    EXPECT_EQ(preset.sameExchangeCooldownMs, 1500);
     EXPECT_EQ(preset.jobs[0].name, "binance_btc");
     EXPECT_EQ(preset.jobs[0].exchange, "binance");
     EXPECT_EQ(preset.jobs[0].symbol, "BTCUSDT");
@@ -112,6 +115,9 @@ TEST(RecorderTuiPreset, RoundTripsPresetText) {
     RecorderTuiPreset preset{};
     preset.outputDir = "/tmp/recordings";
     preset.progressSec = 5;
+    preset.launchWaveSize = 8;
+    preset.launchStaggerMs = 100;
+    preset.sameExchangeCooldownMs = 750;
     auto& job = preset.jobs.emplace_back();
     job.name = "binance_btc";
     job.exchange = "binance";
@@ -129,6 +135,9 @@ TEST(RecorderTuiPreset, RoundTripsPresetText) {
     ASSERT_EQ(parsed.jobs.size(), 1u);
     EXPECT_EQ(parsed.outputDir, preset.outputDir);
     EXPECT_EQ(parsed.progressSec, preset.progressSec);
+    EXPECT_EQ(parsed.launchWaveSize, preset.launchWaveSize);
+    EXPECT_EQ(parsed.launchStaggerMs, preset.launchStaggerMs);
+    EXPECT_EQ(parsed.sameExchangeCooldownMs, preset.sameExchangeCooldownMs);
     EXPECT_EQ(parsed.jobs.front().name, job.name);
     EXPECT_EQ(parsed.jobs.front().exchange, job.exchange);
     EXPECT_EQ(parsed.jobs.front().durationMin, job.durationMin);
@@ -150,6 +159,30 @@ channels=trades
     std::string error;
     EXPECT_FALSE(parsePresetText(text, preset, error));
     EXPECT_NE(error.find("symbol"), std::string::npos);
+}
+
+TEST(RecorderTuiPreset, ParsesLaunchOptions) {
+    constexpr std::string_view text = R"(
+output_dir=./recordings
+progress_sec=10
+launch_wave_size=6
+launch_stagger_ms=300
+same_exchange_cooldown_ms=2000
+
+[job binance_btc]
+exchange=binance
+market=futures
+symbol=BTCUSDT
+channels=trades
+)";
+
+    RecorderTuiPreset preset{};
+    std::string error;
+    ASSERT_TRUE(parsePresetText(text, preset, error)) << error;
+
+    EXPECT_EQ(preset.launchWaveSize, 6);
+    EXPECT_EQ(preset.launchStaggerMs, 300);
+    EXPECT_EQ(preset.sameExchangeCooldownMs, 2000);
 }
 
 TEST(RecorderTuiPreset, ResolvesBarePresetNamesIntoConfigsDirectory) {

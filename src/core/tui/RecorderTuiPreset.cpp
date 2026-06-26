@@ -267,6 +267,34 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
                     return false;
                 }
                 preset.progressSec = progressSec;
+            } else if (key == "launch_wave_size") {
+                int waveSize = 0;
+                if (!parseInt(value, waveSize) || waveSize < 1 || waveSize > 1024) {
+                    error = "line " + std::to_string(lineNo) + ": launch_wave_size must be in [1,1024]";
+                    return false;
+                }
+                preset.launchWaveSize = waveSize;
+            } else if (key == "launch_stagger_ms") {
+                int staggerMs = 0;
+                if (!parseInt(value, staggerMs) || staggerMs < 0 || staggerMs > 600000) {
+                    error = "line " + std::to_string(lineNo) + ": launch_stagger_ms must be in [0,600000]";
+                    return false;
+                }
+                preset.launchStaggerMs = staggerMs;
+            } else if (key == "same_exchange_cooldown_ms") {
+                int cooldownMs = 0;
+                if (!parseInt(value, cooldownMs) || cooldownMs < 0 || cooldownMs > 600000) {
+                    error = "line " + std::to_string(lineNo) + ": same_exchange_cooldown_ms must be in [0,600000]";
+                    return false;
+                }
+                preset.sameExchangeCooldownMs = cooldownMs;
+            } else if (key == "max_active_jobs") {
+                int maxActiveJobs = 0;
+                if (!parseInt(value, maxActiveJobs) || maxActiveJobs < 1 || maxActiveJobs > 1024) {
+                    error = "line " + std::to_string(lineNo) + ": max_active_jobs must be in [1,1024]";
+                    return false;
+                }
+                preset.maxActiveJobs = maxActiveJobs;
             } else {
                 error = "line " + std::to_string(lineNo) + ": unknown global key " + key;
                 return false;
@@ -294,6 +322,10 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
     }
 
     if (preset.progressSec < 1) preset.progressSec = 10;
+    if (preset.launchWaveSize < 1) preset.launchWaveSize = 4;
+    if (preset.launchStaggerMs < 0) preset.launchStaggerMs = 250;
+    if (preset.sameExchangeCooldownMs < 0) preset.sameExchangeCooldownMs = 1500;
+    if (preset.maxActiveJobs < 1) preset.maxActiveJobs = 24;
     if (preset.outputDir.empty()) preset.outputDir = "./recordings";
     for (const RecorderTuiJob& job : preset.jobs) {
         if (!validateJob(job, error)) return false;
@@ -306,6 +338,10 @@ std::string renderPresetText(const RecorderTuiPreset& preset) {
     std::string out;
     appendLine(out, "output_dir", preset.outputDir.string());
     appendLine(out, "progress_sec", std::to_string(preset.progressSec));
+    appendLine(out, "launch_wave_size", std::to_string(preset.launchWaveSize));
+    appendLine(out, "launch_stagger_ms", std::to_string(preset.launchStaggerMs));
+    appendLine(out, "same_exchange_cooldown_ms", std::to_string(preset.sameExchangeCooldownMs));
+    appendLine(out, "max_active_jobs", std::to_string(preset.maxActiveJobs));
     for (const RecorderTuiJob& job : preset.jobs) {
         out.push_back('\n');
         out.append("[job ");

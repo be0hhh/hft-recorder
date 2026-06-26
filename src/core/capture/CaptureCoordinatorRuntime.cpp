@@ -37,6 +37,7 @@ namespace hftrec::capture {
 namespace {
 
 constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
+constexpr std::int64_t kMarketDataLifecyclePollIntervalNs = 250'000'000LL;
 constexpr std::int64_t kTradesHistoryWarmupMaxSec = 86400;
 constexpr std::size_t kTradesHistoryWarmupTargetRows = 0u;
 constexpr std::uint32_t kTradesHistoryWarmupPageLimit = 1000u;
@@ -356,6 +357,14 @@ bool sleepCaptureStopAware(const std::atomic<bool>* stopRequested, unsigned dela
     return !(stopRequested != nullptr && stopRequested->load(std::memory_order_acquire));
 }
 
+void pollMarketDataLifecycleIfDue(hft_trader::runtime::MarketDataRuntime& runtime,
+                                  std::int64_t& nextPollNs) noexcept {
+    const auto nowNs = internal::nowNs();
+    if (nowNs < nextPollNs) return;
+    nextPollNs = nowNs + kMarketDataLifecyclePollIntervalNs;
+    (void)runtime.pollLifecycleOnce();
+}
+
 bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
     if (lhs.size() != rhs.size()) return false;
     for (std::size_t i = 0u; i < lhs.size(); ++i) {
@@ -384,6 +393,11 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
     if (textEqualsAscii(exchange, "finam")) return canon::kExchangeIdFinam;
     if (textEqualsAscii(exchange, "mexc")) return canon::kExchangeIdMexc;
+    if (textEqualsAscii(exchange, "xt")) return canon::kExchangeIdXt;
+    if (textEqualsAscii(exchange, "bingx")) return canon::kExchangeIdBingx;
+    if (textEqualsAscii(exchange, "toobit")) return canon::kExchangeIdToobit;
+    if (textEqualsAscii(exchange, "htx")) return canon::kExchangeIdHtx;
+    if (textEqualsAscii(exchange, "phemex")) return canon::kExchangeIdPhemex;
     return canon::kExchangeIdUnknown;
 }
 
@@ -1348,8 +1362,10 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
     }
 
     std::int64_t nextManifestFlushNs = internal::nowNs() + kRecordingManifestFlushIntervalNs;
+    std::int64_t nextLifecyclePollNs = internal::nowNs() + kMarketDataLifecyclePollIntervalNs;
     while (!liquidationsStop_.load(std::memory_order_acquire)) {
         (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
+        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs);
         hft_trader::runtime::MarketDataRuntimeEvent event{};
         if (traderMarket.pollAvailableOne(event)) {
             if (event.stream != cxet::api::market::PublicMarketDataStream::Liquidations ||
@@ -1554,6 +1570,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
         return true;
     };
 
+    std::int64_t nextLifecyclePollNs = internal::nowNs() + kMarketDataLifecyclePollIntervalNs;
     while (!referenceDataStop_.load(std::memory_order_acquire)) {
         const std::uint8_t mask = desiredMask();
         if (mask == 0u) break;
@@ -1561,6 +1578,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
             if (!rebuildDesired()) break;
             appliedMask = mask;
         }
+        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs);
 
         hft_trader::runtime::MarketDataRuntimeEvent event{};
         if (!traderMarket.pollAvailableOne(event)) {
@@ -1871,6 +1889,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
     };
 
     std::int64_t nextManifestFlushNs = internal::nowNs() + kRecordingManifestFlushIntervalNs;
+    std::int64_t nextLifecyclePollNs = internal::nowNs() + kMarketDataLifecyclePollIntervalNs;
     while (!marketDataStop_.load(std::memory_order_acquire)) {
         (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
         const std::uint8_t mask = desiredMask();
@@ -1880,6 +1899,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
             appliedMask = mask;
             startTradesWarmupIfNeeded();
         }
+        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs);
         if (!drainTradesWarmupPages()) break;
         if (!flushTradesWarmupIfReady()) break;
 

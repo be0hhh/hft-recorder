@@ -16,6 +16,19 @@ namespace {
 
 constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
 
+bool hasCapturedRows(const SessionManifest& manifest) noexcept {
+    return manifest.tradesCount != 0u
+        || manifest.liquidationsCount != 0u
+        || manifest.bookTickerCount != 0u
+        || manifest.markPriceCount != 0u
+        || manifest.indexPriceCount != 0u
+        || manifest.fundingCount != 0u
+        || manifest.priceLimitCount != 0u
+        || manifest.depthCount != 0u
+        || manifest.candlesCount != 0u
+        || manifest.candles2Count != 0u;
+}
+
 }  // namespace
 
 CaptureCoordinator::CaptureCoordinator() = default;
@@ -157,6 +170,18 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     (void)candlesWriter_.close();
     (void)candles2Writer_.close();
     (void)depthWriter_.close();
+
+    if (!hasCapturedRows(manifest_)) {
+        const auto emptySessionDir = sessionDir_;
+        std::error_code ec;
+        std::filesystem::remove_all(emptySessionDir, ec);
+        if (ec) {
+            lastError_ = "failed to remove empty session directory: " + emptySessionDir.string();
+            return Status::IoError;
+        }
+        resetSessionState();
+        return Status::Ok;
+    }
 
     if (const auto seedStatus = writeManifestFile_(); !isOk(seedStatus)) {
         lastError_ = "failed to seed manifest.json for integrity sync";
@@ -381,8 +406,12 @@ Status CaptureCoordinator::writeManifestFile_() noexcept {
 Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
     if (config_.symbols.empty()) return Status::InvalidArgument;
     auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
-    internal::enrichInstrumentMetadataFromExchangeInfo(config_, metadata);
-    instrumentMetadataReady_ = metadata.metadataSource == "hft_trader";
+    // Do not block session creation on venue exchangeInfo REST. Newly added
+    // venues can stall here after the directory is created but before the
+    // initial manifest and JSON sinks are opened. Start with recorder-inferred
+    // metadata; cold enrichment can happen after the session is recording.
+    metadata.metadataWarning = "hft_trader_metadata_deferred_startup_nonblocking";
+    instrumentMetadataReady_ = false;
     std::ofstream out(sessionDir_ / manifest_.instrumentMetadataPath, std::ios::out | std::ios::trunc);
     if (!out.is_open()) return Status::IoError;
     out << corpus::renderInstrumentMetadataJson(metadata);

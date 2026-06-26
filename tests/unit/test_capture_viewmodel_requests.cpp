@@ -35,6 +35,24 @@ TEST(CaptureViewModelRequests, AppliesNativeVenueSymbolsFromGlobalInput) {
               QStringLiteral("XBTUSDTM"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("gate_futures"), QStringLiteral("BTCUSDT")),
               QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("xt_futures"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("btc_usdt"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bingx_futures"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("BTC-USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("toobit_futures"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("BTC-SWAP-USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("htx_futures"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("BTC-USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("phemex_futures"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("BTCUSDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("toobit_spot"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("BTCUSDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bingx_spot"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("BTC-USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("htx_spot"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("btcusdt"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("phemex_spot"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("sBTCUSDT"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("okx_futures"), QStringLiteral("BTCUSDT")),
               QStringLiteral("BTC-USDT-SWAP"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("okx_spot"), QStringLiteral("BTCUSDT")),
@@ -49,6 +67,11 @@ TEST(CaptureViewModelRequests, VenuePlaceholdersShowNativeFormat) {
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("kucoin_futures")), QStringLiteral("Example: XBTUSDTM"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("gate_futures")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("okx_futures")), QStringLiteral("Example: BTC-USDT-SWAP"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("xt_futures")), QStringLiteral("Example: btc_usdt"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("bingx_futures")), QStringLiteral("Example: BTC-USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("toobit_futures")), QStringLiteral("Example: BTC-SWAP-USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("htx_futures")), QStringLiteral("Example: BTC-USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("phemex_futures")), QStringLiteral("Example: BTCUSDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("finam_spot")), QStringLiteral("Example: SBER@MISX"));
 }
 

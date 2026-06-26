@@ -13,20 +13,34 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <future>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
+
+#if HFTREC_WITH_CXET
+#include "canon/PositionAndExchange.hpp"
+#include "canon/Subtypes.hpp"
+#include "hft_trader/runtime/config/RuntimeConfig.hpp"
+#include "hft_trader/runtime/market/MarketDataRuntime.hpp"
+#endif
 
 #include "core/capture/CaptureCoordinator.hpp"
 #include "core/recordings/RecordingDiscovery.hpp"
+#include "core/tui/RecorderTuiLaunch.hpp"
 #include "core/tui/RecorderTuiPreset.hpp"
 #include "core/tui/RecorderTuiSymbols.hpp"
 #include "core/tui/TerminalRender.hpp"
 
 namespace hftrec::app {
+
+int runShardPresetInteractive(const tui::RecorderTuiPreset& preset, const std::filesystem::path& presetPath);
 
 namespace {
 
@@ -312,6 +326,122 @@ const char* channelNameByIndex(int index) {
     }
 }
 
+#if HFTREC_WITH_CXET
+ExchangeId tuiExchangeIdFromConfig(std::string_view exchange) {
+    const std::string value = lower(exchange);
+    if (value == "binance") return canon::kExchangeIdBinance;
+    if (value == "bybit") return canon::kExchangeIdBybit;
+    if (value == "kucoin") return canon::kExchangeIdKucoin;
+    if (value == "gate") return canon::kExchangeIdGate;
+    if (value == "bitget") return canon::kExchangeIdBitget;
+    if (value == "aster") return canon::kExchangeIdAster;
+    if (value == "okx") return canon::kExchangeIdOkx;
+    if (value == "finam") return canon::kExchangeIdFinam;
+    if (value == "mexc") return canon::kExchangeIdMexc;
+    if (value == "xt") return canon::kExchangeIdXt;
+    if (value == "bingx") return canon::kExchangeIdBingx;
+    if (value == "toobit") return canon::kExchangeIdToobit;
+    if (value == "htx") return canon::kExchangeIdHtx;
+    if (value == "phemex") return canon::kExchangeIdPhemex;
+    return canon::kExchangeIdUnknown;
+}
+
+canon::MarketType tuiMarketTypeFromConfig(std::string_view market) {
+    const std::string value = lower(market);
+    if (value == "spot" || value == "shares") return canon::kMarketTypeSpot;
+    if (value == "margin") return canon::kMarketTypeMargin;
+    if (value == "inverse") return canon::kMarketTypeInverse;
+    if (value == "swap") return canon::kMarketTypeSwap;
+    return canon::kMarketTypeFutures;
+}
+
+cxet::api::market::PublicMarketDataStream streamForLaunchChannel(tui::LaunchChannel channel) noexcept {
+    switch (channel) {
+        case tui::LaunchChannel::Trades: return cxet::api::market::PublicMarketDataStream::Trades;
+        case tui::LaunchChannel::Liquidations: return cxet::api::market::PublicMarketDataStream::Liquidations;
+        case tui::LaunchChannel::BookTicker: return cxet::api::market::PublicMarketDataStream::BookTicker;
+        case tui::LaunchChannel::Orderbook: return cxet::api::market::PublicMarketDataStream::Orderbook;
+        case tui::LaunchChannel::MarkPrice: return cxet::api::market::PublicMarketDataStream::MarkPrice;
+        case tui::LaunchChannel::IndexPrice: return cxet::api::market::PublicMarketDataStream::IndexPrice;
+        case tui::LaunchChannel::Funding: return cxet::api::market::PublicMarketDataStream::Funding;
+        case tui::LaunchChannel::PriceLimit: return cxet::api::market::PublicMarketDataStream::PriceLimit;
+    }
+    return cxet::api::market::PublicMarketDataStream::BookTicker;
+}
+#endif
+
+struct TuiChannelAvailabilityCacheEntry {
+    std::string exchange;
+    std::string market;
+    tui::LaunchChannel channel{tui::LaunchChannel::Trades};
+    bool available{false};
+};
+
+struct TuiChannelAvailabilityCache {
+    std::vector<TuiChannelAvailabilityCacheEntry> entries{};
+};
+
+bool tuiChannelAvailableUncached(const tui::RecorderTuiJob& job, tui::LaunchChannel channel) {
+#if HFTREC_WITH_CXET
+    const ExchangeId exchange = tuiExchangeIdFromConfig(job.exchange);
+    if (exchange.raw == canon::kExchangeIdUnknown.raw) return false;
+    const canon::MarketType market = tuiMarketTypeFromConfig(job.market);
+    if (market.raw == canon::kMarketTypeUnknown.raw) return false;
+
+    Symbol symbol{};
+    symbol.copyFrom(job.symbol.c_str());
+    if (symbol.data[0] == '\0') return false;
+
+    hft_trader::runtime::VenueRuntimeConfig venue{};
+    venue.name = job.exchange + "." + job.market;
+    venue.exchange = exchange;
+    venue.market = market;
+    venue.apiSlot = 1u;
+    venue.hasApiSlot = true;
+    venue.marketEnabled = true;
+    venue.userEnabled = false;
+    venue.orderEnabled = false;
+    venue.controlEnabled = false;
+    venue.symbols.push_back(symbol);
+    hft_trader::runtime::setStrategyParam(venue.params, "reference_poll_interval_ms", "5000");
+
+    hft_trader::runtime::HftRuntimeConfig cfg{};
+    cfg.name = "hft_recorder_tui_preflight";
+    cfg.strategyType = "explicit_inputs";
+    cfg.hasInputs = true;
+    cfg.inputs.push_back(streamForLaunchChannel(channel));
+    cfg.venues.push_back(std::move(venue));
+
+    hft_trader::runtime::MarketDataRuntime runtime{};
+    std::string error;
+    return runtime.applyConfig(cfg, error);
+#else
+    (void)job;
+    (void)channel;
+    return true;
+#endif
+}
+
+bool tuiChannelAvailable(const tui::RecorderTuiJob& job, tui::LaunchChannel channel, void* userData) {
+    auto* cache = static_cast<TuiChannelAvailabilityCache*>(userData);
+    if (cache == nullptr) return tuiChannelAvailableUncached(job, channel);
+
+    const std::string exchange = lower(job.exchange);
+    const std::string market = lower(job.market);
+    for (const auto& entry : cache->entries) {
+        if (entry.exchange == exchange && entry.market == market && entry.channel == channel) return entry.available;
+    }
+
+    const bool available = tuiChannelAvailableUncached(job, channel);
+    cache->entries.push_back(TuiChannelAvailabilityCacheEntry{
+        .exchange = exchange,
+        .market = market,
+        .channel = channel,
+        .available = available,
+    });
+    return available;
+}
+
 void renderEditJob(const tui::RecorderTuiJob& job, int row, std::string_view message) {
     const auto viewport = currentViewport();
     clearScreen();
@@ -399,44 +529,137 @@ void renderMainMenu(const tui::RecorderTuiPreset& preset, std::size_t selected, 
     std::fflush(stdout);
 }
 
-capture::CaptureConfig makeCaptureConfig(const tui::RecorderTuiPreset& preset, const tui::RecorderTuiJob& job) {
+struct RunOutputGroups {
+    std::filesystem::path root{};
+    std::int64_t timestampNs{0};
+    std::map<std::string, std::filesystem::path> bySymbol{};
+};
+
+RunOutputGroups makeRunOutputGroups(const tui::RecorderTuiPreset& preset) {
+    return RunOutputGroups{.root = preset.outputDir, .timestampNs = wallNowNs()};
+}
+
+std::filesystem::path outputDirForRunJob(RunOutputGroups& groups, const tui::RecorderTuiJob& job) {
+    std::string normalizedSymbol = recordings::normalizeRecordingSymbol(job.symbol);
+    if (normalizedSymbol.empty()) normalizedSymbol = "UNKNOWN";
+
+    auto [it, inserted] = groups.bySymbol.try_emplace(normalizedSymbol);
+    if (inserted) {
+        const std::string groupName = recordings::recordingGroupFolderName(groups.timestampNs, normalizedSymbol);
+        it->second = uniquePath(groups.root, groupName);
+    }
+    return it->second;
+}
+
+capture::CaptureConfig makeCaptureConfig(const tui::RecorderTuiJob& job,
+                                         const std::filesystem::path& outputDir) {
     capture::CaptureConfig config{};
     config.exchange = job.exchange;
     config.market = job.market;
     config.symbols = {job.symbol};
-    config.outputDir = preset.outputDir;
+    config.outputDir = outputDir;
     config.durationSec = job.durationMin > 0 ? job.durationMin * 60 : 0;
     config.snapshotIntervalSec = 60;
+    config.tradesHistoryWarmupSec = 0;
+    config.tradesHistoryMaxRows = 0u;
     config.liveCacheMode = capture::LiveCacheMode::Off;
     return config;
-}
-
-tui::RecorderTuiPreset presetForRunGroup(const tui::RecorderTuiPreset& preset) {
-    tui::RecorderTuiPreset runPreset = preset;
-    std::string normalizedSymbol = "UNKNOWN";
-    for (const auto& job : preset.jobs) {
-        const std::string symbol = recordings::normalizeRecordingSymbol(job.symbol);
-        if (!symbol.empty() && symbol != "UNKNOWN") {
-            normalizedSymbol = symbol;
-            break;
-        }
-    }
-    const std::string groupName = recordings::recordingGroupFolderName(wallNowNs(), normalizedSymbol);
-    runPreset.outputDir = uniquePath(preset.outputDir, groupName);
-    return runPreset;
 }
 
 struct RunningJob {
     tui::RecorderTuiJob job{};
     capture::CaptureConfig config{};
     std::unique_ptr<capture::CaptureCoordinator> coordinator{};
+    std::future<std::shared_ptr<RunningJob>> startFuture{};
+    Clock::time_point scheduledStart{};
     Clock::time_point started{};
+    tui::ChannelSelection skippedChannels{};
+    bool startInProgress{false};
+    bool launched{false};
     bool running{false};
     bool stopRequested{false};
     bool finalized{false};
     std::string status{"idle"};
+    std::string planNote{};
     std::string error{};
 };
+
+constexpr std::int64_t kStartSlotGraceSec = 15;
+constexpr auto kDeadZeroRowSessionTtl = std::chrono::minutes(5);
+constexpr auto kDeadZeroRowSweepInterval = std::chrono::seconds(30);
+
+std::int64_t startAgeSeconds(const RunningJob& job, Clock::time_point now) noexcept {
+    if (!job.startInProgress) return 0;
+    return std::max<std::int64_t>(
+        0, std::chrono::duration_cast<std::chrono::seconds>(now - job.started).count());
+}
+
+bool startStalled(const RunningJob& job, Clock::time_point now) noexcept {
+    return job.startInProgress && startAgeSeconds(job, now) >= kStartSlotGraceSec;
+}
+
+bool manifestHasRows(const capture::SessionManifest& manifest) noexcept {
+    return manifest.tradesCount != 0u
+        || manifest.liquidationsCount != 0u
+        || manifest.bookTickerCount != 0u
+        || manifest.markPriceCount != 0u
+        || manifest.indexPriceCount != 0u
+        || manifest.fundingCount != 0u
+        || manifest.priceLimitCount != 0u
+        || manifest.depthCount != 0u
+        || manifest.candlesCount != 0u
+        || manifest.candles2Count != 0u;
+}
+
+std::string readTextFile(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::in | std::ios::binary);
+    if (!in) return {};
+    std::ostringstream out;
+    out << in.rdbuf();
+    return out.str();
+}
+
+std::string skippedChannelsNote(const tui::ChannelSelection& channels) {
+    if (!tui::anyChannelSelected(channels)) return {};
+    return "skipped channels: " + tui::renderChannelSelection(channels);
+}
+
+std::string launchPlanMessage(const tui::RecorderTuiLaunchPlan& plan) {
+    std::ostringstream out;
+    out << "planned " << plan.runnableJobs << " job(s)";
+    if (plan.skippedJobs != 0u) out << ", skipped " << plan.skippedJobs;
+    out << ", wave=" << plan.launchWaveSize << ", stagger=" << plan.launchStaggerMs
+        << "ms, same-exchange=" << plan.sameExchangeCooldownMs << "ms"
+        << ", max-active=" << plan.maxActiveJobs;
+    return out.str();
+}
+
+RunningJob makePlannedJob(const tui::RecorderTuiLaunchJob& planned,
+                          Clock::time_point baseTime,
+                          RunOutputGroups& outputGroups) {
+    RunningJob job{};
+    job.job = planned.job;
+    job.config = makeCaptureConfig(planned.job, outputDirForRunJob(outputGroups, planned.job));
+    job.scheduledStart = baseTime + std::chrono::milliseconds(planned.scheduledStartMs);
+    job.skippedChannels = planned.skippedChannels;
+    job.planNote = skippedChannelsNote(planned.skippedChannels);
+    if (planned.skipJob) {
+        job.status = "skipped";
+        job.planNote = planned.skipReason;
+        job.finalized = true;
+    } else {
+        job.status = "pending";
+    }
+    return job;
+}
+
+void appendPlannedJobs(std::vector<RunningJob>& jobs,
+                       const tui::RecorderTuiLaunchPlan& plan,
+                       Clock::time_point baseTime,
+                       RunOutputGroups& outputGroups) {
+    jobs.reserve(jobs.size() + plan.jobs.size());
+    for (const auto& planned : plan.jobs) jobs.push_back(makePlannedJob(planned, baseTime, outputGroups));
+}
 
 void appendStartError(RunningJob& job, std::string_view channel, Status status) {
     const std::string last = job.coordinator ? job.coordinator->lastError() : std::string{};
@@ -455,8 +678,29 @@ bool anyRunningChannel(const capture::CaptureCoordinator& coordinator) noexcept 
            coordinator.fundingRunning() || coordinator.priceLimitRunning();
 }
 
+int activeJobSlots(const std::vector<RunningJob>& jobs) noexcept {
+    int count = 0;
+    for (const auto& job : jobs) {
+        if (job.finalized) continue;
+        if (job.startInProgress || job.running) ++count;
+    }
+    return count;
+}
+
 void requestStopJob(RunningJob& job) {
-    if (!job.coordinator || job.finalized || job.stopRequested) return;
+    if (job.finalized || job.stopRequested) return;
+    if (job.startInProgress) {
+        job.stopRequested = true;
+        job.status = "stopping";
+        return;
+    }
+    if (!job.coordinator) {
+        job.stopRequested = true;
+        job.running = false;
+        job.finalized = true;
+        if (job.status == "pending") job.status = "stopped";
+        return;
+    }
     if (job.job.channels.trades) (void)job.coordinator->requestStopTrades();
     if (job.job.channels.liquidations) (void)job.coordinator->requestStopLiquidations();
     if (job.job.channels.bookTicker) (void)job.coordinator->requestStopBookTicker();
@@ -470,12 +714,14 @@ void requestStopJob(RunningJob& job) {
     job.status = "stopping";
 }
 
-RunningJob startJob(const tui::RecorderTuiPreset& preset, const tui::RecorderTuiJob& source) {
+RunningJob startJobFromConfig(const tui::RecorderTuiJob& source, capture::CaptureConfig config) {
     RunningJob job{};
     job.job = source;
-    job.config = makeCaptureConfig(preset, source);
+    job.config = std::move(config);
     job.coordinator = std::make_unique<capture::CaptureCoordinator>();
     job.started = Clock::now();
+    job.scheduledStart = job.started;
+    job.launched = true;
     job.status = "starting";
 
     if (source.channels.trades) tryStartChannel(job, "trades", job.coordinator->startTrades(job.config));
@@ -492,8 +738,271 @@ RunningJob startJob(const tui::RecorderTuiPreset& preset, const tui::RecorderTui
     return job;
 }
 
+bool preparePlannedJobChannels(RunningJob& job, TuiChannelAvailabilityCache& availabilityCache) {
+    tui::RecorderTuiLaunchJob planned{};
+    planned.job = job.job;
+    const tui::RecorderTuiLaunchJob filtered =
+        tui::filterLaunchJobChannels(planned, tuiChannelAvailable, &availabilityCache);
+    job.job = filtered.job;
+    job.skippedChannels = filtered.skippedChannels;
+    job.planNote = skippedChannelsNote(filtered.skippedChannels);
+    if (!filtered.skipJob) return true;
+
+    job.status = "skipped";
+    job.planNote = filtered.skipReason;
+    job.running = false;
+    job.finalized = true;
+    return false;
+}
+
+std::shared_ptr<RunningJob> prepareAndStartJobWorker(tui::RecorderTuiJob source,
+                                                     capture::CaptureConfig config,
+                                                     Clock::time_point scheduledStart) {
+    RunningJob job{};
+    job.job = std::move(source);
+    job.config = std::move(config);
+    job.scheduledStart = scheduledStart;
+
+    TuiChannelAvailabilityCache availabilityCache{};
+    if (!preparePlannedJobChannels(job, availabilityCache)) {
+        return std::make_shared<RunningJob>(std::move(job));
+    }
+
+    RunningJob started = startJobFromConfig(job.job, std::move(job.config));
+    started.scheduledStart = scheduledStart;
+    started.skippedChannels = job.skippedChannels;
+    started.planNote = job.planNote;
+    return std::make_shared<RunningJob>(std::move(started));
+}
+
+void startPlannedJobAsync(RunningJob& job) {
+    tui::RecorderTuiJob source = job.job;
+    capture::CaptureConfig config = job.config;
+    const Clock::time_point scheduledStart = job.scheduledStart;
+    job.started = Clock::now();
+    job.startInProgress = true;
+    job.status = "starting";
+    job.startFuture = std::async(std::launch::async,
+                                 [source = std::move(source),
+                                  config = std::move(config),
+                                  scheduledStart]() mutable {
+                                     return prepareAndStartJobWorker(std::move(source),
+                                                                     std::move(config),
+                                                                     scheduledStart);
+                                 });
+}
+
+bool completeStartJobIfReady(RunningJob& job) {
+    if (!job.startInProgress || !job.startFuture.valid()) return false;
+    if (job.startFuture.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) return false;
+
+    const bool stopRequested = job.stopRequested;
+    std::shared_ptr<RunningJob> result = job.startFuture.get();
+    RunningJob completed{};
+    if (result) completed = std::move(*result);
+    completed.stopRequested = false;
+    if (stopRequested) requestStopJob(completed);
+    job = std::move(completed);
+    return true;
+}
+
+void waitForStartJob(RunningJob& job) {
+    if (!job.startInProgress || !job.startFuture.valid()) return;
+    const bool stopRequested = job.stopRequested;
+    std::shared_ptr<RunningJob> result = job.startFuture.get();
+    RunningJob completed{};
+    if (result) completed = std::move(*result);
+    completed.stopRequested = false;
+    if (stopRequested) requestStopJob(completed);
+    job = std::move(completed);
+}
+
+struct DeadSessionSweepResult {
+    int removedSessions{0};
+    int removedGroups{0};
+};
+
+bool looksLikeSessionDirName(std::string_view name) noexcept {
+    std::size_t digits = 0;
+    while (digits < name.size() && std::isdigit(static_cast<unsigned char>(name[digits]))) {
+        ++digits;
+    }
+    return digits >= 10u && digits < name.size() && name[digits] == '_';
+}
+
+bool sessionDirHasJsonlRows(const std::filesystem::path& sessionDir) {
+    std::error_code ec;
+    for (std::filesystem::recursive_directory_iterator it(sessionDir, std::filesystem::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        if (it->path().extension() != ".jsonl") continue;
+        if (std::filesystem::file_size(it->path(), ec) != 0u && !ec) return true;
+        ec.clear();
+    }
+    return false;
+}
+
+bool deadZeroRowManifest(const capture::SessionManifest& manifest, std::int64_t nowNs) noexcept {
+    if (manifest.startedAtNs <= 0) return false;
+    if (manifestHasRows(manifest)) return false;
+    const auto ttlNs = std::chrono::duration_cast<std::chrono::nanoseconds>(kDeadZeroRowSessionTtl).count();
+    return nowNs - manifest.startedAtNs >= ttlNs;
+}
+
+bool removeOrphanSessionDirIfDead(const std::filesystem::path& sessionDir,
+                                  std::filesystem::file_time_type now,
+                                  DeadSessionSweepResult& result) {
+    if (!looksLikeSessionDirName(sessionDir.filename().string())) return false;
+    std::error_code ec;
+    if (std::filesystem::exists(sessionDir / "manifest.json", ec) || ec) return false;
+
+    const auto updatedAt = std::filesystem::last_write_time(sessionDir, ec);
+    if (ec || now - updatedAt < kDeadZeroRowSessionTtl) return false;
+    if (sessionDirHasJsonlRows(sessionDir)) return false;
+
+    std::filesystem::remove_all(sessionDir, ec);
+    if (ec) return false;
+    ++result.removedSessions;
+    return true;
+}
+
+bool removeSessionDirIfDeadZeroRows(const std::filesystem::path& sessionDir,
+                                    std::int64_t nowNs,
+                                    DeadSessionSweepResult& result) {
+    const std::filesystem::path manifestPath = sessionDir / "manifest.json";
+    const std::string document = readTextFile(manifestPath);
+    if (document.empty()) return false;
+
+    capture::SessionManifest manifest{};
+    if (!isOk(capture::parseManifestJson(document, manifest))) return false;
+    if (!deadZeroRowManifest(manifest, nowNs)) return false;
+
+    std::error_code ec;
+    std::filesystem::remove_all(sessionDir, ec);
+    if (ec) return false;
+    ++result.removedSessions;
+    return true;
+}
+
+void removeGroupIfEmpty(const std::filesystem::path& root,
+                        const std::filesystem::path& groupPath,
+                        DeadSessionSweepResult& result) {
+    std::error_code ec;
+    const auto canonicalRoot = std::filesystem::weakly_canonical(root, ec);
+    if (ec) return;
+    const auto canonicalGroup = std::filesystem::weakly_canonical(groupPath, ec);
+    if (ec || canonicalGroup == canonicalRoot) return;
+    if (!std::filesystem::exists(canonicalGroup, ec) || ec) return;
+    if (!std::filesystem::is_empty(canonicalGroup, ec) || ec) return;
+    std::filesystem::remove(canonicalGroup, ec);
+    if (!ec) ++result.removedGroups;
+}
+
+DeadSessionSweepResult sweepDeadZeroRowSessionsInGroup(const std::filesystem::path& root,
+                                                       const std::filesystem::path& groupPath,
+                                                       std::int64_t nowNs) {
+    DeadSessionSweepResult result{};
+    std::error_code ec;
+    const auto fileNow = std::filesystem::file_time_type::clock::now();
+    if (!std::filesystem::exists(groupPath, ec) || ec) return result;
+    for (std::filesystem::directory_iterator it(groupPath, std::filesystem::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_directory(ec)) continue;
+        if (removeOrphanSessionDirIfDead(it->path(), fileNow, result)) continue;
+        (void)removeSessionDirIfDeadZeroRows(it->path(), nowNs, result);
+    }
+    removeGroupIfEmpty(root, groupPath, result);
+    return result;
+}
+
+DeadSessionSweepResult sweepDeadZeroRowSessions(const std::filesystem::path& root, std::int64_t nowNs) {
+    DeadSessionSweepResult result{};
+    std::error_code ec;
+    if (!std::filesystem::exists(root, ec) || ec) return result;
+    std::vector<std::filesystem::path> sessionDirs;
+    std::vector<std::filesystem::path> orphanDirs;
+    for (std::filesystem::recursive_directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end;
+         it.increment(ec)) {
+        if (it->is_directory(ec) && looksLikeSessionDirName(it->path().filename().string())) {
+            orphanDirs.push_back(it->path());
+            continue;
+        }
+        if (!it->is_regular_file(ec) || it->path().filename() != "manifest.json") continue;
+        sessionDirs.push_back(it->path().parent_path());
+    }
+    const auto fileNow = std::filesystem::file_time_type::clock::now();
+    for (const auto& orphanDir : orphanDirs) {
+        const std::filesystem::path groupPath = orphanDir.parent_path();
+        if (removeOrphanSessionDirIfDead(orphanDir, fileNow, result)) {
+            removeGroupIfEmpty(root, groupPath, result);
+        }
+    }
+    for (const auto& sessionDir : sessionDirs) {
+        const std::filesystem::path groupPath = sessionDir.parent_path();
+        if (removeSessionDirIfDeadZeroRows(sessionDir, nowNs, result)) {
+            removeGroupIfEmpty(root, groupPath, result);
+        }
+    }
+    return result;
+}
+
+DeadSessionSweepResult sweepRunOutputGroups(const RunOutputGroups& outputGroups) {
+    DeadSessionSweepResult total{};
+    const std::int64_t nowNs = wallNowNs();
+    for (const auto& [_, groupPath] : outputGroups.bySymbol) {
+        const DeadSessionSweepResult result =
+            sweepDeadZeroRowSessionsInGroup(outputGroups.root, groupPath, nowNs);
+        total.removedSessions += result.removedSessions;
+        total.removedGroups += result.removedGroups;
+    }
+    return total;
+}
+
+std::string deadSessionSweepMessage(const DeadSessionSweepResult& result) {
+    if (result.removedSessions == 0 && result.removedGroups == 0) return {};
+    std::ostringstream out;
+    out << "removed " << result.removedSessions << " dead zero-row session(s)";
+    if (result.removedGroups != 0) out << ", " << result.removedGroups << " empty group(s)";
+    return out.str();
+}
+
+void writeRunGroupManifests(const std::filesystem::path& recordingsRoot, const RunOutputGroups& outputGroups) {
+    std::vector<std::filesystem::path> targetGroups;
+    targetGroups.reserve(outputGroups.bySymbol.size());
+    for (const auto& [_, groupPath] : outputGroups.bySymbol) {
+        std::error_code ec;
+        const auto canonical = std::filesystem::weakly_canonical(groupPath, ec);
+        if (ec || canonical.empty()) continue;
+        if (!std::filesystem::exists(canonical, ec)) continue;
+        if (!ec && std::filesystem::is_empty(canonical, ec)) {
+            std::filesystem::remove(canonical, ec);
+            continue;
+        }
+        if (std::find(targetGroups.begin(), targetGroups.end(), canonical) == targetGroups.end()) {
+            targetGroups.push_back(canonical);
+        }
+    }
+    if (targetGroups.empty()) return;
+
+    const auto discovery = recordings::discoverRecordings(recordingsRoot);
+    for (const auto& group : discovery.groups) {
+        if (std::find(targetGroups.begin(), targetGroups.end(), group.path) == targetGroups.end()) continue;
+        std::string error;
+        (void)recordings::writeGroupManifest(group, &error);
+    }
+}
+
 void finalizeJob(RunningJob& job) {
-    if (!job.coordinator || job.finalized) return;
+    if (job.finalized) return;
+    if (!job.coordinator) {
+        job.running = false;
+        job.finalized = true;
+        if (job.status == "pending") job.status = job.stopRequested ? "stopped" : "skipped";
+        return;
+    }
     requestStopJob(job);
     job.status = "stopping";
     const auto status = job.coordinator->finalizeSession();
@@ -516,17 +1025,49 @@ std::uint64_t totalRows(const capture::CaptureCoordinator& coordinator) noexcept
            coordinator.fundingCount() + coordinator.priceLimitCount();
 }
 
+bool deadZeroRowJobExpired(const RunningJob& job, Clock::time_point now) noexcept {
+    if (!job.launched || job.finalized || job.startInProgress || !job.coordinator) return false;
+    if (totalRows(*job.coordinator) != 0u) return false;
+    return now - job.started >= kDeadZeroRowSessionTtl;
+}
+
+bool cullDeadZeroRowJob(RunningJob& job, Clock::time_point now) {
+    if (!deadZeroRowJobExpired(job, now)) return false;
+    job.error = "dead session: no rows for 5m";
+    finalizeJob(job);
+    job.status = "dead";
+    job.running = false;
+    job.finalized = true;
+    return true;
+}
+
 void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, std::string_view message) {
     const auto viewport = currentViewport();
+    const auto now = Clock::now();
     clearScreen();
     std::uint64_t aggregateRows = 0;
     int runningCount = 0;
+    int startingCount = 0;
+    int stalledCount = 0;
+    int pendingCount = 0;
+    int skippedCount = 0;
+    int errorCount = 0;
     for (const auto& job : jobs) {
         if (job.coordinator) aggregateRows += totalRows(*job.coordinator);
         if (job.running) ++runningCount;
+        if (job.startInProgress) ++startingCount;
+        if (startStalled(job, now)) ++stalledCount;
+        if (!job.launched && !job.finalized && !job.startInProgress) ++pendingCount;
+        if (job.status == "skipped") ++skippedCount;
+        if (job.status == "error") ++errorCount;
     }
     printLine("hft-recorder TUI / running  jobs=" + std::to_string(jobs.size()) +
                   " running=" + std::to_string(runningCount) +
+                  " starting=" + std::to_string(startingCount) +
+                  " stalled=" + std::to_string(stalledCount) +
+                  " pending=" + std::to_string(pendingCount) +
+                  " skipped=" + std::to_string(skippedCount) +
+                  " errors=" + std::to_string(errorCount) +
                   " rows=" + std::to_string(static_cast<unsigned long long>(aggregateRows)),
               viewport);
     std::putchar('\n');
@@ -534,18 +1075,28 @@ void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, st
     std::vector<std::string> lines;
     for (std::size_t i = 0; i < jobs.size(); ++i) {
         const auto& job = jobs[i];
-        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - job.started).count();
         const auto durationSec = job.job.durationMin > 0 ? job.job.durationMin * 60 : 0;
         std::ostringstream head;
         head << (i == selected ? '>' : ' ') << ' ' << (i + 1u) << ' ' << job.job.name << ' ' << job.status << ' '
-             << job.job.exchange << '/' << job.job.market << ' ' << job.job.symbol << " elapsed="
-             << static_cast<long long>(elapsed) << 's';
-        if (durationSec > 0) head << '/' << static_cast<long long>(durationSec) << 's';
+             << job.job.exchange << '/' << job.job.market << ' ' << job.job.symbol;
+        if (job.startInProgress) {
+            head << " starting_for=" << static_cast<long long>(startAgeSeconds(job, now)) << 's';
+            if (startStalled(job, now)) head << " stalled";
+        } else if (!job.launched && !job.finalized) {
+            const auto waitMs = std::max<std::int64_t>(
+                0, std::chrono::duration_cast<std::chrono::milliseconds>(job.scheduledStart - now).count());
+            head << " starts_in=" << static_cast<long long>(waitMs) << "ms";
+        } else if (job.launched) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - job.started).count();
+            head << " elapsed=" << static_cast<long long>(elapsed) << 's';
+            if (durationSec > 0) head << '/' << static_cast<long long>(durationSec) << 's';
+        }
         if (job.coordinator) {
             head << " session="
                  << tui::compactSessionPath(job.coordinator->sessionDirCopy(), std::max(16, viewport.cols / 2));
         }
         lines.push_back(head.str());
+        if (!job.planNote.empty()) lines.push_back("      note: " + job.planNote);
         if (job.coordinator) {
             std::ostringstream counts;
             counts << "      trades=" << static_cast<unsigned long long>(job.coordinator->tradesCount())
@@ -573,15 +1124,24 @@ void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, st
 }
 
 void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
-    tui::RecorderTuiPreset runPreset = presetForRunGroup(preset);
+    tui::RecorderTuiPreset runPreset = preset;
+    RunOutputGroups outputGroups = makeRunOutputGroups(runPreset);
+    const tui::RecorderTuiLaunchPlan launchPlan = tui::buildLaunchPlan(runPreset, nullptr, nullptr);
     std::vector<RunningJob> jobs;
-    jobs.reserve(runPreset.jobs.size());
-    for (const auto& source : runPreset.jobs) jobs.push_back(startJob(runPreset, source));
+    jobs.reserve(launchPlan.jobs.size());
+    appendPlannedJobs(jobs, launchPlan, Clock::now(), outputGroups);
 
     std::size_t selected = 0;
-    std::string message;
-    auto nextProgress = Clock::now();
-    bool dirty = true;
+    std::string message = launchPlanMessage(launchPlan);
+    if (const std::string cleanup = deadSessionSweepMessage(sweepDeadZeroRowSessions(runPreset.outputDir, wallNowNs()));
+        !cleanup.empty()) {
+        message += " | " + cleanup;
+    }
+    renderRunning(jobs, selected, message);
+    message.clear();
+    auto nextProgress = Clock::now() + std::chrono::seconds(std::max(1, preset.progressSec));
+    auto nextDeadSessionSweep = Clock::now() + kDeadZeroRowSweepInterval;
+    bool dirty = false;
     std::string lastIdleMessage;
     while (true) {
         if (gInterrupted) {
@@ -593,6 +1153,30 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
         const auto now = Clock::now();
         bool stateChanged = false;
         for (auto& job : jobs) {
+            if (completeStartJobIfReady(job)) stateChanged = true;
+        }
+        int launchedThisTick = 0;
+        const int launchLimit = std::max(1, runPreset.launchWaveSize);
+        int activeSlots = activeJobSlots(jobs);
+        const int maxActiveJobs = std::max(1, runPreset.maxActiveJobs);
+        for (auto& job : jobs) {
+            if (launchedThisTick >= launchLimit) break;
+            if (activeSlots >= maxActiveJobs) break;
+            if (job.launched || job.finalized || job.startInProgress || now < job.scheduledStart) continue;
+            ++launchedThisTick;
+            ++activeSlots;
+            startPlannedJobAsync(job);
+            stateChanged = true;
+        }
+        for (auto& job : jobs) {
+            if (!job.launched) continue;
+            if (job.startInProgress) continue;
+            if (job.coordinator) job.coordinator->reapStoppedThreads();
+            if (cullDeadZeroRowJob(job, now)) {
+                message = "removed dead zero-row session";
+                stateChanged = true;
+                continue;
+            }
             const bool channelsLive = job.coordinator && anyRunningChannel(*job.coordinator);
             if (job.running && !channelsLive) {
                 job.running = false;
@@ -610,6 +1194,14 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
                 requestStopJob(job);
                 stateChanged = true;
             }
+        }
+        if (now >= nextDeadSessionSweep) {
+            const DeadSessionSweepResult cleanup = sweepRunOutputGroups(outputGroups);
+            if (const std::string cleanupMessage = deadSessionSweepMessage(cleanup); !cleanupMessage.empty()) {
+                message = cleanupMessage;
+                stateChanged = true;
+            }
+            nextDeadSessionSweep = now + kDeadZeroRowSweepInterval;
         }
 
         if (dirty || stateChanged || now >= nextProgress) {
@@ -633,11 +1225,16 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
             } else {
                 const std::size_t before = runPreset.jobs.size();
                 const GeneratedJobsAppendResult result = appendGeneratedSymbolJobs(runPreset, input);
-                for (std::size_t i = before; i < runPreset.jobs.size(); ++i) {
-                    jobs.push_back(startJob(runPreset, runPreset.jobs[i]));
+                if (before < runPreset.jobs.size()) {
+                    tui::RecorderTuiPreset addPreset = runPreset;
+                    addPreset.jobs.assign(runPreset.jobs.begin() + static_cast<std::ptrdiff_t>(before),
+                                          runPreset.jobs.end());
+                    const tui::RecorderTuiLaunchPlan addPlan =
+                        tui::buildLaunchPlan(addPreset, nullptr, nullptr);
+                    appendPlannedJobs(jobs, addPlan, Clock::now(), outputGroups);
                 }
                 if (selected >= jobs.size()) selected = jobs.empty() ? 0 : jobs.size() - 1u;
-                message = generatedJobsMessage(result, "started");
+                message = generatedJobsMessage(result, "scheduled");
             }
             dirty = true;
         } else if (key.kind == KeyKind::Character && (key.ch == 's' || key.ch == 'S' || key.ch == 'c' || key.ch == 'C')) {
@@ -653,9 +1250,23 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
         }
 
         const bool anyLive = std::any_of(jobs.begin(), jobs.end(), [](const RunningJob& job) { return job.running; });
+        const bool anyStarting =
+            std::any_of(jobs.begin(), jobs.end(), [](const RunningJob& job) { return job.startInProgress; });
+        const auto stalledStartsForMessage =
+            std::count_if(jobs.begin(), jobs.end(), [now](const RunningJob& job) { return startStalled(job, now); });
+        const bool anyStalled = stalledStartsForMessage > 0;
+        const bool anyScheduled = std::any_of(jobs.begin(), jobs.end(), [](const RunningJob& job) {
+            return !job.launched && !job.finalized && !job.startInProgress;
+        });
         const bool anyPending = std::any_of(jobs.begin(), jobs.end(), [](const RunningJob& job) { return !job.finalized; });
         std::string idleMessage;
-        if (!anyLive && anyPending) {
+        if (anyStalled && anyScheduled) {
+            idleMessage = "some starts stalled; scheduled jobs continue";
+        } else if (!anyLive && anyStarting) {
+            idleMessage = "starting jobs";
+        } else if (!anyLive && anyScheduled) {
+            idleMessage = "waiting for scheduled starts";
+        } else if (!anyLive && anyPending) {
             idleMessage = "stop requested; finalizing sessions";
         } else if (!anyLive) {
             idleMessage = "all jobs finalized; press q to return";
@@ -669,18 +1280,10 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
         }
     }
     for (auto& job : jobs) requestStopJob(job);
+    for (auto& job : jobs) waitForStartJob(job);
     for (auto& job : jobs) finalizeJob(job);
 
-    std::error_code ec;
-    const auto targetGroup = std::filesystem::weakly_canonical(runPreset.outputDir, ec);
-    const auto discovery = recordings::discoverRecordings(preset.outputDir);
-    for (const auto& group : discovery.groups) {
-        if (group.path == targetGroup) {
-            std::string error;
-            (void)recordings::writeGroupManifest(group, &error);
-            break;
-        }
-    }
+    writeRunGroupManifests(runPreset.outputDir, outputGroups);
 }
 
 void printUsage() {
@@ -836,6 +1439,9 @@ int runTui(int argc, char** argv) {
         } else if (key.kind == KeyKind::Character && key.ch == 'r') {
             if (preset.jobs.empty()) {
                 message = "add at least one job";
+                dirty = true;
+            } else if (preset.jobs.size() > static_cast<std::size_t>(std::max(1, preset.maxActiveJobs))) {
+                (void)runShardPresetInteractive(preset, presetPath);
                 dirty = true;
             } else {
                 runJobs(terminal, preset);

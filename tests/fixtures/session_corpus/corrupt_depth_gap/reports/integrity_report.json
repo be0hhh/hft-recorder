@@ -1,6 +1,6 @@
 {
   "session_health": "clean",
-  "exact_replay_eligible": false,
+  "exact_replay_eligible": true,
   "total_incidents": 0,
   "highest_severity": "info",
   "channels": {
@@ -36,7 +36,7 @@
     },
     "depth": {
       "state": "clean",
-      "exact_replay_eligible": false,
+      "exact_replay_eligible": true,
       "incident_count": 0,
       "gap_count": 0,
       "parse_error_count": 0,
@@ -45,14 +45,14 @@
       "reason_text": "depth rows loaded"
     },
     "snapshot": {
-      "state": "clean",
-      "exact_replay_eligible": true,
+      "state": "not_captured",
+      "exact_replay_eligible": false,
       "incident_count": 0,
       "gap_count": 0,
       "parse_error_count": 0,
       "highest_severity": "info",
-      "reason_code": "ok",
-      "reason_text": "snapshot anchor available"
+      "reason_code": "optional_not_captured",
+      "reason_text": "separate orderbook snapshot file is not part of the corpus"
     }
   },
   "incidents": [

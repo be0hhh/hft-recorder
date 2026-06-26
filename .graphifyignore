@@ -1,7 +1,0 @@
-build/
-recordings/
-graphify-out/
-obsidian/graphify-generated/
-obsidian/.obsidian/
-*.log
-*.jsonl

@@ -246,6 +246,7 @@ void BookTickerCompareController::clear() {
     selectedBacktestResult_.clear();
     strategyOverlay_ = StrategyOverlayData{};
     strategyIndicator_ = StrategyIndicatorData{};
+    rateLimitUsage_ = RateLimitUsageData{};
     updateLowerPane_();
     fullTsMin_ = 0;
     fullTsMax_ = 1;
@@ -266,6 +267,7 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
     selectedBacktestResult_ = next;
     strategyOverlay_ = StrategyOverlayData{};
     strategyIndicator_ = StrategyIndicatorData{};
+    rateLimitUsage_ = RateLimitUsageData{};
     if (next.isEmpty()) {
         updateLowerPane_();
         if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
@@ -282,20 +284,40 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
         emit dataChanged();
         return false;
     }
+    const std::filesystem::path resultDir{next.toStdString()};
     if (strategyOverlay_.spreadPoints.empty()
         && !loadStrategyIndicatorFromResult(std::filesystem::path{next.toStdString()}, strategyIndicator_, error)) {
         setStatus_(QStringLiteral("Failed to load strategy indicator: %1").arg(QString::fromStdString(error)));
         emit dataChanged();
         return false;
     }
+    if (!loadRateLimitUsageFromResult(resultDir, rateLimitUsage_, error)) {
+        setStatus_(QStringLiteral("Failed to load rate-limit usage: %1").arg(QString::fromStdString(error)));
+        emit dataChanged();
+        return false;
+    }
     updateLowerPane_();
     updateFullRange_();
     initializeViewportIfNeeded_();
-    if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
+    if (rateLimitVisible_ && rateLimitUsage_.empty()) {
+        setStatus_(QStringLiteral("No rate-limit usage in selected result"));
+    } else if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
         setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
     }
     emit dataChanged();
     return true;
+}
+
+void BookTickerCompareController::setRateLimitVisible(bool visible) {
+    if (rateLimitVisible_ == visible) return;
+    rateLimitVisible_ = visible;
+    updateLowerPane_();
+    if (visible && rateLimitUsage_.empty()) {
+        setStatus_(QStringLiteral("No rate-limit usage in selected result"));
+    } else if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
+        setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
+    }
+    emit dataChanged();
 }
 
 void BookTickerCompareController::setPrimaryFeeActionBps(double bps) {
@@ -578,6 +600,8 @@ void BookTickerCompareController::rebuild_() {
         setStatus_(QStringLiteral("Select two market sessions"));
     } else if ((primaryRows_.empty() && primaryCandles_.empty()) || (secondaryRows_.empty() && secondaryCandles_.empty())) {
         setStatus_(QStringLiteral("Waiting for market rows from both sessions"));
+    } else if (rateLimitVisible_ && rateLimitUsage_.empty()) {
+        setStatus_(QStringLiteral("No rate-limit usage in selected result"));
     } else if (!lowerPaneState_.hasData) {
         setStatus_(QStringLiteral("Not enough compatible quotes or candles to build spread"));
     } else {
@@ -587,7 +611,12 @@ void BookTickerCompareController::rebuild_() {
 }
 
 void BookTickerCompareController::updateLowerPane_() {
-    lowerPaneState_ = selectCompareLowerPane(strategyOverlay_, strategyIndicator_, !spreadPoints_.empty(), !candleSpreadPoints_.empty());
+    lowerPaneState_ = selectCompareLowerPane(strategyOverlay_,
+                                             strategyIndicator_,
+                                             rateLimitVisible_,
+                                             !rateLimitUsage_.empty(),
+                                             !spreadPoints_.empty(),
+                                             !candleSpreadPoints_.empty());
 }
 
 void BookTickerCompareController::resetValueScale_() noexcept {
@@ -619,6 +648,7 @@ void BookTickerCompareController::updateFullRange_() noexcept {
     } else {
         for (const auto& point : strategyOverlay_.spreadPoints) absorb(point.tsNs);
         for (const auto& point : strategyIndicator_.points) absorb(point.tsNs);
+        for (const auto& point : rateLimitUsage_.points) absorb(point.tsNs);
         for (const auto& point : spreadPoints_) absorb(point.tsNs);
         for (const auto& point : candleSpreadPoints_) absorb(point.tsNs);
         if (!hasTs) {

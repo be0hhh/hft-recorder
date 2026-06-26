@@ -13,6 +13,8 @@
 
 #include "gui/viewer/BookTickerCompareCandlePaint.hpp"
 #include "gui/viewer/BookTickerCompareController.hpp"
+#include "gui/viewer/RateLimitGraphPainter.hpp"
+#include "gui/viewer/RateLimitUsage.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -248,6 +250,11 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
         }
         if (rawCount > 0u) ranges.meanAvg = rawSum / static_cast<double>(rawCount);
     }
+    if (lowerPaneKind == CompareLowerPaneKind::RateLimitUsage) {
+        ranges.spreadMin = 0.0;
+        ranges.spreadMax = 100.0;
+        hasSpread = true;
+    }
     double penaltySum = 0.0;
     double feePenaltySum = 0.0;
     std::size_t penaltyCount = 0u;
@@ -336,11 +343,17 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     const auto pricePad = std::max<std::int64_t>(1, (ranges.priceMax - ranges.priceMin) / 20);
     ranges.priceMin -= pricePad;
     ranges.priceMax += pricePad;
-    if (std::abs(ranges.spreadMax - ranges.spreadMin) < 0.000001) ranges.spreadMax = ranges.spreadMin + 1.0;
-    const double spreadPad = std::max(0.25, (ranges.spreadMax - ranges.spreadMin) * 0.10);
-    ranges.spreadMin -= spreadPad;
-    ranges.spreadMax += spreadPad;
-    if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator
+    if (lowerPaneKind == CompareLowerPaneKind::RateLimitUsage) {
+        ranges.spreadMin = 0.0;
+        ranges.spreadMax = 100.0;
+    } else {
+        if (std::abs(ranges.spreadMax - ranges.spreadMin) < 0.000001) ranges.spreadMax = ranges.spreadMin + 1.0;
+        const double spreadPad = std::max(0.25, (ranges.spreadMax - ranges.spreadMin) * 0.10);
+        ranges.spreadMin -= spreadPad;
+        ranges.spreadMax += spreadPad;
+    }
+    if (lowerPaneKind != CompareLowerPaneKind::RateLimitUsage
+        && lowerPaneKind != CompareLowerPaneKind::StrategyIndicator
         && !basisOnlySpread
         && lowerPaneKind != CompareLowerPaneKind::CandleSpread) {
         ranges.spreadMin = std::min(ranges.spreadMin, 0.0);
@@ -349,9 +362,11 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     return ranges;
 }
 
-void applyControllerScale(Ranges& ranges, const BookTickerCompareController& controller) noexcept {
+void applyControllerScale(Ranges& ranges, const BookTickerCompareController& controller, CompareLowerPaneKind lowerPaneKind) noexcept {
     applyScaledIntRange(ranges.priceMin, ranges.priceMax, controller.priceZoom(), controller.pricePan());
-    applyScaledDoubleRange(ranges.spreadMin, ranges.spreadMax, controller.spreadZoom(), controller.spreadPan());
+    if (lowerPaneKind != CompareLowerPaneKind::RateLimitUsage) {
+        applyScaledDoubleRange(ranges.spreadMin, ranges.spreadMax, controller.spreadZoom(), controller.spreadPan());
+    }
 }
 
 LayoutRects makeLayout(const QRectF& bounds) noexcept {
@@ -805,6 +820,18 @@ QString formatBps(double bps) {
     return QString::number(bps, 'f', 2) + QStringLiteral(" bps");
 }
 
+QString formatPercent(double value) {
+    return QString::number(value, 'f', 2) + QStringLiteral("%");
+}
+
+double pctFromE4(std::int64_t pctE4) noexcept {
+    return static_cast<double>(std::clamp<std::int64_t>(pctE4, 0, 1000000ll)) / 10000.0;
+}
+
+double rateLimitPctAt(const RateLimitUsageData& usage, std::int64_t ts) noexcept {
+    return pctFromE4(rateLimitMinRemainingPctE4At(usage, ts));
+}
+
 QString formatDurationNs(std::int64_t ns) {
     const double absNs = std::abs(static_cast<double>(ns));
     if (absNs < 1000000.0) return QString::number(static_cast<double>(ns) / 1000.0, 'f', 1) + QStringLiteral(" us");
@@ -988,6 +1015,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
     const auto& candleSpreads = controller_->candleSpreadPoints();
     const StrategyOverlayData& overlay = controller_->strategyOverlay();
     const StrategyIndicatorData& indicator = controller_->strategyIndicator();
+    const RateLimitUsageData& rateLimitUsage = controller_->rateLimitUsage();
     const CompareLowerPaneKind lowerPaneKind = controller_->lowerPaneKind();
     Ranges ranges = computeRanges(primary,
                                   secondary,
@@ -1003,11 +1031,13 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                   controller_->tsMax(),
                                   controller_->currentTs(),
                                   controller_->totalFeePenaltyBps());
-    applyControllerScale(ranges, *controller_);
+    applyControllerScale(ranges, *controller_, lowerPaneKind);
     const LayoutRects layout = makeLayout(boundingRect());
     const BookTickerCompareCandlePaintRanges candleRanges = candlePaintRanges(ranges);
     const QString lowerAxisLabel = lowerPaneKind == CompareLowerPaneKind::StrategyIndicator
         ? (!indicator.unit.isEmpty() ? indicator.unit : indicatorRawLabel(indicator))
+        : lowerPaneKind == CompareLowerPaneKind::RateLimitUsage
+            ? QStringLiteral("%")
         : QStringLiteral("bps");
 
     painter->setRenderHint(QPainter::Antialiasing, false);
@@ -1038,6 +1068,13 @@ void BookTickerCompareItem::paint(QPainter* painter) {
         drawStrategySpreadTrace(*painter, overlay.spreadPoints, ranges, layout.spreadRect, basisOnly);
     } else if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
         drawStrategyIndicatorTrace(*painter, indicator, ranges, layout.spreadRect);
+    } else if (lowerPaneKind == CompareLowerPaneKind::RateLimitUsage) {
+        drawRateLimitGraph(*painter,
+                           layout.spreadRect,
+                           rateLimitUsage,
+                           ranges.tsMin,
+                           ranges.tsMax,
+                           RateLimitGraphOptions{.showLaneLabels = true, .showLastValues = true, .fillBackground = false});
     } else if (lowerPaneKind == CompareLowerPaneKind::CandleSpread) {
         drawCompareCandleSpreadTrace(*painter, candleSpreads, candleRanges, layout.spreadRect, sourceColor(0u), sourceColor(1u));
     } else {
@@ -1047,7 +1084,7 @@ void BookTickerCompareItem::paint(QPainter* painter) {
             drawCompareCandleSpreadTrace(*painter, candleSpreads, candleRanges, layout.spreadRect, sourceColor(0u), sourceColor(1u));
         }
     }
-    if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator) {
+    if (lowerPaneKind != CompareLowerPaneKind::StrategyIndicator && lowerPaneKind != CompareLowerPaneKind::RateLimitUsage) {
         drawStrategySpreadFillMarkers(*painter, overlay, spreads, ranges, layout.spreadRect);
     }
     drawStrategyOverlay(*painter, overlay, ranges, layout.primaryRect);
@@ -1064,7 +1101,11 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                    QString::number(ranges.spreadMax, 'f', 2),
                                    QString::number(ranges.meanAvg, 'f', 2)));
     } else {
-        if (lowerPaneKind == CompareLowerPaneKind::StrategySpread && basisOnly && ranges.hasRawSpreadRange) {
+        if (lowerPaneKind == CompareLowerPaneKind::RateLimitUsage) {
+            painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
+                              QStringLiteral("Rate limit: min remaining across legs %1")
+                                  .arg(formatPercent(rateLimitPctAt(rateLimitUsage, ranges.tsMax))));
+        } else if (lowerPaneKind == CompareLowerPaneKind::StrategySpread && basisOnly && ranges.hasRawSpreadRange) {
             painter->drawText(layout.spreadRect.adjusted(8, 6, -8, -6), Qt::AlignLeft | Qt::AlignTop,
                               QStringLiteral("Basis: signed %1..%2   avg %3")
                                   .arg(formatBps(ranges.rawSpreadMin),
@@ -1115,6 +1156,12 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                                                QString::number(point->auxRaw));
                 drawLabel(*painter, hoverPoint_, label, chartBounds);
             }
+        } else if (lowerPaneKind == CompareLowerPaneKind::RateLimitUsage) {
+            const double pct = rateLimitPctAt(rateLimitUsage, ts);
+            drawLabel(*painter,
+                      hoverPoint_,
+                      QStringLiteral("min rate %1").arg(formatPercent(pct)),
+                      chartBounds);
         } else if ((lowerPaneKind == CompareLowerPaneKind::CandleSpread || lowerPaneKind == CompareLowerPaneKind::MarketSpreadOverlay)
                    && nearestCandleSpreadPoint(candleSpreads, ts) != nullptr) {
             const auto* candleSpread = nearestCandleSpreadPoint(candleSpreads, ts);
@@ -1166,6 +1213,8 @@ void BookTickerCompareItem::paint(QPainter* painter) {
                 const double b1 = spreadForY(measureEnd_.y(), ranges, layout.spreadRect);
                 if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator)
                     label += QStringLiteral("  d %1").arg(QString::number(b1 - b0, 'f', 2));
+                else if (lowerPaneKind == CompareLowerPaneKind::RateLimitUsage)
+                    label += QStringLiteral("  d %1").arg(formatPercent(b1 - b0));
                 else
                     label += QStringLiteral("  d %1").arg(formatBps(b1 - b0));
             } else {

@@ -31,6 +31,10 @@ struct RecorderTuiJob {
 struct RecorderTuiPreset {
     std::filesystem::path outputDir{"./recordings"};
     int progressSec{10};
+    int launchWaveSize{4};
+    int launchStaggerMs{250};
+    int sameExchangeCooldownMs{1500};
+    int maxActiveJobs{24};
     std::vector<RecorderTuiJob> jobs{};
 };
 

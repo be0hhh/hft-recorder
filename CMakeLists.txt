@@ -17,6 +17,14 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
+option(HFTREC_PORTABLE_BUILD "If ON: disable -march=native for hft-recorder Release builds." OFF)
+set(_HFTREC_RELEASE_FLAGS "-O3 -DNDEBUG")
+if(NOT HFTREC_PORTABLE_BUILD)
+    string(APPEND _HFTREC_RELEASE_FLAGS " -march=native")
+endif()
+set(CMAKE_CXX_FLAGS_RELEASE "${_HFTREC_RELEASE_FLAGS}" CACHE STRING "hft-recorder Release C++ flags" FORCE)
+unset(_HFTREC_RELEASE_FLAGS)
+
 # hft-recorder is a standalone consumer of a prebuilt CXETCPP library when
 # available. Offline viewer builds must not build or vendor parent sources.
 set(CXET_PUBLIC_INCLUDE_DIR "" CACHE PATH "Path to CXETCPP public headers")
@@ -248,7 +256,11 @@ add_compile_options(
     -Wno-unused-parameter
     -Wno-unused-variable
 )
-add_compile_options($<$<CONFIG:Release>:-O2>)
+if(HFTREC_PORTABLE_BUILD)
+    add_compile_options($<$<CONFIG:Release>:-O3>)
+else()
+    add_compile_options($<$<CONFIG:Release>:-O3> $<$<CONFIG:Release>:-march=native>)
+endif()
 add_compile_options($<$<CONFIG:Release>:-g>)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

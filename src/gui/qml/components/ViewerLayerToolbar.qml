@@ -18,6 +18,7 @@ Rectangle {
     required property bool showIndexPriceLayer
     required property bool showFundingLayer
     required property bool showPriceLimitLayer
+    required property bool showRateLimitLayer
     required property bool effectiveBookTickerLayer
     required property color chromeColor
     required property color panelColor
@@ -26,6 +27,7 @@ Rectangle {
     required property color textColor
     required property color mutedTextColor
     required property color accentBuyColor
+    property bool compareMode: false
 
     signal toggleTrades()
     signal toggleLiquidations()
@@ -37,6 +39,7 @@ Rectangle {
     signal toggleIndexPrice()
     signal toggleFunding()
     signal togglePriceLimit()
+    signal toggleRateLimit()
 
     property color liveControlBg: '#050505'
     property color liveControlBorder: '#6e6e75'
@@ -77,7 +80,7 @@ Rectangle {
         anchors.topMargin: 2
         anchors.bottomMargin: 2
         clip: true
-        contentWidth: Math.max(width, toolbarRow.implicitWidth)
+        contentWidth: Math.max(width, bar.compareMode ? compareToolbarRow.implicitWidth : toolbarRow.implicitWidth)
         contentHeight: height
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.HorizontalFlick
@@ -89,6 +92,7 @@ Rectangle {
 
         Row {
             id: toolbarRow
+            visible: !bar.compareMode
             height: parent.height - 6
             spacing: bar.toolbarSpacing
 
@@ -219,6 +223,19 @@ Rectangle {
             mutedTextColor: bar.mutedTextColor
             accentBuyColor: bar.accentBuyColor
             onClicked: bar.togglePriceLimit()
+        }
+
+        ViewerChannelButton {
+            text: "Rate"
+            active: bar.showRateLimitLayer
+            compact: bar.compact
+            panelColor: bar.panelColor
+            panelAltColor: bar.panelAltColor
+            borderColor: bar.borderColor
+            textColor: bar.textColor
+            mutedTextColor: bar.mutedTextColor
+            accentBuyColor: bar.accentBuyColor
+            onClicked: bar.toggleRateLimit()
         }
 
         Label {
@@ -618,9 +635,32 @@ Rectangle {
 
         Label { text: "%"; color: bar.mutedTextColor; font.pixelSize: 12 }
         }
+
+        Row {
+            id: compareToolbarRow
+            visible: bar.compareMode
+            height: parent.height - 6
+            spacing: bar.toolbarSpacing
+
+            ViewerChannelButton {
+                text: "Rate"
+                active: bar.showRateLimitLayer
+                compact: bar.compact
+                panelColor: bar.panelColor
+                panelAltColor: bar.panelAltColor
+                borderColor: bar.borderColor
+                textColor: bar.textColor
+                mutedTextColor: bar.mutedTextColor
+                accentBuyColor: bar.accentBuyColor
+                onClicked: bar.toggleRateLimit()
+            }
+
+            Label {
+                text: "Lower pane"
+                color: bar.mutedTextColor
+                font.pixelSize: 12
+            }
+        }
 }
 }
-
-
-
 

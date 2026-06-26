@@ -5,7 +5,6 @@ set(HFTREC_CORE_SOURCES
     arbitrage/BookTickerSpread.cpp
     arbitrage/BookTickerSpreadMean.cpp
     arbitrage/CandleSpread.cpp
-    backtest/BacktestRunner.cpp
     capture/SessionId.cpp
     capture/SessionManifest.cpp
     capture/ChannelJsonWriter.cpp
@@ -36,7 +35,9 @@ set(HFTREC_CORE_SOURCES
     recordings/RecordingDiscovery.cpp
     storage/EventStorage.cpp
     storage/JsonSessionStorage.cpp
+    tui/RecorderTuiLaunch.cpp
     tui/RecorderTuiPreset.cpp
+    tui/RecorderTuiShard.cpp
     tui/RecorderTuiSymbols.cpp
     tui/TerminalRender.cpp
     validation/ValidationRunner.cpp

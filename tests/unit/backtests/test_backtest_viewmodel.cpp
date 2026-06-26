@@ -11,7 +11,7 @@
 #include <cstdlib>
 
 #include "core/capture/SessionManifest.hpp"
-#include "gui/viewmodels/BacktestViewModel.hpp"
+#include "gui/backtests/BacktestViewModel.hpp"
 
 namespace {
 
@@ -509,6 +509,8 @@ TEST(BacktestViewModel, ExposesOnlyMetadataParameterKeys) {
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("trigger_bps")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("refresh_ms")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("close_delay_us")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("rate_limit_guard_min_remaining")));
+    EXPECT_EQ(vm.riskRateLimitGuardMinRemaining(), QStringLiteral("2"));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("sizing_mode")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("amount_qty")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("order_qty")));
@@ -534,6 +536,8 @@ TEST(BacktestViewModel, ExposesTemplateStrategyParameters) {
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("ladder_step_bps")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("exit_edge_bps")));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_ladder_levels")));
+    EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("rate_limit_guard_min_remaining")));
+    EXPECT_EQ(vm.riskRateLimitGuardMinRemaining(), QStringLiteral("2"));
     EXPECT_TRUE(hasParamKey(vm.strategyParameters(), QStringLiteral("amount_qty")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("pending_timeout_ms")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_quote_age_ms")));
@@ -870,7 +874,7 @@ TEST(BacktestViewModel, MapsFinamSessionsToFinamVenues) {
     QDir(secondary).removeRecursively();
 }
 
-TEST(BacktestViewModel, StoresVenueExecutionValuesPerExchangeMarket) {
+TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetSummary) {
     isolateSettings(QStringLiteral("venue_execution_values"));
 
     hftrec::gui::BacktestViewModel vm;
@@ -891,18 +895,20 @@ TEST(BacktestViewModel, StoresVenueExecutionValuesPerExchangeMarket) {
 
     vm.setSessionPath(primary);
     vm.setExtraSessionIds(secondary);
-    vm.setVenueExecutionValue(0, QStringLiteral("maker_fee_bps"), QStringLiteral("0.2"));
     vm.setVenueExecutionValue(0, QStringLiteral("market_data_latency_us"), QStringLiteral("111"));
-    vm.setVenueExecutionValue(1, QStringLiteral("maker_fee_bps"), QStringLiteral("0.1"));
     vm.setVenueExecutionValue(1, QStringLiteral("market_data_latency_us"), QStringLiteral("333"));
 
     QVariantList rows = vm.selectedSessionLegs();
     ASSERT_EQ(rows.size(), 2);
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("okx"));
-    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.2"));
+    EXPECT_TRUE(rows.at(0).toMap().contains(QStringLiteral("makerFeeBps")));
+    EXPECT_TRUE(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString().isEmpty());
+    EXPECT_TRUE(rows.at(0).toMap().value(QStringLiteral("executionPresetSummary")).toString().contains(QStringLiteral("Fees M/T")));
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("111"));
     EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("bybit"));
-    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.1"));
+    EXPECT_TRUE(rows.at(1).toMap().contains(QStringLiteral("makerFeeBps")));
+    EXPECT_TRUE(rows.at(1).toMap().value(QStringLiteral("makerFeeBps")).toString().isEmpty());
+    EXPECT_TRUE(rows.at(1).toMap().value(QStringLiteral("executionPresetSummary")).toString().contains(QStringLiteral("RL")));
     EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
 
     hftrec::gui::BacktestViewModel restored;
@@ -910,7 +916,6 @@ TEST(BacktestViewModel, StoresVenueExecutionValuesPerExchangeMarket) {
     restored.setExtraSessionIds(secondary);
     rows = restored.selectedSessionLegs();
     ASSERT_EQ(rows.size(), 2);
-    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.2"));
     EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
 
     QDir(primary).removeRecursively();

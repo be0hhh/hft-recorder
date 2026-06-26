@@ -10,7 +10,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
-#include "gui/models/BacktestSessionSummary.hpp"
+#include "gui/backtests/BacktestSessionSummary.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
 #include "core/recordings/RecordingDiscovery.hpp"
 

@@ -298,10 +298,14 @@ void ChartController::clearLiveDataCache_() noexcept {
 }
 
 void ChartController::clearStrategyOverlay_() noexcept {
-    const bool changed = !selectedBacktestResult_.isEmpty() || !strategyOverlay_.empty() || !strategyIndicator_.empty();
+    const bool changed = !selectedBacktestResult_.isEmpty() ||
+                         !strategyOverlay_.empty() ||
+                         !strategyIndicator_.empty() ||
+                         !rateLimitUsage_.empty();
     selectedBacktestResult_.clear();
     strategyOverlay_ = StrategyOverlayData{};
     strategyIndicator_ = StrategyIndicatorData{};
+    rateLimitUsage_ = RateLimitUsageData{};
     if (!changed) return;
     emit backtestResultChanged();
     emit markersChanged();
@@ -345,6 +349,7 @@ bool ChartController::selectBacktestResult(const QString& resultPath) {
     const std::filesystem::path resultDir(stripFileUrl(pathText));
     StrategyOverlayData next{};
     StrategyIndicatorData nextIndicator{};
+    RateLimitUsageData nextRateLimitUsage{};
     std::string error;
     if (!loadStrategyOverlayFromResult(resultDir, latestRenderableTsNs_(), next, error)) {
         statusText_ = QStringLiteral("Backtest load failed: ") + QString::fromStdString(error);
@@ -356,12 +361,18 @@ bool ChartController::selectBacktestResult(const QString& resultPath) {
         emit statusChanged();
         return false;
     }
+    if (!loadRateLimitUsageFromResult(resultDir, nextRateLimitUsage, error)) {
+        statusText_ = QStringLiteral("Backtest rate-limit load failed: ") + QString::fromStdString(error);
+        emit statusChanged();
+        return false;
+    }
 
     const QString orderSegmentCount = QString::number(static_cast<qulonglong>(next.orderSegments.size()));
     const QString fillMarkerCount = QString::number(static_cast<qulonglong>(next.fillMarkers.size()));
     selectedBacktestResult_ = pathText;
     strategyOverlay_ = std::move(next);
     strategyIndicator_ = std::move(nextIndicator);
+    rateLimitUsage_ = std::move(nextRateLimitUsage);
     statusText_ = QStringLiteral("Backtest loaded: %1 | orders %2 fills %3")
         .arg(QString::fromStdString(resultDir.filename().string()))
         .arg(orderSegmentCount)

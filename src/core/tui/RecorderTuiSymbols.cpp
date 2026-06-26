@@ -71,6 +71,27 @@ void appendUniqueSymbol(std::vector<std::string>& symbols, std::string_view raw)
 
 ParsedSymbol parseGlobalSymbol(std::string_view raw) {
     std::string symbol = upper(trim(raw));
+    constexpr std::string_view swapMarker = "-SWAP-";
+    const auto swapMarkerIndex = symbol.find(swapMarker);
+    if (swapMarkerIndex != std::string::npos) {
+        const std::string base = symbol.substr(0u, swapMarkerIndex);
+        const std::string quote = symbol.substr(swapMarkerIndex + swapMarker.size());
+        if (!base.empty() && !quote.empty()) {
+            return ParsedSymbol{base, quote};
+        }
+    }
+    constexpr std::string_view swapSuffix = "-SWAP";
+    if (symbol.size() > swapSuffix.size() + 1u && endsWithNoCase(symbol, swapSuffix)) {
+        const auto sepPos = symbol.rfind('-', symbol.size() - swapSuffix.size() - 1u);
+        if (sepPos != std::string::npos && sepPos > 0u &&
+            sepPos < (symbol.size() - swapSuffix.size())) {
+            const std::string base = symbol.substr(0u, sepPos);
+            const std::string quote = symbol.substr(sepPos + 1u, symbol.size() - sepPos - swapSuffix.size() - 1u);
+            if (!base.empty() && !quote.empty()) {
+                return ParsedSymbol{base, quote};
+            }
+        }
+    }
     symbol.erase(std::remove(symbol.begin(), symbol.end(), '-'), symbol.end());
     symbol.erase(std::remove(symbol.begin(), symbol.end(), '_'), symbol.end());
     if (symbol.size() > 4u && symbol.ends_with("SWAP")) symbol.resize(symbol.size() - 4u);
@@ -98,6 +119,24 @@ std::string formattedVenueSymbol(const RecorderTuiVenueSpec& venue, const Parsed
     if (exchange == "kucoin") {
         if (market == "futures") return base + quote + "M";
         return base + '-' + quote;
+    }
+    if (exchange == "xt") {
+        return lower(base) + '_' + lower(quote);
+    }
+    if (exchange == "bingx") {
+        return base + '-' + quote;
+    }
+    if (exchange == "toobit") {
+        if (market == "futures" || market == "swap") return base + "-SWAP-" + quote;
+        return base + quote;
+    }
+    if (exchange == "htx") {
+        if (market == "futures" || market == "swap") return base + '-' + quote;
+        return lower(base) + lower(quote);
+    }
+    if (exchange == "phemex") {
+        if (market == "futures" || market == "swap") return base + quote;
+        return std::string{"s"} + base + quote;
     }
     if (exchange == "gate") return base + '_' + quote;
     if (exchange == "okx") {
@@ -176,6 +215,16 @@ const std::vector<RecorderTuiVenueSpec>& allCryptoVenueSpecs() {
         {"okx_spot", "OKX Spot", "okx", "spot"},
         {"mexc_spot", "MEXC Spot", "mexc", "spot"},
         {"mexc_futures", "MEXC Futures", "mexc", "futures"},
+        {"xt_futures", "XT Futures", "xt", "futures"},
+        {"xt_spot", "XT Spot", "xt", "spot"},
+        {"bingx_futures", "BingX Futures", "bingx", "futures"},
+        {"bingx_spot", "BingX Spot", "bingx", "spot"},
+        {"toobit_futures", "Toobit Futures", "toobit", "futures"},
+        {"toobit_spot", "Toobit Spot", "toobit", "spot"},
+        {"htx_futures", "HTX Futures", "htx", "futures"},
+        {"htx_spot", "HTX Spot", "htx", "spot"},
+        {"phemex_futures", "Phemex Futures", "phemex", "futures"},
+        {"phemex_spot", "Phemex Spot", "phemex", "spot"},
     };
     return venues;
 }

@@ -86,6 +86,16 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
         QStringLiteral("SBER@MISX"),
         QStringLiteral("BTCUSDT"),
         QStringLiteral("BTC_USDT"),
+        QStringLiteral("btc_usdt"),
+        QStringLiteral("btc_usdt"),
+        QStringLiteral("BTC-USDT"),
+        QStringLiteral("BTC-USDT"),
+        QStringLiteral("BTC-SWAP-USDT"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("BTC-USDT"),
+        QStringLiteral("btcusdt"),
+        QStringLiteral("BTCUSDT"),
+        QStringLiteral("sBTCUSDT"),
     };
     loadSettings_();
 

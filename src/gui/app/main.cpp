@@ -12,12 +12,13 @@
 #include "gui/models/ViewerSourceListModel.hpp"
 #include "gui/viewer/BookTickerCompareController.hpp"
 #include "gui/viewer/BookTickerCompareItem.hpp"
+#include "gui/viewer/RateLimitStripItem.hpp"
 #include "gui/viewer/StrategyIndicatorItem.hpp"
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/ChartItem.hpp"
 #include "gui/viewer/gpu/GpuChartItem.hpp"
 #include "gui/viewmodels/AppViewModel.hpp"
-#include "gui/viewmodels/BacktestViewModel.hpp"
+#include "gui/backtests/BacktestViewModel.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
 #include "gui/viewmodels/CompressionViewModel.hpp"
 #include "gui/viewmodels/WorkspaceViewModel.hpp"
@@ -77,6 +78,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<hftrec::gui::viewer::BookTickerCompareItem>("HftRecorder", 1, 0, "BookTickerCompareItem");
     qmlRegisterType<hftrec::gui::viewer::ChartController>("HftRecorder", 1, 0, "ChartController");
     qmlRegisterType<hftrec::gui::viewer::ChartItem>("HftRecorder", 1, 0, "ChartItem");
+    qmlRegisterType<hftrec::gui::viewer::RateLimitStripItem>("HftRecorder", 1, 0, "RateLimitStripItem");
     qmlRegisterType<hftrec::gui::viewer::StrategyIndicatorItem>("HftRecorder", 1, 0, "StrategyIndicatorItem");
     qmlRegisterType<hftrec::gui::viewer::gpu::GpuChartItem>("HftRecorder", 1, 0, "GpuChartItem");
 

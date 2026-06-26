@@ -26,7 +26,7 @@
 
 #include "hft_compressor/compressor.hpp"
 #include "hft_compressor/metrics_server.hpp"
-#include "gui/models/BacktestSessionSummary.hpp"
+#include "gui/backtests/BacktestSessionSummary.hpp"
 
 namespace hftrec::gui {
 namespace {

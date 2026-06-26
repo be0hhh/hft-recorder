@@ -13,6 +13,7 @@
 
 #include "core/replay/SessionReplay.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
+#include "gui/viewer/RateLimitUsage.hpp"
 #include "gui/viewer/RenderSnapshot.hpp"
 #include "gui/viewer/StrategyIndicator.hpp"
 
@@ -56,6 +57,7 @@ class ChartController : public QObject {
     Q_PROPERTY(QVariantList backtestResults READ backtestResults NOTIFY backtestResultsChanged)
     Q_PROPERTY(QString selectedBacktestResult READ selectedBacktestResult NOTIFY backtestResultChanged)
     Q_PROPERTY(bool hasStrategyIndicator READ hasStrategyIndicator NOTIFY backtestResultChanged)
+    Q_PROPERTY(bool hasRateLimitUsage READ hasRateLimitUsage NOTIFY backtestResultChanged)
 
   public:
     explicit ChartController(QObject* parent = nullptr);
@@ -141,6 +143,7 @@ class ChartController : public QObject {
     QVariantList backtestResults() const { return backtestResults_; }
     QString selectedBacktestResult() const { return selectedBacktestResult_; }
     bool hasStrategyIndicator() const noexcept { return !strategyIndicator_.empty(); }
+    bool hasRateLimitUsage() const noexcept { return !rateLimitUsage_.empty(); }
 
     Q_INVOKABLE bool loadSession(const QString& dir);
     Q_INVOKABLE bool loadSessionForLayers(const QString& dir,
@@ -220,6 +223,7 @@ class ChartController : public QObject {
     RenderSnapshot buildSnapshot(qreal widthPx, qreal heightPx, const SnapshotInputs& in);
 
     const StrategyIndicatorData& strategyIndicator() const noexcept { return strategyIndicator_; }
+    const RateLimitUsageData& rateLimitUsage() const noexcept { return rateLimitUsage_; }
 
     hftrec::replay::SessionReplay& replay() noexcept { return replay_; }
     const hftrec::replay::SessionReplay& replay() const noexcept { return replay_; }
@@ -357,6 +361,7 @@ class ChartController : public QObject {
     QString selectedBacktestResult_{};
     StrategyOverlayData strategyOverlay_{};
     StrategyIndicatorData strategyIndicator_{};
+    RateLimitUsageData rateLimitUsage_{};
     int renderWindowSeconds_{0};
 };
 

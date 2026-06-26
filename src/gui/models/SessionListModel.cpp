@@ -5,7 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 
-#include "gui/models/BacktestSessionSummary.hpp"
+#include "gui/backtests/BacktestSessionSummary.hpp"
 #include "core/recordings/RecordingDiscovery.hpp"
 
 namespace hftrec::gui {

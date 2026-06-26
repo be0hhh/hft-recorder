@@ -9,14 +9,15 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_validation_runner.cpp
     test_recorder_api.cpp
     test_recording_discovery.cpp
-    test_backtest_runner.cpp
     test_book_state.cpp
     test_session_replay.cpp
     test_bookticker_exactness.cpp
     test_bookticker_spread.cpp
     test_candle_spread.cpp
     test_event_storage.cpp
+    test_tui_launch.cpp
     test_tui_preset.cpp
+    test_tui_shard.cpp
     test_tui_symbols.cpp
     test_tui_terminal_render.cpp
 )
@@ -38,11 +39,13 @@ if(Qt6_FOUND)
             test_viewer_bookticker_trace.cpp
             test_chart_markers.cpp
             test_workspace_viewmodel.cpp
-            test_backtest_viewmodel.cpp
+            backtests/test_backtest_viewmodel.cpp
+            backtests/test_backtest_viewmodel_helpers.cpp
             test_recorded_render_once.cpp
             test_capture_viewmodel_requests.cpp
             test_strategy_overlay.cpp
             test_strategy_indicator.cpp
+            test_rate_limit_usage.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerSession.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartControllerViewport.cpp
@@ -51,13 +54,21 @@ if(Qt6_FOUND)
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/CompareLowerPane.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/StrategyOverlay.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/StrategyIndicator.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/RateLimitUsage.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/CaptureViewModelRequests.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp
-            ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/BacktestViewModel.cpp
-            ${PROJECT_SOURCE_DIR}/src/gui/models/BacktestSessionSummary.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestExecutionConfigHelpers.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestResultHelpers.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestSessionHelpers.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestStrategyConfigHelpers.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestSweepHelpers.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModel.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelConfig.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelResults.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestSessionSummary.cpp
     )
 endif()
 

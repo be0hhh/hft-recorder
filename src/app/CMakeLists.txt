@@ -9,6 +9,8 @@ add_executable(hft-recorder
     metrics_bootstrap.cpp
     capture_cli.cpp
     tui_cli.cpp
+    preset_runner_cli.cpp
+    shard_run_cli.cpp
     analyze_cli.cpp
     report_export.cpp
     recordings_cli.cpp

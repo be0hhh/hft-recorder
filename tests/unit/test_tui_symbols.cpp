@@ -19,8 +19,18 @@ using hftrec::tui::venueSymbolsFromGlobalInput;
 TEST(RecorderTuiSymbols, FormatsGlobalSymbolForNativeCryptoVenues) {
     EXPECT_EQ(venueSymbolsFromGlobalInput("kucoin_futures", "BTCUSDT"), "XBTUSDTM");
     EXPECT_EQ(venueSymbolsFromGlobalInput("gate_futures", "BTCUSDT"), "BTC_USDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("xt_futures", "BTCUSDT"), "btc_usdt");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("bingx_futures", "BTCUSDT"), "BTC-USDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("toobit_futures", "BTCUSDT"), "BTC-SWAP-USDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("htx_futures", "BTCUSDT"), "BTC-USDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("phemex_futures", "BTCUSDT"), "BTCUSDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("okx_futures", "BTCUSDT"), "BTC-USDT-SWAP");
     EXPECT_EQ(venueSymbolsFromGlobalInput("okx_spot", "BTCUSDT"), "BTC-USDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("toobit_spot", "BTCUSDT"), "BTCUSDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("xt_spot", "BTCUSDT"), "btc_usdt");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("bingx_spot", "BTCUSDT"), "BTC-USDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("htx_spot", "BTCUSDT"), "btcusdt");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("phemex_spot", "BTCUSDT"), "sBTCUSDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("mexc_futures", "BTCUSDT"), "BTC_USDT");
 }
 

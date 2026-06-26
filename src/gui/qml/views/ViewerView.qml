@@ -46,6 +46,7 @@ Pane {
     property bool showIndexPriceLayer: false
     property bool showFundingLayer: false
     property bool showPriceLimitLayer: false
+    property bool showRateLimitLayer: false
     property bool effectiveBookTickerLayer: showBookTickerLayer
     property bool userHasExplicitLayerSelection: false
     property bool userDisabledTradesLayer: false
@@ -547,7 +548,10 @@ Pane {
     }
 
     ChartController { id: chart; objectName: "chartController" }
-    BookTickerCompareController { id: compareChart }
+    BookTickerCompareController {
+        id: compareChart
+        rateLimitVisible: root.showRateLimitLayer
+    }
     ViewerInteractionState { id: interaction }
     Timer { id: interactiveModeTimer; interval: 120; repeat: false; onTriggered: interaction.interactiveMode = false }
     Timer {
@@ -924,10 +928,10 @@ Pane {
         }
 
         ViewerLayerToolbar {
-            visible: !root.comparePickerActive
             appVm: root.appVm
             chart: chart
             interaction: interaction
+            compareMode: root.comparePickerActive
             showTradesLayer: root.showTradesLayer
             showLiquidationsLayer: root.showLiquidationsLayer
             showCandlesLayer: root.showCandlesLayer
@@ -938,6 +942,7 @@ Pane {
             showIndexPriceLayer: root.showIndexPriceLayer
             showFundingLayer: root.showFundingLayer
             showPriceLimitLayer: root.showPriceLimitLayer
+            showRateLimitLayer: root.showRateLimitLayer
             effectiveBookTickerLayer: root.effectiveBookTickerLayer
             chromeColor: root.chromeColor
             panelColor: root.panelColor
@@ -1025,6 +1030,9 @@ Pane {
                     nextVisible = false
                 root.showPriceLimitLayer = nextVisible
                 root.userDisabledPriceLimitLayer = !nextVisible
+            }
+            onToggleRateLimit: {
+                root.showRateLimitLayer = !root.showRateLimitLayer
             }
         }
 
@@ -1181,7 +1189,8 @@ Pane {
                 anchors.top: parent.top
                 anchors.right: priceScale.left
                 anchors.bottom: timeScale.top
-                anchors.bottomMargin: chart.hasStrategyIndicator ? strategyIndicatorFrame.height : 0
+                anchors.bottomMargin: (rateLimitStripFrame.visible ? rateLimitStripFrame.height : 0) +
+                                      (strategyIndicatorFrame.visible ? strategyIndicatorFrame.height : 0)
                 clip: true
                 Component {
                     id: cpuChartComponent
@@ -1364,6 +1373,20 @@ Pane {
                 ViewerSelectionOverlay { interaction: interaction; chart: chart; plotWidth: plotFrame.width; plotHeight: plotFrame.height; accentBuyColor: root.accentBuyColor; borderColor: root.borderColor; textColor: root.textColor }
             }
             Item {
+                id: rateLimitStripFrame
+                visible: !root.comparePickerActive && root.showRateLimitLayer && chart.hasRateLimitUsage
+                anchors.left: parent.left
+                anchors.right: priceScale.left
+                anchors.bottom: strategyIndicatorFrame.visible ? strategyIndicatorFrame.top : timeScale.top
+                height: visible ? 44 : 0
+                clip: true
+                RateLimitStripItem {
+                    anchors.fill: parent
+                    controller: chart
+                }
+                Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; height: 1; color: root.borderColor }
+            }
+            Item {
                 id: strategyIndicatorFrame
                 visible: !root.comparePickerActive && chart.hasStrategyIndicator
                 anchors.left: parent.left
@@ -1452,19 +1475,6 @@ Pane {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

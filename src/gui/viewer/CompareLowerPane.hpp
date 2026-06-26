@@ -13,6 +13,7 @@ enum class CompareLowerPaneKind {
     MarketSpreadOverlay,
     StrategySpread,
     StrategyIndicator,
+    RateLimitUsage,
 };
 
 struct CompareLowerPaneState {
@@ -25,6 +26,8 @@ QString compareLowerPaneKindId(CompareLowerPaneKind kind);
 
 CompareLowerPaneState selectCompareLowerPane(const StrategyOverlayData& overlay,
                                              const StrategyIndicatorData& indicator,
+                                             bool preferRateLimitUsage,
+                                             bool hasRateLimitUsage,
                                              bool hasDefaultSpread,
                                              bool hasCandleSpread);
 

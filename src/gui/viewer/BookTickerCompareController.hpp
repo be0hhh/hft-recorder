@@ -16,6 +16,7 @@
 #include "core/replay/EventRows.hpp"
 #include "gui/viewer/CompareLowerPane.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
+#include "gui/viewer/RateLimitUsage.hpp"
 #include "gui/viewer/StrategyIndicator.hpp"
 #include "gui/viewer/StrategyOverlay.hpp"
 
@@ -36,6 +37,8 @@ class BookTickerCompareController : public QObject {
     Q_PROPERTY(QString lowerPaneMode READ lowerPaneMode NOTIFY dataChanged)
     Q_PROPERTY(QString lowerPaneTitle READ lowerPaneTitle NOTIFY dataChanged)
     Q_PROPERTY(QString selectedBacktestResult READ selectedBacktestResult NOTIFY dataChanged)
+    Q_PROPERTY(bool rateLimitVisible READ rateLimitVisible WRITE setRateLimitVisible NOTIFY dataChanged)
+    Q_PROPERTY(bool hasRateLimitUsage READ hasRateLimitUsage NOTIFY dataChanged)
     Q_PROPERTY(double primaryFeeActionBps READ primaryFeeActionBps WRITE setPrimaryFeeActionBps NOTIFY feesChanged)
     Q_PROPERTY(double secondaryFeeActionBps READ secondaryFeeActionBps WRITE setSecondaryFeeActionBps NOTIFY feesChanged)
     Q_PROPERTY(double totalFeePenaltyBps READ totalFeePenaltyBps NOTIFY feesChanged)
@@ -65,6 +68,8 @@ class BookTickerCompareController : public QObject {
     QString lowerPaneMode() const { return compareLowerPaneKindId(lowerPaneState_.kind); }
     QString lowerPaneTitle() const { return lowerPaneState_.title; }
     QString selectedBacktestResult() const { return selectedBacktestResult_; }
+    bool rateLimitVisible() const noexcept { return rateLimitVisible_; }
+    bool hasRateLimitUsage() const noexcept { return !rateLimitUsage_.empty(); }
     double primaryFeeActionBps() const noexcept { return primaryFeeActionBps_; }
     double secondaryFeeActionBps() const noexcept { return secondaryFeeActionBps_; }
     double totalFeePenaltyBps() const noexcept { return 2.0 * primaryFeeActionBps_ + 2.0 * secondaryFeeActionBps_; }
@@ -88,6 +93,7 @@ class BookTickerCompareController : public QObject {
     const std::vector<hftrec::arbitrage::CandleSpreadPoint>& candleSpreadPoints() const noexcept { return candleSpreadPoints_; }
     const StrategyOverlayData& strategyOverlay() const noexcept { return strategyOverlay_; }
     const StrategyIndicatorData& strategyIndicator() const noexcept { return strategyIndicator_; }
+    const RateLimitUsageData& rateLimitUsage() const noexcept { return rateLimitUsage_; }
     CompareLowerPaneKind lowerPaneKind() const noexcept { return lowerPaneState_.kind; }
 
     Q_INVOKABLE bool setPrimarySource(const QString& sourceId, const QString& sourceKind, const QString& sessionPath);
@@ -96,6 +102,7 @@ class BookTickerCompareController : public QObject {
     Q_INVOKABLE void clear();
     Q_INVOKABLE void setPrimaryFeeActionBps(double bps);
     Q_INVOKABLE void setSecondaryFeeActionBps(double bps);
+    Q_INVOKABLE void setRateLimitVisible(bool visible);
     Q_INVOKABLE void setMeanWindowSeconds(double seconds);
     Q_INVOKABLE double savedFeeActionBps(const QString& exchange, const QString& market) const;
     Q_INVOKABLE void saveFeeActionBps(const QString& exchange, const QString& market, double bps);
@@ -161,7 +168,9 @@ class BookTickerCompareController : public QObject {
     QString selectedBacktestResult_{};
     StrategyOverlayData strategyOverlay_{};
     StrategyIndicatorData strategyIndicator_{};
+    RateLimitUsageData rateLimitUsage_{};
     CompareLowerPaneState lowerPaneState_{};
+    bool rateLimitVisible_{false};
     double primaryFeeActionBps_{0.0};
     double secondaryFeeActionBps_{0.0};
     double meanWindowSeconds_{5.0};

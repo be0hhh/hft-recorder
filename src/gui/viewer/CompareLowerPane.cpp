@@ -8,6 +8,8 @@ QString compareLowerPaneKindId(CompareLowerPaneKind kind) {
             return QStringLiteral("strategy_spread");
         case CompareLowerPaneKind::StrategyIndicator:
             return QStringLiteral("strategy_indicator");
+        case CompareLowerPaneKind::RateLimitUsage:
+            return QStringLiteral("rate_limit_usage");
         case CompareLowerPaneKind::CandleSpread:
             return QStringLiteral("candle_spread");
         case CompareLowerPaneKind::MarketSpreadOverlay:
@@ -20,8 +22,17 @@ QString compareLowerPaneKindId(CompareLowerPaneKind kind) {
 
 CompareLowerPaneState selectCompareLowerPane(const StrategyOverlayData& overlay,
                                              const StrategyIndicatorData& indicator,
+                                             bool preferRateLimitUsage,
+                                             bool hasRateLimitUsage,
                                              bool hasDefaultSpread,
                                              bool hasCandleSpread) {
+    if (preferRateLimitUsage && hasRateLimitUsage) {
+        return CompareLowerPaneState{
+            .kind = CompareLowerPaneKind::RateLimitUsage,
+            .hasData = true,
+            .title = QStringLiteral("Rate limits"),
+        };
+    }
     if (!overlay.spreadPoints.empty()) {
         return CompareLowerPaneState{
             .kind = CompareLowerPaneKind::StrategySpread,

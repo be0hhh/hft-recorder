@@ -6,11 +6,18 @@ endif()
 qt_add_executable(hft-recorder-gui
     app/main.cpp
     ../app/metrics_bootstrap.cpp
-    models/BacktestSessionSummary.cpp
+    backtests/BacktestSessionSummary.cpp
     models/SessionListModel.cpp
     models/ViewerSourceListModel.cpp
     viewmodels/AppViewModel.cpp
-    viewmodels/BacktestViewModel.cpp
+    backtests/BacktestExecutionConfigHelpers.cpp
+    backtests/BacktestResultHelpers.cpp
+    backtests/BacktestSessionHelpers.cpp
+    backtests/BacktestStrategyConfigHelpers.cpp
+    backtests/BacktestSweepHelpers.cpp
+    backtests/BacktestViewModel.cpp
+    backtests/BacktestViewModelConfig.cpp
+    backtests/BacktestViewModelResults.cpp
     viewmodels/CaptureViewModel.cpp
     viewmodels/CaptureViewModelBatch.cpp
     viewmodels/CaptureViewModelRequests.cpp
@@ -27,6 +34,9 @@ qt_add_executable(hft-recorder-gui
     viewer/StrategyOverlay.cpp
     viewer/StrategyIndicator.cpp
     viewer/StrategyIndicatorItem.cpp
+    viewer/RateLimitUsage.cpp
+    viewer/RateLimitGraphPainter.cpp
+    viewer/RateLimitStripItem.cpp
     viewer/BookTickerCompareController.cpp
     viewer/BookTickerCompareCandlePaint.cpp
     viewer/BookTickerCompareItem.cpp

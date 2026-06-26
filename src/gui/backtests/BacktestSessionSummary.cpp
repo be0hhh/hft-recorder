@@ -1,4 +1,4 @@
-#include "gui/models/BacktestSessionSummary.hpp"
+#include "gui/backtests/BacktestSessionSummary.hpp"
 
 #include <QDateTime>
 #include <QDir>

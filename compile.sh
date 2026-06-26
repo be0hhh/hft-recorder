@@ -16,6 +16,7 @@
 #   --clean                   remove hft-recorder/build before app configure
 #   --compiler clang           explicit Clang toolchain
 #   --metrics-off             build with hot-path metrics disabled by default
+#   --portable                disable native Release flags for comparison/portable builds
 #   p|parallel|--parallel     use all CPU jobs and forward p to hft-trader
 #   -j N                      parallel jobs (default: nproc)
 set -euo pipefail
@@ -34,6 +35,8 @@ C_COMPILER=""
 CXX_COMPILER=""
 CMAKE_COMPILER_ARGS=()
 HOTPATH_METRICS_DEFAULT="ON"
+PORTABLE_BUILD="OFF"
+SECP256K1_NATIVE_OPT="ON"
 CXET_REFRESHED=0
 RECORDER_DEPS_REFRESHED=0
 
@@ -72,6 +75,8 @@ while [ "$#" -gt 0 ]; do
         --clean)      CLEAN=1; shift ;;
         --compiler)   COMPILER="${2:-}"; shift 2 ;;
         --metrics-off) HOTPATH_METRICS_DEFAULT="OFF"; shift ;;
+        secp-native|--secp-native|--secp256k1-native) SECP256K1_NATIVE_OPT="ON"; shift ;;
+        portable|--portable|secp-portable|--secp-portable|--no-secp-native) PORTABLE_BUILD="ON"; SECP256K1_NATIVE_OPT="OFF"; shift ;;
         p|parallel|--parallel) FULL_PARALLEL=1; JOBS="$(nproc 2>/dev/null || echo 4)"; shift ;;
         clang)        COMPILER="$1"; shift ;;
         gcc)          echo "ERROR: GCC is not supported for CXETCPP/hft-trader builds; use clang." >&2; exit 2 ;;
@@ -282,7 +287,10 @@ _build_trader() {
     echo ">>> Building hft-trader shared runtime"
     local trader_args=()
     if [ "$CXET_REFRESHED" = "1" ]; then
-        trader_args+=(--force)
+        echo ">>> Reusing freshly built CXETCPP for hft-trader staging"
+    fi
+    if [ "$PORTABLE_BUILD" = "ON" ]; then
+        trader_args+=(portable)
     fi
     if [ "$FULL_PARALLEL" = "1" ]; then
         trader_args+=(p)
@@ -371,6 +379,8 @@ _install_cxet_force() {
           -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
           -DCMAKE_BUILD_TYPE=Release \
           "${CMAKE_COMPILER_ARGS[@]}" \
+          -DCXET_PORTABLE_BUILD="$PORTABLE_BUILD" \
+          -DCXET_SECP256K1_NATIVE_OPT="$SECP256K1_NATIVE_OPT" \
           -DCMAKE_CXX_FLAGS="-w" \
           > /dev/null
     cmake --build build --target cxet_lib -j"$JOBS"
@@ -673,6 +683,7 @@ _build_recorder_app() {
               -DHFT_TRADER_CXET_INCLUDE_DIR="$TRADER/build/cxetcpp/include" \
               -DHFT_TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir" \
               -DHFTREC_HOTPATH_METRICS_DEFAULT="$HOTPATH_METRICS_DEFAULT" \
+              -DHFTREC_PORTABLE_BUILD="$PORTABLE_BUILD" \
               -DHFT_COMPRESSOR_PUBLIC_INCLUDE_DIR="$COMPRESSOR/include" \
               -DHFT_COMPRESSOR_SHARED_LIB="$compressor_lib" \
               -DHFT_BACKTEST_PUBLIC_INCLUDE_DIR="$BACKTEST/include" \

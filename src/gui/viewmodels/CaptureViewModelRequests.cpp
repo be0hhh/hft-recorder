@@ -62,6 +62,16 @@ constexpr VenueSpec kVenues[] = {
     {"finam_spot", "FINAM Spot", "finam", "spot"},
     {"mexc_spot", "MEXC Spot", "mexc", "spot"},
     {"mexc_futures", "MEXC Futures", "mexc", "futures"},
+    {"xt_futures", "XT Futures", "xt", "futures"},
+    {"xt_spot", "XT Spot", "xt", "spot"},
+    {"bingx_futures", "BingX Futures", "bingx", "futures"},
+    {"bingx_spot", "BingX Spot", "bingx", "spot"},
+    {"toobit_futures", "Toobit Futures", "toobit", "futures"},
+    {"toobit_spot", "Toobit Spot", "toobit", "spot"},
+    {"htx_futures", "HTX Futures", "htx", "futures"},
+    {"htx_spot", "HTX Spot", "htx", "spot"},
+    {"phemex_futures", "Phemex Futures", "phemex", "futures"},
+    {"phemex_spot", "Phemex Spot", "phemex", "spot"},
 };
 
 std::vector<VenueSpec> selectedVenues(const QStringList& venueKeys) {
@@ -284,20 +294,6 @@ QString detailedCandlesTimeframeForVenue(const VenueSpec& venue, const QString& 
     return normalizeDetailedTimeframe(requestedTimeframe);
 }
 
-QString marketDsl(const VenueSpec& venue) {
-    const QString market = QString::fromLatin1(venue.market);
-    if (market == QStringLiteral("spot")) return QStringLiteral("spot");
-    if (market == QStringLiteral("margin")) return QStringLiteral("margin");
-    if (market == QStringLiteral("inverse")) return QStringLiteral("inverse");
-    if (market == QStringLiteral("swap")) return QStringLiteral("swap");
-    return QStringLiteral("futures");
-}
-
-QString toDslSymbol(const VenueSpec& venue, const std::string& symbol) {
-    QString value = QString::fromStdString(symbol).trimmed();
-    return isFinamVenue(venue) ? value : value.toLower();
-}
-
 struct ParsedSymbol {
     QString base;
     QString quote;
@@ -305,6 +301,26 @@ struct ParsedSymbol {
 
 ParsedSymbol parseGlobalSymbol(QString symbol) {
     symbol = symbol.trimmed().toUpper();
+    const QString swapMarker = QStringLiteral("-SWAP-");
+    const auto swapMarkerIndex = symbol.indexOf(swapMarker);
+    if (swapMarkerIndex >= 0) {
+        const QString base = symbol.left(swapMarkerIndex);
+        const QString quote = symbol.mid(swapMarkerIndex + swapMarker.size());
+        if (!base.isEmpty() && !quote.isEmpty()) {
+            return {base, quote};
+        }
+    }
+    const QString suffix = QStringLiteral("-SWAP");
+    if (symbol.endsWith(suffix) && symbol.size() > suffix.size() + 1u) {
+        const auto sepPos = symbol.lastIndexOf(QLatin1Char('-'));
+        if (sepPos > 0u && sepPos < (symbol.size() - suffix.size())) {
+            const QString base = symbol.left(sepPos);
+            const QString quote = symbol.mid(sepPos + 1u, symbol.size() - sepPos - suffix.size() - 1u);
+            if (!base.isEmpty() && !quote.isEmpty()) {
+                return {base, quote};
+            }
+        }
+    }
     symbol.remove(QLatin1Char('-'));
     symbol.remove(QLatin1Char('_'));
     if (symbol.endsWith(QStringLiteral("SWAP"))) symbol.chop(4);
@@ -321,6 +337,24 @@ ParsedSymbol parseGlobalSymbol(QString symbol) {
         }
     }
     return {symbol, QStringLiteral("USDT")};
+}
+
+QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol);
+
+QString marketDsl(const VenueSpec& venue) {
+    const QString market = QString::fromLatin1(venue.market);
+    if (market == QStringLiteral("spot")) return QStringLiteral("spot");
+    if (market == QStringLiteral("margin")) return QStringLiteral("margin");
+    if (market == QStringLiteral("inverse")) return QStringLiteral("inverse");
+    if (market == QStringLiteral("swap")) return QStringLiteral("swap");
+    return QStringLiteral("futures");
+}
+
+QString toDslSymbol(const VenueSpec& venue, const std::string& symbol) {
+    const QString value = QString::fromStdString(symbol).trimmed();
+    if (value.isEmpty()) return value;
+    if (isFinamVenue(venue)) return value;
+    return formattedVenueSymbol(venue, parseGlobalSymbol(value));
 }
 
 QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol) {
@@ -342,7 +376,25 @@ QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol)
         if (market == QStringLiteral("futures")) return base + quote + QStringLiteral("M");
         return base + QLatin1Char('-') + quote;
     }
+    if (exchange == QStringLiteral("xt")) {
+        return base.toLower() + QLatin1Char('_') + quote.toLower();
+    }
+    if (exchange == QStringLiteral("bingx")) {
+        return base + QLatin1Char('-') + quote;
+    }
     if (exchange == QStringLiteral("gate")) return base + QLatin1Char('_') + quote;
+    if (exchange == QStringLiteral("toobit")) {
+        if (market == QStringLiteral("futures") || market == QStringLiteral("swap")) return base + QLatin1Char('-') + QStringLiteral("SWAP-") + quote;
+        return base + quote;
+    }
+    if (exchange == QStringLiteral("htx")) {
+        if (market == QStringLiteral("futures") || market == QStringLiteral("swap")) return base + QLatin1Char('-') + quote;
+        return base.toLower() + quote.toLower();
+    }
+    if (exchange == QStringLiteral("phemex")) {
+        if (market == QStringLiteral("futures") || market == QStringLiteral("swap")) return base + quote;
+        return QStringLiteral("s") + base + quote;
+    }
     if (exchange == QStringLiteral("okx")) {
         const QString result = base + QLatin1Char('-') + quote;
         return market == QStringLiteral("futures") ? result + QStringLiteral("-SWAP") : result;
