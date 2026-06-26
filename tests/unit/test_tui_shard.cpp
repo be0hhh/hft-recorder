@@ -55,3 +55,23 @@ TEST(RecorderTuiShard, SplitsPresetIntoBoundedShardPresets) {
         EXPECT_EQ(shard.maxActiveJobs, 11);
     }
 }
+
+TEST(RecorderTuiShard, KeepsSwapSuffixSymbolVariantsInSameShard) {
+    hftrec::tui::RecorderTuiPreset preset{};
+    preset.jobs = {
+        makeJob("btw_linear", "BTWUSDT"),
+        makeJob("btw_okx_swap", "BTW-USDT-SWAP"),
+        makeJob("eth_linear", "ETHUSDT"),
+    };
+
+    const auto shards = hftrec::tui::splitPresetIntoShards(preset, 2, 7);
+
+    ASSERT_EQ(shards.size(), 2u);
+    ASSERT_EQ(shards[0].jobs.size(), 2u);
+    EXPECT_EQ(shards[0].jobs[0].name, "btw_linear");
+    EXPECT_EQ(shards[0].jobs[1].name, "btw_okx_swap");
+    ASSERT_EQ(shards[1].jobs.size(), 1u);
+    EXPECT_EQ(shards[1].jobs[0].name, "eth_linear");
+    EXPECT_EQ(shards[0].maxActiveJobs, 7);
+    EXPECT_EQ(shards[1].maxActiveJobs, 7);
+}

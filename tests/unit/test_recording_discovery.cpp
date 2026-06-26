@@ -42,6 +42,16 @@ void writeSession(const std::filesystem::path& dir,
 
 }  // namespace
 
+TEST(RecordingDiscovery, NormalizesDerivativeSymbolVariantsForStorage) {
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTWUSDT"), "BTWUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTWUSDTM"), "BTWUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTW-USDT"), "BTWUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTW_USDT"), "BTWUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTW-USDT-SWAP"), "BTWUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTWUSDTSWAP"), "BTWUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTC-USD-SWAP"), "BTCUSD");
+}
+
 TEST(RecordingDiscovery, DiscoversFlatAndGroupedSessions) {
     const auto root = makeTempRoot();
     writeSession(root / "flat_binance", "flat_binance", "binance", "futures", "BTWUSDT", 1782141931000000000LL, 1782141991000000000LL);
@@ -64,14 +74,16 @@ TEST(RecordingDiscovery, DiscoversFlatAndGroupedSessions) {
 TEST(RecordingDiscovery, GroupsLegacySessionsWithinFiveMinutesByNormalizedSymbol) {
     const auto root = makeTempRoot();
     writeSession(root / "s1", "s1", "binance", "futures", "BTWUSDT", 1782141931000000000LL, 1782141991000000000LL);
-    writeSession(root / "s2", "s2", "kucoin", "futures", "BTWUSDTM", 1782141960000000000LL, 1782141992000000000LL);
-    writeSession(root / "s3", "s3", "binance", "futures", "BTWUSDT", 1782142600000000000LL, 1782142660000000000LL);
+    writeSession(root / "s2_okx", "s2_okx", "okx", "futures", "BTW-USDT-SWAP", 1782141940000000000LL, 1782141992000000000LL);
+    writeSession(root / "s3_kucoin", "s3_kucoin", "kucoin", "futures", "BTWUSDTM", 1782141960000000000LL, 1782141992000000000LL);
+    writeSession(root / "s4", "s4", "binance", "futures", "BTWUSDT", 1782142600000000000LL, 1782142660000000000LL);
 
     const auto plan = hftrec::recordings::organizeRecordings(root, false, 300);
 
-    ASSERT_EQ(plan.moves.size(), 3u);
+    ASSERT_EQ(plan.moves.size(), 4u);
     EXPECT_EQ(plan.moves[0].groupId, plan.moves[1].groupId);
-    EXPECT_NE(plan.moves[0].groupId, plan.moves[2].groupId);
+    EXPECT_EQ(plan.moves[0].groupId, plan.moves[2].groupId);
+    EXPECT_NE(plan.moves[0].groupId, plan.moves[3].groupId);
     EXPECT_TRUE(plan.moves[0].groupId.find("BTWUSDT") != std::string::npos);
     EXPECT_FALSE(std::filesystem::exists(plan.moves[0].to));
 }
