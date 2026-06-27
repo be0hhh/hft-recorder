@@ -14,6 +14,9 @@ enum class StrategyFillShape : std::uint8_t {
     SellDown = 1,
 };
 
+inline constexpr std::uint8_t kStrategyOrderTypeLimit = 1u;
+inline constexpr std::uint8_t kStrategyOrderTypeStopMarket = 3u;
+
 struct StrategyOrderSegment {
     std::int64_t tsStartNs{0};
     std::int64_t tsEndNs{0};
@@ -22,6 +25,7 @@ struct StrategyOrderSegment {
     std::uint32_t legIndex{0};
     bool sideBuy{true};
     bool openEnded{false};
+    std::uint8_t orderType{kStrategyOrderTypeLimit};
 };
 
 struct StrategyFillMarker {

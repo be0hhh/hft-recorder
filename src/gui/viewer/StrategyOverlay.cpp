@@ -19,6 +19,7 @@ struct OrderLifetimeRow {
     std::uint8_t side{0};
     bool openEnded{false};
     std::uint32_t legIndex{0};
+    std::uint8_t orderType{kStrategyOrderTypeLimit};
 };
 
 struct FillRow {
@@ -153,6 +154,17 @@ bool parseOptionalLegIndexAndTrailingFields(hftrec::json::MiniJsonParser& parser
     return skipOptionalTrailingFields(parser);
 }
 
+bool parseOptionalOrderLifetimeTrailingFields(hftrec::json::MiniJsonParser& parser,
+                                              OrderLifetimeRow& out) noexcept {
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    std::int64_t legIndex = 0;
+    if (!parser.parseInt64(legIndex) || legIndex < 0) return false;
+    out.legIndex = static_cast<std::uint32_t>(legIndex);
+    if (!parser.parseComma()) return parser.parseArrayEnd() && parser.finish();
+    if (!parseByte(parser, out.orderType)) return false;
+    return skipOptionalTrailingFields(parser);
+}
+
 bool parseOrderLifetimeLine(std::string_view line, OrderLifetimeRow& out) noexcept {
     out = OrderLifetimeRow{};
     hftrec::json::MiniJsonParser parser{line};
@@ -163,7 +175,7 @@ bool parseOrderLifetimeLine(std::string_view line, OrderLifetimeRow& out) noexce
     if (!parser.parseInt64(out.qtyE8) || !parser.parseComma()) return false;
     if (!parseByte(parser, out.side) || !parser.parseComma()) return false;
     if (!parseBoolByte(parser, out.openEnded)) return false;
-    return parseOptionalLegIndexAndTrailingFields(parser, out.legIndex);
+    return parseOptionalOrderLifetimeTrailingFields(parser, out);
 }
 
 bool parseLegacyOrderLine(std::string_view line, LegacyOrderRow& out) noexcept {
@@ -416,6 +428,7 @@ void materialize(const ParsedResult& parsed, std::int64_t fallbackRunEndNs, Stra
             row.legIndex,
             sideBuy(row.side),
             row.openEnded,
+            row.orderType,
         });
     }
 

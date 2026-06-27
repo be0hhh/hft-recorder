@@ -110,5 +110,3 @@ TEST(CaptureChannelSupport, HyperliquidFuturesMarketDataChannelsAreRuntimeReady)
     EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::Orderbook, detail)) << detail;
 }
 #endif
-
-}  // namespace

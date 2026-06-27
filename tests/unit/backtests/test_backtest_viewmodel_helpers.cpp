@@ -129,6 +129,11 @@ TEST(BacktestExecutionConfigHelpers, ExecutionPresetSummaryShowsDisabledRateLimi
     EXPECT_FALSE(summary.contains(QStringLiteral("Costs ")));
 }
 
+TEST(BacktestExecutionConfigHelpers, GuiBacktestsUseInlineExecutionPipeline) {
+    EXPECT_EQ(hftrec::gui::guiBacktestExecutionPipeline(),
+              hft_backtest::BacktestExecutionPipeline::Inline);
+}
+
 TEST(BacktestStrategyConfigHelpers, FiltersTemplateSectionsFromBaseConfig) {
     const QString base = QStringLiteral(
         "symbol=BTCUSDT\n"

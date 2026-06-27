@@ -238,6 +238,10 @@ QString venueExecutionMapKey(const QString& venueKey, const QString& field) {
     return venueKey + QLatin1Char('|') + field.trimmed().toLower();
 }
 
+hft_backtest::BacktestExecutionPipeline guiBacktestExecutionPipeline() noexcept {
+    return hft_backtest::BacktestExecutionPipeline::Inline;
+}
+
 bool isVenueExecutionField(const QString& field) {
     return field == QStringLiteral("initial_balance_usdt") ||
            field == QStringLiteral("maker_fee_bps") ||

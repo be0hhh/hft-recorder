@@ -29,7 +29,9 @@ void renderStrategyOverlay(const RenderContext& ctx) {
         const qreal x1 = std::clamp(vp.toX(segment.tsEndNs), -8.0, vp.w + 8.0);
         if (std::abs(x1 - x0) < 1.0) continue;
 
-        QColor color = segment.sideBuy ? tradeBuyColor() : tradeSellColor();
+        QColor color = segment.orderType == kStrategyOrderTypeStopMarket
+            ? stopMarketOrderColor()
+            : (segment.sideBuy ? tradeBuyColor() : tradeSellColor());
         color.setAlpha(230);
         QPen pen(color);
         pen.setWidth(2);

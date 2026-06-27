@@ -22,6 +22,7 @@ inline QColor tradeSellColor()      { return QColor(0xA8, 0x55, 0xF0); }  // Ñ„Ð
 inline QColor tradeAggregateColor() { return QColor(0xD7, 0xD7, 0xDC); }
 inline QColor tradeConnectorColor() { return QColor(0x70, 0x80, 0x90, 0x50); }
 inline QColor tradeOutlineColor()   { return QColor(0x0A, 0x0A, 0x0A, 0xC0); }
+inline QColor stopMarketOrderColor() { return QColor(0xFF, 0xD8, 0x4D); }
 inline QColor tooltipBackColor()    { return QColor(0x10, 0x10, 0x12, 0xEB); }
 inline QColor tooltipBorderColor()  { return QColor(0x50, 0x50, 0x56, 0xFF); }
 inline QColor haloBuyColor()        { return QColor(0x24, 0xC8, 0xD3, 0x60); }

@@ -13,6 +13,7 @@
 
 #include "gui/viewer/BookTickerCompareCandlePaint.hpp"
 #include "gui/viewer/BookTickerCompareController.hpp"
+#include "gui/viewer/ColorScheme.hpp"
 #include "gui/viewer/RateLimitGraphPainter.hpp"
 #include "gui/viewer/RateLimitUsage.hpp"
 
@@ -694,7 +695,10 @@ void drawStrategyOverlay(QPainter& painter,
         const qreal x0 = xFor(std::max<std::int64_t>(segment.tsStartNs, ranges.tsMin), ranges, rect);
         const qreal x1 = xFor(std::min<std::int64_t>(segment.tsEndNs, ranges.tsMax), ranges, rect);
         const qreal y = priceYFor(segment.priceE8, ranges, rect);
-        QPen pen{orderColor(segment.legIndex, segment.sideBuy)};
+        const QColor color = segment.orderType == kStrategyOrderTypeStopMarket
+            ? stopMarketOrderColor()
+            : orderColor(segment.legIndex, segment.sideBuy);
+        QPen pen{color};
         pen.setWidth(2);
         if (segment.openEnded) pen.setStyle(Qt::DashLine);
         painter.setPen(pen);

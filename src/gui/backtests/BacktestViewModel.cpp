@@ -671,7 +671,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.feeSchedules = feeSchedules;
         request.latencySchedules = latencySchedules;
         request.rateLimitSchedules = rateLimitSchedules;
-        request.executionPipeline = hft_backtest::BacktestExecutionPipeline::TwoPhaseReprice;
+        request.executionPipeline = guiBacktestExecutionPipeline();
         request.rateLimitsEnabled = rateLimitsEnabled;
         request.captureStrategySpread = true;
         request.outputPath = (QDir(outputSessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();

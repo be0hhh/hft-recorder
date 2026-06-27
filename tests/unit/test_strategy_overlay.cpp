@@ -108,11 +108,13 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_EQ(overlay.orderSegments[0].priceE8, e8(99));
     EXPECT_TRUE(overlay.orderSegments[0].sideBuy);
     EXPECT_FALSE(overlay.orderSegments[0].openEnded);
+    EXPECT_EQ(overlay.orderSegments[0].orderType, hftrec::gui::viewer::kStrategyOrderTypeLimit);
 
     EXPECT_EQ(overlay.orderSegments[1].tsStartNs, 3000);
     EXPECT_EQ(overlay.orderSegments[1].tsEndNs, 3500);
     EXPECT_EQ(overlay.orderSegments[1].priceE8, e8(105));
     EXPECT_FALSE(overlay.orderSegments[1].sideBuy);
+    EXPECT_EQ(overlay.orderSegments[1].orderType, hftrec::gui::viewer::kStrategyOrderTypeLimit);
 
     EXPECT_EQ(overlay.orderSegments[2].tsStartNs, 5000);
     EXPECT_EQ(overlay.orderSegments[2].tsEndNs, 6000);
@@ -172,6 +174,34 @@ TEST(StrategyOverlay, MaterializesLimitLifetimesAndFillMarkers) {
     EXPECT_FALSE(overlay.fillMarkers[3].sideBuy);
     EXPECT_TRUE(overlay.fillMarkers[3].reduceOnly);
     EXPECT_EQ(overlay.fillMarkers[3].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(StrategyOverlay, LoadsStopMarketLifetimeOrderType) {
+    const auto dir = makeTmpDir();
+    const auto resultPath = makeRunResult(dir, "run-stop-market",
+        "[1000,2000,9499000000,100000000,0,0,0,3]\n",
+        "[42,1000,2000,0,9498000000,100000000,0,0,0,3,1]\n");
+
+    hftrec::gui::viewer::StrategyOverlayData overlay;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyOverlayFromResult(resultPath, 9000, overlay, error)) << error;
+
+    ASSERT_EQ(overlay.orderSegments.size(), 1u);
+    EXPECT_EQ(overlay.orderSegments[0].tsStartNs, 1000);
+    EXPECT_EQ(overlay.orderSegments[0].tsEndNs, 2000);
+    EXPECT_EQ(overlay.orderSegments[0].priceE8, 9499000000ll);
+    EXPECT_FALSE(overlay.orderSegments[0].sideBuy);
+    EXPECT_EQ(overlay.orderSegments[0].orderType, hftrec::gui::viewer::kStrategyOrderTypeStopMarket);
+
+    ASSERT_EQ(overlay.fillMarkers.size(), 1u);
+    EXPECT_EQ(overlay.fillMarkers[0].orderId, 42u);
+    EXPECT_EQ(overlay.fillMarkers[0].tsNs, 2000);
+    EXPECT_EQ(overlay.fillMarkers[0].priceE8, 9498000000ll);
+    EXPECT_FALSE(overlay.fillMarkers[0].sideBuy);
+    EXPECT_EQ(overlay.fillMarkers[0].shape, hftrec::gui::viewer::StrategyFillShape::SellDown);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

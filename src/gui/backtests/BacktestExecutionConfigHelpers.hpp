@@ -14,6 +14,7 @@ QString venueExecutionSettingKey(QString venueKey);
 QString venueExecutionMapKey(const QString& venueKey, const QString& field);
 bool isVenueExecutionField(const QString& field);
 QString exchangeExecutionPresetSummary(const QString& exchange, const QString& market, bool rateLimitsEnabled = true);
+hft_backtest::BacktestExecutionPipeline guiBacktestExecutionPipeline() noexcept;
 hft_backtest::BacktestFeeSchedule feeScheduleFromVenueRow(const QVariantMap& row);
 hft_backtest::BacktestRateLimitSchedule rateLimitScheduleFromVenueRow(const QVariantMap& row);
 void writeBacktestRateLimitConfig(QTextStream& out, bool enabled);
