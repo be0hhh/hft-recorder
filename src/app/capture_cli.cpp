@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "core/capture/CaptureCoordinator.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 
 namespace hftrec::app {
 
@@ -25,24 +26,24 @@ void printUsage() {
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
     std::puts("Examples:");
-    std::puts("  hft-recorder capture bookticker all 60 ./recordings");
-    std::puts("  hft-recorder capture bookticker 10 ./recordings binance BTCUSDT");
-    std::puts("  hft-recorder capture bookticker 10 ./recordings bybit BTCUSDT futures");
-    std::puts("  hft-recorder capture bookticker 10 ./recordings kucoin BTCUSDTM");
-    std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT");
-    std::puts("  hft-recorder capture bookticker 10 ./recordings aster ASTERUSDT spot");
-    std::puts("  hft-recorder capture bookticker 10 ./recordings gate BTC_USDT margin");
-    std::puts("  hft-recorder capture bookticker 10 ./recordings okx BTC-USDT-SWAP futures");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 bookticker 30 ./recordings finam SBER@MISX spot");
-    std::puts("  hft-recorder capture mark_price 30 ./recordings binance BTCUSDT futures");
-    std::puts("  hft-recorder capture index_price 30 ./recordings bybit BTCUSDT futures");
-    std::puts("  hft-recorder capture funding 30 ./recordings gate BTC_USDT futures");
-    std::puts("  hft-recorder capture price_limit 30 ./recordings bitget BTCUSDT futures");
-    std::puts("  hft-recorder capture trades 30 ./recordings binance ETHUSDT futures 300");
-    std::puts("  hft-recorder capture --history-sec 3600 trades_history 1 ./recordings mexc BTCUSDT spot");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 ./recordings binance ETHUSDT futures 300");
-    std::puts("  hft-recorder capture candles 1 ./recordings binance BSBUSDT");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 100000 candles2 1 ./recordings finam SBER@MISX spot");
+    std::puts("  hft-recorder capture bookticker all 60 /mnt/d/recordings");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings binance BTCUSDT");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings bybit BTCUSDT futures");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings kucoin BTCUSDTM");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings gate BTC_USDT");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings aster ASTERUSDT spot");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings gate BTC_USDT margin");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings okx BTC-USDT-SWAP futures");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 bookticker 30 /mnt/d/recordings finam SBER@MISX spot");
+    std::puts("  hft-recorder capture mark_price 30 /mnt/d/recordings binance BTCUSDT futures");
+    std::puts("  hft-recorder capture index_price 30 /mnt/d/recordings bybit BTCUSDT futures");
+    std::puts("  hft-recorder capture funding 30 /mnt/d/recordings gate BTC_USDT futures");
+    std::puts("  hft-recorder capture price_limit 30 /mnt/d/recordings bitget BTCUSDT futures");
+    std::puts("  hft-recorder capture trades 30 /mnt/d/recordings binance ETHUSDT futures 300");
+    std::puts("  hft-recorder capture --history-sec 3600 trades_history 1 /mnt/d/recordings mexc BTCUSDT spot");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 /mnt/d/recordings binance ETHUSDT futures 300");
+    std::puts("  hft-recorder capture candles 1 /mnt/d/recordings binance BSBUSDT");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 100000 candles2 1 /mnt/d/recordings finam SBER@MISX spot");
 }
 
 capture::CaptureConfig makeDefaultConfig() {
@@ -50,9 +51,10 @@ capture::CaptureConfig makeDefaultConfig() {
     config.exchange = "binance";
     config.market = "futures";
     config.symbols = {"ETHUSDT"};
-    config.outputDir = "./recordings";
+    config.outputDir = recordings::defaultRecordingsRoot();
     config.durationSec = 10;
     config.snapshotIntervalSec = 60;
+    config.tradesHistoryWarmupSec = 0;
     config.liveCacheMode = capture::LiveCacheMode::Off;
     return config;
 }
@@ -317,7 +319,7 @@ int runCapture(int argc, char** argv) {
         }
     }
     if (argc >= outputArgIndex + 1) {
-        config.outputDir = argv[outputArgIndex];
+        config.outputDir = recordings::normalizeExplicitRecordingsPath(argv[outputArgIndex]);
     }
 
     if (allBookTickers) {
@@ -381,7 +383,7 @@ int runCapture(int argc, char** argv) {
         }
     }
     if (argc >= 4) {
-        config.outputDir = argv[3];
+        config.outputDir = recordings::normalizeExplicitRecordingsPath(argv[3]);
     }
     capture::CaptureCoordinator coordinator{};
     Status startStatus = startChannel(coordinator, channel, config);

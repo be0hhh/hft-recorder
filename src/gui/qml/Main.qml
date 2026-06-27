@@ -34,6 +34,7 @@ ApplicationWindow {
     Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; backtestVm: rootBacktestVm; tabActive: false } }
     Component { id: compressComponent; CompressView { compressionVm: root.ensureCompressionVm(); tabActive: false } }
     Component { id: backtestsComponent; BacktestResultsView { backtestVm: rootBacktestVm; captureVm: rootCaptureVm; tabActive: false } }
+    Component { id: quantComponent; QuantView { backtestVm: rootBacktestVm; tabActive: false } }
     Component { id: resultsComponent; ResultsView { backtestVm: rootBacktestVm; tabActive: false } }
 
     function ensureCompressionVm() {
@@ -52,6 +53,7 @@ ApplicationWindow {
         if (tabId === "viewer") return viewerComponent
         if (tabId === "compress") return compressComponent
         if (tabId === "backtests") return backtestsComponent
+        if (tabId === "quant") return quantComponent
         if (tabId === "results") return resultsComponent
         return null
     }

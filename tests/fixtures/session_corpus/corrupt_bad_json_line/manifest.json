@@ -4,7 +4,7 @@
   "capture_contract_version": "hftrec.strict_canonical_rows_json.v1",
   "session_status": "complete",
   "identity": { "session_id": "fixture_corrupt_bad_json_line", "exchange": "binance", "market": "futures_usd", "symbols": ["BTCUSDT"] },
-  "capture": { "selected_parent_dir": "./recordings", "started_at_ns": 1000, "ended_at_ns": 2000, "target_duration_sec": 2, "actual_duration_sec": 2, "snapshot_interval_sec": 60 },
+  "capture": { "selected_parent_dir": "/mnt/d/recordings", "started_at_ns": 1000, "ended_at_ns": 2000, "target_duration_sec": 2, "actual_duration_sec": 2, "snapshot_interval_sec": 60 },
   "replay": { "structurally_loadable": true, "structural_blockers": [] },
   "channels": {
     "trades": { "enabled": true, "required_when_enabled": true, "path": "trades.jsonl", "row_schema": "cxet_trade_strict_v1", "declared_event_count": 2 },

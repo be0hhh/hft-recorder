@@ -112,6 +112,28 @@ TEST(CaptureCoordinator, WritesManifestAsSoonAsSessionIsEnsured) {
     fs::remove_all(config.outputDir, ec);
 }
 
+TEST(CaptureCoordinator, PreservesEmptyFinalizedSessionManifest) {
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+
+    ASSERT_EQ(coordinator.ensureSession(config), Status::Ok);
+
+    const auto sessionDir = coordinator.sessionDirCopy();
+    const auto manifestPath = sessionDir / "manifest.json";
+    ASSERT_EQ(coordinator.finalizeSession(), Status::Ok);
+
+    ASSERT_TRUE(fs::exists(manifestPath));
+    std::ifstream manifestStream(manifestPath);
+    ASSERT_TRUE(manifestStream.is_open());
+    const std::string manifest((std::istreambuf_iterator<char>(manifestStream)), std::istreambuf_iterator<char>());
+    EXPECT_NE(manifest.find("\"session_status\": \"failed_empty\""), std::string::npos);
+    EXPECT_NE(manifest.find("\"session_health\": \"degraded\""), std::string::npos);
+    EXPECT_NE(manifest.find("no canonical rows captured"), std::string::npos);
+
+    std::error_code ec;
+    fs::remove_all(config.outputDir, ec);
+}
+
 TEST(CaptureCoordinator, DisablesLiveCacheByDefault) {
     CaptureCoordinator coordinator{};
     auto config = makeValidConfig();

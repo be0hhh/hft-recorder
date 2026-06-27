@@ -1,9 +1,9 @@
 #include "gui/backtests/BacktestSessionHelpers.hpp"
 
 #include "core/recordings/RecordingDiscovery.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 #include "gui/backtests/BacktestResultHelpers.hpp"
 
-#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -13,9 +13,7 @@
 namespace hftrec::gui {
 
 QString resolveRecordingsRoot() {
-    const QDir appDir(QCoreApplication::applicationDirPath());
-    const QString candidate = appDir.absoluteFilePath(QStringLiteral("../../recordings"));
-    return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
+    return QDir::cleanPath(QString::fromStdString(recordings::defaultRecordingsRoot().string()));
 }
 
 QString sessionSourceSummary(const QString& sessionPath, const BacktestLegCounts& backtestCounts) {

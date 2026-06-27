@@ -23,7 +23,7 @@ equivalent session metadata.
 Each session lives in:
 
 ```text
-recordings/<session_id>/
+/mnt/d/recordings/<session_id>/
 ```
 
 `session_id` format:

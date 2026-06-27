@@ -138,6 +138,7 @@ std::string formattedVenueSymbol(const RecorderTuiVenueSpec& venue, const Parsed
         if (market == "futures" || market == "swap") return base + quote;
         return std::string{"s"} + base + quote;
     }
+    if (exchange == "hyperliquid") return base;
     if (exchange == "gate") return base + '_' + quote;
     if (exchange == "okx") {
         const std::string result = base + '-' + quote;
@@ -219,12 +220,15 @@ const std::vector<RecorderTuiVenueSpec>& allCryptoVenueSpecs() {
         {"xt_spot", "XT Spot", "xt", "spot"},
         {"bingx_futures", "BingX Futures", "bingx", "futures"},
         {"bingx_spot", "BingX Spot", "bingx", "spot"},
+        {"bitmart_futures", "Bitmart Futures", "bitmart", "futures"},
+        {"bitmart_spot", "Bitmart Spot", "bitmart", "spot"},
         {"toobit_futures", "Toobit Futures", "toobit", "futures"},
         {"toobit_spot", "Toobit Spot", "toobit", "spot"},
         {"htx_futures", "HTX Futures", "htx", "futures"},
         {"htx_spot", "HTX Spot", "htx", "spot"},
         {"phemex_futures", "Phemex Futures", "phemex", "futures"},
         {"phemex_spot", "Phemex Spot", "phemex", "spot"},
+        {"hyperliquid_futures", "Hyperliquid Futures", "hyperliquid", "futures"},
     };
     return venues;
 }

@@ -1,7 +1,6 @@
 #include "gui/viewmodels/CompressionViewModel.hpp"
 
 #include <QByteArray>
-#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -26,6 +25,7 @@
 
 #include "hft_compressor/compressor.hpp"
 #include "hft_compressor/metrics_server.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 #include "gui/backtests/BacktestSessionSummary.hpp"
 
 namespace hftrec::gui {
@@ -233,9 +233,7 @@ QString pathFromUrl(const QUrl& url) {
 }
 
 QString resolveRecordingsRoot() {
-    const QDir appDir(QCoreApplication::applicationDirPath());
-    const QString candidate = appDir.absoluteFilePath(QStringLiteral("../../recordings"));
-    return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
+    return QDir::cleanPath(QString::fromStdString(recordings::defaultRecordingsRoot().string()));
 }
 
 QString sessionSourceSummary(const BacktestLegCounts& backtestCounts, const QString& sessionPath) {

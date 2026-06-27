@@ -27,7 +27,7 @@ Progress/live stream можно добавить позже, но это не ч
 
 ### В hft-recorder
 
-Recorder уже пишет canonical corpus в `apps/hft-recorder/recordings`.
+Recorder пишет canonical corpus в `/mnt/d/recordings`.
 Основные файлы сессии:
 - `manifest.json`
 - `candles.jsonl`
@@ -96,7 +96,7 @@ new order before intents leave `StrategyIo`.
 ## Архитектура v1
 
 ```text
-recordings/<session>
+/mnt/d/recordings/<session>
         |
         v
 Backtest loader
@@ -187,7 +187,7 @@ Recorder отправляет backtester-у:
 {
   "type": "run.start",
   "request_id": "req-001",
-  "session_path": "C:/.../apps/hft-recorder/recordings/SESSION_ID",
+  "session_path": "/mnt/d/recordings/SESSION_ID",
   "strategy": "spread_maker1and2",
   "config_path": "C:/.../apps/hft-trader/1and2.ini",
   "result_mode": "final_batch"

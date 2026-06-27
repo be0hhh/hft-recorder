@@ -32,6 +32,10 @@ TEST(RecorderTuiSymbols, FormatsGlobalSymbolForNativeCryptoVenues) {
     EXPECT_EQ(venueSymbolsFromGlobalInput("htx_spot", "BTCUSDT"), "btcusdt");
     EXPECT_EQ(venueSymbolsFromGlobalInput("phemex_spot", "BTCUSDT"), "sBTCUSDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("mexc_futures", "BTCUSDT"), "BTC_USDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("bitmart_futures", "BTCUSDT"), "BTCUSDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("bitmart_spot", "BTCUSDT"), "BTCUSDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("hyperliquid_futures", "BTCUSDT"), "BTC");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("hyperliquid_futures", "BTCUSDC"), "BTC");
 }
 
 TEST(RecorderTuiSymbols, TreatsNumericBareTokensAsSymbols) {
@@ -95,6 +99,8 @@ TEST(RecorderTuiSymbols, GeneratesLiveJobsForAllCryptoVenues) {
     bool foundKucoinFutures = false;
     bool foundOkxFutures = false;
     bool foundMexcFutures = false;
+    bool foundBitmartFutures = false;
+    bool foundHyperliquidFutures = false;
     for (const auto& job : jobs) {
         if (job.exchange == "kucoin" && job.market == "futures" && job.symbol == "LABUSDTM") {
             foundKucoinFutures = true;
@@ -105,11 +111,19 @@ TEST(RecorderTuiSymbols, GeneratesLiveJobsForAllCryptoVenues) {
         if (job.exchange == "mexc" && job.market == "futures" && job.symbol == "LAB_USDT") {
             foundMexcFutures = true;
         }
+        if (job.exchange == "bitmart" && job.market == "futures" && job.symbol == "LABUSDT") {
+            foundBitmartFutures = true;
+        }
+        if (job.exchange == "hyperliquid" && job.market == "futures" && job.symbol == "LAB") {
+            foundHyperliquidFutures = true;
+        }
     }
 
     EXPECT_TRUE(foundKucoinFutures);
     EXPECT_TRUE(foundOkxFutures);
     EXPECT_TRUE(foundMexcFutures);
+    EXPECT_TRUE(foundBitmartFutures);
+    EXPECT_TRUE(foundHyperliquidFutures);
 }
 
 }  // namespace

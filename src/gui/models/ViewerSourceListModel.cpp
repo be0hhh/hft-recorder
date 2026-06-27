@@ -1,6 +1,5 @@
 ﻿#include "gui/models/ViewerSourceListModel.hpp"
 
-#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -13,15 +12,14 @@
 #include "gui/backtests/BacktestSessionSummary.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
 #include "core/recordings/RecordingDiscovery.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 
 namespace hftrec::gui {
 
 namespace {
 
 QString resolveRecordingsRoot() {
-    const QDir appDir(QCoreApplication::applicationDirPath());
-    const QString candidate = appDir.absoluteFilePath(QStringLiteral("../../recordings"));
-    return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
+    return QDir::cleanPath(QString::fromStdString(recordings::defaultRecordingsRoot().string()));
 }
 
 QString displayExchange(QString value) {

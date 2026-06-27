@@ -18,8 +18,10 @@
 #include <algorithm>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <limits>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -814,6 +816,11 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (sweepBudget_.isEmpty()) sweepBudget_ = QStringLiteral("64");
     sweepSeed_ = settings_.value(QStringLiteral("backtests/sweep_seed"), sweepSeed_).toString().trimmed();
     if (sweepSeed_.isEmpty()) sweepSeed_ = QStringLiteral("0");
+    batchUniverseId_ = settings_.value(QStringLiteral("backtests/batch_universe_id"), batchUniverseId_).toString().trimmed();
+    batchPairBudget_ = settings_.value(QStringLiteral("backtests/batch_pair_budget"), batchPairBudget_).toString().trimmed();
+    if (batchPairBudget_.isEmpty()) batchPairBudget_ = QStringLiteral("64");
+    batchRawTableMode_ = settings_.value(QStringLiteral("backtests/batch_raw_table_mode"), batchRawTableMode_).toString().trimmed();
+    if (batchRawTableMode_.isEmpty()) batchRawTableMode_ = QStringLiteral("stable");
 }
 
 void BacktestViewModel::loadSavedParameterValues_() {
@@ -867,6 +874,9 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/rate_limits_enabled"), rateLimitsEnabled_);
     settings_.setValue(QStringLiteral("backtests/sweep_budget"), sweepBudget_);
     settings_.setValue(QStringLiteral("backtests/sweep_seed"), sweepSeed_);
+    settings_.setValue(QStringLiteral("backtests/batch_universe_id"), batchUniverseId_);
+    settings_.setValue(QStringLiteral("backtests/batch_pair_budget"), batchPairBudget_);
+    settings_.setValue(QStringLiteral("backtests/batch_raw_table_mode"), batchRawTableMode_);
     settings_.beginGroup(QStringLiteral("backtests/params/%1").arg(selectedStrategy_));
     for (const QString& key : paramOrder_) {
         settings_.setValue(key, paramValues_.value(key));
@@ -912,13 +922,22 @@ bool BacktestViewModel::ensureSelectedStrategySupportsSessionCount_() {
     return true;
 }
 
-QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides, bool fixedOnly) {
+BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides, bool fixedOnly) {
+    return writeRunConfigForSessionPaths_(runId, orderedSessionPathsForRun_(), overrides, fixedOnly);
+}
+
+BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForSessionPaths_(const QString& runId,
+                                                                                          const QStringList& sessionPaths,
+                                                                                          const QHash<QString, QString>& overrides,
+                                                                                          bool fixedOnly,
+                                                                                          bool useSelectedSymbolOverride) {
     const QString templatePath = configTemplatePathForStrategy(selectedStrategy_);
     const QString base = templatePath.isEmpty() ? QString{} : readTextFile(templatePath);
-    if (!templatePath.isEmpty() && base.isEmpty()) return {};
-    const QString session = selectedSessionPath();
-    const QStringList sessionPaths = orderedSessionPathsForRun_();
-    if (sessionPaths.empty()) return {};
+    if (!templatePath.isEmpty() && base.isEmpty()) {
+        return {{}, QStringLiteral("failed to read config template: %1").arg(templatePath)};
+    }
+    if (sessionPaths.empty()) return {{}, QStringLiteral("no session paths selected")};
+    const QString session = sessionPaths.front();
     QStringList legRefs;
     QStringList venueOrder;
     QHash<QString, QStringList> venueSymbols;
@@ -927,8 +946,10 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
     for (int i = 0; i < sessionPaths.size(); ++i) {
         const QString path = sessionPaths.at(i);
         const QString venue = venueSectionForSession(path);
-        const QString symbol = path == selectedSessionPath() ? selectedSymbol() : symbolForSessionPath(path);
-        if (venue.isEmpty() || symbol.isEmpty()) return {};
+        const QString symbol = useSelectedSymbolOverride && path == selectedSessionPath() ? selectedSymbol() : symbolForSessionPath(path);
+        if (venue.isEmpty() || symbol.isEmpty()) {
+            return {{}, QStringLiteral("missing venue or symbol for session: %1").arg(path)};
+        }
         legRefs.push_back(QStringLiteral("%1:%2").arg(venue, symbol));
         if (!venueSymbols.contains(venue)) venueOrder.push_back(venue);
         QStringList symbols = venueSymbols.value(venue);
@@ -960,10 +981,23 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         }
     }
     QDir outDir(QDir(session).absoluteFilePath(QStringLiteral("backtests")));
-    outDir.mkpath(runId);
-    const QString path = QDir(outDir.absoluteFilePath(runId)).absoluteFilePath(QStringLiteral("config.ini"));
+    const QString runDir = outDir.absoluteFilePath(runId);
+    const QString cleanRunDir = QDir::cleanPath(runDir);
+    std::error_code mkdirError;
+    std::filesystem::create_directories(std::filesystem::path{cleanRunDir.toStdString()}, mkdirError);
+    if (mkdirError) {
+        return {{}, QStringLiteral("cannot create directory %1: %2").arg(cleanRunDir, QString::fromStdString(mkdirError.message()))};
+    }
+    std::error_code statError;
+    if (!std::filesystem::is_directory(std::filesystem::path{cleanRunDir.toStdString()}, statError)) {
+        const QString detail = statError ? QString::fromStdString(statError.message()) : QStringLiteral("path exists but is not a directory");
+        return {{}, QStringLiteral("cannot create directory %1: %2").arg(cleanRunDir, detail)};
+    }
+    const QString path = QDir(runDir).absoluteFilePath(QStringLiteral("config.ini"));
     QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) return {};
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        return {{}, QStringLiteral("cannot open %1: %2").arg(QDir::cleanPath(path), file.errorString())};
+    }
     QTextStream out(&file);
     out << "# recorder backtest metadata\n";
     out << "# display_name=" << displayName_() << "\n";
@@ -1011,7 +1045,16 @@ QString BacktestViewModel::writeRunConfig_(const QString& runId, const QHash<QSt
         out << "\n[portfolio.recorder]\n";
         out << "legs=" << legRefs.join(QLatin1Char(',')) << "\n";
     }
-    return path;
+    out.flush();
+    if (out.status() != QTextStream::Ok) {
+        const QString detail = file.errorString().trimmed().isEmpty() ? QStringLiteral("QTextStream write failed") : file.errorString();
+        return {{}, QStringLiteral("cannot write %1: %2").arg(QDir::cleanPath(path), detail)};
+    }
+    file.close();
+    if (file.error() != QFileDevice::NoError) {
+        return {{}, QStringLiteral("cannot write %1: %2").arg(QDir::cleanPath(path), file.errorString())};
+    }
+    return {path, {}};
 }
 
 quint64 BacktestViewModel::latencyValue_(const QString& value, quint64 fallback) const noexcept {

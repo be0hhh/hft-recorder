@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "core/recordings/RecordingDiscovery.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 
 namespace hftrec::app {
 namespace {
@@ -31,7 +32,7 @@ int runRecordings(int argc, char** argv) {
         return 2;
     }
 
-    std::filesystem::path root{"./recordings"};
+    std::filesystem::path root{recordings::defaultRecordingsRoot()};
     bool apply = false;
     std::int64_t windowSec = 300;
     for (int i = 2; i < argc; ++i) {
@@ -41,7 +42,7 @@ int runRecordings(int argc, char** argv) {
                 std::fputs("recordings organize: --root requires a path\n", stderr);
                 return 2;
             }
-            root = argv[++i];
+            root = recordings::normalizeExplicitRecordingsPath(argv[++i]);
             continue;
         }
         if (arg == "--apply") {

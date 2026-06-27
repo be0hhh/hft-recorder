@@ -45,6 +45,8 @@ const char* launchChannelName(LaunchChannel channel) noexcept;
 bool launchChannelSelected(const ChannelSelection& channels, LaunchChannel channel) noexcept;
 void setLaunchChannel(ChannelSelection& channels, LaunchChannel channel, bool enabled) noexcept;
 bool anyLaunchChannelSelected(const ChannelSelection& channels) noexcept;
+bool requiresExclusiveMarketDataSession(const RecorderTuiJob& job);
+std::string exclusiveMarketDataSessionKey(const RecorderTuiJob& job);
 
 RecorderTuiLaunchJob filterLaunchJobChannels(const RecorderTuiLaunchJob& planned,
                                              RecorderTuiChannelAvailabilityFn availability,

@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/capture/CaptureChannelSupport.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
@@ -85,8 +86,38 @@ bool startDesiredChannels(capture::CaptureCoordinator& coordinator,
                           bool markPrice,
                           bool indexPrice,
                           bool funding,
-                          bool priceLimit) {
+                          bool priceLimit,
+                          std::string* skippedSummary) {
     const bool requested = trades || liquidations || bookTicker || orderbook || markPrice || indexPrice || funding || priceLimit;
+    std::vector<capture::CaptureChannel> requestedChannels;
+    requestedChannels.reserve(8u);
+    if (trades) requestedChannels.push_back(capture::CaptureChannel::Trades);
+    if (liquidations) requestedChannels.push_back(capture::CaptureChannel::Liquidations);
+    if (bookTicker) requestedChannels.push_back(capture::CaptureChannel::BookTicker);
+    if (orderbook) requestedChannels.push_back(capture::CaptureChannel::Orderbook);
+    if (markPrice) requestedChannels.push_back(capture::CaptureChannel::MarkPrice);
+    if (indexPrice) requestedChannels.push_back(capture::CaptureChannel::IndexPrice);
+    if (funding) requestedChannels.push_back(capture::CaptureChannel::Funding);
+    if (priceLimit) requestedChannels.push_back(capture::CaptureChannel::PriceLimit);
+
+    const auto launchPlan = capture::buildCaptureLaunchPlan(config, requestedChannels);
+    const std::string skipped = launchPlan.skippedSummary();
+    if (!skipped.empty() && skippedSummary != nullptr) {
+        if (!skippedSummary->empty()) *skippedSummary += " | ";
+        *skippedSummary += config.exchange + "/" + config.market + " ";
+        *skippedSummary += config.symbols.empty() ? std::string{} : config.symbols.front();
+        *skippedSummary += ": ";
+        *skippedSummary += skipped;
+    }
+    trades = launchPlan.channelEnabled(capture::CaptureChannel::Trades);
+    liquidations = launchPlan.channelEnabled(capture::CaptureChannel::Liquidations);
+    bookTicker = launchPlan.channelEnabled(capture::CaptureChannel::BookTicker);
+    orderbook = launchPlan.channelEnabled(capture::CaptureChannel::Orderbook);
+    markPrice = launchPlan.channelEnabled(capture::CaptureChannel::MarkPrice);
+    indexPrice = launchPlan.channelEnabled(capture::CaptureChannel::IndexPrice);
+    funding = launchPlan.channelEnabled(capture::CaptureChannel::Funding);
+    priceLimit = launchPlan.channelEnabled(capture::CaptureChannel::PriceLimit);
+    if (requested && !launchPlan.anyEnabled()) return false;
     bool running = hasRunningChannel(coordinator);
 
     if (trades && !coordinator.tradesRunning()) {
@@ -483,9 +514,15 @@ bool CaptureViewModel::startAllChannels() {
         if (!isOk(candleStatus)) candlesOk = false;
     }
 
-    setStatusText(candlesOk
-        ? QStringLiteral("All available capture channels desired for %1 stream(s)").arg(coordinators_.size())
-        : joinCoordinatorErrors_());
+    if (candlesOk && !lastSkippedChannelsSummary_.isEmpty()) {
+        setStatusText(QStringLiteral("All supported capture channels desired for %1 stream(s); skipped: %2")
+                          .arg(coordinators_.size())
+                          .arg(lastSkippedChannelsSummary_));
+    } else {
+        setStatusText(candlesOk
+            ? QStringLiteral("All available capture channels desired for %1 stream(s)").arg(coordinators_.size())
+            : joinCoordinatorErrors_());
+    }
     registerLiveSources_();
     refreshState(detail::CaptureRefreshMode::Full);
     return candlesOk;
@@ -576,6 +613,7 @@ bool CaptureViewModel::reconcileCoordinatorBatch_() {
 
     bool anyRunning = false;
     bool anyFailed = false;
+    std::string skippedSummary;
     for (auto& entry : coordinators_) {
         if (!entry.coordinator) continue;
         if (!startDesiredChannels(*entry.coordinator,
@@ -587,16 +625,25 @@ bool CaptureViewModel::reconcileCoordinatorBatch_() {
                                   desiredMarkPriceRunning_,
                                   desiredIndexPriceRunning_,
                                   desiredFundingRunning_,
-                                  desiredPriceLimitRunning_)) {
+                                  desiredPriceLimitRunning_,
+                                  &skippedSummary)) {
             anyFailed = true;
         }
         anyRunning = anyRunning || hasRunningChannel(*entry.coordinator);
     }
 
     if (anyFailed && !anyRunning) {
-        setStatusText(joinCoordinatorErrors_());
+        lastSkippedChannelsSummary_ = QString::fromStdString(skippedSummary);
+        setStatusText(lastSkippedChannelsSummary_.isEmpty()
+            ? joinCoordinatorErrors_()
+            : QStringLiteral("No supported capture channels for requested stream(s): %1").arg(lastSkippedChannelsSummary_));
         refreshState(detail::CaptureRefreshMode::Full);
         return false;
+    }
+
+    lastSkippedChannelsSummary_ = QString::fromStdString(skippedSummary);
+    if (!lastSkippedChannelsSummary_.isEmpty()) {
+        setStatusText(QStringLiteral("Skipped unsupported channel(s): %1").arg(lastSkippedChannelsSummary_));
     }
 
     return true;

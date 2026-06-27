@@ -24,6 +24,7 @@
 - First milestone: capture normalized market data into canonical JSON corpus, replay it, validate it, and visualize it.
 - Compression research happens on top of that corpus.
 - The canonical corpus is more important right now than the old `.cxrec`-first plan.
+- Current user recordings live on the Windows `D:` drive. From WSL, inspect `/mnt/d` first, especially `/mnt/d/recordings` when it exists, before assuming `apps/hft-recorder/recordings` contains the active corpus.
 
 ## Current work priorities
 

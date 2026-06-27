@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 
+#include "canon/MarketMapping.hpp"
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
 #include "core/capture/CaptureCoordinatorInternal.hpp"
@@ -357,12 +358,103 @@ bool sleepCaptureStopAware(const std::atomic<bool>* stopRequested, unsigned dela
     return !(stopRequested != nullptr && stopRequested->load(std::memory_order_acquire));
 }
 
+const char* marketStreamName(cxet::api::market::PublicMarketDataStream stream) noexcept;
+
+const char* publicMarketDataStatusName(cxet::api::market::PublicMarketDataStatus status) noexcept {
+    switch (status) {
+        case cxet::api::market::PublicMarketDataStatus::Ok: return "ok";
+        case cxet::api::market::PublicMarketDataStatus::NoFrame: return "no_frame";
+        case cxet::api::market::PublicMarketDataStatus::Parsed: return "parsed";
+        case cxet::api::market::PublicMarketDataStatus::ParseSkipped: return "parse_skipped";
+        case cxet::api::market::PublicMarketDataStatus::ParseFailed: return "parse_failed";
+        case cxet::api::market::PublicMarketDataStatus::ConnectFailed: return "connect_failed";
+        case cxet::api::market::PublicMarketDataStatus::Disconnected: return "disconnected";
+        case cxet::api::market::PublicMarketDataStatus::Reconnected: return "reconnected";
+        case cxet::api::market::PublicMarketDataStatus::BadConfig: return "bad_config";
+        case cxet::api::market::PublicMarketDataStatus::UnsupportedRoute: return "unsupported_route";
+        case cxet::api::market::PublicMarketDataStatus::Stopped: return "stopped";
+        case cxet::api::market::PublicMarketDataStatus::SubscribeFailed: return "subscribe_failed";
+    }
+    return "unknown";
+}
+
+bool marketDataStatusNeedsOperatorDetail(cxet::api::market::PublicMarketDataStatus status) noexcept {
+    return status == cxet::api::market::PublicMarketDataStatus::ParseFailed ||
+           status == cxet::api::market::PublicMarketDataStatus::ConnectFailed ||
+           status == cxet::api::market::PublicMarketDataStatus::Disconnected ||
+           status == cxet::api::market::PublicMarketDataStatus::BadConfig ||
+           status == cxet::api::market::PublicMarketDataStatus::UnsupportedRoute ||
+           status == cxet::api::market::PublicMarketDataStatus::SubscribeFailed;
+}
+
+std::string marketDataRuntimeDiagnosticText(const hft_trader::runtime::MarketDataRuntime& runtime,
+                                            std::string_view scope) {
+    std::array<cxet::api::market::PublicMarketDataRouteDiagnostic, 8> diagnostics{};
+    const std::size_t routeCount = runtime.manager().routeDiagnostics(diagnostics.data(), diagnostics.size());
+    std::string out;
+    const std::size_t count = std::min(routeCount, diagnostics.size());
+    for (std::size_t i = 0u; i < count; ++i) {
+        const auto& diagnostic = diagnostics[i];
+        if (!marketDataStatusNeedsOperatorDetail(diagnostic.lastStatus)) continue;
+        if (!out.empty()) out += " | ";
+        out += scope;
+        out += ": route status=";
+        out += publicMarketDataStatusName(diagnostic.lastStatus);
+        out += " stream=";
+        out += marketStreamName(diagnostic.primaryStream);
+        if (diagnostic.firstSymbol.data[0] != '\0') {
+            out += " symbol=";
+            out += diagnostic.firstSymbol.data;
+        }
+        if (diagnostic.endpointHost && diagnostic.endpointHost[0] != '\0') {
+            out += " endpoint=wss://";
+            out += diagnostic.endpointHost;
+            out += ":";
+            out += std::to_string(diagnostic.endpointPort);
+            out += diagnostic.connectPath;
+        }
+        if (diagnostic.lastWsConnectError != 0) {
+            out += " ws_error=";
+            out += std::to_string(diagnostic.lastWsConnectError);
+        }
+        const std::string_view connectStage{diagnostic.lastWsConnectStage};
+        if (!connectStage.empty() && connectStage != std::string_view{"none"}) {
+            out += " connect_stage=";
+            out += diagnostic.lastWsConnectStage;
+        }
+        if (diagnostic.lastWsConnectDetail[0] != '\0') {
+            out += " connect_detail=";
+            out += diagnostic.lastWsConnectDetail;
+        }
+        if (diagnostic.lastRouteError[0] != '\0') {
+            out += " detail=";
+            out += diagnostic.lastRouteError;
+        }
+        out += " frames=";
+        out += std::to_string(diagnostic.frames);
+        out += " parsed=";
+        out += std::to_string(diagnostic.parsedFrames);
+        out += " parse_failures=";
+        out += std::to_string(diagnostic.parseFailures);
+        if (diagnostic.lastFrameSnippet[0] != '\0') {
+            out += " last_frame=";
+            out += diagnostic.lastFrameSnippet;
+        }
+    }
+    return out;
+}
+
 void pollMarketDataLifecycleIfDue(hft_trader::runtime::MarketDataRuntime& runtime,
-                                  std::int64_t& nextPollNs) noexcept {
+                                  std::int64_t& nextPollNs,
+                                  std::string* diagnosticOut = nullptr,
+                                  std::string_view scope = {}) {
     const auto nowNs = internal::nowNs();
     if (nowNs < nextPollNs) return;
     nextPollNs = nowNs + kMarketDataLifecyclePollIntervalNs;
-    (void)runtime.pollLifecycleOnce();
+    const std::size_t progressed = runtime.pollLifecycleOnce();
+    if (diagnosticOut != nullptr && progressed != 0u) {
+        *diagnosticOut = marketDataRuntimeDiagnosticText(runtime, scope);
+    }
 }
 
 bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
@@ -390,23 +482,38 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "gate")) return canon::kExchangeIdGate;
     if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
     if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
+    if (textEqualsAscii(exchange, "hyperliquid")) return canon::kExchangeIdHyperliquid;
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
     if (textEqualsAscii(exchange, "finam")) return canon::kExchangeIdFinam;
     if (textEqualsAscii(exchange, "mexc")) return canon::kExchangeIdMexc;
     if (textEqualsAscii(exchange, "xt")) return canon::kExchangeIdXt;
     if (textEqualsAscii(exchange, "bingx")) return canon::kExchangeIdBingx;
+    if (textEqualsAscii(exchange, "bitmart")) return canon::kExchangeIdBitmart;
     if (textEqualsAscii(exchange, "toobit")) return canon::kExchangeIdToobit;
     if (textEqualsAscii(exchange, "htx")) return canon::kExchangeIdHtx;
     if (textEqualsAscii(exchange, "phemex")) return canon::kExchangeIdPhemex;
     return canon::kExchangeIdUnknown;
 }
 
-canon::MarketType marketTypeFromConfig(std::string_view market) noexcept {
+canon::MarketType marketTypeFromConfig(ExchangeId exchange, std::string_view market) noexcept {
+    char apiMarket[64]{};
+    if (market.size() + 1u < sizeof(apiMarket)) {
+        for (std::size_t i = 0u; i < market.size(); ++i) {
+            char c = market[i];
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
+            apiMarket[i] = c;
+        }
+        const canon::MarketType mapped = canon::exchangeApiStringToCanonical(exchange, apiMarket);
+        if (mapped.raw != canon::kMarketTypeUnknown.raw) return mapped;
+    }
     if (textEqualsAscii(market, "spot") || textEqualsAscii(market, "shares")) return canon::kMarketTypeSpot;
     if (textEqualsAscii(market, "margin")) return canon::kMarketTypeMargin;
     if (textEqualsAscii(market, "inverse")) return canon::kMarketTypeInverse;
     if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
-    return canon::kMarketTypeFutures;
+    if (textEqualsAscii(market, "futures") ||
+        textEqualsAscii(market, "forts") ||
+        textEqualsAscii(market, "futures_usd")) return canon::kMarketTypeFutures;
+    return canon::kMarketTypeUnknown;
 }
 
 bool shouldFetchInitialOrderbookSnapshot(const CaptureConfig& config) noexcept {
@@ -417,7 +524,7 @@ hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfi
     hft_trader::runtime::VenueRuntimeConfig venue{};
     venue.name = config.exchange + "." + config.market;
     venue.exchange = exchangeIdFromConfig(config.exchange);
-    venue.market = marketTypeFromConfig(config.market);
+    venue.market = marketTypeFromConfig(venue.exchange, config.market);
     venue.apiSlot = internal::normalizedApiSlot(config);
     venue.hasApiSlot = true;
     venue.marketEnabled = true;
@@ -589,6 +696,21 @@ const char* referenceStreamName(cxet::api::market::PublicMarketDataStream stream
         case cxet::api::market::PublicMarketDataStream::Funding: return "funding";
         default: return "unknown";
     }
+}
+
+const char* marketStreamName(cxet::api::market::PublicMarketDataStream stream) noexcept {
+    switch (stream) {
+        case cxet::api::market::PublicMarketDataStream::Trades: return "trades";
+        case cxet::api::market::PublicMarketDataStream::BookTicker: return "bookticker";
+        case cxet::api::market::PublicMarketDataStream::Orderbook: return "orderbook";
+        case cxet::api::market::PublicMarketDataStream::Liquidations: return "liquidations";
+        case cxet::api::market::PublicMarketDataStream::PriceLimit: return "price_limit";
+        case cxet::api::market::PublicMarketDataStream::MarkPrice: return "mark_price";
+        case cxet::api::market::PublicMarketDataStream::IndexPrice: return "index_price";
+        case cxet::api::market::PublicMarketDataStream::Funding: return "funding";
+        case cxet::api::market::PublicMarketDataStream::OpenInterest: return "open_interest";
+    }
+    return "unknown";
 }
 
 cxet::composite::StreamMeta streamMetaFromTraderEvent(
@@ -1365,7 +1487,12 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
     std::int64_t nextLifecyclePollNs = internal::nowNs() + kMarketDataLifecyclePollIntervalNs;
     while (!liquidationsStop_.load(std::memory_order_acquire)) {
         (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
-        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs);
+        std::string routeDiagnostic;
+        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs, &routeDiagnostic, "liquidations");
+        if (!routeDiagnostic.empty()) {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            lastError_ = routeDiagnostic;
+        }
         hft_trader::runtime::MarketDataRuntimeEvent event{};
         if (traderMarket.pollAvailableOne(event)) {
             if (event.stream != cxet::api::market::PublicMarketDataStream::Liquidations ||
@@ -1578,7 +1705,12 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
             if (!rebuildDesired()) break;
             appliedMask = mask;
         }
-        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs);
+        std::string routeDiagnostic;
+        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs, &routeDiagnostic, "reference");
+        if (!routeDiagnostic.empty()) {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            lastError_ = routeDiagnostic;
+        }
 
         hft_trader::runtime::MarketDataRuntimeEvent event{};
         if (!traderMarket.pollAvailableOne(event)) {
@@ -1630,6 +1762,63 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                                          config,
                                          Span<const cxet::api::market::PublicMarketDataStream>(streams.data(), streamCount),
                                          err)) {
+            auto clearUnsupportedMarketStream = [&](cxet::api::market::PublicMarketDataStream stream) noexcept {
+                if (stream == cxet::api::market::PublicMarketDataStream::Trades) {
+                    desiredTrades_.store(false, std::memory_order_release);
+                    tradesRunning_.store(false, std::memory_order_release);
+                } else if (stream == cxet::api::market::PublicMarketDataStream::BookTicker) {
+                    desiredBookTicker_.store(false, std::memory_order_release);
+                    bookTickerRunning_.store(false, std::memory_order_release);
+                } else if (stream == cxet::api::market::PublicMarketDataStream::Orderbook) {
+                    desiredOrderbook_.store(false, std::memory_order_release);
+                    orderbookRunning_.store(false, std::memory_order_release);
+                }
+            };
+
+            if (streamCount > 1u) {
+                std::array<cxet::api::market::PublicMarketDataStream, 3> supported{};
+                std::size_t supportedCount = 0u;
+                std::string skipped;
+                for (std::size_t i = 0u; i < streamCount; ++i) {
+                    hft_trader::runtime::MarketDataRuntime probe{};
+                    std::string singleErr;
+                    const bool supportedStream = applyTraderMarketDataConfig(
+                        probe,
+                        config,
+                        Span<const cxet::api::market::PublicMarketDataStream>(&streams[i], 1u),
+                        singleErr);
+                    probe.closeAll();
+                    if (supportedStream) {
+                        supported[supportedCount++] = streams[i];
+                    } else {
+                        clearUnsupportedMarketStream(streams[i]);
+                        if (!skipped.empty()) skipped += ", ";
+                        skipped += marketStreamName(streams[i]);
+                        if (!singleErr.empty()) {
+                            skipped += "(";
+                            skipped += singleErr;
+                            skipped += ")";
+                        }
+                    }
+                }
+
+                if (supportedCount != 0u) {
+                    err.clear();
+                    if (applyTraderMarketDataConfig(
+                            traderMarket,
+                            config,
+                            Span<const cxet::api::market::PublicMarketDataStream>(supported.data(), supportedCount),
+                            err)) {
+                        if (!skipped.empty()) {
+                            std::lock_guard<std::mutex> lock(stateMutex_);
+                            lastError_ = "market-data skipped unsupported stream(s): " + skipped;
+                        }
+                        return true;
+                    }
+                }
+            }
+
+            for (std::size_t i = 0u; i < streamCount; ++i) clearUnsupportedMarketStream(streams[i]);
             std::lock_guard<std::mutex> lock(stateMutex_);
             lastError_ = err.empty() ? "market-data: trader apply failed" : err;
             return false;
@@ -1899,7 +2088,12 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
             appliedMask = mask;
             startTradesWarmupIfNeeded();
         }
-        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs);
+        std::string routeDiagnostic;
+        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs, &routeDiagnostic, "market-data");
+        if (!routeDiagnostic.empty()) {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            lastError_ = routeDiagnostic;
+        }
         if (!drainTradesWarmupPages()) break;
         if (!flushTradesWarmupIfReady()) break;
 

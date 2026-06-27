@@ -19,7 +19,7 @@ Expected keys:
 - `MARKET=futures_usd`
 - `SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT`
 - `DURATION_SEC=1800`
-- `OUTPUT_DIR=./recordings`
+- `OUTPUT_DIR=/mnt/d/recordings`
 - `SNAPSHOT_INTERVAL_SEC=60`
 - `LOG_LEVEL=info`
 - `LOG_DIR=./logs`
@@ -27,6 +27,9 @@ Expected keys:
 Optional:
 - `BINANCE_API_KEY`
 - `BINANCE_SECRET`
+
+Process environment overrides:
+- `HFTREC_RECORDINGS_ROOT=/mnt/d/recordings` to override the default corpus root for one run
 
 ## GUI config behavior
 

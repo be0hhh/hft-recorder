@@ -14,6 +14,7 @@
 #include "core/capture/ChannelJsonWriter.hpp"
 #include "core/capture/SessionManifest.hpp"
 #include "core/common/Status.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 #include "core/storage/EventStorage.hpp"
 #include "core/storage/JsonSessionStorage.hpp"
 
@@ -36,7 +37,7 @@ struct CaptureConfig {
     std::vector<std::string> symbols{};
     std::filesystem::path envPath{".env"};
     std::uint8_t apiSlot{1u};
-    std::filesystem::path outputDir{"./recordings"};
+    std::filesystem::path outputDir{hftrec::recordings::defaultRecordingsRoot()};
     std::int64_t durationSec{0};
     std::int64_t snapshotIntervalSec{60};
     std::int64_t tradesHistoryWarmupSec{3600};

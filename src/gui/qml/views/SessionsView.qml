@@ -56,7 +56,7 @@ Pane {
         }
 
         Label {
-            text: "Grouped recordings from ./recordings"
+            text: "Grouped recordings from /mnt/d/recordings"
             color: root.mutedTextColor
             wrapMode: Text.WordWrap
         }
@@ -143,7 +143,7 @@ Pane {
                 Label {
                     anchors.centerIn: parent
                     visible: sessionsList.count === 0
-                    text: "No session folders found in ./recordings yet"
+                    text: "No session folders found in /mnt/d/recordings yet"
                     color: root.mutedTextColor
                 }
             }

@@ -350,6 +350,8 @@ bool parseArtifactsObject(JsonParser& parser, SessionManifest& manifest) noexcep
             if (!parser.parseString(manifest.sessionAuditPath)) return false;
         } else if (key == "loader_diagnostics_path") {
             if (!parser.parseString(manifest.loaderDiagnosticsPath)) return false;
+        } else if (key == "market_data_launch_path") {
+            if (!parser.parseString(manifest.marketDataLaunchPath)) return false;
         } else {
             if (!parser.skipValue()) return false;
         }
@@ -544,6 +546,7 @@ void populateSupportArtifacts(SessionManifest& manifest) {
     if (!manifest.sessionAuditPath.empty()) manifest.supportArtifacts.push_back(manifest.sessionAuditPath);
     if (!manifest.integrityReportPath.empty()) manifest.supportArtifacts.push_back(manifest.integrityReportPath);
     if (!manifest.loaderDiagnosticsPath.empty()) manifest.supportArtifacts.push_back(manifest.loaderDiagnosticsPath);
+    if (!manifest.marketDataLaunchPath.empty()) manifest.supportArtifacts.push_back(manifest.marketDataLaunchPath);
 }
 
 bool validateStructurally(SessionManifest& manifest) {
@@ -757,6 +760,7 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "    \"instrument_metadata_path\": " << json::quote(manifest.instrumentMetadataPath) << ",\n";
     out << "    \"session_audit_path\": " << json::quote(manifest.sessionAuditPath) << ",\n";
     out << "    \"loader_diagnostics_path\": " << json::quote(manifest.loaderDiagnosticsPath) << ",\n";
+    out << "    \"market_data_launch_path\": " << json::quote(manifest.marketDataLaunchPath) << ",\n";
     out << "    \"canonical\": ";
     appendStringArray(out, manifest.canonicalArtifacts);
     out << ",\n";

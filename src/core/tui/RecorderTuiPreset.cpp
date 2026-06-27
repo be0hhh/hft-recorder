@@ -259,7 +259,7 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
                     error = "line " + std::to_string(lineNo) + ": output_dir is empty";
                     return false;
                 }
-                preset.outputDir = value;
+                preset.outputDir = recordings::normalizeExplicitRecordingsPath(value);
             } else if (key == "progress_sec") {
                 int progressSec = 0;
                 if (!parseInt(value, progressSec) || progressSec < 1 || progressSec > 3600) {
@@ -326,7 +326,7 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
     if (preset.launchStaggerMs < 0) preset.launchStaggerMs = 250;
     if (preset.sameExchangeCooldownMs < 0) preset.sameExchangeCooldownMs = 1500;
     if (preset.maxActiveJobs < 1) preset.maxActiveJobs = 24;
-    if (preset.outputDir.empty()) preset.outputDir = "./recordings";
+    if (preset.outputDir.empty()) preset.outputDir = recordings::defaultRecordingsRoot();
     for (const RecorderTuiJob& job : preset.jobs) {
         if (!validateJob(job, error)) return false;
     }

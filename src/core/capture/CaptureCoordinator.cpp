@@ -2,13 +2,17 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 
 
 #include "core/capture/CaptureCoordinatorInternal.hpp"
 #include "core/capture/SessionId.hpp"
 #include "core/capture/SupportArtifacts.hpp"
 #include "core/corpus/InstrumentMetadata.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 #include "core/replay/SessionReplay.hpp"
+
+#include <algorithm>
 
 namespace hftrec::capture {
 
@@ -29,6 +33,72 @@ bool hasCapturedRows(const SessionManifest& manifest) noexcept {
         || manifest.candles2Count != 0u;
 }
 
+Status writeFileFully(const std::filesystem::path& path, const std::string& document) noexcept {
+    if (document.empty()) return Status::IoError;
+    {
+        std::ofstream stream(path, std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!stream.is_open()) return Status::IoError;
+        stream.write(document.data(), static_cast<std::streamsize>(document.size()));
+        stream.flush();
+        if (!stream.good()) {
+            stream.close();
+            return Status::IoError;
+        }
+        stream.close();
+        if (!stream.good()) return Status::IoError;
+    }
+
+    std::error_code ec;
+    const std::uintmax_t written = std::filesystem::file_size(path, ec);
+    if (ec || written != document.size()) {
+        std::filesystem::remove(path, ec);
+        return Status::IoError;
+    }
+    return Status::Ok;
+}
+
+Status replaceFilePreservingPrevious(const std::filesystem::path& tempPath,
+                                     const std::filesystem::path& targetPath) noexcept {
+    const std::filesystem::path previousPath = targetPath.string() + ".prev";
+    bool previousReady = false;
+
+    std::error_code ec;
+    if (std::filesystem::exists(targetPath, ec) && !ec) {
+        const std::uintmax_t targetSize = std::filesystem::file_size(targetPath, ec);
+        if (!ec && targetSize > 0u) {
+            std::filesystem::copy_file(targetPath,
+                                       previousPath,
+                                       std::filesystem::copy_options::overwrite_existing,
+                                       ec);
+            if (ec) return Status::IoError;
+            previousReady = true;
+        }
+    }
+
+    ec.clear();
+    std::filesystem::rename(tempPath, targetPath, ec);
+    if (!ec) return Status::Ok;
+
+    ec.clear();
+    if (std::filesystem::exists(targetPath, ec) && !ec) {
+        std::filesystem::remove(targetPath, ec);
+        if (ec) return Status::IoError;
+    }
+
+    ec.clear();
+    std::filesystem::rename(tempPath, targetPath, ec);
+    if (!ec) return Status::Ok;
+
+    if (previousReady) {
+        std::error_code restoreEc;
+        std::filesystem::copy_file(previousPath,
+                                   targetPath,
+                                   std::filesystem::copy_options::overwrite_existing,
+                                   restoreEc);
+    }
+    return Status::IoError;
+}
+
 }  // namespace
 
 CaptureCoordinator::CaptureCoordinator() = default;
@@ -39,36 +109,39 @@ CaptureCoordinator::~CaptureCoordinator() {
 
 Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     internal::ensureCxetInitialized();
-    if (const auto envStatus = internal::loadCaptureEnv(config, lastError_); !isOk(envStatus)) {
+    CaptureConfig normalizedConfig = config;
+    normalizedConfig.outputDir = recordings::normalizeExplicitRecordingsPath(config.outputDir);
+
+    if (const auto envStatus = internal::loadCaptureEnv(normalizedConfig, lastError_); !isOk(envStatus)) {
         return envStatus;
     }
 
-    if (const auto validateStatus = internal::validateSupportedConfig(config, lastError_); !isOk(validateStatus)) {
+    if (const auto validateStatus = internal::validateSupportedConfig(normalizedConfig, lastError_); !isOk(validateStatus)) {
         return validateStatus;
     }
 
     std::lock_guard<std::mutex> lock(stateMutex_);
     if (sessionOpen()) {
-        if (!internal::sessionConfigMatches(config_, config)) {
+        if (!internal::sessionConfigMatches(config_, normalizedConfig)) {
             lastError_ = "capture session already open with a different exchange/market/symbol/env/api/output directory";
             return Status::InvalidArgument;
         }
-        config_.tradesHistoryWarmupSec = config.tradesHistoryWarmupSec;
-        manifest_.tradesHistoryWarmupSec = config.tradesHistoryWarmupSec;
+        config_.tradesHistoryWarmupSec = normalizedConfig.tradesHistoryWarmupSec;
+        manifest_.tradesHistoryWarmupSec = normalizedConfig.tradesHistoryWarmupSec;
         return Status::Ok;
     }
 
-    config_ = config;
+    config_ = normalizedConfig;
     manifest_ = {};
-    manifest_.sessionId = makeSessionId(config.exchange, config.market, config.symbols.front(), internal::nowNs());
-    manifest_.exchange = config.exchange;
-    manifest_.market = config.market;
-    manifest_.symbols = config.symbols;
-    manifest_.selectedParentDir = config.outputDir.string();
+    manifest_.sessionId = makeSessionId(normalizedConfig.exchange, normalizedConfig.market, normalizedConfig.symbols.front(), internal::nowNs());
+    manifest_.exchange = normalizedConfig.exchange;
+    manifest_.market = normalizedConfig.market;
+    manifest_.symbols = normalizedConfig.symbols;
+    manifest_.selectedParentDir = normalizedConfig.outputDir.string();
     manifest_.startedAtNs = internal::nowNs();
-    manifest_.targetDurationSec = config.durationSec;
-    manifest_.snapshotIntervalSec = config.snapshotIntervalSec;
-    manifest_.tradesHistoryWarmupSec = config.tradesHistoryWarmupSec;
+    manifest_.targetDurationSec = normalizedConfig.durationSec;
+    manifest_.snapshotIntervalSec = normalizedConfig.snapshotIntervalSec;
+    manifest_.tradesHistoryWarmupSec = normalizedConfig.tradesHistoryWarmupSec;
     manifest_.tradesPath = std::string{channelJsonlRelativePath(ChannelKind::Trades)};
     manifest_.liquidationsPath = std::string{channelJsonlRelativePath(ChannelKind::Liquidations)};
     manifest_.bookTickerPath = std::string{channelJsonlRelativePath(ChannelKind::BookTicker)};
@@ -90,7 +163,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     manifest_.candles2RowSchema = "cxet_ohlcv_numeric_v3";
     manifest_.sessionStatus = "recording";
 
-    sessionDir_ = config.outputDir / manifest_.sessionId;
+    sessionDir_ = normalizedConfig.outputDir / manifest_.sessionId;
     std::error_code ec;
     if (std::filesystem::exists(sessionDir_, ec)) {
         lastError_ = "session path already exists: " + sessionDir_.string();
@@ -124,6 +197,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
         manifest_.sessionAuditPath,
         manifest_.integrityReportPath,
         manifest_.loaderDiagnosticsPath,
+        manifest_.marketDataLaunchPath,
     };
 
     lastError_.clear();
@@ -163,21 +237,41 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     manifest_.structuralBlockers.clear();
     manifest_.structurallyLoadable = true;
 
-    (void)eventSink_.close();
-    (void)tradesWriter_.close();
-    (void)liquidationsWriter_.close();
-    (void)bookTickerWriter_.close();
-    (void)candlesWriter_.close();
-    (void)candles2Writer_.close();
-    (void)depthWriter_.close();
+    auto noteCloseStatus = [&](Status status, std::string_view label) {
+        if (isOk(status)) return;
+        if (!lastError_.empty()) lastError_ += " | ";
+        lastError_ += std::string{label};
+    };
+	
+    noteCloseStatus(eventSink_.close(), "event sink close failed");
+    noteCloseStatus(tradesWriter_.close(), "trades writer close failed");
+    noteCloseStatus(liquidationsWriter_.close(), "liquidations writer close failed");
+    noteCloseStatus(bookTickerWriter_.close(), "bookticker writer close failed");
+    noteCloseStatus(candlesWriter_.close(), "candles writer close failed");
+    noteCloseStatus(candles2Writer_.close(), "candles2 writer close failed");
+    noteCloseStatus(depthWriter_.close(), "depth writer close failed");
+    manifest_.warningSummary = lastError_;
 
     if (!hasCapturedRows(manifest_)) {
-        const auto emptySessionDir = sessionDir_;
-        std::error_code ec;
-        std::filesystem::remove_all(emptySessionDir, ec);
-        if (ec) {
-            lastError_ = "failed to remove empty session directory: " + emptySessionDir.string();
-            return Status::IoError;
+        if (manifest_.warningSummary.empty()) {
+            lastError_ = "no canonical rows captured";
+            manifest_.warningSummary = lastError_;
+        }
+        manifest_.sessionStatus = "failed_empty";
+        manifest_.sessionHealth = SessionHealth::Degraded;
+        manifest_.exactReplayEligible = false;
+        if (std::find(manifest_.supportArtifacts.begin(),
+                      manifest_.supportArtifacts.end(),
+                      manifest_.marketDataLaunchPath) == manifest_.supportArtifacts.end()) {
+            manifest_.supportArtifacts.push_back(manifest_.marketDataLaunchPath);
+        }
+        if (const auto manifestStatus = writeManifestFile_(); !isOk(manifestStatus)) {
+            lastError_ = "failed to write empty failed-session manifest.json";
+            return manifestStatus;
+        }
+        if (const auto supportStatus = writeSupportArtifacts(); !isOk(supportStatus)) {
+            lastError_ = "failed to write empty failed-session support artifacts";
+            return supportStatus;
         }
         resetSessionState();
         return Status::Ok;
@@ -376,31 +470,9 @@ Status CaptureCoordinator::writeManifestFile_() noexcept {
     if (sessionDir_.empty()) return Status::InvalidArgument;
     const auto manifestPath = sessionDir_ / "manifest.json";
     const auto tempPath = sessionDir_ / "manifest.json.tmp";
-    {
-        std::ofstream stream(tempPath, std::ios::out | std::ios::trunc);
-        if (!stream.is_open()) return Status::IoError;
-        stream << renderManifestJson(manifest_);
-        if (!stream.good()) return Status::IoError;
-    }
-
-    std::error_code ec;
-    std::filesystem::rename(tempPath, manifestPath, ec);
-    if (!ec) return Status::Ok;
-
-    ec.clear();
-    std::filesystem::remove(manifestPath, ec);
-    if (ec) {
-        std::filesystem::remove(tempPath, ec);
-        return Status::IoError;
-    }
-    ec.clear();
-    std::filesystem::rename(tempPath, manifestPath, ec);
-    if (ec) {
-        std::error_code cleanupEc;
-        std::filesystem::remove(tempPath, cleanupEc);
-        return Status::IoError;
-    }
-    return Status::Ok;
+    const std::string document = renderManifestJson(manifest_);
+    if (const auto writeStatus = writeFileFully(tempPath, document); !isOk(writeStatus)) return writeStatus;
+    return replaceFilePreservingPrevious(tempPath, manifestPath);
 }
 
 Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
@@ -431,6 +503,7 @@ Status CaptureCoordinator::writeSupportArtifacts() noexcept {
     const ArtifactSpec artifacts[] = {
         {sessionDir_ / manifest_.sessionAuditPath, renderSessionAuditJson(manifest_, generatedAtNs)},
         {sessionDir_ / manifest_.loaderDiagnosticsPath, renderLoaderDiagnosticsJson(manifest_, generatedAtNs)},
+        {sessionDir_ / manifest_.marketDataLaunchPath, renderMarketDataLaunchJson(manifest_, generatedAtNs)},
     };
     for (const auto& artifact : artifacts) {
         std::ofstream out(artifact.path, std::ios::out | std::ios::trunc);

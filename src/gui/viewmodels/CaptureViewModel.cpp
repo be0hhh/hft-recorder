@@ -7,6 +7,10 @@
 #include <QDir>
 #include <QVariantMap>
 
+#include <filesystem>
+
+#include "core/recordings/RecordingRoot.hpp"
+
 namespace hftrec::gui {
 
 namespace {
@@ -50,6 +54,41 @@ qint64 currentUtcNs() {
     return QDateTime::currentMSecsSinceEpoch() * kNsPerMs;
 }
 
+QString recordingsPathText(const std::filesystem::path& path) {
+    return QDir::cleanPath(QString::fromStdString(path.string()));
+}
+
+QString defaultOutputDirectory() {
+    return recordingsPathText(recordings::defaultRecordingsRoot());
+}
+
+QStringList defaultVenueSymbolsTexts() {
+    QStringList symbols;
+    const auto choices = detail::venueChoices();
+    symbols.reserve(choices.size());
+    for (const auto& rawChoice : choices) {
+        const QString key = rawChoice.toMap().value(QStringLiteral("key")).toString();
+        if (key.startsWith(QStringLiteral("finam_"))) {
+            symbols.push_back(QStringLiteral("SBER@MISX"));
+        } else {
+            symbols.push_back(detail::venueSymbolsFromGlobalInput(key, QStringLiteral("BTCUSDT")));
+        }
+    }
+    return symbols;
+}
+
+QString normalizeOutputDirectory(const QString& path) {
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) return {};
+    return recordingsPathText(recordings::normalizeExplicitRecordingsPath(std::filesystem::path{trimmed.toStdString()}));
+}
+
+QString normalizeSavedOutputDirectory(const QString& path) {
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) return {};
+    return recordingsPathText(recordings::normalizeRecordingsPath(std::filesystem::path{trimmed.toStdString()}));
+}
+
 void syncDetailedVenueFields(const QString& venueKey, QString& exchange, QString& market) {
     const auto key = venueKey.trimmed().toLower();
     const auto parts = key.split(QLatin1Char('_'), Qt::SkipEmptyParts);
@@ -61,42 +100,13 @@ void syncDetailedVenueFields(const QString& venueKey, QString& exchange, QString
 
 CaptureViewModel::CaptureViewModel(QObject* parent)
     : QObject(parent) {
-    outputDirectory_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../recordings"));
+    outputDirectory_ = defaultOutputDirectory();
     envPath_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../.env"));
     tradesAvailableAliases_ = detail::loadAliasesForChannel("trades");
     liquidationsAvailableAliases_ = detail::loadAliasesForChannel("liquidations");
     bookTickerAvailableAliases_ = detail::loadAliasesForChannel("bookticker");
     orderbookAvailableAliases_ = detail::loadAliasesForChannel("orderbook");
-    venueSymbolsTexts_ = {
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("XBTUSDTM"),
-        QStringLiteral("BTC-USDT"),
-        QStringLiteral("BTC_USDT"),
-        QStringLiteral("BTC_USDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTC-USDT-SWAP"),
-        QStringLiteral("BTC-USDT"),
-        QStringLiteral("SBER@MISX"),
-        QStringLiteral("SBER@MISX"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTC_USDT"),
-        QStringLiteral("btc_usdt"),
-        QStringLiteral("btc_usdt"),
-        QStringLiteral("BTC-USDT"),
-        QStringLiteral("BTC-USDT"),
-        QStringLiteral("BTC-SWAP-USDT"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("BTC-USDT"),
-        QStringLiteral("btcusdt"),
-        QStringLiteral("BTCUSDT"),
-        QStringLiteral("sBTCUSDT"),
-    };
+    venueSymbolsTexts_ = defaultVenueSymbolsTexts();
     loadSettings_();
 
     refreshTimer_.setInterval(1000);
@@ -264,7 +274,7 @@ QString CaptureViewModel::detailedCandlesRequestPreview() const {
 }
 
 void CaptureViewModel::setOutputDirectory(const QString& outputDirectory) {
-    const auto normalized = outputDirectory.trimmed();
+    const auto normalized = normalizeOutputDirectory(outputDirectory.trimmed());
     if (normalized.isEmpty() || normalized == outputDirectory_) return;
     outputDirectory_ = normalized;
     saveSettings_();
@@ -589,7 +599,13 @@ void CaptureViewModel::setStatusFromStatus(hftrec::Status status, const QString&
 
 void CaptureViewModel::loadSettings_() {
     const auto outputDirectory = settings_.value(QStringLiteral("capture/output_directory"), outputDirectory_).toString().trimmed();
-    if (!outputDirectory.isEmpty()) outputDirectory_ = outputDirectory;
+    if (!outputDirectory.isEmpty()) {
+        const auto normalized = normalizeSavedOutputDirectory(outputDirectory);
+        if (!normalized.isEmpty()) {
+            outputDirectory_ = normalized;
+            if (normalized != outputDirectory) settings_.setValue(QStringLiteral("capture/output_directory"), outputDirectory_);
+        }
+    }
 
     const auto envPath = settings_.value(QStringLiteral("capture/env_path"), envPath_).toString().trimmed();
     if (!envPath.isEmpty()) envPath_ = envPath;
@@ -605,7 +621,10 @@ void CaptureViewModel::loadSettings_() {
     const auto venueSymbols = settings_.value(QStringLiteral("capture/venue_symbols_texts")).toStringList();
     if (!venueSymbols.isEmpty()) venueSymbolsTexts_ = venueSymbols;
 
-    while (venueSymbolsTexts_.size() < venueChoices().size()) venueSymbolsTexts_.push_back({});
+    const QStringList defaultVenueSymbols = defaultVenueSymbolsTexts();
+    while (venueSymbolsTexts_.size() < defaultVenueSymbols.size()) {
+        venueSymbolsTexts_.push_back(defaultVenueSymbols.at(venueSymbolsTexts_.size()));
+    }
 
     const auto symbolsText = settings_.value(QStringLiteral("capture/symbols_text"), symbolsText_).toString().trimmed();
     if (!symbolsText.isEmpty()) symbolsText_ = symbolsText;

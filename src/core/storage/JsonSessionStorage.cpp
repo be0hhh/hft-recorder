@@ -18,6 +18,18 @@ replay::DepthRow depthRowFromSnapshot(const replay::SnapshotDocument& snapshot) 
     return row;
 }
 
+Status closeStreamChecked(std::ofstream& stream) noexcept {
+    if (!stream.is_open()) return Status::Ok;
+    stream.flush();
+    const bool flushed = stream.good();
+    stream.close();
+    return flushed && stream.good() ? Status::Ok : Status::IoError;
+}
+
+Status mergeStatus(Status lhs, Status rhs) noexcept {
+    return isOk(lhs) ? rhs : lhs;
+}
+
 }  // namespace
 
 Status JsonSessionSink::open(const std::filesystem::path& sessionDir) noexcept {
@@ -241,18 +253,19 @@ Status JsonSessionSink::flush() noexcept {
 
 Status JsonSessionSink::close() noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (trades_.is_open()) trades_.close();
-    if (liquidations_.is_open()) liquidations_.close();
-    if (bookTicker_.is_open()) bookTicker_.close();
-    if (markPrice_.is_open()) markPrice_.close();
-    if (indexPrice_.is_open()) indexPrice_.close();
-    if (funding_.is_open()) funding_.close();
-    if (priceLimit_.is_open()) priceLimit_.close();
-    if (depth_.is_open()) depth_.close();
-    if (depthTape_.is_open()) depthTape_.close();
-    if (depthSidecar_.is_open()) depthSidecar_.close();
+    Status status = Status::Ok;
+    status = mergeStatus(status, closeStreamChecked(trades_));
+    status = mergeStatus(status, closeStreamChecked(liquidations_));
+    status = mergeStatus(status, closeStreamChecked(bookTicker_));
+    status = mergeStatus(status, closeStreamChecked(markPrice_));
+    status = mergeStatus(status, closeStreamChecked(indexPrice_));
+    status = mergeStatus(status, closeStreamChecked(funding_));
+    status = mergeStatus(status, closeStreamChecked(priceLimit_));
+    status = mergeStatus(status, closeStreamChecked(depth_));
+    status = mergeStatus(status, closeStreamChecked(depthTape_));
+    status = mergeStatus(status, closeStreamChecked(depthSidecar_));
     sessionDir_.clear();
-    return Status::Ok;
+    return status;
 }
 
 }  // namespace hftrec::storage

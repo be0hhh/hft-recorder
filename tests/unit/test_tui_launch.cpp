@@ -12,7 +12,9 @@ using hftrec::tui::LaunchChannel;
 using hftrec::tui::RecorderTuiJob;
 using hftrec::tui::RecorderTuiPreset;
 using hftrec::tui::buildLaunchPlan;
+using hftrec::tui::exclusiveMarketDataSessionKey;
 using hftrec::tui::filterLaunchJobChannels;
+using hftrec::tui::requiresExclusiveMarketDataSession;
 
 bool unavailableGateReference(const RecorderTuiJob& job, LaunchChannel channel, void*) {
     if (job.exchange != "gate") return true;
@@ -105,4 +107,36 @@ TEST(RecorderTuiLaunch, SchedulesSameExchangeApartAndUsesWaveStart) {
     EXPECT_EQ(plan.jobs[2].scheduledStartMs, 250);
     EXPECT_GE(plan.jobs[3].scheduledStartMs, 1500);
     EXPECT_EQ(plan.jobs[3].job.exchange, "binance");
+}
+
+TEST(RecorderTuiLaunch, MarksBinanceSpotPublicFixMarketDataAsExclusive) {
+    RecorderTuiJob spot = job("binance_spot", "Binance");
+    spot.market = "SPOT";
+    spot.channels = {};
+    spot.channels.trades = true;
+    spot.channels.bookTicker = true;
+    spot.channels.orderbook = true;
+
+    EXPECT_TRUE(requiresExclusiveMarketDataSession(spot));
+    EXPECT_EQ(exclusiveMarketDataSessionKey(spot), "binance|spot|market_data_fix");
+}
+
+TEST(RecorderTuiLaunch, DoesNotMarkNonBinanceSpotJobsAsExclusive) {
+    RecorderTuiJob binanceFutures = job("binance_futures", "binance");
+    binanceFutures.market = "futures";
+
+    RecorderTuiJob bybitSpot = job("bybit_spot", "bybit");
+    bybitSpot.market = "spot";
+
+    RecorderTuiJob binanceSpotNoPublicFixChannels = job("binance_spot_mark", "binance");
+    binanceSpotNoPublicFixChannels.market = "spot";
+    binanceSpotNoPublicFixChannels.channels = {};
+    binanceSpotNoPublicFixChannels.channels.markPrice = true;
+
+    EXPECT_FALSE(requiresExclusiveMarketDataSession(binanceFutures));
+    EXPECT_TRUE(exclusiveMarketDataSessionKey(binanceFutures).empty());
+    EXPECT_FALSE(requiresExclusiveMarketDataSession(bybitSpot));
+    EXPECT_TRUE(exclusiveMarketDataSessionKey(bybitSpot).empty());
+    EXPECT_FALSE(requiresExclusiveMarketDataSession(binanceSpotNoPublicFixChannels));
+    EXPECT_TRUE(exclusiveMarketDataSessionKey(binanceSpotNoPublicFixChannels).empty());
 }

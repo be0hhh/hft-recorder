@@ -66,12 +66,15 @@ constexpr VenueSpec kVenues[] = {
     {"xt_spot", "XT Spot", "xt", "spot"},
     {"bingx_futures", "BingX Futures", "bingx", "futures"},
     {"bingx_spot", "BingX Spot", "bingx", "spot"},
+    {"bitmart_futures", "Bitmart Futures", "bitmart", "futures"},
+    {"bitmart_spot", "Bitmart Spot", "bitmart", "spot"},
     {"toobit_futures", "Toobit Futures", "toobit", "futures"},
     {"toobit_spot", "Toobit Spot", "toobit", "spot"},
     {"htx_futures", "HTX Futures", "htx", "futures"},
     {"htx_spot", "HTX Spot", "htx", "spot"},
     {"phemex_futures", "Phemex Futures", "phemex", "futures"},
     {"phemex_spot", "Phemex Spot", "phemex", "spot"},
+    {"hyperliquid_futures", "Hyperliquid Futures", "hyperliquid", "futures"},
 };
 
 std::vector<VenueSpec> selectedVenues(const QStringList& venueKeys) {
@@ -113,8 +116,7 @@ QString symbolsTextForVenue(const VenueSpec& venue,
 }
 
 bool isFinamVenue(const VenueSpec& venue) noexcept {
-    return venue.exchange[0] == 'f' && venue.exchange[1] == 'i' && venue.exchange[2] == 'n' &&
-           venue.exchange[3] == 'a' && venue.exchange[4] == 'm';
+    return std::string_view{venue.exchange} == "finam";
 }
 
 QString detailedCandlesTimeframeForVenue(const VenueSpec& venue, const QString& requestedTimeframe);
@@ -178,8 +180,9 @@ QString normalizeDetailedCandlesEndMode(QString mode) {
 }
 
 bool supportsDetailedCandlesVenue(const VenueSpec& venue) noexcept {
-    if (venue.exchange[0] == 'm' && venue.exchange[1] == 'e' &&
-        venue.exchange[2] == 'x' && venue.exchange[3] == 'c') {
+    const std::string_view exchange{venue.exchange};
+    if (exchange == "hyperliquid") return false;
+    if (exchange == "mexc") {
         return venue.market[0] == 's' && venue.market[1] == 'p' && venue.market[2] == 'o' && venue.market[3] == 't';
     }
     return true;
@@ -395,6 +398,7 @@ QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol)
         if (market == QStringLiteral("futures") || market == QStringLiteral("swap")) return base + quote;
         return QStringLiteral("s") + base + quote;
     }
+    if (exchange == QStringLiteral("hyperliquid")) return base;
     if (exchange == QStringLiteral("okx")) {
         const QString result = base + QLatin1Char('-') + quote;
         return market == QStringLiteral("futures") ? result + QStringLiteral("-SWAP") : result;

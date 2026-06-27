@@ -13,6 +13,7 @@
 #include "api/dispatch/BuildDispatch.hpp"
 #include "api/env/CxetEnv.hpp"
 #include "api/fields/RequestedFieldNames.hpp"
+#include "canon/MarketMapping.hpp"
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
 #include "composite/level_0/SubscribeObject.hpp"
@@ -61,32 +62,48 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "gate")) return canon::kExchangeIdGate;
     if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
     if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
+    if (textEqualsAscii(exchange, "hyperliquid")) return canon::kExchangeIdHyperliquid;
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
     if (textEqualsAscii(exchange, "finam")) return canon::kExchangeIdFinam;
     if (textEqualsAscii(exchange, "mexc")) return canon::kExchangeIdMexc;
     if (textEqualsAscii(exchange, "xt")) return canon::kExchangeIdXt;
     if (textEqualsAscii(exchange, "bingx")) return canon::kExchangeIdBingx;
+    if (textEqualsAscii(exchange, "bitmart")) return canon::kExchangeIdBitmart;
     if (textEqualsAscii(exchange, "toobit")) return canon::kExchangeIdToobit;
     if (textEqualsAscii(exchange, "htx")) return canon::kExchangeIdHtx;
     if (textEqualsAscii(exchange, "phemex")) return canon::kExchangeIdPhemex;
     return canon::kExchangeIdUnknown;
 }
 
-canon::MarketType marketTypeFromConfig(std::string_view market) noexcept {
+canon::MarketType marketTypeFromConfig(ExchangeId exchange, std::string_view market) noexcept {
+    char apiMarket[64]{};
+    if (market.size() + 1u < sizeof(apiMarket)) {
+        for (std::size_t i = 0u; i < market.size(); ++i) {
+            char c = market[i];
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
+            apiMarket[i] = c;
+        }
+        const canon::MarketType mapped = canon::exchangeApiStringToCanonical(exchange, apiMarket);
+        if (mapped.raw != canon::kMarketTypeUnknown.raw) return mapped;
+    }
     if (textEqualsAscii(market, "spot") || textEqualsAscii(market, "shares")) return canon::kMarketTypeSpot;
     if (textEqualsAscii(market, "margin")) return canon::kMarketTypeMargin;
     if (textEqualsAscii(market, "inverse")) return canon::kMarketTypeInverse;
     if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
-    return canon::kMarketTypeFutures;
+    if (textEqualsAscii(market, "futures") ||
+        textEqualsAscii(market, "forts") ||
+        textEqualsAscii(market, "futures_usd")) return canon::kMarketTypeFutures;
+    return canon::kMarketTypeUnknown;
 }
 
 cxet::UnifiedRequestBuilder makeSubscribeBuilder(const CaptureConfig& config,
                                                  cxet::composite::out::SubscribeObject object) noexcept {
     auto symbol = makeSymbol(config.symbols.empty() ? std::string{} : config.symbols.front());
+    const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     return cxet::subscribe()
         .object(object)
-        .exchange(exchangeIdFromConfig(config.exchange))
-        .market(marketTypeFromConfig(config.market))
+        .exchange(exchange)
+        .market(marketTypeFromConfig(exchange, config.market))
         .api(normalizedApiSlot(config))
         .symbol(symbol);
 }
@@ -147,8 +164,9 @@ void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
         return;
     }
     hft_trader::runtime::SymbolMetadataResolveResult result{};
-    const bool ok = hft_trader::runtime::resolveSymbolMetadataOnce(exchangeIdFromConfig(config.exchange),
-                                                                   marketTypeFromConfig(config.market),
+    const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
+    const bool ok = hft_trader::runtime::resolveSymbolMetadataOnce(exchange,
+                                                                   marketTypeFromConfig(exchange, config.market),
                                                                    makeSymbol(config.symbols.front()),
                                                                    result);
     if (!ok) {
@@ -206,10 +224,11 @@ cxet::UnifiedRequestBuilder makeBookTickerBuilder(const CaptureConfig& config) n
 }
 
 cxet::UnifiedRequestBuilder makeLiquidationBuilder(const CaptureConfig& config) noexcept {
+    const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     auto builder = cxet::subscribe()
         .object(cxet::composite::out::SubscribeObject::Liquidation)
-        .exchange(exchangeIdFromConfig(config.exchange))
-        .market(marketTypeFromConfig(config.market))
+        .exchange(exchange)
+        .market(marketTypeFromConfig(exchange, config.market))
         .api(normalizedApiSlot(config));
     const std::string& symbolText = config.symbols.empty() ? std::string{} : config.symbols.front();
     if (symbolTextIsAll(symbolText)) return builder.symbol(canon::SlotScope::All);
@@ -260,18 +279,17 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
         lastError = "current capture path supports exactly one symbol per coordinator";
         return Status::InvalidArgument;
     }
-    if (exchangeIdFromConfig(config.exchange).raw == canon::kExchangeIdUnknown.raw) {
-        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, okx, finam, mexc, xt, bingx, toobit, htx, phemex";
+#if HFTREC_WITH_CXET
+    const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
+    if (exchange.raw == canon::kExchangeIdUnknown.raw) {
+        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, hyperliquid, okx, finam, mexc, xt, bingx, bitmart, toobit, htx, phemex";
         return Status::InvalidArgument;
     }
-    if (!textEqualsAscii(config.market, "futures") && !textEqualsAscii(config.market, "forts") &&
-        !textEqualsAscii(config.market, "futures_usd") &&
-        !textEqualsAscii(config.market, "spot") && !textEqualsAscii(config.market, "margin") &&
-        !textEqualsAscii(config.market, "shares") &&
-        !textEqualsAscii(config.market, "inverse") && !textEqualsAscii(config.market, "swap")) {
-        lastError = "capture market must be futures, forts, spot, shares, margin, inverse or swap";
+    if (marketTypeFromConfig(exchange, config.market).raw == canon::kMarketTypeUnknown.raw) {
+        lastError = "capture market must be canonical or exchange API alias: futures, spot, shares, margin, inverse, swap, fapi, linear, usdt, linear-swap, usdt-m, usdm";
         return Status::InvalidArgument;
     }
+#endif
     if (config.outputDir.empty()) {
         lastError = "capture output directory must not be empty";
         return Status::InvalidArgument;

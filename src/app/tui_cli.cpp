@@ -24,13 +24,7 @@
 #include <utility>
 #include <vector>
 
-#if HFTREC_WITH_CXET
-#include "canon/PositionAndExchange.hpp"
-#include "canon/Subtypes.hpp"
-#include "hft_trader/runtime/config/RuntimeConfig.hpp"
-#include "hft_trader/runtime/market/MarketDataRuntime.hpp"
-#endif
-
+#include "core/capture/CaptureChannelSupport.hpp"
 #include "core/capture/CaptureCoordinator.hpp"
 #include "core/recordings/RecordingDiscovery.hpp"
 #include "core/tui/RecorderTuiLaunch.hpp"
@@ -326,53 +320,25 @@ const char* channelNameByIndex(int index) {
     }
 }
 
-#if HFTREC_WITH_CXET
-ExchangeId tuiExchangeIdFromConfig(std::string_view exchange) {
-    const std::string value = lower(exchange);
-    if (value == "binance") return canon::kExchangeIdBinance;
-    if (value == "bybit") return canon::kExchangeIdBybit;
-    if (value == "kucoin") return canon::kExchangeIdKucoin;
-    if (value == "gate") return canon::kExchangeIdGate;
-    if (value == "bitget") return canon::kExchangeIdBitget;
-    if (value == "aster") return canon::kExchangeIdAster;
-    if (value == "okx") return canon::kExchangeIdOkx;
-    if (value == "finam") return canon::kExchangeIdFinam;
-    if (value == "mexc") return canon::kExchangeIdMexc;
-    if (value == "xt") return canon::kExchangeIdXt;
-    if (value == "bingx") return canon::kExchangeIdBingx;
-    if (value == "toobit") return canon::kExchangeIdToobit;
-    if (value == "htx") return canon::kExchangeIdHtx;
-    if (value == "phemex") return canon::kExchangeIdPhemex;
-    return canon::kExchangeIdUnknown;
-}
-
-canon::MarketType tuiMarketTypeFromConfig(std::string_view market) {
-    const std::string value = lower(market);
-    if (value == "spot" || value == "shares") return canon::kMarketTypeSpot;
-    if (value == "margin") return canon::kMarketTypeMargin;
-    if (value == "inverse") return canon::kMarketTypeInverse;
-    if (value == "swap") return canon::kMarketTypeSwap;
-    return canon::kMarketTypeFutures;
-}
-
-cxet::api::market::PublicMarketDataStream streamForLaunchChannel(tui::LaunchChannel channel) noexcept {
+capture::CaptureChannel captureChannelForLaunch(tui::LaunchChannel channel) noexcept {
     switch (channel) {
-        case tui::LaunchChannel::Trades: return cxet::api::market::PublicMarketDataStream::Trades;
-        case tui::LaunchChannel::Liquidations: return cxet::api::market::PublicMarketDataStream::Liquidations;
-        case tui::LaunchChannel::BookTicker: return cxet::api::market::PublicMarketDataStream::BookTicker;
-        case tui::LaunchChannel::Orderbook: return cxet::api::market::PublicMarketDataStream::Orderbook;
-        case tui::LaunchChannel::MarkPrice: return cxet::api::market::PublicMarketDataStream::MarkPrice;
-        case tui::LaunchChannel::IndexPrice: return cxet::api::market::PublicMarketDataStream::IndexPrice;
-        case tui::LaunchChannel::Funding: return cxet::api::market::PublicMarketDataStream::Funding;
-        case tui::LaunchChannel::PriceLimit: return cxet::api::market::PublicMarketDataStream::PriceLimit;
+        case tui::LaunchChannel::Trades: return capture::CaptureChannel::Trades;
+        case tui::LaunchChannel::Liquidations: return capture::CaptureChannel::Liquidations;
+        case tui::LaunchChannel::BookTicker: return capture::CaptureChannel::BookTicker;
+        case tui::LaunchChannel::Orderbook: return capture::CaptureChannel::Orderbook;
+        case tui::LaunchChannel::MarkPrice: return capture::CaptureChannel::MarkPrice;
+        case tui::LaunchChannel::IndexPrice: return capture::CaptureChannel::IndexPrice;
+        case tui::LaunchChannel::Funding: return capture::CaptureChannel::Funding;
+        case tui::LaunchChannel::PriceLimit: return capture::CaptureChannel::PriceLimit;
     }
-    return cxet::api::market::PublicMarketDataStream::BookTicker;
+    return capture::CaptureChannel::BookTicker;
 }
-#endif
 
 struct TuiChannelAvailabilityCacheEntry {
     std::string exchange;
     std::string market;
+    std::string symbol;
+    std::uint8_t apiSlot{1u};
     tui::LaunchChannel channel{tui::LaunchChannel::Trades};
     bool available{false};
 };
@@ -382,44 +348,13 @@ struct TuiChannelAvailabilityCache {
 };
 
 bool tuiChannelAvailableUncached(const tui::RecorderTuiJob& job, tui::LaunchChannel channel) {
-#if HFTREC_WITH_CXET
-    const ExchangeId exchange = tuiExchangeIdFromConfig(job.exchange);
-    if (exchange.raw == canon::kExchangeIdUnknown.raw) return false;
-    const canon::MarketType market = tuiMarketTypeFromConfig(job.market);
-    if (market.raw == canon::kMarketTypeUnknown.raw) return false;
-
-    Symbol symbol{};
-    symbol.copyFrom(job.symbol.c_str());
-    if (symbol.data[0] == '\0') return false;
-
-    hft_trader::runtime::VenueRuntimeConfig venue{};
-    venue.name = job.exchange + "." + job.market;
-    venue.exchange = exchange;
-    venue.market = market;
-    venue.apiSlot = 1u;
-    venue.hasApiSlot = true;
-    venue.marketEnabled = true;
-    venue.userEnabled = false;
-    venue.orderEnabled = false;
-    venue.controlEnabled = false;
-    venue.symbols.push_back(symbol);
-    hft_trader::runtime::setStrategyParam(venue.params, "reference_poll_interval_ms", "5000");
-
-    hft_trader::runtime::HftRuntimeConfig cfg{};
-    cfg.name = "hft_recorder_tui_preflight";
-    cfg.strategyType = "explicit_inputs";
-    cfg.hasInputs = true;
-    cfg.inputs.push_back(streamForLaunchChannel(channel));
-    cfg.venues.push_back(std::move(venue));
-
-    hft_trader::runtime::MarketDataRuntime runtime{};
-    std::string error;
-    return runtime.applyConfig(cfg, error);
-#else
-    (void)job;
-    (void)channel;
-    return true;
-#endif
+    capture::CaptureConfig config{};
+    config.exchange = job.exchange;
+    config.market = job.market;
+    config.symbols = {job.symbol};
+    config.apiSlot = 1u;
+    std::string detail;
+    return capture::captureChannelRuntimeReady(config, captureChannelForLaunch(channel), detail);
 }
 
 bool tuiChannelAvailable(const tui::RecorderTuiJob& job, tui::LaunchChannel channel, void* userData) {
@@ -428,14 +363,22 @@ bool tuiChannelAvailable(const tui::RecorderTuiJob& job, tui::LaunchChannel chan
 
     const std::string exchange = lower(job.exchange);
     const std::string market = lower(job.market);
+    const std::string symbol = lower(job.symbol);
+    constexpr std::uint8_t apiSlot = 1u;
     for (const auto& entry : cache->entries) {
-        if (entry.exchange == exchange && entry.market == market && entry.channel == channel) return entry.available;
+        if (entry.exchange == exchange &&
+            entry.market == market &&
+            entry.symbol == symbol &&
+            entry.apiSlot == apiSlot &&
+            entry.channel == channel) return entry.available;
     }
 
     const bool available = tuiChannelAvailableUncached(job, channel);
     cache->entries.push_back(TuiChannelAvailabilityCacheEntry{
         .exchange = exchange,
         .market = market,
+        .symbol = symbol,
+        .apiSlot = apiSlot,
         .channel = channel,
         .available = available,
     });
@@ -685,6 +628,17 @@ int activeJobSlots(const std::vector<RunningJob>& jobs) noexcept {
         if (job.startInProgress || job.running) ++count;
     }
     return count;
+}
+
+bool exclusiveMarketDataSessionBlocked(const RunningJob& candidate, const std::vector<RunningJob>& jobs) {
+    const std::string key = tui::exclusiveMarketDataSessionKey(candidate.job);
+    if (key.empty()) return false;
+    for (const auto& other : jobs) {
+        if (&other == &candidate || other.finalized) continue;
+        if (!other.startInProgress && !other.running) continue;
+        if (tui::exclusiveMarketDataSessionKey(other.job) == key) return true;
+    }
+    return false;
 }
 
 void requestStopJob(RunningJob& job) {
@@ -1163,6 +1117,7 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
             if (launchedThisTick >= launchLimit) break;
             if (activeSlots >= maxActiveJobs) break;
             if (job.launched || job.finalized || job.startInProgress || now < job.scheduledStart) continue;
+            if (exclusiveMarketDataSessionBlocked(job, jobs)) continue;
             ++launchedThisTick;
             ++activeSlots;
             startPlannedJobAsync(job);

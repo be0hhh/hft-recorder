@@ -21,11 +21,16 @@
 #include <atomic>
 #include <exception>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#if defined(__linux__)
+#include <pthread.h>
+#endif
 
 #include "hft_backtest/backtest.hpp"
 #include "hft_backtest/backtest_sweep.hpp"
@@ -93,6 +98,23 @@ bool sessionVenueIsKnown(const QString& sessionPath, QString* reason) {
 }
 
 }  // namespace
+
+void BacktestViewModel::configureWorkerThreadStack_() noexcept {
+#if defined(__linux__)
+    static std::once_flag once;
+    std::call_once(once, [] {
+        constexpr std::size_t kBacktestWorkerStackBytes = 64u * 1024u * 1024u;
+        pthread_attr_t attr{};
+        if (pthread_getattr_default_np(&attr) != 0) return;
+        std::size_t stackSize = 0;
+        if (pthread_attr_getstacksize(&attr, &stackSize) == 0 && stackSize < kBacktestWorkerStackBytes) {
+            (void)pthread_attr_setstacksize(&attr, kBacktestWorkerStackBytes);
+            (void)pthread_setattr_default_np(&attr);
+        }
+        (void)pthread_attr_destroy(&attr);
+    });
+#endif
+}
 
 BacktestViewModel::BacktestViewModel(QObject* parent) : QObject(parent) {
     refreshTimer_.setSingleShot(true);
@@ -317,10 +339,9 @@ QString BacktestViewModel::venueExecutionOverrideValue_(const QString& venueKey,
     return settings_.value(settingsKey).toString().trimmed();
 }
 
-std::vector<QVariantMap> BacktestViewModel::venueExecutionRows_() const {
+std::vector<QVariantMap> BacktestViewModel::venueExecutionRowsForPaths_(const QStringList& paths) const {
     std::vector<QVariantMap> out;
     QSet<QString> emitted;
-    const QStringList paths = orderedSessionPathsForRun_();
     out.reserve(static_cast<std::size_t>(paths.size()));
     for (const QString& path : paths) {
         const QString venueKey = venueExecutionKey(path);
@@ -358,6 +379,10 @@ std::vector<QVariantMap> BacktestViewModel::venueExecutionRows_() const {
         out.push_back(std::move(row));
     }
     return out;
+}
+
+std::vector<QVariantMap> BacktestViewModel::venueExecutionRows_() const {
+    return venueExecutionRowsForPaths_(orderedSessionPathsForRun_());
 }
 
 QString BacktestViewModel::selectedSymbol() const {
@@ -550,13 +575,14 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     QString runId = runId_();
     if (!suffix.trimmed().isEmpty()) runId += QStringLiteral("-") + cleanRunSlugPart(suffix);
     activeRunId_ = runId;
-    const QString configPath = writeRunConfig_(runId, overrides, false);
-    if (configPath.isEmpty()) {
+    const RunConfigWriteResult config = writeRunConfig_(runId, overrides, false);
+    if (!config.ok()) {
         activeRunId_.clear();
         setRunning_(false);
-        setStatusText_(QStringLiteral("Failed to write backtest config"));
+        setStatusText_(QStringLiteral("Failed to write backtest config: %1").arg(config.error));
         return;
     }
+    const QString configPath = config.path;
     const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
     const quint64 latencySeed = latencyValue_(latencySeed_, 0);
     const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 250);
@@ -606,6 +632,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) rateLimitSchedules.push_back(std::move(rateLimit));
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
+    configureWorkerThreadStack_();
     worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, rateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules)] {
         try {
         hft_backtest::BacktestRunRequest request{};
@@ -742,12 +769,13 @@ void BacktestViewModel::startSweep() {
 
     const QString strategy = selectedStrategy_;
     const QString runId = QStringLiteral("sweep-") + runId_();
-    const QString configPath = writeRunConfig_(QStringLiteral("sweeps/%1").arg(runId), {}, true);
-    if (configPath.isEmpty()) {
+    const RunConfigWriteResult config = writeRunConfig_(QStringLiteral("sweeps/%1").arg(runId), {}, true);
+    if (!config.ok()) {
         setRunning_(false);
-        setStatusText_(QStringLiteral("Failed to write sweep config"));
+        setStatusText_(QStringLiteral("Failed to write sweep config: %1").arg(config.error));
         return;
     }
+    const QString configPath = config.path;
     const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
     const quint64 latencySeed = latencyValue_(latencySeed_, 0);
     const quint64 searchSeed = latencyValue_(sweepSeed_, 0);
@@ -798,6 +826,7 @@ void BacktestViewModel::startSweep() {
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
 
+    configureWorkerThreadStack_();
     worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, rateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules), ranges = std::move(ranges)] {
         try {
         hft_backtest::BacktestSweepRequest request{};

@@ -63,6 +63,24 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString cancelLatencyUs READ cancelLatencyUs WRITE setCancelLatencyUs NOTIFY latencyChanged)
     Q_PROPERTY(QString sweepBudget READ sweepBudget WRITE setSweepBudget NOTIFY sweepConfigChanged)
     Q_PROPERTY(QString sweepSeed READ sweepSeed WRITE setSweepSeed NOTIFY sweepConfigChanged)
+    Q_PROPERTY(QVariantList batchUniverseChoices READ batchUniverseChoices NOTIFY sessionsChanged)
+    Q_PROPERTY(QString batchUniverseId READ batchUniverseId WRITE setBatchUniverseId NOTIFY batchConfigChanged)
+    Q_PROPERTY(QString batchPairBudget READ batchPairBudget WRITE setBatchPairBudget NOTIFY batchConfigChanged)
+    Q_PROPERTY(QString batchRunId READ batchRunId NOTIFY batchResultsChanged)
+    Q_PROPERTY(QString batchResultPath READ batchResultPath NOTIFY batchResultsChanged)
+    Q_PROPERTY(QString batchSummaryText READ batchSummaryText NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchStableRows READ batchStableRows NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchProfitRows READ batchProfitRows NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchSymbolRows READ batchSymbolRows NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchPairRows READ batchPairRows NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchParamRows READ batchParamRows NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchSkippedRows READ batchSkippedRows NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchSummaryCards READ batchSummaryCards NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchPairMatrixColumns READ batchPairMatrixColumns NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchPairMatrixCells READ batchPairMatrixCells NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchTimeRows READ batchTimeRows NOTIFY batchResultsChanged)
+    Q_PROPERTY(QVariantList batchPlateauRows READ batchPlateauRows NOTIFY batchResultsChanged)
+    Q_PROPERTY(QString batchRawTableMode READ batchRawTableMode WRITE setBatchRawTableMode NOTIFY batchConfigChanged)
     Q_PROPERTY(QVariantList sweepCurveLimitChoices READ sweepCurveLimitChoices CONSTANT)
     Q_PROPERTY(QString selectedSweepCurveLimit READ selectedSweepCurveLimit WRITE setSelectedSweepCurveLimit NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList sweepViewChoices READ sweepViewChoices CONSTANT)
@@ -153,6 +171,24 @@ class BacktestViewModel : public QObject {
     QString cancelLatencyUs() const { return cancelOrderLatencyUs_; }
     QString sweepBudget() const { return sweepBudget_; }
     QString sweepSeed() const { return sweepSeed_; }
+    QVariantList batchUniverseChoices() const;
+    QString batchUniverseId() const;
+    QString batchPairBudget() const { return batchPairBudget_; }
+    QString batchRunId() const { return batchRunId_; }
+    QString batchResultPath() const { return batchResultPath_; }
+    QString batchSummaryText() const { return batchSummaryText_; }
+    QVariantList batchStableRows() const { return batchStableRows_; }
+    QVariantList batchProfitRows() const { return batchProfitRows_; }
+    QVariantList batchSymbolRows() const { return batchSymbolRows_; }
+    QVariantList batchPairRows() const { return batchPairRows_; }
+    QVariantList batchParamRows() const { return batchParamRows_; }
+    QVariantList batchSkippedRows() const { return batchSkippedRows_; }
+    QVariantList batchSummaryCards() const { return batchSummaryCards_; }
+    QVariantList batchPairMatrixColumns() const { return batchPairMatrixColumns_; }
+    QVariantList batchPairMatrixCells() const { return batchPairMatrixCells_; }
+    QVariantList batchTimeRows() const { return batchTimeRows_; }
+    QVariantList batchPlateauRows() const { return batchPlateauRows_; }
+    QString batchRawTableMode() const { return batchRawTableMode_; }
     QVariantList sweepCurveLimitChoices() const;
     QString selectedSweepCurveLimit() const { return selectedSweepCurveLimit_; }
     QVariantList sweepViewChoices() const;
@@ -233,6 +269,9 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setCancelLatencyUs(const QString& value);
     Q_INVOKABLE void setSweepBudget(const QString& value);
     Q_INVOKABLE void setSweepSeed(const QString& value);
+    Q_INVOKABLE void setBatchUniverseId(const QString& value);
+    Q_INVOKABLE void setBatchPairBudget(const QString& value);
+    Q_INVOKABLE void setBatchRawTableMode(const QString& value);
     Q_INVOKABLE void setSelectedSweepCurveLimit(const QString& limit);
     Q_INVOKABLE void setSelectedSweepView(const QString& view);
     Q_INVOKABLE void setSelectedSweepMetric(const QString& metric);
@@ -252,6 +291,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE bool deleteSelectedRun();
     Q_INVOKABLE void startBacktest();
     Q_INVOKABLE void startSweep();
+    Q_INVOKABLE void startBatchSweep();
     Q_INVOKABLE void applySweepPoint(int rowIndex);
     Q_INVOKABLE void applySweepPointById(int pointId);
     Q_INVOKABLE void startDetailedRunFromSweepPoint(int rowIndex);
@@ -275,6 +315,8 @@ class BacktestViewModel : public QObject {
     void profileChanged();
     void latencyChanged();
     void sweepConfigChanged();
+    void batchConfigChanged();
+    void batchResultsChanged();
     void runsChanged();
     void selectionChanged();
     void selectedResultMetricChanged();
@@ -340,6 +382,13 @@ class BacktestViewModel : public QObject {
         bool detailsLoaded{false};
     };
 
+    struct RunConfigWriteResult {
+        QString path{};
+        QString error{};
+
+        bool ok() const noexcept { return !path.isEmpty() && error.isEmpty(); }
+    };
+
     static RunRecord loadRecord_(const QString& filePath, RecordLoadMode mode);
     static QString normalizedPath_(const QString& path);
     static QString sessionIdFromPath_(const QString& path);
@@ -363,6 +412,7 @@ class BacktestViewModel : public QObject {
     void applyLoadedDetails_(std::uint64_t generation, const QString& runId, const RunRecord& loaded);
     QVariantList loadSessions_() const;
     void stopWorker_();
+    static void configureWorkerThreadStack_() noexcept;
     QString runId_() const;
     QString displayName_() const;
     QString configSummary_(const QHash<QString, QString>& overrides = {}) const;
@@ -371,9 +421,15 @@ class BacktestViewModel : public QObject {
     void loadSavedParameterValues_();
     void savePersistentConfig_();
     QString profilePath_() const;
-    QString writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides = {}, bool fixedOnly = false);
+    RunConfigWriteResult writeRunConfig_(const QString& runId, const QHash<QString, QString>& overrides = {}, bool fixedOnly = false);
+    RunConfigWriteResult writeRunConfigForSessionPaths_(const QString& runId,
+                                                        const QStringList& sessionPaths,
+                                                        const QHash<QString, QString>& overrides = {},
+                                                        bool fixedOnly = false,
+                                                        bool useSelectedSymbolOverride = true);
     QStringList selectedSessionPaths_() const;
     QStringList orderedSessionPathsForRun_() const;
+    QStringList batchUniverseSessionPaths_() const;
     bool strategySupportsSelectedSessionCount_() const;
     bool ensureSelectedStrategySupportsSessionCount_();
     qint64 decimalE8Value_(const QString& value, qint64 fallback) const noexcept;
@@ -381,6 +437,7 @@ class BacktestViewModel : public QObject {
     QString venueExecutionValue_(const QString& venueKey, const QString& field, const QString& fallback) const;
     QString venueExecutionOverrideValue_(const QString& venueKey, const QString& field) const;
     std::vector<QVariantMap> venueExecutionRows_() const;
+    std::vector<QVariantMap> venueExecutionRowsForPaths_(const QStringList& paths) const;
     QString effectiveResultScopeId_(const RunRecord& record) const;
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
 
@@ -421,6 +478,12 @@ class BacktestViewModel : public QObject {
     QString takerFeeBps_{QStringLiteral("0")};
     QString sweepBudget_{QStringLiteral("64")};
     QString sweepSeed_{QStringLiteral("0")};
+    QString batchUniverseId_{};
+    QString batchPairBudget_{QStringLiteral("64")};
+    QString batchRunId_{};
+    QString batchResultPath_{};
+    QString batchSummaryText_{QStringLiteral("Idle")};
+    QString batchRawTableMode_{QStringLiteral("stable")};
     QString selectedSweepCurveLimit_{QStringLiteral("32")};
     QString selectedSweepView_{QStringLiteral("curves")};
     QString selectedSweepMetric_{QStringLiteral("total_pnl_e8")};
@@ -443,6 +506,17 @@ class BacktestViewModel : public QObject {
     std::atomic<bool> cancelRequested_{false};
     std::thread worker_{};
     QVariantList sessions_{};
+    QVariantList batchStableRows_{};
+    QVariantList batchProfitRows_{};
+    QVariantList batchSymbolRows_{};
+    QVariantList batchPairRows_{};
+    QVariantList batchParamRows_{};
+    QVariantList batchSkippedRows_{};
+    QVariantList batchSummaryCards_{};
+    QVariantList batchPairMatrixColumns_{};
+    QVariantList batchPairMatrixCells_{};
+    QVariantList batchTimeRows_{};
+    QVariantList batchPlateauRows_{};
     std::vector<RunRecord> records_{};
     QHash<QString, QString> paramValues_{};
     QHash<QString, QString> venueExecutionValues_{};

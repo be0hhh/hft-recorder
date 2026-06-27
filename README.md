@@ -70,7 +70,7 @@ Public contract freeze:
 
 Laptop transfer note:
 - code moves by normal git branch workflow
-- `recordings/` is intentionally ignored and should be transferred separately from the repo
+- `/mnt/d/recordings` is the default local corpus root and should be transferred separately from the repo
 - if a ready `libcxet_lib.so` and matching public headers are already available, copy the installed `~/.local/cxet/` tree to the laptop before running `./compile.sh`
 - if that copied install is incompatible on Ubuntu 24, rerun `./compile.sh --force-cxet` on the laptop to rebuild and reinstall `CXETCPP`
 

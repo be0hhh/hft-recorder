@@ -33,7 +33,7 @@ TEST(TuiTerminalRender, KeepsShortLinesUnchanged) {
 
 TEST(TuiTerminalRender, CompactsSessionPathToFitWidth) {
     const std::filesystem::path path =
-        "/mnt/c/Users/be0h/PycharmProjects/CXETCPP/apps/hft-recorder/recordings/2026-06-22_23-54-03_LABUSDT";
+        "/mnt/d/recordings/2026-06-22_23-54-03_LABUSDT";
 
     const std::string compact = compactSessionPath(path, 32);
 

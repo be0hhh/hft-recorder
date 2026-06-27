@@ -43,7 +43,7 @@ class LocalOrderEngine : public execution::IExecutionVenue {
     void onTrade(const cxet_bridge::CapturedTradeRow& trade) noexcept;
     void onBookTicker(const cxet_bridge::CapturedBookTickerRow& bookTicker) noexcept;
 
-    std::uint64_t acceptedCount() const noexcept;
+    std::uint64_t acceptedCount() const noexcept override;
     std::int64_t walletBalanceRaw() const noexcept;
     std::int64_t positionQtyRaw(const char* symbol) const;
 

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <utility>
 #include <string_view>
@@ -25,6 +26,7 @@
 #include "canon/PositionAndExchange.hpp"
 #include "composite/level_0/SendWsObject.hpp"
 #include "core/local_exchange/LocalOrderEngine.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 #include "network/local/hftrecorder/Protocol.hpp"
 #include "parse/decimal_to_scaled.hpp"
 #include "primitives/buf/CanonConstants.hpp"
@@ -71,7 +73,11 @@ bool wsDisabled() noexcept {
 }
 
 QString auditDirPath() {
-    return qEnvironmentVariable("HFTREC_LOCAL_AUDIT_DIR", "recordings/local_exchange").trimmed();
+    const QString raw = qEnvironmentVariable("HFTREC_LOCAL_AUDIT_DIR").trimmed();
+    const std::filesystem::path path = raw.isEmpty()
+        ? recordings::defaultRecordingsRoot() / "local_exchange"
+        : recordings::normalizeExplicitRecordingsPath(std::filesystem::path{raw.toStdString()});
+    return QDir::cleanPath(QString::fromStdString(path.string()));
 }
 
 qint64 authWindowNs() noexcept {

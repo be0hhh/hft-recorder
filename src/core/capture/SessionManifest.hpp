@@ -26,6 +26,7 @@ struct SessionManifest {
     std::string instrumentMetadataPath{"instrument_metadata.json"};
     std::string sessionAuditPath{"reports/session_audit.json"};
     std::string loaderDiagnosticsPath{"reports/loader_diagnostics.json"};
+    std::string marketDataLaunchPath{"reports/market_data_launch.json"};
     std::int64_t startedAtNs{0};
     std::int64_t endedAtNs{0};
     std::int64_t targetDurationSec{0};

@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <string>
 
+#include "core/recordings/RecordingRoot.hpp"
 #include "core/tui/RecorderTuiPreset.hpp"
 
 namespace {
@@ -111,6 +112,31 @@ channels=trades,bookticker,orderbook
     EXPECT_FALSE(preset.jobs[1].channels.funding);
 }
 
+TEST(RecorderTuiPreset, DefaultsOutputDirToRecordingsRoot) {
+    RecorderTuiPreset preset{};
+
+    EXPECT_EQ(preset.outputDir, hftrec::recordings::defaultRecordingsRoot());
+}
+
+TEST(RecorderTuiPreset, KeepsExplicitAbsoluteCDriveOutputDir) {
+    constexpr std::string_view text = R"(
+output_dir=/mnt/c/Users/be0h/manual-recordings
+
+[job binance_btc]
+exchange=binance
+market=futures
+symbol=BTCUSDT
+duration_min=1
+channels=bookticker
+)";
+
+    RecorderTuiPreset preset{};
+    std::string error;
+    ASSERT_TRUE(parsePresetText(text, preset, error)) << error;
+
+    EXPECT_EQ(preset.outputDir, std::filesystem::path("/mnt/c/Users/be0h/manual-recordings"));
+}
+
 TEST(RecorderTuiPreset, RoundTripsPresetText) {
     RecorderTuiPreset preset{};
     preset.outputDir = "/tmp/recordings";
@@ -183,6 +209,7 @@ channels=trades
     EXPECT_EQ(preset.launchWaveSize, 6);
     EXPECT_EQ(preset.launchStaggerMs, 300);
     EXPECT_EQ(preset.sameExchangeCooldownMs, 2000);
+    EXPECT_EQ(preset.outputDir, hftrec::recordings::defaultRecordingsRoot());
 }
 
 TEST(RecorderTuiPreset, ResolvesBarePresetNamesIntoConfigsDirectory) {

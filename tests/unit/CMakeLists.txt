@@ -3,6 +3,7 @@ include(GoogleTest)
 set(HFTREC_UNIT_TEST_SOURCES
     test_smoke.cpp
     test_capture_serializers.cpp
+    test_capture_cli.cpp
     test_corpus_loader.cpp
     test_identity_codec.cpp
     test_json_line_parser.cpp
@@ -15,6 +16,7 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_bookticker_spread.cpp
     test_candle_spread.cpp
     test_event_storage.cpp
+    test_capture_channel_support.cpp
     test_tui_launch.cpp
     test_tui_preset.cpp
     test_tui_shard.cpp
@@ -39,6 +41,8 @@ if(Qt6_FOUND)
             test_viewer_bookticker_trace.cpp
             test_chart_markers.cpp
             test_workspace_viewmodel.cpp
+            backtests/test_backtest_batch_analysis_helpers.cpp
+            backtests/test_backtest_batch_sweep_helpers.cpp
             backtests/test_backtest_viewmodel.cpp
             backtests/test_backtest_viewmodel_helpers.cpp
             test_recorded_render_once.cpp
@@ -61,11 +65,14 @@ if(Qt6_FOUND)
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/CaptureViewModelRequests.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestExecutionConfigHelpers.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestBatchAnalysisHelpers.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestBatchSweepHelpers.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestResultHelpers.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestSessionHelpers.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestStrategyConfigHelpers.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestSweepHelpers.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModel.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelBatch.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelConfig.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelResults.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestSessionSummary.cpp
@@ -107,6 +114,6 @@ if(Qt6_FOUND)
 endif()
 
 target_compile_features(hftrec_unit_tests PRIVATE cxx_std_23)
-target_compile_definitions(hftrec_unit_tests PRIVATE HFTRREC_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+target_compile_definitions(hftrec_unit_tests PRIVATE _GNU_SOURCE HFTRREC_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 
 gtest_discover_tests(hftrec_unit_tests)

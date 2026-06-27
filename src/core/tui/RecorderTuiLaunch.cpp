@@ -168,6 +168,20 @@ bool anyLaunchChannelSelected(const ChannelSelection& channels) noexcept {
            channels.markPrice || channels.indexPrice || channels.funding || channels.priceLimit;
 }
 
+bool requiresExclusiveMarketDataSession(const RecorderTuiJob& job) {
+    return !exclusiveMarketDataSessionKey(job).empty();
+}
+
+std::string exclusiveMarketDataSessionKey(const RecorderTuiJob& job) {
+    const std::string exchange = lowerAscii(job.exchange);
+    const std::string market = lowerAscii(job.market);
+    if (exchange == "binance" && market == "spot" &&
+        (job.channels.trades || job.channels.bookTicker || job.channels.orderbook)) {
+        return "binance|spot|market_data_fix";
+    }
+    return {};
+}
+
 RecorderTuiLaunchJob filterLaunchJobChannels(const RecorderTuiLaunchJob& planned,
                                              RecorderTuiChannelAvailabilityFn availability,
                                              void* userData) {

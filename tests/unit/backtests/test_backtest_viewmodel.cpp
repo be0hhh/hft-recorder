@@ -496,6 +496,31 @@ TEST(BacktestViewModel, ReadsSymbolFromNestedManifestAndAllowsOverride) {
     EXPECT_EQ(vm.selectedSymbol(), QStringLiteral("BTCUSDT"));
 }
 
+TEST(BacktestViewModel, ExplainsBacktestConfigDirectoryWriteFailure) {
+    isolateSettings(QStringLiteral("config_write_failure"));
+    const QString session = makeTempSessionDir();
+    writeRecordingManifest(session,
+                           QStringLiteral("session-config-write-failure"),
+                           QStringLiteral("binance"),
+                           QStringLiteral("futures"),
+                           QStringLiteral("BTCUSDT"),
+                           1'700'000'000'000'000'000LL);
+    QDir(QDir(session).absoluteFilePath(QStringLiteral("backtests"))).removeRecursively();
+    writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests")), QByteArrayLiteral("not a directory"));
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSessionPath(session);
+    vm.setSelectedStrategy(QStringLiteral("spread_maker1and2"));
+
+    ASSERT_TRUE(vm.canRun());
+    vm.startBacktest();
+
+    EXPECT_FALSE(vm.running());
+    EXPECT_TRUE(vm.statusText().contains(QStringLiteral("Failed to write backtest config")));
+    EXPECT_TRUE(vm.statusText().contains(QStringLiteral("cannot create directory")));
+    EXPECT_TRUE(vm.statusText().contains(QDir(session).absoluteFilePath(QStringLiteral("backtests"))));
+}
+
 TEST(BacktestViewModel, ExposesOnlyMetadataParameterKeys) {
     isolateSettings(QStringLiteral("metadata_params"));
 

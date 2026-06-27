@@ -15,7 +15,10 @@ qt_add_executable(hft-recorder-gui
     backtests/BacktestSessionHelpers.cpp
     backtests/BacktestStrategyConfigHelpers.cpp
     backtests/BacktestSweepHelpers.cpp
+    backtests/BacktestBatchAnalysisHelpers.cpp
+    backtests/BacktestBatchSweepHelpers.cpp
     backtests/BacktestViewModel.cpp
+    backtests/BacktestViewModelBatch.cpp
     backtests/BacktestViewModelConfig.cpp
     backtests/BacktestViewModelResults.cpp
     viewmodels/CaptureViewModel.cpp
@@ -91,6 +94,7 @@ qt_add_qml_module(hft-recorder-gui
         qml/views/DashboardView.qml
         qml/views/ViewerView.qml
         qml/views/BacktestResultsView.qml
+        qml/views/QuantView.qml
         qml/views/ResultsView.qml
 )
 
@@ -118,6 +122,7 @@ target_link_libraries(hft-recorder-gui
 target_compile_features(hft-recorder-gui PRIVATE cxx_std_23)
 target_compile_definitions(hft-recorder-gui
     PRIVATE
+        _GNU_SOURCE
         HFTRREC_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
         HFT_COMPRESSOR_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-compressor"
         HFT_BACKTEST_TRADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-trader"

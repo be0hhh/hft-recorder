@@ -249,7 +249,7 @@ class CaptureViewModel : public QObject {
 
     std::vector<CoordinatorEntry> coordinators_{};
     QTimer refreshTimer_{};
-    QString outputDirectory_{"./recordings"};
+    QString outputDirectory_{QStringLiteral("/mnt/d/recordings")};
     QString envPath_{"./.env"};
     int apiSlot_{1};
     QStringList selectedVenueKeys_{
@@ -282,6 +282,7 @@ class CaptureViewModel : public QObject {
     QStringList selectedBookTickerAliases_{};
     QStringList selectedOrderbookAliases_{};
     QString statusText_{"Ready to capture symbols into canonical JSON session folders"};
+    QString lastSkippedChannelsSummary_{};
     QVariantList activeLiveSources_{};
     QString lastSessionId_{};
     QString lastSessionPath_{};

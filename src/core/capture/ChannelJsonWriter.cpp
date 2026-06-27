@@ -4,6 +4,18 @@
 
 namespace hftrec::capture {
 
+namespace {
+
+Status closeStreamChecked(std::ofstream& stream) noexcept {
+    if (!stream.is_open()) return Status::Ok;
+    stream.flush();
+    const bool flushed = stream.good();
+    stream.close();
+    return flushed && stream.good() ? Status::Ok : Status::IoError;
+}
+
+}  // namespace
+
 Status ChannelJsonWriter::open(ChannelKind channel, const std::filesystem::path& sessionDir) noexcept {
     if (stream_.is_open()) {
         return Status::Ok;
@@ -41,8 +53,7 @@ Status ChannelJsonWriter::writeJson(const std::string& jsonDocument) noexcept {
 }
 
 Status ChannelJsonWriter::close() noexcept {
-    if (stream_.is_open()) stream_.close();
-    return Status::Ok;
+    return closeStreamChecked(stream_);
 }
 
 }  // namespace hftrec::capture

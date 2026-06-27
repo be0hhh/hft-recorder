@@ -7,6 +7,7 @@
 
 #include "core/capture/SessionManifest.hpp"
 #include "core/recordings/RecordingDiscovery.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 
 namespace {
 
@@ -52,6 +53,29 @@ TEST(RecordingDiscovery, NormalizesDerivativeSymbolVariantsForStorage) {
     EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTC-USD-SWAP"), "BTCUSD");
 }
 
+TEST(RecordingRoot, DefaultsAndRedirectsLegacyRecordingRootsToDDrive) {
+    const auto root = hftrec::recordings::defaultRecordingsRoot();
+
+    EXPECT_EQ(root, std::filesystem::path("/mnt/d/recordings"));
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingsPath("./recordings"), root);
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingsPath("./recordings/group_a"), root / "group_a");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingsPath("apps/hft-recorder/recordings/group_a"), root / "group_a");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingsPath("/mnt/c/Users/be0h/PycharmProjects/CXETCPP/apps/hft-recorder/recordings/group_a"), root / "group_a");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingsPath("d:recordings"), root);
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingsPath("D:\\recordings\\group_a"), root / "group_a");
+}
+
+TEST(RecordingRoot, ExplicitRecordingRootsAllowAbsoluteCDrivePaths) {
+    const auto root = hftrec::recordings::defaultRecordingsRoot();
+    const auto explicitC = std::filesystem::path("/mnt/c/Users/be0h/PycharmProjects/CXETCPP/apps/hft-recorder/recordings/group_a");
+
+    EXPECT_EQ(hftrec::recordings::normalizeExplicitRecordingsPath(explicitC), explicitC);
+    EXPECT_EQ(hftrec::recordings::normalizeExplicitRecordingsPath("C:\\Users\\be0h\\captures"), std::filesystem::path("/mnt/c/Users/be0h/captures"));
+    EXPECT_EQ(hftrec::recordings::normalizeExplicitRecordingsPath("./recordings"), root);
+    EXPECT_EQ(hftrec::recordings::normalizeExplicitRecordingsPath("apps/hft-recorder/recordings/group_a"), root / "group_a");
+    EXPECT_EQ(hftrec::recordings::normalizeExplicitRecordingsPath("D:\\recordings\\group_a"), root / "group_a");
+}
+
 TEST(RecordingDiscovery, DiscoversFlatAndGroupedSessions) {
     const auto root = makeTempRoot();
     writeSession(root / "flat_binance", "flat_binance", "binance", "futures", "BTWUSDT", 1782141931000000000LL, 1782141991000000000LL);
@@ -69,6 +93,46 @@ TEST(RecordingDiscovery, DiscoversFlatAndGroupedSessions) {
     ASSERT_EQ(result.groups.size(), 2u);
     EXPECT_TRUE(result.sessions[0].searchText.find("BTWUSDT") != std::string::npos);
     EXPECT_TRUE(result.sessions[0].searchText.find("22.06.2026") != std::string::npos);
+}
+
+TEST(RecordingDiscovery, UsesProgressiveTempManifestWhenPrimaryIsEmpty) {
+    const auto root = makeTempRoot();
+    const auto sessionDir = root / "1782141931000000000_binance_futures_BTWUSDT";
+    writeSession(sessionDir,
+                 "1782141931000000000_binance_futures_BTWUSDT",
+                 "binance",
+                 "futures",
+                 "BTWUSDT",
+                 1782141931000000000LL,
+                 1782141991000000000LL);
+    std::filesystem::rename(sessionDir / "manifest.json", sessionDir / "manifest.json.tmp");
+    std::ofstream empty(sessionDir / "manifest.json", std::ios::out | std::ios::trunc);
+    empty.close();
+
+    const auto result = hftrec::recordings::discoverRecordings(root);
+
+    ASSERT_EQ(result.sessions.size(), 1u);
+    EXPECT_EQ(result.sessions.front().sessionId, "1782141931000000000_binance_futures_BTWUSDT");
+    EXPECT_EQ(result.sessions.front().manifestPath.filename().string(), "manifest.json.tmp");
+}
+
+TEST(RecordingDiscovery, UsesPreviousManifestWhenPrimaryIsMissing) {
+    const auto root = makeTempRoot();
+    const auto sessionDir = root / "1782141931000000000_binance_futures_BTWUSDT";
+    writeSession(sessionDir,
+                 "1782141931000000000_binance_futures_BTWUSDT",
+                 "binance",
+                 "futures",
+                 "BTWUSDT",
+                 1782141931000000000LL,
+                 1782141991000000000LL);
+    std::filesystem::rename(sessionDir / "manifest.json", sessionDir / "manifest.json.prev");
+
+    const auto result = hftrec::recordings::discoverRecordings(root);
+
+    ASSERT_EQ(result.sessions.size(), 1u);
+    EXPECT_EQ(result.sessions.front().sessionId, "1782141931000000000_binance_futures_BTWUSDT");
+    EXPECT_EQ(result.sessions.front().manifestPath.filename().string(), "manifest.json.prev");
 }
 
 TEST(RecordingDiscovery, GroupsLegacySessionsWithinFiveMinutesByNormalizedSymbol) {

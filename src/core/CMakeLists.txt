@@ -8,6 +8,7 @@ set(HFTREC_CORE_SOURCES
     capture/SessionId.cpp
     capture/SessionManifest.cpp
     capture/ChannelJsonWriter.cpp
+    capture/CaptureChannelSupport.cpp
     capture/CaptureCoordinatorInternal.cpp
     capture/CaptureCoordinator.cpp
     capture/JsonSerializers.cpp
@@ -33,6 +34,7 @@ set(HFTREC_CORE_SOURCES
     replay/SessionReplay.cpp
     replay/SessionReplayTimeline.cpp
     recordings/RecordingDiscovery.cpp
+    recordings/RecordingRoot.cpp
     storage/EventStorage.cpp
     storage/JsonSessionStorage.cpp
     tui/RecorderTuiLaunch.cpp

@@ -32,7 +32,7 @@ weak for coursework and future backtest use.
 Each recorded session is stored as:
 
 ```text
-recordings/<session_id>/
+/mnt/d/recordings/<session_id>/
   manifest.json
   jsonl/depth_tape.jsonl
   jsonl/depth_sidecar.jsonl

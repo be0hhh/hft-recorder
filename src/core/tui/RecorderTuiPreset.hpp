@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "core/recordings/RecordingRoot.hpp"
+
 namespace hftrec::tui {
 
 struct ChannelSelection {
@@ -29,7 +31,7 @@ struct RecorderTuiJob {
 };
 
 struct RecorderTuiPreset {
-    std::filesystem::path outputDir{"./recordings"};
+    std::filesystem::path outputDir{hftrec::recordings::defaultRecordingsRoot()};
     int progressSec{10};
     int launchWaveSize{4};
     int launchStaggerMs{250};
