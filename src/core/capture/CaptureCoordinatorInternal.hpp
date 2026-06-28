@@ -20,6 +20,8 @@ Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexc
 std::int64_t nowNs() noexcept;
 long long nowSec() noexcept;
 std::uint8_t normalizedApiSlot(const CaptureConfig& config) noexcept;
+std::string_view primaryIdentitySymbolText(const CaptureConfig& config) noexcept;
+std::string_view primaryRouteSymbolText(const CaptureConfig& config) noexcept;
 
 #if HFTREC_WITH_CXET
 cxet::UnifiedRequestBuilder makeTradesBuilder(const CaptureConfig& config) noexcept;

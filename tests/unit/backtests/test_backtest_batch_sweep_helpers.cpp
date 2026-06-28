@@ -54,7 +54,7 @@ TEST(BacktestBatchSweepHelpers, BuildsSameSymbolFuturesPairsOnly) {
     };
     QVariantList skipped;
 
-    const QVector<hftrec::gui::BatchSweepPair> pairs = hftrec::gui::buildBatchSweepPairs(sessions, 64, &skipped);
+    const QVector<hftrec::gui::BatchSweepPair> pairs = hftrec::gui::buildBatchSweepPairs(sessions, 64, true, &skipped);
 
     ASSERT_EQ(pairs.size(), 1);
     EXPECT_EQ(pairs.front().first.exchange, QStringLiteral("binance"));
@@ -62,7 +62,7 @@ TEST(BacktestBatchSweepHelpers, BuildsSameSymbolFuturesPairsOnly) {
     EXPECT_EQ(pairs.front().first.symbol, QStringLiteral("BTCUSDT"));
     EXPECT_EQ(pairs.front().second.symbol, QStringLiteral("BTC-USDT-SWAP"));
     ASSERT_EQ(skipped.size(), 1);
-    EXPECT_EQ(skipped.front().toMap().value(QStringLiteral("reason")).toString(), QStringLiteral("not futures-like"));
+    EXPECT_EQ(skipped.front().toMap().value(QStringLiteral("reason")).toString(), QStringLiteral("not futures"));
 }
 
 TEST(BacktestBatchSweepHelpers, CanonicalizesCommonPerpSymbolFormats) {
@@ -78,7 +78,7 @@ TEST(BacktestBatchSweepHelpers, HonorsPairBudget) {
         session(QStringLiteral("c"), QStringLiteral("bybit"), QStringLiteral("linear"), QStringLiteral("BTCUSDT")),
     };
 
-    const QVector<hftrec::gui::BatchSweepPair> pairs = hftrec::gui::buildBatchSweepPairs(sessions, 2, nullptr);
+    const QVector<hftrec::gui::BatchSweepPair> pairs = hftrec::gui::buildBatchSweepPairs(sessions, 2, true, nullptr);
 
     EXPECT_EQ(pairs.size(), 2);
 }

@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "gui/backtests/BacktestBatchAnalysisHelpers.hpp"
+#include "gui/backtests/BacktestBatchSweepHelpers.hpp"
 
 namespace {
 
@@ -54,12 +55,50 @@ QVariantMap curveRow(QString symbol, QString pair, QVariantList curve, QVariantM
 
 }  // namespace
 
+TEST(BacktestBatchSweepHelpers, OnlyFuturesSkipsSpotSessions) {
+    QVector<hftrec::gui::BatchSweepSessionInfo> sessions;
+    hftrec::gui::BatchSweepSessionInfo binanceFutures;
+    binanceFutures.path = QStringLiteral("/tmp/binance_futures");
+    binanceFutures.sessionId = QStringLiteral("1_binance_futures_AGLDUSDT");
+    binanceFutures.exchange = QStringLiteral("binance");
+    binanceFutures.market = QStringLiteral("futures");
+    binanceFutures.symbol = QStringLiteral("AGLDUSDT");
+    binanceFutures.canonicalSymbol = QStringLiteral("AGLD");
+    sessions.push_back(binanceFutures);
+
+    hftrec::gui::BatchSweepSessionInfo bybitFutures = binanceFutures;
+    bybitFutures.path = QStringLiteral("/tmp/bybit_futures");
+    bybitFutures.sessionId = QStringLiteral("2_bybit_futures_AGLDUSDT");
+    bybitFutures.exchange = QStringLiteral("bybit");
+    sessions.push_back(bybitFutures);
+
+    hftrec::gui::BatchSweepSessionInfo mexcSpot = binanceFutures;
+    mexcSpot.path = QStringLiteral("/tmp/mexc_spot");
+    mexcSpot.sessionId = QStringLiteral("3_mexc_spot_AGLDUSDT");
+    mexcSpot.exchange = QStringLiteral("mexc");
+    mexcSpot.market = QStringLiteral("spot");
+    sessions.push_back(mexcSpot);
+
+    QVariantList skipped;
+    const QVector<hftrec::gui::BatchSweepPair> futuresOnlyPairs =
+        hftrec::gui::buildBatchSweepPairs(sessions, 64, true, &skipped);
+
+    ASSERT_EQ(futuresOnlyPairs.size(), 1);
+    EXPECT_EQ(hftrec::gui::batchExchangePairLabel(futuresOnlyPairs.front()), QStringLiteral("binance/bybit"));
+    ASSERT_EQ(skipped.size(), 1);
+    EXPECT_EQ(skipped.front().toMap().value(QStringLiteral("reason")).toString(), QStringLiteral("not futures"));
+
+    const QVector<hftrec::gui::BatchSweepPair> allPairs =
+        hftrec::gui::buildBatchSweepPairs(sessions, 64, false, nullptr);
+    EXPECT_EQ(allPairs.size(), 3);
+}
+
 TEST(BacktestBatchAnalysisHelpers, BuildsSummaryCards) {
     QVariantList rows;
     rows.push_back(batchRow(QStringLiteral("BTCUSDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 200000000, 20000000, 4, params(10, 100)));
     rows.push_back(batchRow(QStringLiteral("ETHUSDT"), QStringLiteral("aster/bybit"), QStringLiteral("aster"), QStringLiteral("bybit"), -50000000, 60000000, 0, params(20, 100), true));
     QVariantList skipped;
-    skipped.push_back(QVariantMap{{QStringLiteral("reason"), QStringLiteral("not futures-like")}});
+    skipped.push_back(QVariantMap{{QStringLiteral("reason"), QStringLiteral("not futures")}});
 
     const QVariantList cards = hftrec::gui::batchSummaryCardsFromRows(rows, skipped, 3, 8);
 

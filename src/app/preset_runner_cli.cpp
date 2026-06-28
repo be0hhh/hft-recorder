@@ -50,6 +50,8 @@ capture::CaptureConfig makeCaptureConfig(const tui::RecorderTuiJob& job,
     config.exchange = job.exchange;
     config.market = job.market;
     config.symbols = {job.symbol};
+    const std::string routeSymbol = tui::routeSymbolForJob(job);
+    if (!routeSymbol.empty() && routeSymbol != job.symbol) config.routeSymbols = {routeSymbol};
     config.outputDir = outputDir;
     config.durationSec = job.durationMin > 0 ? job.durationMin * 60 : 0;
     config.snapshotIntervalSec = 60;
@@ -392,6 +394,8 @@ bool runnerChannelAvailableUncached(const tui::RecorderTuiJob& job, tui::LaunchC
     config.exchange = job.exchange;
     config.market = job.market;
     config.symbols = {job.symbol};
+    const std::string routeSymbol = tui::routeSymbolForJob(job);
+    if (!routeSymbol.empty() && routeSymbol != job.symbol) config.routeSymbols = {routeSymbol};
     config.apiSlot = 1u;
     std::string detail;
     return capture::captureChannelRuntimeReady(config, captureChannelForRunner(channel), detail);
@@ -403,7 +407,7 @@ bool runnerChannelAvailable(const tui::RecorderTuiJob& job, tui::LaunchChannel c
 
     const std::string exchange = lowerAscii(job.exchange);
     const std::string market = lowerAscii(job.market);
-    const std::string symbol = lowerAscii(job.symbol);
+    const std::string symbol = lowerAscii(tui::routeSymbolForJob(job));
     constexpr std::uint8_t apiSlot = 1u;
     for (const auto& entry : cache->entries) {
         if (entry.exchange == exchange &&

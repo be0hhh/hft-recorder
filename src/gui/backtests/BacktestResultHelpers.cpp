@@ -411,6 +411,54 @@ QVariantList resultMetrics(const QJsonObject& root, const QJsonObject& summary) 
                      QStringLiteral("Показывает, насколько часто выставленные заявки реально становятся сделками."),
                      QStringLiteral("Слишком низкий fill rate может значить, что стратегия стоит далеко от рынка или слишком быстро отменяет заявки."));
     }
+    const QJsonObject diagnostics = root.value(QStringLiteral("diagnostics")).toObject();
+    if (!diagnostics.isEmpty()) {
+        const QString reason = diagnostics.value(QStringLiteral("zero_activity_reason")).toString();
+        appendMetric(QStringLiteral("diagnostics.zero_activity_reason"),
+                     QStringLiteral("Diagnosis"),
+                     reason,
+                     QStringLiteral("Diagnosis"),
+                     true,
+                     false,
+                     QStringLiteral("Короткая классификация причины нулевых orders/fills."),
+                     QStringLiteral("Помогает отличить отсутствие сигнала от заявок без исполнения или rate-limit остановок."),
+                     QStringLiteral("no_signal_below_threshold значит параметры не дали вход; orders_without_fills значит заявки были, но fill model их не исполнил."));
+        const QJsonObject signal = diagnostics.value(QStringLiteral("signal")).toObject();
+        auto appendDiagnosticBps = [&](const QString& key, const QString& label, bool primary, const QString& description) {
+            const QJsonValue value = signal.value(key);
+            if (!value.isDouble()) return;
+            appendMetric(QStringLiteral("diagnostics.") + key,
+                         label,
+                         e8DisplayString(value.toInteger()) + QStringLiteral(" bps"),
+                         QStringLiteral("Signal"),
+                         primary,
+                         false,
+                         description,
+                         QStringLiteral("Сверяет реальный edge из strategy_spread с порогами стратегии."),
+                         QStringLiteral("Если max edge ниже entry edge, отсутствие сделок является ожидаемым поведением для текущих параметров."));
+        };
+        appendDiagnosticBps(QStringLiteral("max_edge_after_cost_bps_e8"),
+                            QStringLiteral("Max edge"),
+                            true,
+                            QStringLiteral("Максимальный edge_after_cost из strategy_spread за прогон."));
+        appendDiagnosticBps(QStringLiteral("entry_edge_bps_e8"),
+                            QStringLiteral("Entry edge"),
+                            false,
+                            QStringLiteral("Порог входа из config.ini, если его удалось прочитать."));
+        const QJsonObject rateLimits = diagnostics.value(QStringLiteral("rate_limits")).toObject();
+        const QJsonValue rejectedCommands = rateLimits.value(QStringLiteral("rate_limit_rejected_commands"));
+        if (rejectedCommands.isDouble()) {
+            appendMetric(QStringLiteral("diagnostics.rate_limit_rejected_commands"),
+                         QStringLiteral("RL rejects"),
+                         QString::number(rejectedCommands.toInteger()),
+                         QStringLiteral("Execution"),
+                         true,
+                         false,
+                         QStringLiteral("Количество order/cancel команд, отклоненных симулятором rate limits."),
+                         QStringLiteral("Показывает, что часть активности могла не доходить до simulated exchange."),
+                         QStringLiteral("Ненулевое значение надо читать вместе с strategy decision reasons и rate_limit_usage."));
+        }
+    }
     appendSummary("reduce_only_fills",
                   QStringLiteral("Reduce-only fills"),
                   QStringLiteral("Execution"),

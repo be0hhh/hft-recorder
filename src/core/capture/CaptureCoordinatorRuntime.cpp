@@ -45,6 +45,13 @@ constexpr std::uint32_t kTradesHistoryWarmupPageLimit = 1000u;
 constexpr std::uint32_t kDetailedCandlesDefaultLimit = 5000u;
 constexpr std::uint32_t kDetailedCandlesMaxLimit = 1'000'000u;
 
+void copySymbolFromText(Symbol& out, std::string_view text) noexcept {
+    char buffer[rawdata::SymbolMaxBytes]{};
+    const std::size_t copyLen = std::min(text.size(), sizeof(buffer) - 1u);
+    for (std::size_t i = 0u; i < copyLen; ++i) buffer[i] = text[i];
+    out.copyFrom(buffer);
+}
+
 std::int64_t candleTierFromTimeframe(std::string_view timeframe) noexcept {
     if (timeframe == "1m") return 1;
     if (timeframe == "10m" || timeframe == "15m") return 2;
@@ -136,12 +143,13 @@ replay::LiquidationRow makeLiquidationRow(const cxet_bridge::CapturedLiquidation
 replay::TradeRow makeHistoricalTradeRow(const cxet::composite::TradePublic& trade,
                                         std::string_view exchange,
                                         std::string_view market,
+                                        std::string_view identitySymbol,
                                         const EventSequenceIds& sequenceIds) {
     replay::TradeRow row{};
     row.tradeId = static_cast<std::uint64_t>(trade.id.raw);
     row.firstTradeId = static_cast<std::uint64_t>(trade.firstTradeId.raw);
     row.lastTradeId = static_cast<std::uint64_t>(trade.lastTradeId.raw);
-    row.symbol = trade.symbol.data;
+    row.symbol = identitySymbol.empty() ? std::string{trade.symbol.data} : std::string{identitySymbol};
     row.exchange = std::string(exchange);
     row.market = std::string(market);
     row.tsNs = static_cast<std::int64_t>(trade.ts.raw);
@@ -216,6 +224,7 @@ struct TradesHistorySinkContext {
     std::atomic<std::uint64_t>* ingestSeq{nullptr};
     std::string exchange{};
     std::string market{};
+    std::string identitySymbol{};
     std::size_t maxRows{0u};
     bool hitRowLimit{false};
 };
@@ -234,7 +243,8 @@ bool appendHistoricalTradesToWarmup(void* userData,
             return false;
         }
         const auto ids = nextEventSequenceIds(*context->tradesCaptureSeq, *context->ingestSeq);
-        context->state->historyRows.push_back(makeHistoricalTradeRow(rows[i], context->exchange, context->market, ids));
+        context->state->historyRows.push_back(
+            makeHistoricalTradeRow(rows[i], context->exchange, context->market, context->identitySymbol, ids));
     }
     return true;
 }
@@ -531,9 +541,10 @@ hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfi
     venue.userEnabled = false;
     venue.orderEnabled = false;
     venue.controlEnabled = false;
-    if (!config.symbols.empty()) {
+    const std::string_view routeSymbolText = internal::primaryRouteSymbolText(config);
+    if (!routeSymbolText.empty()) {
         Symbol symbol{};
-        symbol.copyFrom(config.symbols.front().c_str());
+        copySymbolFromText(symbol, routeSymbolText);
         if (symbol.data[0] != '\0') venue.symbols.push_back(symbol);
     }
     hft_trader::runtime::setStrategyParam(venue.params, "reference_poll_interval_ms", "5000");
@@ -568,13 +579,13 @@ bool fetchDetailedCandlesRows(const CaptureConfig& config,
     rows.clear();
     errorText.clear();
 
-    if (config.symbols.empty()) {
+    if (internal::primaryRouteSymbolText(config).empty()) {
         errorText = "candles2: missing symbol";
         return false;
     }
 
     Symbol symbol{};
-    symbol.copyFrom(config.symbols.front().c_str());
+    copySymbolFromText(symbol, internal::primaryRouteSymbolText(config));
     if (symbol.data[0] == '\0') {
         errorText = "candles2: invalid symbol";
         return false;
@@ -714,13 +725,15 @@ const char* marketStreamName(cxet::api::market::PublicMarketDataStream stream) n
 }
 
 cxet::composite::StreamMeta streamMetaFromTraderEvent(
-    const hft_trader::runtime::MarketDataRuntimeEvent& event) noexcept {
+    const hft_trader::runtime::MarketDataRuntimeEvent& event,
+    std::string_view identitySymbol) noexcept {
     cxet::composite::StreamMeta meta{};
     if (event.channel) {
         meta.exchangeId = event.channel->exchange;
         meta.market = event.channel->market;
         meta.symbol = event.channel->symbol;
     }
+    if (!identitySymbol.empty()) copySymbolFromText(meta.symbol, identitySymbol);
     meta.objectType = streamObjectTypeForRecorder(event.stream);
     return meta;
 }
@@ -747,11 +760,11 @@ std::string candleHistoryStatusText(const cxet::composite::TieredCandleHistory& 
 
 
 Status CaptureCoordinator::captureCandlesOnce(const CaptureConfig& config) noexcept {
-    if (config.symbols.empty() || sessionDir_.empty()) return Status::InvalidArgument;
+    if (internal::primaryRouteSymbolText(config).empty() || sessionDir_.empty()) return Status::InvalidArgument;
     if (candlesCount_.load(std::memory_order_acquire) != 0u) return Status::Ok;
 
     Symbol symbol{};
-    symbol.copyFrom(config.symbols.front().c_str());
+    copySymbolFromText(symbol, internal::primaryRouteSymbolText(config));
     if (symbol.data[0] == '\0') return Status::InvalidArgument;
 
     cxet::composite::TieredCandleHistory history{};
@@ -876,7 +889,7 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
         row.tier = candleTier;
         row.exchange = config.exchange;
         row.market = config.market;
-        row.symbol = candle.symbol.data[0] != '\0' ? std::string{candle.symbol.data} : config.symbols.front();
+        row.symbol = std::string{internal::primaryIdentitySymbolText(config)};
         row.timeframe = tfText;
         row.tsNs = static_cast<std::int64_t>(candle.ts.raw);
         row.openE8 = static_cast<std::int64_t>(candle.open.raw);
@@ -958,7 +971,7 @@ Status CaptureCoordinator::captureTradesHistoryOnce(const CaptureConfig& config)
     }
 
     Symbol symbol{};
-    symbol.copyFrom(config.symbols.front().c_str());
+    copySymbolFromText(symbol, internal::primaryRouteSymbolText(config));
     if (symbol.data[0] == '\0') {
         lastError_ = "trades_history: invalid symbol";
         return Status::InvalidArgument;
@@ -980,6 +993,7 @@ Status CaptureCoordinator::captureTradesHistoryOnce(const CaptureConfig& config)
     sinkContext.ingestSeq = &ingestSeq_;
     sinkContext.exchange = config.exchange;
     sinkContext.market = config.market;
+    sinkContext.identitySymbol = std::string{internal::primaryIdentitySymbolText(config)};
     sinkContext.maxRows = config.tradesHistoryMaxRows;
 
     MessageBuffer requestBuf{};
@@ -1501,7 +1515,10 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
             }
             const auto sequenceIds = nextEventSequenceIds(liquidationsCaptureSeq_, ingestSeq_);
             const auto capturedLiquidation = cxet_bridge::CxetCaptureBridge::captureLiquidation(event.liquidation);
-            const auto row = makeLiquidationRow(capturedLiquidation, config.exchange, config.market, sequenceIds);
+            auto row = makeLiquidationRow(capturedLiquidation, config.exchange, config.market, sequenceIds);
+            if (!internal::primaryIdentitySymbolText(config).empty()) {
+                row.symbol = std::string{internal::primaryIdentitySymbolText(config)};
+            }
             const auto jsonLine = renderLiquidationJsonLine(row, config.liquidationAliases);
             local_exchange::globalLocalMarketDataBus().publish("liquidations", row.symbol, jsonLine);
             const auto fileStatus = jsonSink_.appendLiquidationLine(row, jsonLine);
@@ -1832,7 +1849,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                     // Bitget has no REST orderbook route in the trader loader here; use WS orderbook only.
                 } else {
                     Symbol symbol{};
-                    symbol.copyFrom(config.symbols.empty() ? "" : config.symbols.front().c_str());
+                    copySymbolFromText(symbol, internal::primaryRouteSymbolText(config));
                     MessageBuffer requestBuf{};
                     MessageBuffer recvBuf{};
                     const bool snapshotOk = hft_trader::runtime::orderbook::loadOrderBookSnapshotForVenue(
@@ -1949,7 +1966,9 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         }
         tradesWarmupThread = std::thread([this, &tradesWarmup, config, startNs, endNs]() noexcept {
             Symbol symbol{};
-            if (!config.symbols.empty()) symbol.copyFrom(config.symbols.front().c_str());
+            if (!internal::primaryRouteSymbolText(config).empty()) {
+                copySymbolFromText(symbol, internal::primaryRouteSymbolText(config));
+            }
             TimeNs startTime{};
             TimeNs endTime{};
             CountVal pageLimit{};
@@ -1963,6 +1982,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
             sinkContext.ingestSeq = &ingestSeq_;
             sinkContext.exchange = config.exchange;
             sinkContext.market = config.market;
+            sinkContext.identitySymbol = std::string{internal::primaryIdentitySymbolText(config)};
             sinkContext.maxRows = kTradesHistoryWarmupTargetRows;
 
             MessageBuffer requestBuf{};
@@ -2104,7 +2124,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         }
         if (event.status != cxet::api::market::PublicMarketDataStatus::Parsed) continue;
         const bool captureMetrics = cxet::metrics::shouldCaptureLatency();
-        const auto meta = streamMetaFromTraderEvent(event);
+        const auto meta = streamMetaFromTraderEvent(event, internal::primaryIdentitySymbolText(config));
         if (event.stream == cxet::api::market::PublicMarketDataStream::Trades) {
                 const auto sequenceIds = nextEventSequenceIds(tradesCaptureSeq_, ingestSeq_);
                 TscTick bridgeStartTsc{};

@@ -819,6 +819,7 @@ void BacktestViewModel::loadPersistentConfig_() {
     batchUniverseId_ = settings_.value(QStringLiteral("backtests/batch_universe_id"), batchUniverseId_).toString().trimmed();
     batchPairBudget_ = settings_.value(QStringLiteral("backtests/batch_pair_budget"), batchPairBudget_).toString().trimmed();
     if (batchPairBudget_.isEmpty()) batchPairBudget_ = QStringLiteral("64");
+    batchOnlyFutures_ = settings_.value(QStringLiteral("backtests/batch_only_futures"), batchOnlyFutures_).toBool();
     batchRawTableMode_ = settings_.value(QStringLiteral("backtests/batch_raw_table_mode"), batchRawTableMode_).toString().trimmed();
     if (batchRawTableMode_.isEmpty()) batchRawTableMode_ = QStringLiteral("stable");
 }
@@ -876,6 +877,7 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/sweep_seed"), sweepSeed_);
     settings_.setValue(QStringLiteral("backtests/batch_universe_id"), batchUniverseId_);
     settings_.setValue(QStringLiteral("backtests/batch_pair_budget"), batchPairBudget_);
+    settings_.setValue(QStringLiteral("backtests/batch_only_futures"), batchOnlyFutures_);
     settings_.setValue(QStringLiteral("backtests/batch_raw_table_mode"), batchRawTableMode_);
     settings_.beginGroup(QStringLiteral("backtests/params/%1").arg(selectedStrategy_));
     for (const QString& key : paramOrder_) {

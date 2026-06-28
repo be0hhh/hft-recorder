@@ -81,6 +81,7 @@ progress_sec=10
 exchange=binance
 market=futures
 symbol=BTCUSDT
+route_symbol=BTC
 duration_min=0
 channels=all
 
@@ -105,6 +106,7 @@ channels=trades,bookticker,orderbook
     EXPECT_EQ(preset.jobs[0].name, "binance_btc");
     EXPECT_EQ(preset.jobs[0].exchange, "binance");
     EXPECT_EQ(preset.jobs[0].symbol, "BTCUSDT");
+    EXPECT_EQ(preset.jobs[0].routeSymbol, "BTC");
     EXPECT_EQ(preset.jobs[0].durationMin, 0);
     EXPECT_TRUE(preset.jobs[0].channels.priceLimit);
     EXPECT_EQ(preset.jobs[1].name, "bybit_eth");
@@ -149,6 +151,7 @@ TEST(RecorderTuiPreset, RoundTripsPresetText) {
     job.exchange = "binance";
     job.market = "futures";
     job.symbol = "BTCUSDT";
+    job.routeSymbol = "BTC";
     job.durationMin = 15;
     job.channels.trades = true;
     job.channels.bookTicker = true;
@@ -166,6 +169,8 @@ TEST(RecorderTuiPreset, RoundTripsPresetText) {
     EXPECT_EQ(parsed.sameExchangeCooldownMs, preset.sameExchangeCooldownMs);
     EXPECT_EQ(parsed.jobs.front().name, job.name);
     EXPECT_EQ(parsed.jobs.front().exchange, job.exchange);
+    EXPECT_EQ(parsed.jobs.front().symbol, job.symbol);
+    EXPECT_EQ(parsed.jobs.front().routeSymbol, job.routeSymbol);
     EXPECT_EQ(parsed.jobs.front().durationMin, job.durationMin);
     EXPECT_TRUE(parsed.jobs.front().channels.trades);
     EXPECT_TRUE(parsed.jobs.front().channels.bookTicker);

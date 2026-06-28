@@ -4,6 +4,7 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_smoke.cpp
     test_capture_serializers.cpp
     test_capture_cli.cpp
+    test_history_binance_vision.cpp
     test_corpus_loader.cpp
     test_identity_codec.cpp
     test_json_line_parser.cpp

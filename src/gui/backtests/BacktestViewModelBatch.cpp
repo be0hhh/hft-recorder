@@ -186,6 +186,13 @@ void BacktestViewModel::setBatchPairBudget(const QString& value) {
     emit batchConfigChanged();
 }
 
+void BacktestViewModel::setBatchOnlyFutures(bool value) {
+    if (batchOnlyFutures_ == value) return;
+    batchOnlyFutures_ = value;
+    savePersistentConfig_();
+    emit batchConfigChanged();
+}
+
 void BacktestViewModel::setBatchRawTableMode(const QString& value) {
     const QString next = value.trimmed().isEmpty() ? QStringLiteral("stable") : value.trimmed();
     if (batchRawTableMode_ == next) return;
@@ -252,7 +259,7 @@ void BacktestViewModel::startBatchSweep() {
 
     QVariantList skipped;
     const int maxPairs = static_cast<int>(latencyValue_(batchPairBudget_, 64));
-    const QVector<BatchSweepPair> pairs = buildBatchSweepPairs(sessions, maxPairs, &skipped);
+    const QVector<BatchSweepPair> pairs = buildBatchSweepPairs(sessions, maxPairs, batchOnlyFutures_, &skipped);
     if (pairs.empty()) {
         batchSkippedRows_ = skipped;
         batchStableRows_.clear();
@@ -265,7 +272,9 @@ void BacktestViewModel::startBatchSweep() {
         batchPairMatrixCells_.clear();
         batchTimeRows_.clear();
         batchPlateauRows_.clear();
-        batchSummaryText_ = QStringLiteral("No futures/futures same-symbol exchange pairs");
+        batchSummaryText_ = batchOnlyFutures_
+            ? QStringLiteral("No futures same-symbol exchange pairs")
+            : QStringLiteral("No same-symbol exchange pairs");
         emit batchResultsChanged();
         setStatusText_(batchSummaryText_);
         return;

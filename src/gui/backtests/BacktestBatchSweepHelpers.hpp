@@ -29,6 +29,7 @@ QString batchExchangePairLabel(const BatchSweepPair& pair);
 QString batchParamsLabel(const QVariantMap& params);
 QVector<BatchSweepPair> buildBatchSweepPairs(const QVector<BatchSweepSessionInfo>& sessions,
                                              int maxPairs,
+                                             bool onlyFutures,
                                              QVariantList* skippedRows = nullptr);
 QVariantList batchStableRowsFromRows(const QVariantList& rows);
 QVariantList batchProfitRowsFromRows(const QVariantList& rows);

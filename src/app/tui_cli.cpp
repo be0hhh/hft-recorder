@@ -206,7 +206,9 @@ std::string promptLine(TerminalGuard& terminal, std::string_view label, std::str
 }
 
 std::string jobLabel(const tui::RecorderTuiJob& job) {
-    return job.name + " | " + job.exchange + "/" + job.market + " " + job.symbol +
+    const std::string route = tui::routeSymbolForJob(job);
+    const std::string routeNote = route != job.symbol ? " -> " + route : std::string{};
+    return job.name + " | " + job.exchange + "/" + job.market + " " + job.symbol + routeNote +
            " | " + (job.durationMin == 0 ? "until stop" : std::to_string(job.durationMin) + "m") +
            " | " + tui::renderChannelSelection(job.channels);
 }
@@ -214,7 +216,8 @@ std::string jobLabel(const tui::RecorderTuiJob& job) {
 bool sameCaptureJob(const tui::RecorderTuiJob& lhs, const tui::RecorderTuiJob& rhs) {
     return lower(lhs.exchange) == lower(rhs.exchange)
         && lower(lhs.market) == lower(rhs.market)
-        && lower(lhs.symbol) == lower(rhs.symbol);
+        && lower(lhs.symbol) == lower(rhs.symbol)
+        && lower(tui::routeSymbolForJob(lhs)) == lower(tui::routeSymbolForJob(rhs));
 }
 
 bool containsCaptureJob(const std::vector<tui::RecorderTuiJob>& jobs, const tui::RecorderTuiJob& candidate) {
@@ -352,6 +355,8 @@ bool tuiChannelAvailableUncached(const tui::RecorderTuiJob& job, tui::LaunchChan
     config.exchange = job.exchange;
     config.market = job.market;
     config.symbols = {job.symbol};
+    const std::string routeSymbol = tui::routeSymbolForJob(job);
+    if (!routeSymbol.empty() && routeSymbol != job.symbol) config.routeSymbols = {routeSymbol};
     config.apiSlot = 1u;
     std::string detail;
     return capture::captureChannelRuntimeReady(config, captureChannelForLaunch(channel), detail);
@@ -363,7 +368,7 @@ bool tuiChannelAvailable(const tui::RecorderTuiJob& job, tui::LaunchChannel chan
 
     const std::string exchange = lower(job.exchange);
     const std::string market = lower(job.market);
-    const std::string symbol = lower(job.symbol);
+    const std::string symbol = lower(tui::routeSymbolForJob(job));
     constexpr std::uint8_t apiSlot = 1u;
     for (const auto& entry : cache->entries) {
         if (entry.exchange == exchange &&
@@ -424,7 +429,11 @@ void editJob(TerminalGuard& terminal, tui::RecorderTuiJob& job) {
         else if (key.kind == KeyKind::Down) row = std::min(12, row + 1);
         else if (key.kind == KeyKind::Escape) return;
         else if (key.kind == KeyKind::Enter || (key.kind == KeyKind::Character && key.ch == ' ')) {
-            if (row == 0) job.symbol = promptLine(terminal, "symbol", job.symbol);
+            if (row == 0) {
+                const std::string nextSymbol = promptLine(terminal, "symbol", job.symbol);
+                if (lower(nextSymbol) != lower(job.symbol)) job.routeSymbol.clear();
+                job.symbol = nextSymbol;
+            }
             else if (row == 1) job.name = promptLine(terminal, "name", job.name);
             else if (row == 2) job.exchange = lower(promptLine(terminal, "exchange", job.exchange));
             else if (row == 3) job.market = lower(promptLine(terminal, "market", job.market));
@@ -500,6 +509,8 @@ capture::CaptureConfig makeCaptureConfig(const tui::RecorderTuiJob& job,
     config.exchange = job.exchange;
     config.market = job.market;
     config.symbols = {job.symbol};
+    const std::string routeSymbol = tui::routeSymbolForJob(job);
+    if (!routeSymbol.empty() && routeSymbol != job.symbol) config.routeSymbols = {routeSymbol};
     config.outputDir = outputDir;
     config.durationSec = job.durationMin > 0 ? job.durationMin * 60 : 0;
     config.snapshotIntervalSec = 60;

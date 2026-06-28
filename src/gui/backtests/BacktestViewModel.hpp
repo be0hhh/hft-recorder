@@ -66,6 +66,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QVariantList batchUniverseChoices READ batchUniverseChoices NOTIFY sessionsChanged)
     Q_PROPERTY(QString batchUniverseId READ batchUniverseId WRITE setBatchUniverseId NOTIFY batchConfigChanged)
     Q_PROPERTY(QString batchPairBudget READ batchPairBudget WRITE setBatchPairBudget NOTIFY batchConfigChanged)
+    Q_PROPERTY(bool batchOnlyFutures READ batchOnlyFutures WRITE setBatchOnlyFutures NOTIFY batchConfigChanged)
     Q_PROPERTY(QString batchRunId READ batchRunId NOTIFY batchResultsChanged)
     Q_PROPERTY(QString batchResultPath READ batchResultPath NOTIFY batchResultsChanged)
     Q_PROPERTY(QString batchSummaryText READ batchSummaryText NOTIFY batchResultsChanged)
@@ -174,6 +175,7 @@ class BacktestViewModel : public QObject {
     QVariantList batchUniverseChoices() const;
     QString batchUniverseId() const;
     QString batchPairBudget() const { return batchPairBudget_; }
+    bool batchOnlyFutures() const { return batchOnlyFutures_; }
     QString batchRunId() const { return batchRunId_; }
     QString batchResultPath() const { return batchResultPath_; }
     QString batchSummaryText() const { return batchSummaryText_; }
@@ -271,6 +273,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setSweepSeed(const QString& value);
     Q_INVOKABLE void setBatchUniverseId(const QString& value);
     Q_INVOKABLE void setBatchPairBudget(const QString& value);
+    Q_INVOKABLE void setBatchOnlyFutures(bool value);
     Q_INVOKABLE void setBatchRawTableMode(const QString& value);
     Q_INVOKABLE void setSelectedSweepCurveLimit(const QString& limit);
     Q_INVOKABLE void setSelectedSweepView(const QString& view);
@@ -480,6 +483,7 @@ class BacktestViewModel : public QObject {
     QString sweepSeed_{QStringLiteral("0")};
     QString batchUniverseId_{};
     QString batchPairBudget_{QStringLiteral("64")};
+    bool batchOnlyFutures_{true};
     QString batchRunId_{};
     QString batchResultPath_{};
     QString batchSummaryText_{QStringLiteral("Idle")};

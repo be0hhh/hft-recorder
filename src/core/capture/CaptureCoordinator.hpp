@@ -35,6 +35,7 @@ struct CaptureConfig {
     std::string exchange{"binance"};
     std::string market{"futures"};
     std::vector<std::string> symbols{};
+    std::vector<std::string> routeSymbols{};
     std::filesystem::path envPath{".env"};
     std::uint8_t apiSlot{1u};
     std::filesystem::path outputDir{hftrec::recordings::defaultRecordingsRoot()};

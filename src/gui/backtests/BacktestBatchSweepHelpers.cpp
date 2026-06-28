@@ -156,6 +156,7 @@ QString batchParamsLabel(const QVariantMap& params) {
 
 QVector<BatchSweepPair> buildBatchSweepPairs(const QVector<BatchSweepSessionInfo>& sessions,
                                              int maxPairs,
+                                             bool onlyFutures,
                                              QVariantList* skippedRows) {
     QHash<QString, QVector<BatchSweepSessionInfo>> bySymbol;
     for (const BatchSweepSessionInfo& session : sessions) {
@@ -172,8 +173,8 @@ QVector<BatchSweepPair> buildBatchSweepPairs(const QVector<BatchSweepSessionInfo
             if (skippedRows != nullptr) skippedRows->push_back(skipped);
             continue;
         }
-        if (!isBatchFuturesMarket(session.market)) {
-            skipped.insert(QStringLiteral("reason"), QStringLiteral("not futures-like"));
+        if (onlyFutures && !isBatchFuturesMarket(session.market)) {
+            skipped.insert(QStringLiteral("reason"), QStringLiteral("not futures"));
             if (skippedRows != nullptr) skippedRows->push_back(skipped);
             continue;
         }

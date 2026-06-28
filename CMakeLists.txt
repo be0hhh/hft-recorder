@@ -139,6 +139,7 @@ else()
 endif()
 
 find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
 find_package(absl CONFIG REQUIRED)
 find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2 Network QUIET)
 

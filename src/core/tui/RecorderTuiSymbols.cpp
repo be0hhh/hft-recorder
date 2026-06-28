@@ -196,6 +196,12 @@ std::string symbolSlug(std::string_view raw) {
     return out.empty() ? std::string{"symbol"} : out;
 }
 
+std::string canonicalGlobalSymbol(std::string_view raw) {
+    const ParsedSymbol parsed = parseGlobalSymbol(raw);
+    if (parsed.base.empty()) return upper(trim(raw));
+    return parsed.base + parsed.quote;
+}
+
 }  // namespace
 
 const std::vector<RecorderTuiVenueSpec>& allCryptoVenueSpecs() {
@@ -321,11 +327,18 @@ std::vector<RecorderTuiJob> generateJobsForSymbols(const std::vector<std::string
     for (const std::string& symbol : symbols) {
         for (const auto& venue : venues) {
             RecorderTuiJob job{};
-            job.name = symbolSlug(symbol) + '_' + venue.exchange + '_' + venue.market;
+            const std::string canonicalSymbol = canonicalGlobalSymbol(symbol);
+            job.name = symbolSlug(canonicalSymbol) + '_' + venue.exchange + '_' + venue.market;
             if (ordinal != 0u) job.name += '_' + std::to_string(ordinal + 1u);
             job.exchange = venue.exchange;
             job.market = venue.market;
-            job.symbol = venueSymbolsFromGlobalInput(venue.key, symbol);
+            const std::string routeSymbol = venueSymbolsFromGlobalInput(venue.key, symbol);
+            if (venue.exchange == std::string_view{"hyperliquid"} && !routeSymbol.empty() && routeSymbol != canonicalSymbol) {
+                job.symbol = canonicalSymbol;
+                job.routeSymbol = routeSymbol;
+            } else {
+                job.symbol = routeSymbol;
+            }
             job.durationMin = 0;
             job.channels = allLiveChannels();
             jobs.push_back(std::move(job));

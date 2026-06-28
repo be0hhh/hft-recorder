@@ -227,7 +227,7 @@ _running_recorder_processes() {
     for exe in /proc/[0-9]*/exe; do
         target="$(readlink "$exe" 2>/dev/null || true)"
         case "$target" in
-            "$APP/build/bin/hft-recorder"|"$APP/build/bin/hft-recorder (deleted)"|"$APP/build/bin/hft-recorder-gui"|"$APP/build/bin/hft-recorder-gui (deleted)")
+            "$APP/build/bin/hft-recorder"|"$APP/build/bin/hft-recorder (deleted)"|"$APP/build/bin/hft-recorder-gui"|"$APP/build/bin/hft-recorder-gui (deleted)"|"$APP/build/bin/history"|"$APP/build/bin/history (deleted)")
                 pid="${exe#/proc/}"
                 printf '%s %s\n' "${pid%/exe}" "$target"
                 ;;
@@ -650,6 +650,31 @@ warn_if_another_tui_running
 exec "\$APP_DIR/build/bin/hft-recorder" tui "\$@"
 EOF
     chmod +x "$APP/build/cli"
+
+    cat > "$APP/build/history" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
+INSTALL_DIR="\${HOME}/.local/cxet"
+COMPRESSOR_LIB_DIR="$compressor_lib_dir"
+BACKTEST_LIB_DIR="\$APP_DIR/../hft-backtest/build"
+TRADER_LIB_DIR="\$APP_DIR/../hft-trader/build"
+TRADER_CXET_LIB_DIR="\$APP_DIR/../hft-trader/build/cxetcpp/lib"
+if [ ! -f "\$BACKTEST_LIB_DIR/libhft_backtest_core.so" ]; then
+    BACKTEST_LIB_DIR="$backtest_lib_dir"
+fi
+if [ ! -f "\$TRADER_LIB_DIR/libhft_trader_runtime.so" ]; then
+    TRADER_LIB_DIR="$trader_lib_dir"
+fi
+if [ ! -f "\$TRADER_CXET_LIB_DIR/libcxet_lib.so" ]; then
+    TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir"
+fi
+export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
+
+exec "\$APP_DIR/build/bin/history" "\$@"
+EOF
+    chmod +x "$APP/build/history"
 }
 
 _build_recorder_app() {
@@ -693,7 +718,7 @@ _build_recorder_app() {
     fi
 
     echo ">>> Building hft-recorder app (jobs=$JOBS)"
-    cmake --build build --target hft-recorder hft-recorder-gui -j"$JOBS"
+    cmake --build build --target hft-recorder hft-recorder-gui history -j"$JOBS"
 
     local compressor_lib_dir backtest_lib_dir trader_lib_dir
     compressor_lib_dir="$(cd "$(dirname "$compressor_lib")" && pwd)"
@@ -706,6 +731,7 @@ _build_recorder_app() {
     echo ">>> Launch: ./build/start        (CPU-safe software mode)"
     echo ">>> Launch: ./build/start --gpu  (Qt Quick OpenGL mode)"
     echo ">>> TUI:    ./build/cli          (terminal recorder UI)"
+    echo ">>> History: ./build/history     (Binance Vision importer)"
 }
 
 _require_linux_build_env

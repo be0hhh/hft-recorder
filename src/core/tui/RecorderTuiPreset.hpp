@@ -26,6 +26,7 @@ struct RecorderTuiJob {
     std::string exchange{"binance"};
     std::string market{"futures"};
     std::string symbol{"BTCUSDT"};
+    std::string routeSymbol{};
     std::int64_t durationMin{0};
     ChannelSelection channels{};
 };
@@ -46,6 +47,7 @@ bool anyChannelSelected(const ChannelSelection& channels) noexcept;
 bool parseDurationMinutes(std::string_view text, std::int64_t& out, std::string& error);
 bool parseChannelSelection(std::string_view text, ChannelSelection& out, std::string& error);
 std::string renderChannelSelection(const ChannelSelection& channels);
+std::string routeSymbolForJob(const RecorderTuiJob& job);
 
 bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string& error);
 std::string renderPresetText(const RecorderTuiPreset& preset);

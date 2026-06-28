@@ -123,6 +123,10 @@ bool validateJob(const RecorderTuiJob& job, std::string& error) {
         error = "job " + job.name + ": symbol is required";
         return false;
     }
+    if (!job.routeSymbol.empty() && trim(job.routeSymbol).empty()) {
+        error = "job " + job.name + ": route_symbol is blank";
+        return false;
+    }
     if (job.durationMin < 0) {
         error = "job " + job.name + ": duration_min must be >= 0";
         return false;
@@ -215,6 +219,11 @@ std::string renderChannelSelection(const ChannelSelection& channels) {
     return out;
 }
 
+std::string routeSymbolForJob(const RecorderTuiJob& job) {
+    const std::string route = trim(job.routeSymbol);
+    return route.empty() ? trim(job.symbol) : route;
+}
+
 bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string& error) {
     error.clear();
     RecorderTuiPreset preset{};
@@ -305,6 +314,7 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
         if (key == "exchange") currentJob->exchange = value;
         else if (key == "market") currentJob->market = value;
         else if (key == "symbol") currentJob->symbol = value;
+        else if (key == "route_symbol") currentJob->routeSymbol = value;
         else if (key == "duration_min") {
             if (!parseDurationMinutes(value, currentJob->durationMin, error)) {
                 error = "line " + std::to_string(lineNo) + ": " + error;
@@ -350,6 +360,7 @@ std::string renderPresetText(const RecorderTuiPreset& preset) {
         appendLine(out, "exchange", job.exchange);
         appendLine(out, "market", job.market);
         appendLine(out, "symbol", job.symbol);
+        if (!trim(job.routeSymbol).empty()) appendLine(out, "route_symbol", job.routeSymbol);
         appendLine(out, "duration_min", std::to_string(job.durationMin));
         appendLine(out, "channels", renderChannelSelection(job.channels));
     }

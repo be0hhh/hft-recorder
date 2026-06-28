@@ -1,5 +1,6 @@
 #include "core/capture/CaptureCoordinatorInternal.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -37,9 +38,12 @@ bool symbolTextIsAll(std::string_view symbolText) noexcept {
     if (l1 >= 'A' && l1 <= 'Z') l1 = static_cast<char>(l1 + ('a' - 'A'));
     return a == 'a' && l0 == 'l' && l1 == 'l';
 }
-Symbol makeSymbol(const std::string& symbolText) noexcept {
+Symbol makeSymbol(std::string_view symbolText) noexcept {
     Symbol symbol{};
-    symbol.copyFrom(symbolText.c_str());
+    char text[rawdata::SymbolMaxBytes]{};
+    const std::size_t copyLen = std::min(symbolText.size(), sizeof(text) - 1u);
+    for (std::size_t i = 0u; i < copyLen; ++i) text[i] = symbolText[i];
+    symbol.copyFrom(text);
     return symbol;
 }
 
@@ -98,7 +102,7 @@ canon::MarketType marketTypeFromConfig(ExchangeId exchange, std::string_view mar
 
 cxet::UnifiedRequestBuilder makeSubscribeBuilder(const CaptureConfig& config,
                                                  cxet::composite::out::SubscribeObject object) noexcept {
-    auto symbol = makeSymbol(config.symbols.empty() ? std::string{} : config.symbols.front());
+    auto symbol = makeSymbol(primaryRouteSymbolText(config));
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     return cxet::subscribe()
         .object(object)
@@ -167,7 +171,7 @@ void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     const bool ok = hft_trader::runtime::resolveSymbolMetadataOnce(exchange,
                                                                    marketTypeFromConfig(exchange, config.market),
-                                                                   makeSymbol(config.symbols.front()),
+                                                                   makeSymbol(primaryRouteSymbolText(config)),
                                                                    result);
     if (!ok) {
         metadata.metadataWarning = std::string{"hft_trader_metadata_failed:"} + (result.error.empty() ? "unknown" : result.error);
@@ -214,6 +218,16 @@ std::uint8_t normalizedApiSlot(const CaptureConfig& config) noexcept {
     return config.apiSlot == 0u ? 1u : config.apiSlot;
 }
 
+std::string_view primaryIdentitySymbolText(const CaptureConfig& config) noexcept {
+    if (config.symbols.empty()) return {};
+    return config.symbols.front();
+}
+
+std::string_view primaryRouteSymbolText(const CaptureConfig& config) noexcept {
+    if (!config.routeSymbols.empty()) return config.routeSymbols.front();
+    return primaryIdentitySymbolText(config);
+}
+
 #if HFTREC_WITH_CXET
 cxet::UnifiedRequestBuilder makeTradesBuilder(const CaptureConfig& config) noexcept {
     return makeSubscribeBuilder(config, cxet::composite::out::SubscribeObject::Trades);
@@ -230,7 +244,7 @@ cxet::UnifiedRequestBuilder makeLiquidationBuilder(const CaptureConfig& config) 
         .exchange(exchange)
         .market(marketTypeFromConfig(exchange, config.market))
         .api(normalizedApiSlot(config));
-    const std::string& symbolText = config.symbols.empty() ? std::string{} : config.symbols.front();
+    const std::string_view symbolText = primaryRouteSymbolText(config);
     if (symbolTextIsAll(symbolText)) return builder.symbol(canon::SlotScope::All);
     auto symbol = makeSymbol(symbolText);
     return builder.symbol(symbol);
@@ -279,6 +293,14 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
         lastError = "current capture path supports exactly one symbol per coordinator";
         return Status::InvalidArgument;
     }
+    if (config.routeSymbols.size() > 1u) {
+        lastError = "current capture path supports at most one route symbol per coordinator";
+        return Status::InvalidArgument;
+    }
+    if (!config.routeSymbols.empty() && config.routeSymbols.front().empty()) {
+        lastError = "capture route symbol must not be empty";
+        return Status::InvalidArgument;
+    }
 #if HFTREC_WITH_CXET
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     if (exchange.raw == canon::kExchangeIdUnknown.raw) {
@@ -306,6 +328,7 @@ bool sessionConfigMatches(const CaptureConfig& lhs, const CaptureConfig& rhs) no
     return lhs.exchange == rhs.exchange
         && lhs.market == rhs.market
         && lhs.symbols == rhs.symbols
+        && lhs.routeSymbols == rhs.routeSymbols
         && lhs.envPath == rhs.envPath
         && normalizedApiSlot(lhs) == normalizedApiSlot(rhs)
         && lhs.outputDir == rhs.outputDir

@@ -114,7 +114,8 @@ TEST(RecorderTuiSymbols, GeneratesLiveJobsForAllCryptoVenues) {
         if (job.exchange == "bitmart" && job.market == "futures" && job.symbol == "LABUSDT") {
             foundBitmartFutures = true;
         }
-        if (job.exchange == "hyperliquid" && job.market == "futures" && job.symbol == "LAB") {
+        if (job.exchange == "hyperliquid" && job.market == "futures" &&
+            job.symbol == "LABUSDT" && job.routeSymbol == "LAB") {
             foundHyperliquidFutures = true;
         }
     }

@@ -218,6 +218,46 @@ TEST(BacktestViewModel, FormatsSummaryE8FieldsForDisplayOnly) {
     EXPECT_TRUE(vm.selectedJson().contains(QStringLiteral("881513841")));
 }
 
+TEST(BacktestViewModel, ExposesBacktestDiagnosticsAsMetrics) {
+    isolateSettings(QStringLiteral("diagnostics_metrics"));
+    const QString session = makeTempSessionDir();
+    makeRunDir(session, QStringLiteral("run-diagnostics"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-diagnostics",
+      "status":"complete",
+      "strategy":"spread_maker1and2",
+      "summary":{"orders":0,"fills":0,"initial_balance_e8":10000000000},
+      "diagnostics":{
+        "version":1,
+        "zero_activity_reason":"no_signal_below_threshold",
+        "signal":{
+          "strategy_spread_rows":2,
+          "entry_edge_bps_e8":5000000000,
+          "max_edge_after_cost_bps_e8":4813596587
+        },
+        "rate_limits":{
+          "rate_limit_rejected_orders":0,
+          "rate_limit_rejected_cancels":0,
+          "rate_limit_rejected_commands":0
+        }
+      },
+      "errors":[]
+    })json");
+
+    hftrec::gui::BacktestViewModel vm;
+    vm.setSessionPath(session);
+
+    const QVariantList metrics = vm.selectedResultMetrics();
+    EXPECT_EQ(metricValue(metrics, QStringLiteral("diagnostics.zero_activity_reason")),
+              QStringLiteral("no_signal_below_threshold"));
+    EXPECT_EQ(metricValue(metrics, QStringLiteral("diagnostics.max_edge_after_cost_bps_e8")),
+              QStringLiteral("48.13596587 bps"));
+    EXPECT_EQ(metricValue(metrics, QStringLiteral("diagnostics.entry_edge_bps_e8")),
+              QStringLiteral("50 bps"));
+    EXPECT_EQ(metricValue(metrics, QStringLiteral("diagnostics.rate_limit_rejected_commands")),
+              QStringLiteral("0"));
+}
+
 TEST(BacktestViewModel, FallsBackToFileNameWhenRunIdMissing) {
     isolateSettings(QStringLiteral("fallback"));
     const QString session = makeTempSessionDir();

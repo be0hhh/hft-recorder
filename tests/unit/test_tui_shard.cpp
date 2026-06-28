@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "core/tui/RecorderTuiShard.hpp"
+#include "core/tui/RecorderTuiSymbols.hpp"
 
 namespace {
 
@@ -74,4 +75,38 @@ TEST(RecorderTuiShard, KeepsSwapSuffixSymbolVariantsInSameShard) {
     EXPECT_EQ(shards[1].jobs[0].name, "eth_linear");
     EXPECT_EQ(shards[0].maxActiveJobs, 7);
     EXPECT_EQ(shards[1].maxActiveJobs, 7);
+}
+
+TEST(RecorderTuiShard, KeepsGeneratedHyperliquidRouteSymbolInCanonicalSymbolShard) {
+    hftrec::tui::RecorderTuiPreset preset{};
+    preset.jobs = hftrec::tui::generateJobsForSymbols({"agld"}, hftrec::tui::allCryptoVenueSpecs(), 0);
+
+    const auto shards = hftrec::tui::splitPresetIntoShards(preset, 4, 29);
+
+    ASSERT_EQ(shards.size(), 1u);
+    ASSERT_EQ(shards[0].jobs.size(), 29u);
+
+    bool foundHyperliquid = false;
+    for (const auto& job : shards[0].jobs) {
+        if (job.exchange == "hyperliquid" && job.market == "futures") {
+            EXPECT_EQ(job.symbol, "AGLDUSDT");
+            EXPECT_EQ(job.routeSymbol, "AGLD");
+            foundHyperliquid = true;
+        }
+    }
+    EXPECT_TRUE(foundHyperliquid);
+}
+
+TEST(RecorderTuiShard, KeepsEachGeneratedSymbolAsTwentyNineJobShard) {
+    hftrec::tui::RecorderTuiPreset preset{};
+    preset.jobs = hftrec::tui::generateJobsForSymbols({"lab", "agld", "velvet"},
+                                                      hftrec::tui::allCryptoVenueSpecs(),
+                                                      0);
+
+    const auto shards = hftrec::tui::splitPresetIntoShards(preset, 4, 24);
+
+    ASSERT_EQ(shards.size(), 3u);
+    for (const auto& shard : shards) {
+        EXPECT_EQ(shard.jobs.size(), 29u);
+    }
 }

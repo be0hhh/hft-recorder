@@ -19,6 +19,8 @@ set(HFTREC_CORE_SOURCES
     corpus/CorpusLoader.cpp
     corpus/InstrumentMetadata.cpp
     execution/ExecutionVenue.cpp
+    history/BinanceVisionFormat.cpp
+    history/ZipReader.cpp
     block/FileHeader.cpp
     block/BlockHeader.cpp
     block/BlockWriter.cpp
@@ -76,6 +78,7 @@ target_link_libraries(hftrec_core
         absl::flat_hash_map
         spdlog::spdlog
         fmt::fmt
+        ZLIB::ZLIB
 )
 
 if(HFTREC_WITH_TRADER_RUNTIME)
