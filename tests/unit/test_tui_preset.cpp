@@ -177,7 +177,7 @@ TEST(RecorderTuiPreset, RoundTripsPresetText) {
     EXPECT_TRUE(parsed.jobs.front().channels.orderbook);
 }
 
-TEST(RecorderTuiPreset, RejectsJobWithoutSymbol) {
+TEST(RecorderTuiPreset, UsesDefaultSymbolWhenJobOmitsSymbol) {
     constexpr std::string_view text = R"(
 [job bad]
 exchange=binance
@@ -188,8 +188,9 @@ channels=trades
 
     RecorderTuiPreset preset{};
     std::string error;
-    EXPECT_FALSE(parsePresetText(text, preset, error));
-    EXPECT_NE(error.find("symbol"), std::string::npos);
+    ASSERT_TRUE(parsePresetText(text, preset, error));
+    ASSERT_EQ(preset.jobs.size(), 1u);
+    EXPECT_EQ(preset.jobs.front().symbol, "BTCUSDT");
 }
 
 TEST(RecorderTuiPreset, ParsesLaunchOptions) {

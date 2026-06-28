@@ -270,9 +270,12 @@ TEST(JsonLineParser, RejectsLeadingZeroInteger) {
     EXPECT_EQ(parseTradeLine("[0,0,0123,3]", row), Status::CorruptData);
 }
 
-TEST(JsonLineParser, RejectsLegacyExtendedTradeLine) {
+TEST(JsonLineParser, AcceptsLegacyExtendedTradeLine) {
     TradeRow row{};
-    EXPECT_EQ(parseTradeLine("[1,2,1,100,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]", row), Status::CorruptData);
+    EXPECT_EQ(parseTradeLine("[1,2,1,100,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]", row), Status::Ok);
+    EXPECT_EQ(row.symbol, "BTCUSDT");
+    EXPECT_EQ(row.exchange, "binance");
+    EXPECT_EQ(row.market, "futures_usd");
 }
 
 TEST(JsonLineParser, RejectsLegacyExtendedBookTickerLine) {

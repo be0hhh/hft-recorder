@@ -35,7 +35,8 @@ QHostAddress apiHost() {
 }
 
 bool apiDisabled() noexcept {
-    return qEnvironmentVariable("HFTREC_API_MODE").trimmed().toLower() == QStringLiteral("off");
+    const QString mode = qEnvironmentVariable("HFTREC_API_MODE", "off").trimmed().toLower();
+    return mode == QStringLiteral("off") || mode.isEmpty();
 }
 
 QByteArray reasonPhrase(int statusCode) {

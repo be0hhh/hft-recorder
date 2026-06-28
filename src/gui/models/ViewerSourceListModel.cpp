@@ -441,6 +441,9 @@ void ViewerSourceListModel::rebuildEntries_() {
             if (recorded.candleCount > 0) {
                 entry.sourceSummary += QStringLiteral(" | C %1").arg(recorded.candleCount);
             }
+            entry.sourceSummary = appendSessionHealthSummary(entry.sourceSummary,
+                                                             QString::fromStdString(recorded.sessionHealth),
+                                                             QString::fromStdString(recorded.warningSummary));
             nextEntries.push_back(std::move(entry));
         }
     }

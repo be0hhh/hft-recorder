@@ -309,7 +309,7 @@ TEST(CaptureViewModelRequests, DetailedCandlesVenueChoicesExcludeUnsupportedKlin
     EXPECT_TRUE(liveKeys.contains(QStringLiteral("hyperliquid_futures")));
     EXPECT_FALSE(liveKeys.contains(QStringLiteral("moex_futures")));
     EXPECT_FALSE(liveKeys.contains(QStringLiteral("moex_spot")));
-    EXPECT_FALSE(candleKeys.contains(QStringLiteral("mexc_spot")));
+    EXPECT_TRUE(candleKeys.contains(QStringLiteral("mexc_spot")));
     EXPECT_FALSE(candleKeys.contains(QStringLiteral("hyperliquid_futures")));
     EXPECT_FALSE(candleKeys.contains(QStringLiteral("moex_futures")));
     EXPECT_TRUE(candleKeys.contains(QStringLiteral("finam_spot")));

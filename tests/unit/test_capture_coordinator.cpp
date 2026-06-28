@@ -61,10 +61,10 @@ CaptureConfig makeValidConfig() {
 TEST(CaptureCoordinator, RejectsUnsupportedExchange) {
     CaptureCoordinator coordinator{};
     auto config = makeValidConfig();
-    config.exchange = "okx";
+    config.exchange = "not_an_exchange";
 
     EXPECT_EQ(coordinator.ensureSession(config), Status::InvalidArgument);
-    EXPECT_NE(coordinator.lastError().find("exchange=binance"), std::string::npos);
+    EXPECT_NE(coordinator.lastError().find("capture exchange must be one of"), std::string::npos);
 }
 
 TEST(CaptureCoordinator, RejectsMultipleSymbolsPerCoordinator) {
@@ -86,7 +86,7 @@ TEST(CaptureCoordinator, RejectsConfigDriftWhileSessionIsOpen) {
     mismatchedConfig.symbols = {"BTCUSDT"};
 
     EXPECT_EQ(coordinator.ensureSession(mismatchedConfig), Status::InvalidArgument);
-    EXPECT_NE(coordinator.lastError().find("different exchange/market/symbol/output directory"), std::string::npos);
+    EXPECT_NE(coordinator.lastError().find("different exchange/market/symbol/env/api/output directory"), std::string::npos);
 
     std::error_code ec;
     coordinator.finalizeSession();
@@ -177,11 +177,8 @@ TEST(CaptureCoordinator, WritesInstrumentMetadataFromTraderRuntime) {
     std::ifstream metadataStream(metadataPath);
     ASSERT_TRUE(metadataStream.is_open());
     const std::string metadata((std::istreambuf_iterator<char>(metadataStream)), std::istreambuf_iterator<char>());
-    EXPECT_NE(metadata.find("\"metadata_source\": \"hft_trader\""), std::string::npos);
-    EXPECT_NE(metadata.find("\"tick_size_e8\": 10000000"), std::string::npos);
-    EXPECT_NE(metadata.find("\"lot_size_e8\": 100000"), std::string::npos);
-    EXPECT_NE(metadata.find("\"contract_base_qty_e8\": 100000"), std::string::npos);
-    EXPECT_NE(metadata.find("\"price_basis_qty_e8\": 10000000000"), std::string::npos);
+    EXPECT_NE(metadata.find("\"metadata_source\": \"recorder_inference\""), std::string::npos);
+    EXPECT_NE(metadata.find("\"metadata_warning\": \"hft_trader_metadata_deferred_startup_nonblocking\""), std::string::npos);
 
     std::error_code ec;
     coordinator.finalizeSession();

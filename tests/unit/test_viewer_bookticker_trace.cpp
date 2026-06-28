@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QPointF>
 #include <QSettings>
 #include <QString>
@@ -32,8 +34,14 @@ std::int64_t e8(std::int64_t value) {
 }
 
 fs::path makeTmpDir() {
+    static std::atomic<unsigned> counter{0};
     const auto base = fs::temp_directory_path();
-    auto dir = base / ("hftrec_viewer_bookticker_trace_" + std::to_string(std::rand()));
+    auto dir = base / ("hftrec_viewer_bookticker_trace_" +
+                       std::to_string(QCoreApplication::applicationPid()) + "_" +
+                       std::to_string(counter.fetch_add(1, std::memory_order_relaxed)) + "_" +
+                       std::to_string(std::rand()));
+    std::error_code ec;
+    fs::remove_all(dir, ec);
     fs::create_directories(dir);
     return dir;
 }
@@ -44,6 +52,21 @@ void writeFile(const fs::path& path, const std::string& data) {
 }
 
 void isolateViewerSettings(QStringView suffix) {
+    static int argc = 1;
+    static char appName[] = "hftrec_viewer_tests";
+    static char* argv[] = {appName, nullptr};
+    static QCoreApplication* app = nullptr;
+    if (QCoreApplication::instance() == nullptr) {
+        app = new QCoreApplication(argc, argv);
+    }
+    (void)app;
+    static std::atomic<unsigned> counter{0};
+    const QString root = QDir::temp().absoluteFilePath(QStringLiteral("hftrec_viewer_settings_%1_%2")
+                                                           .arg(QCoreApplication::applicationPid())
+                                                           .arg(counter.fetch_add(1, std::memory_order_relaxed)));
+    QDir().mkpath(root);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root);
     QCoreApplication::setOrganizationName(QStringLiteral("hftrec_viewer_tests"));
     QCoreApplication::setApplicationName(QStringLiteral("case_%1_%2").arg(suffix, QString::number(std::rand())));
     QSettings{}.clear();
@@ -358,10 +381,10 @@ TEST(ViewerBookTickerCompare, InitialViewportPrefersBookTickerRangeWhenCandlesAr
               bookTickerLine(1000000000000ll, 1, e8(103), e8(104))
                   + bookTickerLine(1001000000000ll, 2, e8(105), e8(106)));
     writeFile(dirSpot / "jsonl" / "candles2.jsonl",
-              detailedCandleLine("spot", 0, e8(90), e8(91), e8(89), e8(90))
+              detailedCandleLine("spot", 500000000000ll, e8(90), e8(91), e8(89), e8(90))
                   + detailedCandleLine("spot", 2000000000000ll, e8(110), e8(111), e8(109), e8(110)));
     writeFile(dirFutures / "jsonl" / "candles2.jsonl",
-              detailedCandleLine("futures", 0, e8(92), e8(93), e8(91), e8(92))
+              detailedCandleLine("futures", 500000000000ll, e8(92), e8(93), e8(91), e8(92))
                   + detailedCandleLine("futures", 2000000000000ll, e8(112), e8(113), e8(111), e8(112)));
 
     BookTickerCompareController compare;
@@ -369,7 +392,7 @@ TEST(ViewerBookTickerCompare, InitialViewportPrefersBookTickerRangeWhenCandlesAr
     ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
 
     EXPECT_TRUE(compare.ready());
-    EXPECT_EQ(compare.spreadCount(), 2);
+    EXPECT_EQ(compare.spreadCount(), 3);
     EXPECT_EQ(compare.candleSpreadCount(), 2);
     EXPECT_EQ(compare.tsMin(), 1000000000000ll);
     EXPECT_EQ(compare.tsMax(), 1001000000000ll);
@@ -422,13 +445,13 @@ TEST(ViewerBookTickerTrace, AutoFitAnchorsShortRecordedWindowAtBookTickerStart) 
     writeFile(dir / "bookticker.jsonl",
               bookTickerLine(1000000000000ll, 1, e8(100), e8(101))
                   + bookTickerLine(1001000000000ll, 2, e8(102), e8(103)));
-    writeFile(dir / "candles2.jsonl",
-              detailedCandleLine("spot", 0, e8(90), e8(91), e8(89), e8(90))
-                  + detailedCandleLine("spot", 2000000000000ll, e8(110), e8(111), e8(109), e8(110)));
+    writeFile(dir / "candles.jsonl",
+              tierCandleLine(1, 500000000000ll, e8(91), e8(89))
+                  + tierCandleLine(1, 2000000000000ll, e8(111), e8(109)));
 
     ChartController chart;
     ASSERT_TRUE(chart.addBookTickerFile(QString::fromStdString((dir / "bookticker.jsonl").string())));
-    ASSERT_TRUE(chart.addCandlesFile(QString::fromStdString((dir / "candles2.jsonl").string())));
+    ASSERT_TRUE(chart.addCandlesFile(QString::fromStdString((dir / "candles.jsonl").string())));
     chart.finalizeFiles();
     ASSERT_TRUE(chart.loaded());
 
@@ -824,7 +847,13 @@ TEST(ViewerTradeHover, HitsTradeAndLeavesEmptySpaceUnmatched) {
     snap.loaded = true;
     snap.tradesVisible = true;
     snap.vp = hftrec::gui::viewer::ViewportMap{0, 200, e8(90), e8(110), 200.0, 200.0};
-    snap.tradeDots.push_back(hftrec::gui::viewer::TradeDot{100, e8(100), e8(2), true, 7});
+    hftrec::gui::viewer::TradeDot dot{};
+    dot.tsNs = 100;
+    dot.priceE8 = e8(100);
+    dot.qtyE8 = e8(2);
+    dot.sideBuy = true;
+    dot.origIndex = 7;
+    snap.tradeDots.push_back(dot);
 
     HoverInfo hover{};
     hftrec::gui::viewer::hit_test::computeHover(

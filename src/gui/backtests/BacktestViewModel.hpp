@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -97,6 +98,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedSummaryJson READ selectedSummaryJson NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedConfigText READ selectedConfigText NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedErrorText READ selectedErrorText NOTIFY selectionChanged)
+    Q_PROPERTY(QString selectedWarningText READ selectedWarningText NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedEquityPoints READ selectedEquityPoints NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList resultScopeChoices READ resultScopeChoices NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedResultScope READ selectedResultScope WRITE setSelectedResultScope NOTIFY selectedResultScopeChanged)
@@ -206,6 +208,7 @@ class BacktestViewModel : public QObject {
     QString selectedSummaryJson() const;
     QString selectedConfigText() const;
     QString selectedErrorText() const;
+    QString selectedWarningText() const;
     QVariantList selectedEquityPoints() const;
     QVariantList resultScopeChoices() const;
     QString selectedResultScope() const;
@@ -349,6 +352,7 @@ class BacktestViewModel : public QObject {
         QString rawJson{};
         QString summaryJson{};
         QString errorText{};
+        QString warningText{};
         QString pnlText{};
         QString manifestPath{};
         QString equityPath{};
@@ -380,6 +384,7 @@ class BacktestViewModel : public QObject {
         qint64 sweepCurvesModifiedMs{0};
         qint64 sweepCurvesSize{-1};
         int errorCount{0};
+        int warningCount{0};
         bool valid{false};
         bool sweep{false};
         bool detailsLoaded{false};
@@ -390,6 +395,10 @@ class BacktestViewModel : public QObject {
         QString error{};
 
         bool ok() const noexcept { return !path.isEmpty() && error.isEmpty(); }
+    };
+
+    struct AsyncLoadContext {
+        std::atomic<bool> alive{true};
     };
 
     static RunRecord loadRecord_(const QString& filePath, RecordLoadMode mode);
@@ -413,7 +422,10 @@ class BacktestViewModel : public QObject {
     void ensureSelectedPreviewLoaded_();
     void applyLoadedPreview_(std::uint64_t generation, const QString& runId, const RunRecord& loaded);
     void applyLoadedDetails_(std::uint64_t generation, const QString& runId, const RunRecord& loaded);
+    void stopAsyncLoaders_() noexcept;
     QVariantList loadSessions_() const;
+    void reloadSessionsAsync_();
+    void applyLoadedSessions_(std::uint64_t generation, QVariantList sessions);
     void stopWorker_();
     static void configureWorkerThreadStack_() noexcept;
     QString runId_() const;
@@ -501,6 +513,7 @@ class BacktestViewModel : public QObject {
     QString previewLoadingRunId_{};
     QString detailsLoadingRunId_{};
     QString pendingDetailsRunId_{};
+    std::uint64_t sessionsLoadGeneration_{0};
     std::uint64_t previewLoadGeneration_{0};
     std::uint64_t detailsLoadGeneration_{0};
     int progressPercent_{0};
@@ -509,6 +522,8 @@ class BacktestViewModel : public QObject {
     bool detailsLoading_{false};
     std::atomic<bool> cancelRequested_{false};
     std::thread worker_{};
+    std::shared_ptr<AsyncLoadContext> asyncLoadContext_{std::make_shared<AsyncLoadContext>()};
+    std::vector<std::thread> asyncLoaders_{};
     QVariantList sessions_{};
     QVariantList batchStableRows_{};
     QVariantList batchProfitRows_{};

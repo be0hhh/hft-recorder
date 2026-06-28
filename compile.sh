@@ -422,7 +422,7 @@ _write_start_launcher() {
     local trader_cxet_lib_dir="$4"
     local build_compiler="$COMPILER"
     local build_cxx="$CXX_COMPILER"
-    local default_metrics_mode="full"
+    local default_metrics_mode="off"
     if [ "$HOTPATH_METRICS_DEFAULT" = "OFF" ]; then
         default_metrics_mode="off"
     fi
@@ -449,6 +449,7 @@ fi
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 export HFTREC_METRICS_PORT="\${HFTREC_METRICS_PORT:-8080}"
 export HFTREC_METRICS_MODE="\${HFTREC_METRICS_MODE:-$default_metrics_mode}"
+export HFTREC_API_MODE="\${HFTREC_API_MODE:-off}"
 export HFTREC_BUILD_COMPILER="\${HFTREC_BUILD_COMPILER:-$build_compiler}"
 export HFTREC_BUILD_CXX="\${HFTREC_BUILD_CXX:-$build_cxx}"
 

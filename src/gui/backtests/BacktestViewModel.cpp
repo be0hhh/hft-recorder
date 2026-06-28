@@ -48,7 +48,12 @@ namespace {
 
 QString statusTextFor(hft_backtest::Status status, const std::string& error = {}, const std::vector<std::string>& warnings = {}) {
     if (status == hft_backtest::Status::Ok) {
-        if (!warnings.empty()) return QStringLiteral("Backtest complete: warning: ") + QString::fromStdString(warnings.front());
+        if (!warnings.empty()) {
+            const int count = static_cast<int>(warnings.size());
+            return QStringLiteral("Backtest complete: %1 warning%2")
+                .arg(count)
+                .arg(count == 1 ? QString{} : QStringLiteral("s"));
+        }
         return QStringLiteral("Backtest complete");
     }
     if (status == hft_backtest::Status::Cancelled) return QStringLiteral("Backtest cancelled");
@@ -123,13 +128,15 @@ BacktestViewModel::BacktestViewModel(QObject* parent) : QObject(parent) {
     connect(&watcher_, &QFileSystemWatcher::directoryChanged, this, [this]() { scheduleRefresh_(); });
     connect(&watcher_, &QFileSystemWatcher::fileChanged, this, [this]() { scheduleRefresh_(); });
     loadPersistentConfig_();
-    sessions_ = loadSessions_();
-    selectedSessionId_ = firstSelectableSessionId(sessions_);
-    ensureSelectedStrategySupportsSessionCount_();
-    refresh();
+    setStatusText_(QStringLiteral("Loading sessions"));
+    reloadSessionsAsync_();
 }
 
 BacktestViewModel::~BacktestViewModel() {
+    if (asyncLoadContext_) asyncLoadContext_->alive.store(false, std::memory_order_release);
+    ++previewLoadGeneration_;
+    ++detailsLoadGeneration_;
+    stopAsyncLoaders_();
     cancelBacktest();
     stopWorker_();
 }
@@ -206,6 +213,38 @@ QVariantList BacktestViewModel::loadSessions_() const {
         }
     }
     return out;
+}
+
+void BacktestViewModel::reloadSessionsAsync_() {
+    const std::uint64_t generation = ++sessionsLoadGeneration_;
+    auto context = asyncLoadContext_;
+    BacktestViewModel* target = this;
+    asyncLoaders_.emplace_back([context, target, generation]() {
+        QVariantList loaded = target->loadSessions_();
+        if (!context || !context->alive.load(std::memory_order_acquire)) return;
+        QMetaObject::invokeMethod(target, [context, target, generation, loaded = std::move(loaded)]() mutable {
+            if (!context || !context->alive.load(std::memory_order_acquire)) return;
+            target->applyLoadedSessions_(generation, std::move(loaded));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void BacktestViewModel::applyLoadedSessions_(std::uint64_t generation, QVariantList sessions) {
+    if (generation != sessionsLoadGeneration_) return;
+    sessions_ = std::move(sessions);
+    if (manualSessionPath_.trimmed().isEmpty()) {
+        const QVariantMap selectedRow = sessionRowById(sessions_, selectedSessionId_);
+        if (selectedSessionId_.trimmed().isEmpty() || selectedRow.isEmpty() || !sessionRowSelectable(selectedRow)) {
+            selectedSessionId_ = firstSelectableSessionId(sessions_);
+        }
+    }
+    const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
+    emit sessionsChanged();
+    emit selectedSessionChanged();
+    emit multiSessionChanged();
+    if (!strategyChanged) emit selectedStrategyChanged();
+    emit canRunChanged();
+    refresh();
 }
 
 QString BacktestViewModel::selectedSessionPath() const {

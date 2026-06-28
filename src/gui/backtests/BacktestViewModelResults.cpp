@@ -9,7 +9,6 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QMetaObject>
-#include <QPointer>
 #include <QSet>
 #include <QStringList>
 #include <QTextStream>
@@ -33,6 +32,30 @@
 #include "gui/backtests/BacktestSweepHelpers.hpp"
 
 namespace hftrec::gui {
+namespace {
+
+QString manifestIssueText(const QJsonValue& value) {
+    if (!value.isArray()) return {};
+    const QJsonArray array = value.toArray();
+    QStringList lines;
+    lines.reserve(array.size());
+    for (int i = 0; i < array.size(); ++i) {
+        const QJsonValue item = array.at(i);
+        QString message;
+        if (item.isObject()) {
+            const QJsonObject object = item.toObject();
+            message = jsonValueString(object, QStringLiteral("message")).trimmed();
+            if (message.isEmpty()) message = jsonValueString(object, QStringLiteral("error")).trimmed();
+            if (message.isEmpty()) message = QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)).trimmed();
+        } else {
+            message = item.toVariant().toString().trimmed();
+        }
+        if (!message.isEmpty()) lines.push_back(QStringLiteral("%1. %2").arg(i + 1).arg(message));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+}  // namespace
 
 QString BacktestViewModel::selectedJson() const {
     const auto* record = selectedRecord_();
@@ -52,6 +75,11 @@ QString BacktestViewModel::selectedConfigText() const {
 QString BacktestViewModel::selectedErrorText() const {
     const auto* record = selectedRecord_();
     return record == nullptr ? QString{} : record->errorText;
+}
+
+QString BacktestViewModel::selectedWarningText() const {
+    const auto* record = selectedRecord_();
+    return record == nullptr ? QString{} : record->warningText;
 }
 
 QVariantList BacktestViewModel::selectedEquityPoints() const {
@@ -352,6 +380,8 @@ void BacktestViewModel::refresh() {
                 record.sweepCurves = cached->sweepCurves;
                 record.sweepParamKeys = cached->sweepParamKeys;
                 record.detailsErrorText = cached->detailsErrorText;
+                record.warningText = cached->warningText;
+                record.warningCount = cached->warningCount;
                 if (!cached->sweepRows.empty() || !cached->sweepCurves.empty()) {
                     record.initialBalanceE8 = cached->initialBalanceE8;
                     record.totalPnlE8 = cached->totalPnlE8;
@@ -396,10 +426,13 @@ void BacktestViewModel::refresh() {
                 const QString status = active->sweep
                     ? (terminalStatus == QStringLiteral("complete") ? QStringLiteral("Sweep complete") : QStringLiteral("Sweep ") + terminalStatus)
                     : (terminalStatus == QStringLiteral("complete") ? QStringLiteral("Backtest complete") : QStringLiteral("Backtest ") + terminalStatus);
+                const QString statusWithWarnings = terminalStatus == QStringLiteral("complete") && active->warningCount > 0
+                    ? status + QStringLiteral(": %1 warning%2").arg(active->warningCount).arg(active->warningCount == 1 ? QString{} : QStringLiteral("s"))
+                    : status;
                 activeRunId_.clear();
                 setRunning_(false);
-                setProgress_(100, status);
-                setStatusText_(status);
+                setProgress_(100, statusWithWarnings);
+                setStatusText_(statusWithWarnings);
             }
         }
     }
@@ -412,8 +445,16 @@ void BacktestViewModel::refresh() {
     }
 
     if (!running_) {
-        if (selectedSessionPath().isEmpty()) setStatusText_(QStringLiteral("Select a session and strategy"));
-        else setStatusText_(QStringLiteral("Watching %1 result%2").arg(static_cast<qulonglong>(records_.size())).arg(records_.size() == 1u ? QString{} : QStringLiteral("s")));
+        if (selectedSessionPath().isEmpty()) {
+            setStatusText_(QStringLiteral("Select a session and strategy"));
+        } else if (!strategySupportsSelectedSessionCount_()) {
+            const QString gateText = strategySessionGateText(selectedStrategy_, selectedSessionCount());
+            setStatusText_(gateText.isEmpty() ? QStringLiteral("Selected strategy does not support selected sessions") : gateText);
+        } else {
+            setStatusText_(QStringLiteral("Watching %1 result%2")
+                               .arg(static_cast<qulonglong>(records_.size()))
+                               .arg(records_.size() == 1u ? QString{} : QStringLiteral("s")));
+        }
     }
     const QStringList watchedFiles = watcher_.files();
     if (!watchedFiles.empty()) {
@@ -475,14 +516,16 @@ void BacktestViewModel::loadSelectedRunDetails() {
     selectedDetailsErrorText_.clear();
     setDetailsLoading_(true, runId);
 
-    QPointer<BacktestViewModel> self(this);
-    std::thread([self, generation, runId, filePath]() {
+    auto context = asyncLoadContext_;
+    BacktestViewModel* target = this;
+    asyncLoaders_.emplace_back([context, target, generation, runId, filePath]() {
         RunRecord loaded = BacktestViewModel::loadRecord_(filePath, RecordLoadMode::Details);
-        if (!self) return;
-        QMetaObject::invokeMethod(self, [self, generation, runId, loaded = std::move(loaded)]() {
-            if (self) self->applyLoadedDetails_(generation, runId, loaded);
+        if (!context || !context->alive.load(std::memory_order_acquire)) return;
+        QMetaObject::invokeMethod(target, [context, target, generation, runId, loaded = std::move(loaded)]() {
+            if (!context || !context->alive.load(std::memory_order_acquire)) return;
+            target->applyLoadedDetails_(generation, runId, loaded);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void BacktestViewModel::unloadSelectedRunDetails() {
@@ -621,6 +664,9 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
             record.detailsLoaded = true;
         }
         record.errorCount = errorCount(object.value(QStringLiteral("errors")));
+        record.warningCount = errorCount(object.value(QStringLiteral("warnings")));
+        record.errorText = manifestIssueText(object.value(QStringLiteral("errors")));
+        record.warningText = manifestIssueText(object.value(QStringLiteral("warnings")));
         record.summaryJson = humanSummaryJson(object);
         record.rawJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
         return record;
@@ -720,6 +766,9 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
         record.detailsLoaded = true;
     }
     record.errorCount = errorCount(object.value(QStringLiteral("errors")));
+    record.warningCount = errorCount(object.value(QStringLiteral("warnings")));
+    record.errorText = manifestIssueText(object.value(QStringLiteral("errors")));
+    record.warningText = manifestIssueText(object.value(QStringLiteral("warnings")));
     record.rawJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
     return record;
 }
@@ -852,6 +901,13 @@ void BacktestViewModel::setProgress_(int percent, const QString& text) {
     emit progressChanged();
 }
 
+void BacktestViewModel::stopAsyncLoaders_() noexcept {
+    for (std::thread& worker : asyncLoaders_) {
+        if (worker.joinable()) worker.join();
+    }
+    asyncLoaders_.clear();
+}
+
 void BacktestViewModel::setPreviewLoading_(bool loading, const QString& runId) {
     if (previewLoading_ == loading && previewLoadingRunId_ == runId) return;
     previewLoading_ = loading;
@@ -884,14 +940,16 @@ void BacktestViewModel::ensureSelectedPreviewLoaded_() {
     const std::uint64_t generation = ++previewLoadGeneration_;
     setPreviewLoading_(true, runId);
 
-    QPointer<BacktestViewModel> self(this);
-    std::thread([self, generation, runId, filePath]() {
+    auto context = asyncLoadContext_;
+    BacktestViewModel* target = this;
+    asyncLoaders_.emplace_back([context, target, generation, runId, filePath]() {
         RunRecord loaded = BacktestViewModel::loadRecord_(filePath, RecordLoadMode::Preview);
-        if (!self) return;
-        QMetaObject::invokeMethod(self, [self, generation, runId, loaded = std::move(loaded)]() {
-            if (self) self->applyLoadedPreview_(generation, runId, loaded);
+        if (!context || !context->alive.load(std::memory_order_acquire)) return;
+        QMetaObject::invokeMethod(target, [context, target, generation, runId, loaded = std::move(loaded)]() {
+            if (!context || !context->alive.load(std::memory_order_acquire)) return;
+            target->applyLoadedPreview_(generation, runId, loaded);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void BacktestViewModel::applyLoadedPreview_(std::uint64_t generation, const QString& runId, const RunRecord& loaded) {
@@ -900,6 +958,9 @@ void BacktestViewModel::applyLoadedPreview_(std::uint64_t generation, const QStr
     RunRecord* record = mutableRecordForRunId_(runId);
     if (record == nullptr || record->filePath != loaded.filePath) return;
 
+    record->errorText = loaded.errorText;
+    record->warningText = loaded.warningText;
+    record->warningCount = loaded.warningCount;
     record->equityPoints = loaded.equityPoints;
     record->resultScopes = loaded.resultScopes;
     record->scopedEquityPoints = loaded.scopedEquityPoints;
@@ -932,6 +993,8 @@ void BacktestViewModel::applyLoadedDetails_(std::uint64_t generation, const QStr
     record->rawJson = loaded.rawJson;
     record->summaryJson = loaded.summaryJson;
     record->errorText = loaded.errorText;
+    record->warningText = loaded.warningText;
+    record->warningCount = loaded.warningCount;
     record->detailsErrorText = loaded.detailsErrorText;
     record->equityPoints = loaded.equityPoints;
     record->resultScopes = loaded.resultScopes;

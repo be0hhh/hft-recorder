@@ -156,6 +156,10 @@ TEST(SessionReplay, FixtureReplayUsesSharedLoaderVerdict) {
     hftrec::replay::SessionReplay replay{};
     ASSERT_EQ(replay.open(fixtureDir("clean_full")), hftrec::Status::Ok);
     EXPECT_TRUE(replay.loadReport().usedSeekIndex);
+    EXPECT_EQ(replay.book().bestBidPrice(), 0);
+    EXPECT_EQ(replay.book().bestAskPrice(), 0);
+
+    replay.seek(2000);
     EXPECT_EQ(replay.book().bestBidPrice(), 30000);
     EXPECT_EQ(replay.book().bestAskPrice(), 30100);
 
@@ -164,8 +168,8 @@ TEST(SessionReplay, FixtureReplayUsesSharedLoaderVerdict) {
     EXPECT_EQ(replay.book().bestAskPrice(), 30200);
 
     replay.seek(1000);
-    EXPECT_EQ(replay.book().bestBidQty(), 5);
-    EXPECT_EQ(replay.book().bestAskPrice(), 30100);
+    EXPECT_EQ(replay.book().bestBidQty(), 0);
+    EXPECT_EQ(replay.book().bestAskPrice(), 0);
 }
 
 TEST(SessionReplay, MinimalDepthFixtureDoesNotInferRemovedUpdateIdGaps) {

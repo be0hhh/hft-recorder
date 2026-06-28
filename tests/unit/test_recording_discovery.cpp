@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -12,9 +15,16 @@
 namespace {
 
 std::filesystem::path makeTempRoot() {
+    static std::atomic<std::uint64_t> counter{0};
     const auto base = std::filesystem::temp_directory_path();
-    const auto name = std::string{"hftrec_recording_discovery_"} + std::to_string(std::rand());
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto name = std::string{"hftrec_recording_discovery_"} +
+                      std::to_string(stamp) + "_" +
+                      std::to_string(counter.fetch_add(1, std::memory_order_relaxed)) + "_" +
+                      std::to_string(std::rand());
     const auto root = base / name;
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
     std::filesystem::create_directories(root);
     return root;
 }
@@ -25,7 +35,9 @@ void writeSession(const std::filesystem::path& dir,
                   const std::string& market,
                   const std::string& symbol,
                   std::int64_t startedAtNs,
-                  std::int64_t endedAtNs) {
+                  std::int64_t endedAtNs,
+                  hftrec::SessionHealth sessionHealth = hftrec::SessionHealth::Clean,
+                  const std::string& warningSummary = {}) {
     std::filesystem::create_directories(dir);
     hftrec::capture::SessionManifest manifest{};
     manifest.sessionId = sessionId;
@@ -37,6 +49,8 @@ void writeSession(const std::filesystem::path& dir,
     manifest.endedAtNs = endedAtNs;
     manifest.bookTickerEnabled = true;
     manifest.bookTickerCount = 123;
+    manifest.sessionHealth = sessionHealth;
+    manifest.warningSummary = warningSummary;
     std::ofstream out(dir / "manifest.json", std::ios::out | std::ios::trunc);
     out << hftrec::capture::renderManifestJson(manifest);
 }
@@ -133,6 +147,26 @@ TEST(RecordingDiscovery, UsesPreviousManifestWhenPrimaryIsMissing) {
     ASSERT_EQ(result.sessions.size(), 1u);
     EXPECT_EQ(result.sessions.front().sessionId, "1782141931000000000_binance_futures_BTWUSDT");
     EXPECT_EQ(result.sessions.front().manifestPath.filename().string(), "manifest.json.prev");
+}
+
+TEST(RecordingDiscovery, ExposesSessionHealthAndCaptureWarning) {
+    const auto root = makeTempRoot();
+    writeSession(root / "degraded_bitget",
+                 "degraded_bitget",
+                 "bitget",
+                 "futures",
+                 "AGLDUSDT",
+                 1782141931000000000LL,
+                 1782141991000000000LL,
+                 hftrec::SessionHealth::Degraded,
+                 "reference: route status=disconnected stream=mark_price symbol=AGLDUSDT");
+
+    const auto result = hftrec::recordings::discoverRecordings(root);
+
+    ASSERT_EQ(result.sessions.size(), 1u);
+    EXPECT_EQ(result.sessions.front().sessionHealth, "degraded");
+    EXPECT_EQ(result.sessions.front().warningSummary,
+              "reference: route status=disconnected stream=mark_price symbol=AGLDUSDT");
 }
 
 TEST(RecordingDiscovery, GroupsLegacySessionsWithinFiveMinutesByNormalizedSymbol) {

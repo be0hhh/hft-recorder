@@ -2,6 +2,9 @@
 
 #include <algorithm>
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -20,8 +23,14 @@ using hftrec::capture::renderManifestJson;
 using hftrec::replay::SessionReplay;
 
 fs::path makeTmpDir() {
+    static std::atomic<std::uint64_t> counter{0};
     const auto base = fs::temp_directory_path();
-    auto dir = base / ("hftrec_session_replay_" + std::to_string(std::rand()));
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    auto dir = base / ("hftrec_session_replay_" + std::to_string(stamp) + "_" +
+                       std::to_string(counter.fetch_add(1, std::memory_order_relaxed)) + "_" +
+                       std::to_string(std::rand()));
+    std::error_code ec;
+    fs::remove_all(dir, ec);
     fs::create_directories(dir);
     return dir;
 }
@@ -79,9 +88,10 @@ TEST(SessionReplay, EndToEnd) {
     EXPECT_EQ(replay.firstTsNs(), 2000);
     EXPECT_EQ(replay.lastTsNs(), 4000);
 
-    EXPECT_EQ(replay.book().bestBidPrice(), 30000);
-    EXPECT_EQ(replay.book().bestBidQty(), 5);
-    EXPECT_EQ(replay.book().bestAskPrice(), 30100);
+    EXPECT_EQ(replay.book().bestBidPrice(), 0);
+    EXPECT_EQ(replay.book().bestBidQty(), 0);
+    EXPECT_EQ(replay.book().bestAskPrice(), 0);
+    EXPECT_EQ(replay.cursor(), 0u);
 
     replay.seek(2000);
     EXPECT_EQ(replay.book().bestBidPrice(), 30000);
@@ -189,7 +199,7 @@ TEST(SessionReplay, PartialDepthTapeSidecarLoadKeepsValidPrefix) {
     fs::remove_all(dir, ec);
 }
 
-TEST(SessionReplay, RejectsLegacyExtendedTradeRows) {
+TEST(SessionReplay, AcceptsLegacyExtendedTradeRows) {
     const auto dir = makeTmpDir();
     writeManifest(dir, true, false, false, 1u, 0u, 0u);
 
@@ -197,9 +207,11 @@ TEST(SessionReplay, RejectsLegacyExtendedTradeRows) {
               "[30050,1,1,2500,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]\n");
 
     SessionReplay replay{};
-    EXPECT_EQ(replay.open(dir), Status::CorruptData);
-    EXPECT_NE(std::string{replay.errorDetail()}.find("trades.jsonl line 1"), std::string::npos);
-    EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Corrupt);
+    EXPECT_EQ(replay.open(dir), Status::Ok);
+    ASSERT_EQ(replay.trades().size(), 1u);
+    EXPECT_EQ(replay.trades().front().symbol, "BTCUSDT");
+    EXPECT_EQ(replay.trades().front().exchange, "binance");
+    EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Clean);
 
     std::error_code ec;
     fs::remove_all(dir, ec);

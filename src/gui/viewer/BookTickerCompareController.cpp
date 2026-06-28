@@ -7,12 +7,14 @@
 #include "core/arbitrage/PriceBasis.hpp"
 #include "core/corpus/InstrumentMetadata.hpp"
 #include "core/replay/SessionReplay.hpp"
+#include "gui/backtests/BacktestSessionSummary.hpp"
 
 #include <QFile>
 #include <QByteArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSettings>
+#include <QStringList>
 
 namespace hftrec::gui::viewer {
 
@@ -120,6 +122,13 @@ std::string manifestMarketHint(const std::filesystem::path& sessionPath) {
     const QJsonObject manifest = readSessionManifestObject(sessionPath);
     const QJsonObject identity = manifest.value(QStringLiteral("identity")).toObject();
     return identity.value(QStringLiteral("market")).toString().trimmed().toLower().toStdString();
+}
+
+QString manifestHealthLabel(const std::filesystem::path& sessionPath) {
+    const QJsonObject manifest = readSessionManifestObject(sessionPath);
+    return hftrec::gui::sessionHealthSummaryLabel(
+        manifest.value(QStringLiteral("integrity")).toObject().value(QStringLiteral("session_health")).toString(),
+        manifest.value(QStringLiteral("summary")).toObject().value(QStringLiteral("warning_summary")).toString());
 }
 
 std::int64_t metadataPriceBasisQtyE8(const std::filesystem::path& sessionPath) {
@@ -271,7 +280,7 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
     if (next.isEmpty()) {
         updateLowerPane_();
         if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
-            setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
+            setStatus_(comparisonReadyStatus_());
         }
         emit dataChanged();
         return true;
@@ -302,7 +311,7 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
     if (rateLimitVisible_ && rateLimitUsage_.empty()) {
         setStatus_(QStringLiteral("No rate-limit usage in selected result"));
     } else if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
-        setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
+        setStatus_(comparisonReadyStatus_());
     }
     emit dataChanged();
     return true;
@@ -315,7 +324,7 @@ void BookTickerCompareController::setRateLimitVisible(bool visible) {
     if (visible && rateLimitUsage_.empty()) {
         setStatus_(QStringLiteral("No rate-limit usage in selected result"));
     } else if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
-        setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
+        setStatus_(comparisonReadyStatus_());
     }
     emit dataChanged();
 }
@@ -499,6 +508,7 @@ void BookTickerCompareController::reloadRecorded_(SourceState& state) {
     state.fundings.clear();
     state.candles.clear();
     state.marketHint = manifestMarketHint(state.sessionPath);
+    state.healthLabel = manifestHealthLabel(state.sessionPath);
     state.priceBasisQtyE8 = metadataPriceBasisQtyE8(state.sessionPath);
     const auto bookTickerPath = recordedBookTickerPath(state.sessionPath);
     if (!bookTickerPath.empty()) {
@@ -605,7 +615,7 @@ void BookTickerCompareController::rebuild_() {
     } else if (!lowerPaneState_.hasData) {
         setStatus_(QStringLiteral("Not enough compatible quotes or candles to build spread"));
     } else {
-        setStatus_(QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title));
+        setStatus_(comparisonReadyStatus_());
     }
     emit dataChanged();
 }
@@ -675,6 +685,20 @@ void BookTickerCompareController::initializeViewportIfNeeded_() noexcept {
     tsMax_ = fullTsMax_;
     viewportInitialized_ = true;
     emit viewportChanged();
+}
+
+QString BookTickerCompareController::comparisonReadyStatus_() const {
+    QString status = QStringLiteral("Comparison ready: %1").arg(lowerPaneState_.title);
+    const QString health = sourceHealthStatus_();
+    if (!health.isEmpty()) status += QStringLiteral(" | %1").arg(health);
+    return status;
+}
+
+QString BookTickerCompareController::sourceHealthStatus_() const {
+    QStringList parts;
+    if (!primary_.healthLabel.isEmpty()) parts.push_back(QStringLiteral("A %1").arg(primary_.healthLabel));
+    if (!secondary_.healthLabel.isEmpty()) parts.push_back(QStringLiteral("B %1").arg(secondary_.healthLabel));
+    return parts.isEmpty() ? QString{} : QStringLiteral("source %1").arg(parts.join(QStringLiteral("; ")));
 }
 
 void BookTickerCompareController::setStatus_(const QString& statusText) {

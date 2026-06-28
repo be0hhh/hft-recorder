@@ -350,40 +350,78 @@ ComboBox {
 
     delegate: ItemDelegate {
         required property var modelData
+        readonly property string rowLabel: modelData.label || modelData.value || ""
+        readonly property string rowDetail: modelData.rightText || ""
         width: picker.popup.width
-        height: modelData.isGroup ? 34 : 32
-        contentItem: RowLayout {
-            spacing: 8
-            Text {
+        height: modelData.isGroup ? 34 : (rowDetail.length > 0 ? 48 : 32)
+        ToolTip.delay: 550
+        ToolTip.visible: hovered && rowDetail.length > 0
+        ToolTip.text: rowLabel + "\n" + rowDetail
+        contentItem: Item {
+            RowLayout {
                 visible: modelData.isGroup
-                Layout.preferredWidth: 16
-                leftPadding: 8
-                text: picker.expandedGroups[modelData.groupId] === true ? "v" : ">"
-                color: picker.mutedTextColor
-                font.pixelSize: 11
-                font.bold: true
-                verticalAlignment: Text.AlignVCenter
+                anchors.fill: parent
+                spacing: 8
+                Text {
+                    Layout.preferredWidth: 16
+                    leftPadding: 8
+                    text: picker.expandedGroups[modelData.groupId] === true ? "v" : ">"
+                    color: picker.mutedTextColor
+                    font.pixelSize: 11
+                    font.bold: true
+                    verticalAlignment: Text.AlignVCenter
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: rowLabel
+                    color: picker.textColor
+                    font.pixelSize: 12
+                    font.bold: true
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
+                Text {
+                    Layout.preferredWidth: visible ? Math.max(120, Math.min(360, implicitWidth + 10)) : 0
+                    rightPadding: 10
+                    text: rowDetail
+                    visible: text.length > 0
+                    color: picker.mutedTextColor
+                    font.pixelSize: 12
+                    font.bold: true
+                    horizontalAlignment: Text.AlignRight
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
             }
-            Text {
-                Layout.fillWidth: true
-                leftPadding: modelData.isGroup ? 0 : 26
-                text: modelData.label || modelData.value || ""
-                color: picker.textColor
-                font.pixelSize: modelData.isGroup ? 12 : 11
-                font.bold: modelData.isGroup
-                elide: Text.ElideRight
-                verticalAlignment: Text.AlignVCenter
-            }
-            Text {
-                Layout.preferredWidth: visible ? Math.max(64, implicitWidth + 10) : 0
-                rightPadding: 10
-                text: modelData.rightText || ""
-                visible: text.length > 0
-                color: picker.mutedTextColor
-                font.pixelSize: modelData.isGroup ? 12 : 11
-                font.bold: true
-                horizontalAlignment: Text.AlignRight
-                verticalAlignment: Text.AlignVCenter
+
+            ColumnLayout {
+                visible: !modelData.isGroup
+                anchors.fill: parent
+                anchors.leftMargin: 26
+                anchors.rightMargin: 10
+                anchors.topMargin: rowDetail.length > 0 ? 5 : 0
+                anchors.bottomMargin: rowDetail.length > 0 ? 5 : 0
+                spacing: 1
+                Text {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: rowDetail.length === 0
+                    text: rowLabel
+                    color: picker.textColor
+                    font.pixelSize: 11
+                    font.bold: true
+                    elide: Text.ElideRight
+                    verticalAlignment: rowDetail.length === 0 ? Text.AlignVCenter : Text.AlignBottom
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: rowDetail
+                    visible: text.length > 0
+                    color: picker.mutedTextColor
+                    font.pixelSize: 11
+                    font.bold: true
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignTop
+                }
             }
         }
         background: Rectangle {

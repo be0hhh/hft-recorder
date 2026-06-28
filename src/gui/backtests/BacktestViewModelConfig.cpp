@@ -36,6 +36,7 @@
 namespace hftrec::gui {
 
 void BacktestViewModel::reloadSessions() {
+    ++sessionsLoadGeneration_;
     sessions_ = loadSessions_();
     if (manualSessionPath_.trimmed().isEmpty()) {
         const QVariantMap selectedRow = sessionRowById(sessions_, selectedSessionId_);

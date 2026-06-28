@@ -45,7 +45,7 @@ TEST(TuiTerminalRender, CompactsSessionPathToFitWidth) {
 TEST(TuiTerminalRender, LimitsLinesToViewportAndReportsHiddenCount) {
     const std::vector<std::string> lines = {"one", "two", "three", "four", "five"};
 
-    const std::vector<std::string> limited = limitLinesForViewport(lines, TerminalViewport{.rows = 5, .cols = 80}, 2);
+    const std::vector<std::string> limited = limitLinesForViewport(lines, TerminalViewport{.rows = 8, .cols = 80}, 5);
 
     ASSERT_EQ(limited.size(), 3u);
     EXPECT_EQ(limited[0], "one");

@@ -33,7 +33,6 @@ Item {
     function activateTab(tabId) {
         root.workspaceVm.setActiveTab(root.hostId, tabId)
         root.activeTabId = tabId
-        root.attachTab(tabId, contentParent, root.hostId)
     }
 
     function syncGeometry() {

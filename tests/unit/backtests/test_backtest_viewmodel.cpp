@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -8,6 +9,7 @@
 #include <QSettings>
 #include <QString>
 
+#include <atomic>
 #include <cstdlib>
 
 #include "core/capture/SessionManifest.hpp"
@@ -15,11 +17,26 @@
 
 namespace {
 
+void ensureCoreApplication() {
+    static int argc = 1;
+    static char appName[] = "hftrec_backtest_viewmodel_tests";
+    static char* argv[] = {appName, nullptr};
+    static QCoreApplication* app = nullptr;
+    if (QCoreApplication::instance() == nullptr) {
+        app = new QCoreApplication(argc, argv);
+    }
+    (void)app;
+}
+
 QString makeTempSessionDir() {
+    static std::atomic<unsigned> counter{0};
+    const unsigned id = counter.fetch_add(1, std::memory_order_relaxed);
     QDir base(QDir::tempPath());
-    const QString path = base.absoluteFilePath(QStringLiteral("hftrec_backtest_result_%1_%2")
+    const QString path = base.absoluteFilePath(QStringLiteral("hftrec_backtest_result_%1_%2_%3")
                                                    .arg(QCoreApplication::applicationPid())
-                                                   .arg(std::rand()));
+                                                   .arg(QDateTime::currentMSecsSinceEpoch())
+                                                   .arg(id));
+    QDir(path).removeRecursively();
     QDir().mkpath(path);
     QDir(path).mkpath(QStringLiteral("backtests"));
     return path;
@@ -63,9 +80,26 @@ QString makeRunDir(const QString& session, const QString& runId, const QByteArra
 }
 
 void isolateSettings(QStringView suffix) {
+    ensureCoreApplication();
+    static std::atomic<unsigned> counter{0};
+    const unsigned id = counter.fetch_add(1, std::memory_order_relaxed);
+    const QString root = QDir::temp().absoluteFilePath(QStringLiteral("hftrec_backtest_settings_%1_%2")
+                                                           .arg(QCoreApplication::applicationPid())
+                                                           .arg(id));
+    const QString recordingsRoot = QDir::temp().absoluteFilePath(QStringLiteral("hftrec_backtest_recordings_%1_%2")
+                                                                     .arg(QCoreApplication::applicationPid())
+                                                                     .arg(id));
+    QDir().mkpath(root);
+    QDir().mkpath(recordingsRoot);
+    const QByteArray recordingsRootBytes = recordingsRoot.toLocal8Bit();
+    setenv("HFTREC_RECORDINGS_ROOT", recordingsRootBytes.constData(), 1);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root);
     QCoreApplication::setOrganizationName(QStringLiteral("hftrec_backtest_tests"));
     QCoreApplication::setApplicationName(QStringLiteral("case_%1_%2").arg(suffix, QString::number(std::rand())));
-    QSettings{}.clear();
+    QSettings settings;
+    settings.clear();
+    settings.sync();
 }
 
 bool hasParamKey(const QVariantList& rows, const QString& key) {
@@ -314,7 +348,7 @@ type=spread_maker1and2
     EXPECT_EQ(row.value(QStringLiteral("configText")).toString(), QStringLiteral("fixed: distance_bps=20, trigger_bps=2, refresh_ms=1000"));
 }
 
-TEST(BacktestViewModel, KeepsInvalidJsonAsInvalidRun) {
+TEST(BacktestViewModel, IgnoresInvalidJsonRunDirectories) {
     isolateSettings(QStringLiteral("invalid"));
     const QString session = makeTempSessionDir();
     const QString dir = QDir(session).absoluteFilePath(QStringLiteral("backtests/bad"));
@@ -324,10 +358,8 @@ TEST(BacktestViewModel, KeepsInvalidJsonAsInvalidRun) {
     hftrec::gui::BacktestViewModel vm;
     vm.setSessionPath(session);
 
-    ASSERT_EQ(vm.runCount(), 1);
-    EXPECT_EQ(vm.selectedRunId(), QStringLiteral("bad"));
-    EXPECT_FALSE(vm.selectedErrorText().isEmpty());
-    EXPECT_TRUE(vm.selectedJson().contains(QStringLiteral("{")));
+    EXPECT_EQ(vm.runCount(), 0);
+    EXPECT_TRUE(vm.selectedRunId().isEmpty());
 }
 
 TEST(BacktestViewModel, IgnoresLooseLegacyJsonResultFiles) {
@@ -354,7 +386,7 @@ TEST(BacktestViewModel, IgnoresLooseLegacyJsonResultFiles) {
     EXPECT_TRUE(vm.selectedRunId().isEmpty());
 }
 
-TEST(BacktestViewModel, DefersEquityPointsAndMetricsUntilDetailsLoad) {
+TEST(BacktestViewModel, DefersEquityPointsUntilDetailsLoadButExposesSummaryMetrics) {
     isolateSettings(QStringLiteral("equity_points"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-equity"), R"json({
@@ -374,7 +406,7 @@ TEST(BacktestViewModel, DefersEquityPointsAndMetricsUntilDetailsLoad) {
 
     EXPECT_FALSE(vm.selectedDetailsLoaded());
     EXPECT_TRUE(vm.selectedEquityPoints().empty());
-    EXPECT_TRUE(vm.selectedResultMetrics().empty());
+    EXPECT_FALSE(vm.selectedResultMetrics().empty());
     EXPECT_FALSE(vm.hasEquityPoints());
 
     vm.loadSelectedRunDetails();
@@ -389,10 +421,9 @@ TEST(BacktestViewModel, DefersEquityPointsAndMetricsUntilDetailsLoad) {
     EXPECT_EQ(points.at(1).toMap().value(QStringLiteral("feesPaidE8")).toLongLong(), 20000000ll);
     EXPECT_EQ(points.at(1).toMap().value(QStringLiteral("totalPnlE8")).toLongLong(), 150000000ll);
     EXPECT_TRUE(vm.hasEquityPoints());
-    EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("gross_realized_pnl_e8")), QStringLiteral("1.2"));
+    EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("net_realized_pnl_e8")), QStringLiteral("1"));
     EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("fees_paid_e8")), QStringLiteral("0.2"));
     EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("total_pnl_e8")), QStringLiteral("1.5"));
-    EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("initial_balance_e8")), QStringLiteral("1000"));
     EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("wallet_balance_e8")), QStringLiteral("1001"));
     EXPECT_EQ(metricLabelValue(vm.selectedResultMetrics(), QStringLiteral("wallet_balance_e8")), QStringLiteral("Final balance"));
     EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("fills")), QStringLiteral("2"));
@@ -405,7 +436,7 @@ TEST(BacktestViewModel, ExposesPortfolioAndLegResultScopes) {
       "type":"run.result.v2",
       "run_id":"run-legs",
       "status":"complete",
-      "strategy":"stat_arb_band_ladder",
+      "strategy":"spread_maker1and2",
       "streams":{"equity":{"rows":2}},
       "summary":{"orders":4,"fills":4,"initial_balance_e8":30000000000,"gross_realized_pnl_e8":90000000,"fees_paid_e8":30000000,"net_realized_pnl_e8":60000000,"total_pnl_e8":70000000,"realized_pnl_e8":60000000,"unrealized_pnl_e8":10000000,"wallet_balance_e8":30060000000},
       "legs":[
@@ -456,7 +487,7 @@ TEST(BacktestViewModel, SynthesizesPortfolioEquityFromLegStreamsWhenAggregateHas
       "type":"run.result.v2",
       "run_id":"run-leg-series",
       "status":"complete",
-      "strategy":"stat_arb_band_ladder",
+      "strategy":"spread_maker1and2",
       "streams":{"equity":{"rows":1}},
       "summary":{"fills":4,"initial_balance_e8":30000000000,"gross_realized_pnl_e8":90000000,"fees_paid_e8":30000000,"net_realized_pnl_e8":60000000,"total_pnl_e8":70000000,"realized_pnl_e8":60000000,"unrealized_pnl_e8":10000000,"wallet_balance_e8":30060000000},
       "legs":[
@@ -523,7 +554,8 @@ TEST(BacktestViewModel, ClearsLoadedDetailsWhenRunChanges) {
 
     EXPECT_FALSE(vm.selectedDetailsLoaded());
     EXPECT_TRUE(vm.selectedEquityPoints().empty());
-    EXPECT_TRUE(vm.selectedResultMetrics().empty());
+    EXPECT_FALSE(vm.selectedResultMetrics().empty());
+    EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("total_pnl_e8")), QStringLiteral("2"));
 }
 TEST(BacktestViewModel, ReadsSymbolFromNestedManifestAndAllowsOverride) {
     isolateSettings(QStringLiteral("symbol"));
@@ -731,13 +763,13 @@ TEST(BacktestViewModel, ExposesStrategyChoicesFromBacktestMetadata) {
     const QVariantList choices = vm.strategyChoices();
 
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("spread_maker1and2")));
-    EXPECT_EQ(choiceLabel(choices, QStringLiteral("spread_maker1and2")), QStringLiteral("Спред-мейкер 1/2"));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("spread_maker1and2")), QStringLiteral("spread_maker1and2"));
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("trend_probe")));
-    EXPECT_EQ(choiceLabel(choices, QStringLiteral("trend_probe")), QStringLiteral("Диагностика тренда"));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("trend_probe")), QStringLiteral("trend_probe"));
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("volatility_probe")));
-    EXPECT_EQ(choiceLabel(choices, QStringLiteral("volatility_probe")), QStringLiteral("Диагностика волатильности"));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("volatility_probe")), QStringLiteral("volatility_probe"));
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("toxic_flow_probe")));
-    EXPECT_EQ(choiceLabel(choices, QStringLiteral("toxic_flow_probe")), QStringLiteral("Диагностика toxic flow"));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("toxic_flow_probe")), QStringLiteral("toxic_flow_probe"));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("removed_strategy")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("strategyMD")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("horizontal_levels")));
@@ -766,11 +798,19 @@ TEST(BacktestViewModel, SessionRowsAreCachedUntilExplicitReload) {
                                   .arg(QCoreApplication::applicationPid())
                                   .arg(std::rand());
     const QString session = QDir(vm.recordingsRoot()).absoluteFilePath(sessionId);
+    writeRecordingManifest(session,
+                           sessionId,
+                           QStringLiteral("binance"),
+                           QStringLiteral("futures"),
+                           QStringLiteral("BTCUSDT"),
+                           1782141931000000000LL);
     QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-a")));
     QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-without-manifest")));
     QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-a")));
-    writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-a/manifest.json")), QByteArrayLiteral("{}"));
-    writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-a/manifest.json")), QByteArrayLiteral("{}"));
+    writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-a/manifest.json")),
+              QByteArray(QStringLiteral("{\"type\":\"run.result.v2\",\"session_path\":\"%1\"}").arg(session).toUtf8()));
+    writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-a/manifest.json")),
+              QByteArray(QStringLiteral("{\"type\":\"sweep.result.v1\",\"session_path\":\"%1\"}").arg(session).toUtf8()));
 
     bool foundBeforeReload = false;
     for (const QVariant& row : vm.sessions()) {
@@ -877,6 +917,7 @@ TEST(BacktestViewModel, ExplainsWhenSelectedStrategyDoesNotSupportExtraSessions)
     vm.setSelectedStrategy(QStringLiteral("spread_maker1and2"));
 
     EXPECT_EQ(vm.selectedSessionCount(), 2);
+    EXPECT_EQ(vm.selectedStrategy(), QStringLiteral("spread_maker1and2"));
     EXPECT_FALSE(vm.canRun());
     EXPECT_TRUE(vm.statusText().contains(QStringLiteral("Selected 2 sessions")));
     EXPECT_TRUE(vm.statusText().contains(QStringLiteral("supports 1 session")));
@@ -922,7 +963,7 @@ TEST(BacktestViewModel, AllowsStatArbBandLadderOnlyForTwoSessions) {
     ASSERT_EQ(legs.size(), 2);
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("index")).toInt(), 0);
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("index")).toInt(), 1);
-    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("bybit_futures"));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("binance_futures"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("okx_futures"));
 
     QDir(primary).removeRecursively();

@@ -139,6 +139,7 @@ class BookTickerCompareController : public QObject {
         std::vector<hftrec::replay::CandleRow> candles{};
         std::string marketHint{};
         std::int64_t priceBasisQtyE8{hftrec::arbitrage::kPriceBasisScaleE8};
+        QString healthLabel{};
     };
 
     bool setSource_(SourceState& state, const QString& sourceId, const QString& sourceKind, const QString& sessionPath);
@@ -148,6 +149,8 @@ class BookTickerCompareController : public QObject {
     void updateLowerPane_();
     void updateFullRange_() noexcept;
     void initializeViewportIfNeeded_() noexcept;
+    QString comparisonReadyStatus_() const;
+    QString sourceHealthStatus_() const;
     void setStatus_(const QString& statusText);
     void resetValueScale_() noexcept;
 

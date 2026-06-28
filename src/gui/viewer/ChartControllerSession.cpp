@@ -632,7 +632,10 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
         const auto st = replay_.open(path);
         if (isOk(st)) {
             refreshLoadedStateFromSources_();
-            if (loaded_) computeInitialViewport_();
+            if (loaded_) {
+                computeInitialViewport_();
+                applyRecordedRenderWindowViewport_();
+            }
         }
     }
 
@@ -759,7 +762,10 @@ bool ChartController::addCandlesFile(const QString& path) {
     }
 
     loaded_ = loaded_ || !replay_.candles().empty();
-    if (loaded_) computeInitialViewport_();
+    if (loaded_) {
+        computeInitialViewport_();
+        applyRecordedRenderWindowViewport_();
+    }
     statusText_ = QStringLiteral("+ candles (now %1 rows)").arg(replay_.candles().size());
     emit sessionChanged();
     emit statusChanged();
@@ -819,7 +825,10 @@ void ChartController::finalizeFiles() {
     }
 
     refreshLoadedStateFromSources_();
-    if (loaded_) computeInitialViewport_();
+    if (loaded_) {
+        computeInitialViewport_();
+        applyRecordedRenderWindowViewport_();
+    }
     currentBookTickerIndex_ = -1;
 
     statusText_ = QStringLiteral("Finalized.");

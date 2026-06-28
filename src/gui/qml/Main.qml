@@ -22,6 +22,8 @@ ApplicationWindow {
     property var floatingWindows: ({})
     property var compressionVmObject: null
     property string workspaceErrorText: ""
+    property var tabPrewarmQueue: []
+    property bool tabPrewarmRunning: false
 
     AppViewModel { id: rootAppVm; objectName: "appVm" }
     CaptureViewModel { id: rootCaptureVm; objectName: "captureVm" }
@@ -46,6 +48,10 @@ ApplicationWindow {
             console.error(workspaceErrorText)
         }
         return compressionVmObject
+    }
+
+    function shouldPrewarmTab(tabId) {
+        return false
     }
 
     function componentForTab(tabId) {
@@ -76,6 +82,63 @@ ApplicationWindow {
         return item
     }
 
+    function queueTabPrewarm() {
+        if (tabPrewarmRunning)
+            return
+
+        var hosts = rootWorkspaceVm.hosts()
+        var activeTabs = ({})
+        var seenTabs = ({})
+        var queue = []
+
+        for (var i = 0; i < hosts.length; ++i) {
+            var active = String(hosts[i].activeTab || "")
+            if (active.length > 0)
+                activeTabs[active] = true
+        }
+
+        for (var h = 0; h < hosts.length; ++h) {
+            var tabs = hosts[h].tabs || []
+            for (var t = 0; t < tabs.length; ++t) {
+                var tabId = String(tabs[t] || "")
+                if (tabId.length === 0 || seenTabs[tabId] || activeTabs[tabId])
+                    continue
+                seenTabs[tabId] = true
+                if (!root.shouldPrewarmTab(tabId) || createdTabs[tabId] !== undefined)
+                    continue
+                queue.push(tabId)
+            }
+        }
+
+        tabPrewarmQueue = queue
+        tabPrewarmRunning = tabPrewarmQueue.length > 0
+        if (tabPrewarmRunning)
+            tabPrewarmTimer.restart()
+    }
+
+    function prewarmNextTab() {
+        if (tabPrewarmQueue.length <= 0) {
+            tabPrewarmRunning = false
+            return
+        }
+
+        var tabId = tabPrewarmQueue.shift()
+        if (createdTabs[tabId] === undefined) {
+            var item = ensureTab(tabId)
+            if (item !== null) {
+                item.parent = inactiveTabStorage
+                item.anchors.fill = inactiveTabStorage
+                item.visible = false
+                item.enabled = false
+                item.tabActive = false
+            }
+        }
+
+        tabPrewarmRunning = tabPrewarmQueue.length > 0
+        if (tabPrewarmRunning)
+            tabPrewarmTimer.restart()
+    }
+
     function deactivateHost(hostId) {
         var tabs = rootWorkspaceVm.hostTabs(hostId)
         for (var i = 0; i < tabs.length; ++i) {
@@ -85,6 +148,7 @@ ApplicationWindow {
                 item.visible = false
                 item.enabled = false
                 item.parent = inactiveTabStorage
+                item.anchors.fill = inactiveTabStorage
             }
         }
     }
@@ -130,6 +194,20 @@ ApplicationWindow {
             floatingWindows[id].destroy()
             delete floatingWindows[id]
         }
+    }
+
+    Timer {
+        id: tabPrewarmStartTimer
+        interval: 700
+        repeat: false
+        onTriggered: root.queueTabPrewarm()
+    }
+
+    Timer {
+        id: tabPrewarmTimer
+        interval: 350
+        repeat: false
+        onTriggered: root.prewarmNextTab()
     }
 
     onClosing: {
@@ -195,5 +273,8 @@ ApplicationWindow {
         function onLayoutChanged() { root.syncFloatingWindows() }
     }
 
-    Component.onCompleted: root.syncFloatingWindows()
+    Component.onCompleted: {
+        root.syncFloatingWindows()
+        tabPrewarmStartTimer.start()
+    }
 }

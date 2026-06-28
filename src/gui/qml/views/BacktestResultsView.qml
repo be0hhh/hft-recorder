@@ -68,6 +68,10 @@ Pane {
         return root.backtestVm.selectedEquityPoints.length >= 2
     }
 
+    function selectedErrorDisplayText() {
+        return root.backtestVm.selectedErrorText !== "" ? root.backtestVm.selectedErrorText : root.backtestVm.selectedDetailsErrorText
+    }
+
     function loadOrReloadVisual() {
         if (root.backtestVm.selectedDetailsLoaded && !root.hasSelectedVisualData())
             root.backtestVm.unloadSelectedRunDetails()
@@ -1000,7 +1004,7 @@ Pane {
                         ActionButton { text: "Detailed run"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedDetailsLoaded && root.selectedSweepPointId >= 0 && !root.backtestVm.running; accent: root.goodColor; onClicked: root.backtestVm.startDetailedRunFromSweepPointById(root.selectedSweepPointId) }
                         ActionButton { text: "Delete"; visible: root.backtestVm.hasSelection; enabledValue: root.backtestVm.hasSelection && !root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.deleteSelectedRun() }
                         Label {
-                            text: root.backtestVm.selectedErrorText !== "" ? root.backtestVm.selectedErrorText : root.backtestVm.selectedDetailsErrorText
+                            text: root.selectedErrorDisplayText()
                             visible: text !== ""
                             color: root.badColor
                             font.pixelSize: 11
@@ -1030,6 +1034,86 @@ Pane {
                                 text: root.hasSelectedVisualData() ? "Visual loaded" : (root.backtestVm.selectedDetailsLoading ? "Loading visual" : (root.backtestVm.selectedPreviewLoading ? "Loading preview" : (root.backtestVm.selectedDetailsLoaded ? "Visual data missing" : "Visual optional")))
                                 color: root.mutedTextColor
                                 font.pixelSize: 11
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        visible: root.selectedErrorDisplayText() !== ""
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(132, Math.max(54, errorContent.implicitHeight + 20))
+                        color: "#2c1f22"
+                        border.color: root.badColor
+                        radius: 6
+                        clip: true
+
+                        Flickable {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            contentWidth: Math.max(1, width)
+                            contentHeight: errorContent.implicitHeight
+                            interactive: contentHeight > height
+
+                            ColumnLayout {
+                                id: errorContent
+                                width: parent.width
+                                spacing: 4
+                                Label {
+                                    text: "Errors"
+                                    color: root.badColor
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: root.selectedErrorDisplayText()
+                                    color: root.textColor
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WrapAnywhere
+                                    Layout.fillWidth: true
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        visible: root.backtestVm.selectedWarningText !== ""
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(132, Math.max(54, warningContent.implicitHeight + 20))
+                        color: "#2a251b"
+                        border.color: "#8f6b2d"
+                        radius: 6
+                        clip: true
+
+                        Flickable {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            contentWidth: Math.max(1, width)
+                            contentHeight: warningContent.implicitHeight
+                            interactive: contentHeight > height
+
+                            ColumnLayout {
+                                id: warningContent
+                                width: parent.width
+                                spacing: 4
+                                Label {
+                                    text: "Warnings"
+                                    color: "#f0b35a"
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: root.backtestVm.selectedWarningText
+                                    color: root.textColor
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WrapAnywhere
+                                    Layout.fillWidth: true
+                                }
                             }
                         }
                     }

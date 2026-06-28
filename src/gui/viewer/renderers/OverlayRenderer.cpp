@@ -88,6 +88,7 @@ QString strategyFillReasonName(std::uint8_t reason) {
         case 2: return QStringLiteral("trade");
         case 3: return QStringLiteral("aggressive_book");
         case 4: return QStringLiteral("passive_queue");
+        case 5: return QStringLiteral("passive_bbo_touch");
         default: return QStringLiteral("unknown");
     }
 }
@@ -388,7 +389,7 @@ void renderStrategyFillOverlay(const RenderContext& ctx) {
                               ? hov.strategyFillExecutionBookConsumedPctE8
                               : hov.strategyFillBookConsumedPctE8));
     }
-    if (hov.strategyFillReason == 4u || hov.strategyFillQueueAheadBeforeE8 > 0 || hov.strategyFillQueueAheadAfterE8 > 0) {
+    if (hov.strategyFillReason == 4u || hov.strategyFillReason == 5u || hov.strategyFillQueueAheadBeforeE8 > 0 || hov.strategyFillQueueAheadAfterE8 > 0) {
         lines << QStringLiteral("Queue  %1 -> %2")
                      .arg(detail::formatTrimmedE8(hov.strategyFillQueueAheadBeforeE8))
                      .arg(detail::formatTrimmedE8(hov.strategyFillQueueAheadAfterE8));

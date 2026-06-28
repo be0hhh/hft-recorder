@@ -667,7 +667,8 @@ bool matchesQueryBoundary(const QString& text, const QString& query) {
         const QChar prev = idx > 0 ? text.at(idx - 1) : QChar{};
         const qsizetype afterIdx = idx + query.size();
         const QChar next = afterIdx < text.size() ? text.at(afterIdx) : QChar{};
-        if (idx == 0 || !prev.isLetterOrNumber() || prev.isDigit() || prev == QLatin1Char('@') || next.isDigit()) {
+        if (idx == 0 || !prev.isLetterOrNumber() || prev.isDigit() || prev == QLatin1Char('@') ||
+            !next.isLetterOrNumber() || next.isDigit()) {
             return true;
         }
         from = idx + 1;
@@ -696,6 +697,13 @@ QString finamAnchorUnderlying(const QString& anchorSymbolText) {
     if (auto it = catalog.byTicker.constFind(anchor); it != catalog.byTicker.constEnd()) {
         const FinamSymbolRow* row = it.value();
         if (row != nullptr) return row->underlying.isEmpty() ? row->ticker.toUpper() : row->underlying;
+    }
+    const QString ticker = anchor.section(QLatin1Char('@'), 0, 0);
+    if (!ticker.isEmpty() && ticker != anchor) {
+        if (auto it = catalog.byTicker.constFind(ticker); it != catalog.byTicker.constEnd()) {
+            const FinamSymbolRow* row = it.value();
+            if (row != nullptr) return row->underlying.isEmpty() ? row->ticker.toUpper() : row->underlying;
+        }
     }
     if (anchor.startsWith(QStringLiteral("SBER"))) return QStringLiteral("SBRF");
     return anchor.section(QLatin1Char('@'), 0, 0);

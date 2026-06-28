@@ -242,9 +242,14 @@ QString sessionSourceSummary(const BacktestLegCounts& backtestCounts, const QStr
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     const QJsonObject manifest = doc.object();
     const QJsonObject bookTicker = manifest.value(QStringLiteral("channels")).toObject().value(QStringLiteral("bookticker")).toObject();
-    return sessionBacktestSummaryText(bookTicker.value(QStringLiteral("declared_event_count")).toInt(),
-                                      backtestCounts,
-                                      manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
+    const QString summary = sessionBacktestSummaryText(
+        bookTicker.value(QStringLiteral("declared_event_count")).toInt(),
+        backtestCounts,
+        manifest.value(QStringLiteral("capture")).toObject().value(QStringLiteral("started_at_ns")).toInteger());
+    return appendSessionHealthSummary(
+        summary,
+        manifest.value(QStringLiteral("integrity")).toObject().value(QStringLiteral("session_health")).toString(),
+        manifest.value(QStringLiteral("summary")).toObject().value(QStringLiteral("warning_summary")).toString());
 }
 
 QString displayChannel(const QString& channel) {

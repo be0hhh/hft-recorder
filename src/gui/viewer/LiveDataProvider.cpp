@@ -726,6 +726,19 @@ LiveDataBatch InMemoryLiveDataProvider::materializeRange(const LiveDataRangeRequ
         batch.priceLimits.insert(batch.priceLimits.end(), visibleRows.priceLimits.begin(), visibleRows.priceLimits.end());
 
         auto depthRows = state.ref.source->readDepthRange(depthTsMin, request.tsMax);
+        if (batch.snapshots.empty() && depthTsMin == request.tsMin) {
+            auto bootstrapRows = state.ref.source->readDepthRange(0, request.tsMax);
+            auto firstVisible = std::lower_bound(
+                bootstrapRows.begin(),
+                bootstrapRows.end(),
+                request.tsMin,
+                [](const hftrec::replay::DepthRow& row, std::int64_t ts) noexcept {
+                    return row.tsNs < ts;
+                });
+            if (firstVisible != bootstrapRows.begin()) {
+                batch.depths.push_back(*std::prev(firstVisible));
+            }
+        }
         batch.depths.insert(batch.depths.end(), depthRows.begin(), depthRows.end());
     }
     return batch;

@@ -38,6 +38,23 @@ TEST(BacktestSessionHelpers, MapsVenueSectionsFromExchangeAndMarket) {
     EXPECT_TRUE(venueSectionFor(QStringLiteral("unknown"), QStringLiteral("unknown")).isEmpty());
 }
 
+TEST(BacktestSessionSummary, AppendsCompactCaptureHealthWarning) {
+    const QString clean = hftrec::gui::appendSessionHealthSummary(
+        QStringLiteral("L1 10 | 1BT 0 | 2BT 0"),
+        QStringLiteral("clean"),
+        QString{});
+    EXPECT_EQ(clean, QStringLiteral("L1 10 | 1BT 0 | 2BT 0"));
+
+    const QString degraded = hftrec::gui::appendSessionHealthSummary(
+        QStringLiteral("L1 10 | 1BT 0 | 2BT 0"),
+        QStringLiteral("clean"),
+        QStringLiteral("reference: route status=disconnected stream=mark_price symbol=AGLDUSDT"));
+    EXPECT_EQ(degraded, QStringLiteral("L1 10 | 1BT 0 | 2BT 0 | degraded: mark_price disconnected"));
+
+    EXPECT_EQ(hftrec::gui::sessionHealthSummaryLabel(QStringLiteral("corrupt"), QString{}),
+              QStringLiteral("corrupt"));
+}
+
 TEST(BacktestExecutionConfigHelpers, BuildsRateLimitScheduleFromVenueRow) {
     QVariantMap row;
     row.insert(QStringLiteral("exchange"), QStringLiteral("binance"));

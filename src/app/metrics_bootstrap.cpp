@@ -54,14 +54,14 @@ std::uint16_t metricsPort() noexcept {
 
 bool metricsOff() noexcept {
     const char* raw = std::getenv("HFTREC_METRICS_MODE");
-    return raw != nullptr && std::strcmp(raw, "off") == 0;
+    return raw == nullptr || raw[0] == '\0' || std::strcmp(raw, "off") == 0;
 }
 
 #if HFTREC_WITH_CXET
 cxet::metrics::Mode metricsMode() noexcept {
     const char* raw = std::getenv("HFTREC_METRICS_MODE");
     if (!hotPathMetricsBuildDefault()) return cxet::metrics::Mode::Off;
-    if (raw == nullptr || raw[0] == '\0') return cxet::metrics::Mode::FullLatency;
+    if (raw == nullptr || raw[0] == '\0') return cxet::metrics::Mode::Off;
     if (std::strcmp(raw, "off") == 0) return cxet::metrics::Mode::Off;
     if (std::strcmp(raw, "counters") == 0) return cxet::metrics::Mode::CountersOnly;
     if (std::strcmp(raw, "sampled") == 0) return cxet::metrics::Mode::SampledLatency;
@@ -184,10 +184,11 @@ MetricsBootstrap::MetricsBootstrap() noexcept {
     hftrec::metrics::setHotPathEnabled(selectedMode != cxet::metrics::Mode::Off);
     cxet::metrics::ProbeRegistry::setExtraRenderHook(&renderCxetAndHftrecExtraMetrics);
     cxet::metrics::setMode(selectedMode);
+    if (selectedMode != cxet::metrics::Mode::Off) impl_->thread.start();
 #else
     hftrec::metrics::setHotPathEnabled(!selectedOff);
+    if (!selectedOff) impl_->thread.start();
 #endif
-    impl_->thread.start();
 }
 
 MetricsBootstrap::~MetricsBootstrap() noexcept {

@@ -35,6 +35,9 @@ User build/run entrypoints:
   - same flow with GCC, intended for back-to-back metric comparisons
 - `./build/start`
   - launches the Qt GUI in CPU-safe software mode
+  - does not open the metrics or chart API ports by default
+  - set `HFTREC_METRICS_MODE=full` to expose `http://127.0.0.1:8080/metrics`
+  - set `HFTREC_API_MODE=on` to expose the local chart API on `127.0.0.1:18080`
 - `./build/start --gpu`
   - launches the Qt GUI requesting the Qt Quick OpenGL backend
   - intended for real Linux desktop GPU validation, e.g. Ubuntu 24 on the laptop
@@ -44,7 +47,7 @@ Current runtime truth:
 - `--gpu` enables a hardware-backed Qt Quick/OpenGL setup for validation
 - the active viewer path is still `ChartItem` (`QQuickPaintedItem`)
 - this means current `--gpu` is hardware-backed compositing, not yet a separate GPU-native chart renderer
-- `./build/start` exports `HFTREC_METRICS_PORT=8080` and `HFTREC_METRICS_MODE=full` by default; `/metrics` includes `hftrec_build_info{compiler="..."}` so Prometheus/Grafana can separate Clang and GCC runs
+- `./build/start` exports `HFTREC_METRICS_PORT=8080`, but leaves metrics disabled unless `HFTREC_METRICS_MODE` is set to `full`, `sampled`, or `counters`; `/metrics` includes `hftrec_build_info{compiler="..."}` so Prometheus/Grafana can separate Clang and GCC runs when metrics are enabled
 
 Primary user workflow:
 1. Open the GUI.

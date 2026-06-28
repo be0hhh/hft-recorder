@@ -144,6 +144,46 @@ QString sessionBacktestSummaryText(int bookTickerCount, const BacktestLegCounts&
     return summary;
 }
 
+QString compactCaptureWarning(QString warning) {
+    warning = warning.trimmed();
+    if (warning.isEmpty()) return {};
+
+    const QString statusNeedle = QStringLiteral("route status=");
+    const QString streamNeedle = QStringLiteral("stream=");
+    const qsizetype statusPos = warning.indexOf(statusNeedle);
+    const qsizetype streamPos = warning.indexOf(streamNeedle);
+    if (statusPos >= 0 && streamPos >= 0) {
+        const qsizetype statusBegin = statusPos + statusNeedle.size();
+        qsizetype statusEnd = warning.indexOf(QLatin1Char(' '), statusBegin);
+        if (statusEnd < 0) statusEnd = warning.size();
+        const qsizetype streamBegin = streamPos + streamNeedle.size();
+        qsizetype streamEnd = warning.indexOf(QLatin1Char(' '), streamBegin);
+        if (streamEnd < 0) streamEnd = warning.size();
+        const QString status = warning.mid(statusBegin, statusEnd - statusBegin).trimmed();
+        const QString stream = warning.mid(streamBegin, streamEnd - streamBegin).trimmed();
+        if (!status.isEmpty() && !stream.isEmpty()) return QStringLiteral("%1 %2").arg(stream, status);
+    }
+
+    constexpr qsizetype kMaxWarningChars = 80;
+    if (warning.size() <= kMaxWarningChars) return warning;
+    return warning.left(kMaxWarningChars - 3) + QStringLiteral("...");
+}
+
+QString sessionHealthSummaryLabel(const QString& sessionHealth, const QString& warningSummary) {
+    const QString health = sessionHealth.trimmed().toLower();
+    const QString compactWarning = compactCaptureWarning(warningSummary);
+    if ((health.isEmpty() || health == QStringLiteral("clean")) && compactWarning.isEmpty()) return {};
+
+    QString label = health.isEmpty() || health == QStringLiteral("clean") ? QStringLiteral("degraded") : health;
+    if (!compactWarning.isEmpty()) label += QStringLiteral(": %1").arg(compactWarning);
+    return label;
+}
+
+QString appendSessionHealthSummary(QString summary, const QString& sessionHealth, const QString& warningSummary) {
+    const QString label = sessionHealthSummaryLabel(sessionHealth, warningSummary);
+    return label.isEmpty() ? summary : summary + QStringLiteral(" | %1").arg(label);
+}
+
 bool backtestManifestMatchesLegs(const QString& manifestPath, const QString& primarySessionId, const QString& secondarySessionId) {
     const QString primaryId = normalizedSessionId(primarySessionId);
     const QString secondaryId = normalizedSessionId(secondarySessionId);

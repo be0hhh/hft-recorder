@@ -19,7 +19,9 @@ QString resolveRecordingsRoot() {
 QString sessionSummary(const hftrec::recordings::RecordedSessionInfo& session, const BacktestLegCounts& backtestCounts) {
     QString summary = sessionBacktestSummaryText(static_cast<int>(session.bookTickerCount), backtestCounts, session.startedAtNs);
     if (session.candleCount > 0) summary += QStringLiteral(" | C %1").arg(session.candleCount);
-    return summary;
+    return appendSessionHealthSummary(summary,
+                                      QString::fromStdString(session.sessionHealth),
+                                      QString::fromStdString(session.warningSummary));
 }
 
 QString groupSummary(const hftrec::recordings::RecordingGroupInfo& group) {

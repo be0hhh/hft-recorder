@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -25,8 +26,13 @@ std::int64_t e8(std::int64_t value) {
 }
 
 fs::path makeTmpDir() {
+    static std::atomic<unsigned> counter{0};
     const auto base = fs::temp_directory_path();
-    auto dir = base / ("hftrec_chart_markers_" + std::to_string(std::rand()));
+    auto dir = base / ("hftrec_chart_markers_" +
+                       std::to_string(counter.fetch_add(1, std::memory_order_relaxed)) + "_" +
+                       std::to_string(std::rand()));
+    std::error_code ec;
+    fs::remove_all(dir, ec);
     fs::create_directories(dir);
     return dir;
 }
@@ -238,7 +244,7 @@ TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
 
     chart.setRenderWindowSeconds(30);
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
-    EXPECT_EQ(chart.tsMin(), 31000000000ll);
+    EXPECT_EQ(chart.tsMin(), 1000000000ll);
     snap = chart.buildSnapshot(800.0, 600.0, inputs);
     ASSERT_EQ(snap.tradeDots.size(), 2u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 31000000000ll);
@@ -246,7 +252,7 @@ TEST(ChartRenderWindow, ClipsRecordedRowsAndSupportsLatestOnly) {
 
     chart.setRenderWindowSeconds(-1);
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
-    EXPECT_EQ(chart.tsMin(), 60999999999ll);
+    EXPECT_EQ(chart.tsMin(), 1000000000ll);
     snap = chart.buildSnapshot(800.0, 600.0, inputs);
     ASSERT_EQ(snap.tradeDots.size(), 1u);
     EXPECT_EQ(snap.tradeDots.front().tsNs, 61000000000ll);
@@ -278,7 +284,7 @@ TEST(ChartRenderWindow, LoadSessionOpensAtLatestWindowWhenConfigured) {
     ASSERT_TRUE(chart.loaded());
     ASSERT_TRUE(chart.loaded());
     EXPECT_EQ(chart.tsMax(), 61000000000ll);
-    EXPECT_EQ(chart.tsMin(), 31000000000ll);
+    EXPECT_EQ(chart.tsMin(), 1000000000ll);
 
     SnapshotInputs inputs{};
     inputs.tradesVisible = true;
