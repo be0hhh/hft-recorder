@@ -98,6 +98,10 @@ QString metricValue(const QVariantList& rows, const QString& key) {
     return {};
 }
 
+QString paramValue(const QVariantList& rows, const QString& key) {
+    return metricValue(rows, key);
+}
+
 QString metricLabelValue(const QVariantList& rows, const QString& key) {
     for (const QVariant& row : rows) {
         const QVariantMap map = row.toMap();
@@ -609,6 +613,25 @@ TEST(BacktestViewModel, ExposesTemplateStrategyParameters) {
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("max_leg_skew_ms")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("type")));
     EXPECT_FALSE(hasParamKey(vm.strategyParameters(), QStringLiteral("enabled")));
+}
+
+TEST(BacktestViewModel, PersistsNegativeStatArbEdgeMakerEntryExitParams) {
+    isolateSettings(QStringLiteral("negative_edge_params"));
+
+    {
+        hftrec::gui::BacktestViewModel vm;
+        vm.setSelectedStrategy(QStringLiteral("stat_arb_edge_maker"));
+        vm.setStrategyParameter(QStringLiteral("entry_edge_bps"), QStringLiteral("-5"));
+        vm.setStrategyParameter(QStringLiteral("exit_edge_bps"), QStringLiteral("-2.5"));
+
+        EXPECT_EQ(paramValue(vm.strategyParameters(), QStringLiteral("entry_edge_bps")), QStringLiteral("-5"));
+        EXPECT_EQ(paramValue(vm.strategyParameters(), QStringLiteral("exit_edge_bps")), QStringLiteral("-2.5"));
+    }
+
+    hftrec::gui::BacktestViewModel restored;
+    restored.setSelectedStrategy(QStringLiteral("stat_arb_edge_maker"));
+    EXPECT_EQ(paramValue(restored.strategyParameters(), QStringLiteral("entry_edge_bps")), QStringLiteral("-5"));
+    EXPECT_EQ(paramValue(restored.strategyParameters(), QStringLiteral("exit_edge_bps")), QStringLiteral("-2.5"));
 }
 
 TEST(BacktestViewModel, HidesUndeclaredIndicatorProfiles) {
