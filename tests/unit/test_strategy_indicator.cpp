@@ -52,6 +52,25 @@ TEST(StrategyIndicator, LoadsManifestMetadataAndCompactRows) {
     EXPECT_EQ(data.points[1].sideRaw, 1u);
 }
 
+TEST(StrategyIndicator, LoadsRowsWithFeatureColumns) {
+    const fs::path dir = makeTmpDir();
+    writeFile(dir / "manifest.json",
+              "{\"type\":\"run.result.v2\",\"streams\":{\"strategy_indicator\":{"
+              "\"path\":\"strategy_indicator.jsonl\",\"profile\":\"toxic_flow\","
+              "\"title\":\"Toxic flow\",\"value_label\":\"Score\",\"aux_label\":\"Raw\","
+              "\"unit\":\"score\",\"rows\":1}}}\n");
+    writeFile(dir / "strategy_indicator.jsonl", "[1000,40,44,0,0,1,0,10,11,12,13,14,15,16,17,18,19]\n");
+
+    hftrec::gui::viewer::StrategyIndicatorData data;
+    std::string error;
+    ASSERT_TRUE(hftrec::gui::viewer::loadStrategyIndicatorFromResult(dir, data, error)) << error;
+
+    ASSERT_EQ(data.points.size(), 1u);
+    EXPECT_EQ(data.points[0].tsNs, 1000);
+    EXPECT_EQ(data.points[0].valueRaw, 40);
+    EXPECT_EQ(data.points[0].auxRaw, 44);
+}
+
 TEST(StrategyIndicator, MissingStreamIsEmptyNotFailure) {
     const fs::path dir = makeTmpDir();
     writeFile(dir / "manifest.json", "{\"type\":\"run.result.v2\",\"streams\":{}}\n");

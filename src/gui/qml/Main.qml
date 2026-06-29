@@ -34,6 +34,7 @@ ApplicationWindow {
     Component { id: compressionVmComponent; CompressionViewModel { objectName: "compressionVm" } }
     Component { id: captureComponent; CaptureView { captureVm: rootCaptureVm; tabActive: false } }
     Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; backtestVm: rootBacktestVm; tabActive: false } }
+    Component { id: moexBasisComponent; MoexBasisView { appVm: rootAppVm; backtestVm: rootBacktestVm; tabActive: false } }
     Component { id: compressComponent; CompressView { compressionVm: root.ensureCompressionVm(); tabActive: false } }
     Component { id: backtestsComponent; BacktestResultsView { backtestVm: rootBacktestVm; captureVm: rootCaptureVm; tabActive: false } }
     Component { id: quantComponent; QuantView { backtestVm: rootBacktestVm; tabActive: false } }
@@ -57,6 +58,7 @@ ApplicationWindow {
     function componentForTab(tabId) {
         if (tabId === "capture") return captureComponent
         if (tabId === "viewer") return viewerComponent
+        if (tabId === "moex_basis") return moexBasisComponent
         if (tabId === "compress") return compressComponent
         if (tabId === "backtests") return backtestsComponent
         if (tabId === "quant") return quantComponent

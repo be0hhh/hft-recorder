@@ -55,8 +55,8 @@ class BookTickerCompareController : public QObject {
     QString secondarySourceId() const { return secondarySourceId_; }
     QString statusText() const { return statusText_; }
     bool ready() const noexcept {
-        return (!primaryRows_.empty() || !primaryCandles_.empty())
-            && (!secondaryRows_.empty() || !secondaryCandles_.empty())
+        return !primaryRows_.empty()
+            && !secondaryRows_.empty()
             && lowerPaneState_.hasData;
     }
     int primaryCount() const noexcept { return static_cast<int>(primaryRows_.size()); }
@@ -81,6 +81,7 @@ class BookTickerCompareController : public QObject {
     double pricePan() const noexcept { return pricePan_; }
     double spreadZoom() const noexcept { return spreadZoom_; }
     double spreadPan() const noexcept { return spreadPan_; }
+    bool candleCompareEnabled() const noexcept { return false; }
 
     const std::vector<hftrec::replay::BookTickerRow>& primaryRows() const noexcept { return primaryRows_; }
     const std::vector<hftrec::replay::BookTickerRow>& secondaryRows() const noexcept { return secondaryRows_; }

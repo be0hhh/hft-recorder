@@ -158,6 +158,14 @@ void writeStrategyIndicatorResult(const fs::path& dir) {
     writeFile(dir / "strategy_indicator.jsonl", "[1000,40,44,0,0,1,0]\n[2000,42,45,1,7,3,1]\n");
 }
 
+void writeToxicFlowPairIndicatorResult(const fs::path& dir) {
+    writeEmptyResultBase(dir,
+                         "{\"strategy_indicator\":{\"path\":\"strategy_indicator.jsonl\","
+                         "\"profile\":\"toxic_flow_pair\",\"title\":\"Toxic flow A/B\","
+                         "\"value_label\":\"A\",\"aux_label\":\"B\",\"unit\":\"score\",\"rows\":2}}");
+    writeFile(dir / "strategy_indicator.jsonl", "[1000,40,-20,0,0,1,0]\n[2000,55,-35,0,0,1,0]\n");
+}
+
 hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
                                   std::int64_t captureSeq,
                                   std::int64_t priceE8,
@@ -483,7 +491,7 @@ TEST(ViewerBookTickerCompare, UsesDefaultSpreadLowerPaneWithoutBacktestResult) {
     fs::remove_all(dirB, ec);
 }
 
-TEST(ViewerBookTickerCompare, UsesCandleSpreadWhenBookTickerMissing) {
+TEST(ViewerBookTickerCompare, IgnoresCandlesWhenBookTickerMissing) {
     const auto dirSpot = makeTmpDir();
     const auto dirFutures = makeTmpDir();
     fs::create_directories(dirSpot / "jsonl");
@@ -499,23 +507,22 @@ TEST(ViewerBookTickerCompare, UsesCandleSpreadWhenBookTickerMissing) {
     ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
     ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
 
-    EXPECT_TRUE(compare.ready());
+    EXPECT_FALSE(compare.ready());
     EXPECT_EQ(compare.primaryCount(), 0);
     EXPECT_EQ(compare.secondaryCount(), 0);
-    EXPECT_EQ(compare.primaryCandleCount(), 2);
-    EXPECT_EQ(compare.secondaryCandleCount(), 2);
-    ASSERT_EQ(compare.candleSpreadPoints().size(), 2u);
-    EXPECT_EQ(compare.candleSpreadCount(), 2);
-    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("candle_spread"));
-    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Candle A/B spread"));
-    EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
+    EXPECT_EQ(compare.primaryCandleCount(), 0);
+    EXPECT_EQ(compare.secondaryCandleCount(), 0);
+    EXPECT_TRUE(compare.candleSpreadPoints().empty());
+    EXPECT_EQ(compare.candleSpreadCount(), 0);
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("default_spread"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("BookTicker spread"));
 
     std::error_code ec;
     fs::remove_all(dirSpot, ec);
     fs::remove_all(dirFutures, ec);
 }
 
-TEST(ViewerBookTickerCompare, UsesNumericDetailedCandles) {
+TEST(ViewerBookTickerCompare, IgnoresNumericDetailedCandles) {
     const auto dirSpot = makeTmpDir();
     const auto dirFutures = makeTmpDir();
     fs::create_directories(dirSpot / "jsonl");
@@ -529,15 +536,16 @@ TEST(ViewerBookTickerCompare, UsesNumericDetailedCandles) {
     ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
     ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
 
-    ASSERT_EQ(compare.candleSpreadPoints().size(), 1u);
-    EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
+    EXPECT_FALSE(compare.ready());
+    EXPECT_TRUE(compare.candleSpreadPoints().empty());
+    EXPECT_EQ(compare.candleSpreadCount(), 0);
 
     std::error_code ec;
     fs::remove_all(dirSpot, ec);
     fs::remove_all(dirFutures, ec);
 }
 
-TEST(ViewerBookTickerCompare, KeepsBookTickerAndCandleSpreadWhenBothExist) {
+TEST(ViewerBookTickerCompare, KeepsBookTickerSpreadWhenCandlesAlsoExist) {
     const auto dirSpot = makeTmpDir();
     const auto dirFutures = makeTmpDir();
     fs::create_directories(dirSpot / "jsonl");
@@ -557,16 +565,16 @@ TEST(ViewerBookTickerCompare, KeepsBookTickerAndCandleSpreadWhenBothExist) {
 
     EXPECT_TRUE(compare.ready());
     EXPECT_EQ(compare.spreadCount(), 1);
-    EXPECT_EQ(compare.candleSpreadCount(), 1);
-    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("market_spread_overlay"));
-    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("BookTicker + Candle A/B spread"));
+    EXPECT_EQ(compare.candleSpreadCount(), 0);
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("default_spread"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("BookTicker spread"));
 
     std::error_code ec;
     fs::remove_all(dirSpot, ec);
     fs::remove_all(dirFutures, ec);
 }
 
-TEST(ViewerBookTickerCompare, CandleSpreadUsesABDirectionWhenSourcesAreReversed) {
+TEST(ViewerBookTickerCompare, DoesNotBuildCandleSpreadWhenSourcesAreReversed) {
     const auto dirSpot = makeTmpDir();
     const auto dirFutures = makeTmpDir();
     fs::create_directories(dirSpot / "jsonl");
@@ -580,16 +588,16 @@ TEST(ViewerBookTickerCompare, CandleSpreadUsesABDirectionWhenSourcesAreReversed)
     ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
     ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
 
-    ASSERT_EQ(compare.candleSpreadPoints().size(), 1u);
-    EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
-    EXPECT_EQ(compare.candleSpreadPoints().front().direction, hftrec::arbitrage::SpreadDirection::BuyBAskSellABid);
+    EXPECT_FALSE(compare.ready());
+    EXPECT_TRUE(compare.candleSpreadPoints().empty());
+    EXPECT_EQ(compare.candleSpreadCount(), 0);
 
     std::error_code ec;
     fs::remove_all(dirSpot, ec);
     fs::remove_all(dirFutures, ec);
 }
 
-TEST(ViewerBookTickerCompare, CandleSpreadPrefersDetailedCandlesAndFallsBackToTierOneMid) {
+TEST(ViewerBookTickerCompare, DoesNotUseCandleFallbackInStandardCompare) {
     const auto dirSpot = makeTmpDir();
     const auto dirFutures = makeTmpDir();
     fs::create_directories(dirSpot / "jsonl");
@@ -606,10 +614,9 @@ TEST(ViewerBookTickerCompare, CandleSpreadPrefersDetailedCandlesAndFallsBackToTi
     ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("spot"), QStringLiteral("recorded"), QString::fromStdString(dirSpot.string())));
     ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("futures"), QStringLiteral("recorded"), QString::fromStdString(dirFutures.string())));
 
-    ASSERT_EQ(compare.candleSpreadPoints().size(), 1u);
-    EXPECT_NEAR(compare.candleSpreadPoints().front().spreadBps, 200.0, 0.000001);
-    EXPECT_EQ(compare.candleSpreadPoints().front().aCloseE8, e8(100));
-    EXPECT_EQ(compare.candleSpreadPoints().front().bCloseE8, e8(102));
+    EXPECT_FALSE(compare.ready());
+    EXPECT_TRUE(compare.candleSpreadPoints().empty());
+    EXPECT_EQ(compare.candleSpreadCount(), 0);
 
     std::error_code ec;
     fs::remove_all(dirSpot, ec);
@@ -660,6 +667,34 @@ TEST(ViewerBookTickerCompare, StrategyIndicatorLowerPaneReplacesDefaultSpreadWhe
     EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("strategy_indicator"));
     EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Trend score Raw"));
     ASSERT_EQ(compare.strategyIndicator().points.size(), 2u);
+
+    std::error_code ec;
+    fs::remove_all(dirA, ec);
+    fs::remove_all(dirB, ec);
+    fs::remove_all(result, ec);
+}
+
+TEST(ViewerBookTickerCompare, ToxicFlowPairIndicatorKeepsBothLegScores) {
+    const auto dirA = makeTmpDir();
+    const auto dirB = makeTmpDir();
+    const auto result = makeTmpDir();
+    writeFile(dirA / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10000), e8(10010)) + bookTickerLine(2000, 2, e8(10020), e8(10030)));
+    writeFile(dirB / "bookticker.jsonl",
+              bookTickerLine(1000, 1, e8(10005), e8(10015)) + bookTickerLine(2000, 2, e8(10025), e8(10035)));
+    writeToxicFlowPairIndicatorResult(result);
+
+    BookTickerCompareController compare;
+    ASSERT_TRUE(compare.setPrimarySource(QStringLiteral("a"), QStringLiteral("recorded"), QString::fromStdString(dirA.string())));
+    ASSERT_TRUE(compare.setSecondarySource(QStringLiteral("b"), QStringLiteral("recorded"), QString::fromStdString(dirB.string())));
+    ASSERT_TRUE(compare.setBacktestResult(QString::fromStdString(result.string())));
+
+    EXPECT_TRUE(compare.ready());
+    EXPECT_EQ(compare.lowerPaneMode(), QStringLiteral("strategy_indicator"));
+    EXPECT_EQ(compare.lowerPaneTitle(), QStringLiteral("Toxic flow A/B A/B"));
+    ASSERT_EQ(compare.strategyIndicator().points.size(), 2u);
+    EXPECT_EQ(compare.strategyIndicator().points[0].valueRaw, 40);
+    EXPECT_EQ(compare.strategyIndicator().points[0].auxRaw, -20);
 
     std::error_code ec;
     fs::remove_all(dirA, ec);

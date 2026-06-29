@@ -109,4 +109,15 @@ TEST(CaptureChannelSupport, HyperliquidFuturesMarketDataChannelsAreRuntimeReady)
     EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::BookTicker, detail)) << detail;
     EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::Orderbook, detail)) << detail;
 }
+
+TEST(CaptureChannelSupport, FinamArenaUsesRecorderMarketDataRoutes) {
+    CaptureConfig config{};
+    config.exchange = "finam_arena";
+    config.market = "spot";
+    config.symbols = {"SBER@MISX"};
+
+    std::string detail;
+    EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::BookTicker, detail)) << detail;
+    EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::Orderbook, detail)) << detail;
+}
 #endif

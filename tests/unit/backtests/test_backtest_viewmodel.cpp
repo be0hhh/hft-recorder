@@ -723,6 +723,21 @@ TEST(BacktestViewModel, ExposesToxicFlowProbeIndicatorWithoutStrategyParams) {
     EXPECT_EQ(vm.selectedIndicatorProfile(), QStringLiteral("toxic_flow"));
 }
 
+TEST(BacktestViewModel, ExposesToxicFlowPairProbeForTwoSessions) {
+    isolateSettings(QStringLiteral("toxic_flow_pair_probe"));
+
+    hftrec::gui::BacktestViewModel vm;
+
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("toxic_flow_pair_probe")));
+    vm.setSelectedStrategy(QStringLiteral("toxic_flow_pair_probe"));
+    EXPECT_TRUE(vm.strategyParameters().empty());
+    EXPECT_EQ(vm.configModeChoices().size(), 1);
+    const QVariantList indicators = vm.indicatorProfileChoices();
+    ASSERT_EQ(indicators.size(), 1);
+    EXPECT_EQ(choiceLabel(indicators, QStringLiteral("toxic_flow_pair")), QStringLiteral("Toxic flow A/B"));
+    EXPECT_EQ(vm.selectedIndicatorProfile(), QStringLiteral("toxic_flow_pair"));
+}
+
 TEST(BacktestViewModel, ExposesStatArbBandLadderForTwoSessions) {
     isolateSettings(QStringLiteral("stat_arb_band_ladder"));
 
@@ -770,6 +785,8 @@ TEST(BacktestViewModel, ExposesStrategyChoicesFromBacktestMetadata) {
     EXPECT_EQ(choiceLabel(choices, QStringLiteral("volatility_probe")), QStringLiteral("volatility_probe"));
     EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("toxic_flow_probe")));
     EXPECT_EQ(choiceLabel(choices, QStringLiteral("toxic_flow_probe")), QStringLiteral("toxic_flow_probe"));
+    EXPECT_TRUE(hasChoiceId(choices, QStringLiteral("toxic_flow_pair_probe")));
+    EXPECT_EQ(choiceLabel(choices, QStringLiteral("toxic_flow_pair_probe")), QStringLiteral("toxic_flow_pair_probe"));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("removed_strategy")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("strategyMD")));
     EXPECT_FALSE(hasChoiceId(choices, QStringLiteral("horizontal_levels")));

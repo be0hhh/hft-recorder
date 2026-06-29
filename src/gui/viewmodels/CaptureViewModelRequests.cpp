@@ -1,18 +1,13 @@
 ﻿#include "gui/viewmodels/CaptureViewModelInternal.hpp"
+#include "gui/viewmodels/FinamCatalog.hpp"
 
 #if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
 #include "hft_trader/runtime/history/candles/CandleRequestLimits.hpp"
 #endif
 
-#include <QCoreApplication>
 #include <QDate>
 #include <QDateTime>
 #include <QDir>
-#include <QFile>
-#include <QHash>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QRegularExpression>
 #include <QTime>
 #include <QVariantMap>
@@ -31,6 +26,7 @@ namespace {
 constexpr int kDetailedCandlesMaxLimit = 1'000'000;
 constexpr std::int64_t kNsPerMs = 1'000'000ll;
 constexpr int kFinamSmartRetryDays = 7;
+constexpr std::uint32_t kFinamDetailedCandlesAttempts = 10u;
 
 QString normalizeToken(QString token) {
     return token.trimmed();
@@ -206,8 +202,6 @@ QStringList detailedCandlesTimeframesForVenue(const VenueSpec& venue) {
             QStringLiteral("4h"),
             QStringLiteral("8h"),
             QStringLiteral("1d"),
-            QStringLiteral("1w"),
-            QStringLiteral("1M"),
         };
     }
     const QString exchange = QString::fromLatin1(venue.exchange);
@@ -538,211 +532,6 @@ int normalizedApiSlot(int apiSlot) noexcept {
     return apiSlot;
 }
 
-struct FinamSymbolRow {
-    QString symbol;
-    QString ticker;
-    QString name;
-    QString mic;
-    QString market;
-    QString type;
-    QString underlying;
-    QString expiration;
-    QString contractSize;
-    bool isArchived{false};
-};
-
-struct FinamCatalog {
-    std::vector<FinamSymbolRow> rows;
-    std::vector<const FinamSymbolRow*> spotRows;
-    std::vector<const FinamSymbolRow*> futuresRows;
-    QHash<QString, const FinamSymbolRow*> bySymbol;
-    QHash<QString, const FinamSymbolRow*> byTicker;
-    QHash<QString, std::vector<const FinamSymbolRow*>> futuresByUnderlying;
-};
-
-QString finamCatalogSourcePath() {
-    return QDir(QCoreApplication::applicationDirPath())
-        .absoluteFilePath(QStringLiteral("../src/gui/data/finam_assets.json"));
-}
-
-QByteArray readFinamCatalogBytes() {
-#if defined(HFTRREC_SOURCE_DIR)
-    QFile sourceFile(QStringLiteral(HFTRREC_SOURCE_DIR) + QStringLiteral("/src/gui/data/finam_assets.json"));
-    if (sourceFile.open(QIODevice::ReadOnly)) return sourceFile.readAll();
-#endif
-
-    QFile appRelativeFile(finamCatalogSourcePath());
-    if (appRelativeFile.open(QIODevice::ReadOnly)) return appRelativeFile.readAll();
-
-    QFile resourceFile(QStringLiteral(":/HftRecorder/data/finam_assets.json"));
-    if (resourceFile.open(QIODevice::ReadOnly)) return resourceFile.readAll();
-    return {};
-}
-
-QString finamIndexKey(QString value) {
-    return value.trimmed().toUpper();
-}
-
-void insertFirstFinamRow(QHash<QString, const FinamSymbolRow*>& index,
-                         const QString& rawKey,
-                         const FinamSymbolRow& row) {
-    const QString key = finamIndexKey(rawKey);
-    if (key.isEmpty() || index.contains(key)) return;
-    index.insert(key, &row);
-}
-
-FinamCatalog loadFinamCatalog() {
-    const QByteArray bytes = readFinamCatalogBytes();
-    if (bytes.isEmpty()) return {};
-    QJsonParseError error{};
-    const QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) return {};
-    const QJsonArray assets = doc.object().value(QStringLiteral("assets")).toArray();
-    FinamCatalog catalog;
-    catalog.rows.reserve(static_cast<std::size_t>(assets.size()));
-    for (const auto& raw : assets) {
-        const QJsonObject item = raw.toObject();
-        FinamSymbolRow row{};
-        row.symbol = item.value(QStringLiteral("symbol")).toString().trimmed();
-        row.ticker = item.value(QStringLiteral("ticker")).toString().trimmed();
-        row.name = item.value(QStringLiteral("name")).toString().trimmed();
-        row.mic = item.value(QStringLiteral("mic")).toString().trimmed();
-        row.market = item.value(QStringLiteral("market")).toString().trimmed().toLower();
-        row.type = item.value(QStringLiteral("type")).toString().trimmed();
-        row.underlying = item.value(QStringLiteral("underlying")).toString().trimmed().toUpper();
-        row.expiration = item.value(QStringLiteral("expiration")).toString().trimmed();
-        row.isArchived = item.value(QStringLiteral("is_archived")).toBool(false);
-        const auto contractValue = item.value(QStringLiteral("contract_size"));
-        if (contractValue.isDouble()) row.contractSize = QString::number(contractValue.toDouble());
-        else row.contractSize = contractValue.toString().trimmed();
-        if (row.symbol.isEmpty() || row.market.isEmpty()) continue;
-        catalog.rows.push_back(std::move(row));
-    }
-
-    catalog.spotRows.reserve(catalog.rows.size());
-    catalog.futuresRows.reserve(catalog.rows.size());
-    for (const FinamSymbolRow& row : catalog.rows) {
-        insertFirstFinamRow(catalog.bySymbol, row.symbol, row);
-        insertFirstFinamRow(catalog.byTicker, row.ticker, row);
-        if (row.market == QStringLiteral("spot")) {
-            catalog.spotRows.push_back(&row);
-        } else if (row.market == QStringLiteral("futures")) {
-            catalog.futuresRows.push_back(&row);
-            if (!row.underlying.isEmpty()) {
-                catalog.futuresByUnderlying[row.underlying].push_back(&row);
-            }
-        }
-    }
-    return catalog;
-}
-
-const FinamCatalog& finamCatalog() {
-    static const FinamCatalog catalog = loadFinamCatalog();
-    return catalog;
-}
-
-const std::vector<FinamSymbolRow>& finamSymbolRows() {
-    return finamCatalog().rows;
-}
-
-const std::vector<const FinamSymbolRow*>& finamRowsForMarket(const VenueSpec& venue) {
-    static const std::vector<const FinamSymbolRow*> empty;
-    const FinamCatalog& catalog = finamCatalog();
-    const QString market = QString::fromLatin1(venue.market);
-    if (market == QStringLiteral("spot")) return catalog.spotRows;
-    if (market == QStringLiteral("futures")) return catalog.futuresRows;
-    return empty;
-}
-
-bool finamRowMatchesMarket(const FinamSymbolRow& row, const VenueSpec& venue) {
-    return row.market == QString::fromLatin1(venue.market);
-}
-
-bool matchesQueryBoundary(const QString& text, const QString& query) {
-    if (query.isEmpty()) return true;
-    qsizetype from = 0;
-    while (from < text.size()) {
-        const qsizetype idx = text.indexOf(query, from, Qt::CaseInsensitive);
-        if (idx < 0) return false;
-        const QChar prev = idx > 0 ? text.at(idx - 1) : QChar{};
-        const qsizetype afterIdx = idx + query.size();
-        const QChar next = afterIdx < text.size() ? text.at(afterIdx) : QChar{};
-        if (idx == 0 || !prev.isLetterOrNumber() || prev.isDigit() || prev == QLatin1Char('@') ||
-            !next.isLetterOrNumber() || next.isDigit()) {
-            return true;
-        }
-        from = idx + 1;
-    }
-    return false;
-}
-
-bool textMatchesQuery(const FinamSymbolRow& row, const QString& query) {
-    const auto normalized = query.trimmed();
-    if (normalized.isEmpty()) return true;
-    return matchesQueryBoundary(row.symbol, normalized) ||
-           matchesQueryBoundary(row.ticker, normalized) ||
-           matchesQueryBoundary(row.name, normalized) ||
-           matchesQueryBoundary(row.underlying, normalized);
-}
-
-QString finamAnchorUnderlying(const QString& anchorSymbolText) {
-    const auto symbols = normalizedSymbols(anchorSymbolText);
-    if (symbols.empty()) return {};
-    const QString anchor = QString::fromStdString(symbols.front()).trimmed().toUpper();
-    const FinamCatalog& catalog = finamCatalog();
-    if (auto it = catalog.bySymbol.constFind(anchor); it != catalog.bySymbol.constEnd()) {
-        const FinamSymbolRow* row = it.value();
-        if (row != nullptr) return row->underlying.isEmpty() ? row->ticker.toUpper() : row->underlying;
-    }
-    if (auto it = catalog.byTicker.constFind(anchor); it != catalog.byTicker.constEnd()) {
-        const FinamSymbolRow* row = it.value();
-        if (row != nullptr) return row->underlying.isEmpty() ? row->ticker.toUpper() : row->underlying;
-    }
-    const QString ticker = anchor.section(QLatin1Char('@'), 0, 0);
-    if (!ticker.isEmpty() && ticker != anchor) {
-        if (auto it = catalog.byTicker.constFind(ticker); it != catalog.byTicker.constEnd()) {
-            const FinamSymbolRow* row = it.value();
-            if (row != nullptr) return row->underlying.isEmpty() ? row->ticker.toUpper() : row->underlying;
-        }
-    }
-    if (anchor.startsWith(QStringLiteral("SBER"))) return QStringLiteral("SBRF");
-    return anchor.section(QLatin1Char('@'), 0, 0);
-}
-
-int finamSuggestionRank(const FinamSymbolRow& row,
-                        const VenueSpec& venue,
-                        const QString& anchorMarket,
-                        const QString& anchorUnderlying) {
-    int rank = row.isArchived ? 120 : 100;
-    if (QString::fromLatin1(venue.market) == QStringLiteral("futures") &&
-        !anchorUnderlying.isEmpty() && row.underlying == anchorUnderlying) {
-        rank = row.isArchived ? 20 : 0;
-    }
-    if (!anchorMarket.isEmpty() && anchorMarket == row.market) {
-        rank += 20;
-    }
-    return rank;
-}
-
-QVariantMap finamSuggestionItem(const FinamSymbolRow& row, int rank) {
-    QVariantMap item;
-    item.insert(QStringLiteral("symbol"), row.symbol);
-    item.insert(QStringLiteral("label"), row.name.isEmpty() ? row.symbol : row.symbol + QStringLiteral("  ") + row.name);
-    QStringList detailParts{
-        row.type,
-        row.mic,
-        row.ticker,
-    };
-    if (!row.underlying.isEmpty()) detailParts.push_back(QStringLiteral("underlying ") + row.underlying);
-    if (!row.expiration.isEmpty()) detailParts.push_back(QStringLiteral("exp ") + row.expiration);
-    if (!row.contractSize.isEmpty()) detailParts.push_back(QStringLiteral("contract ") + row.contractSize);
-    detailParts.push_back(row.isArchived ? QStringLiteral("archived") : QStringLiteral("active"));
-    item.insert(QStringLiteral("detail"), detailParts.join(QStringLiteral(" / ")));
-    item.insert(QStringLiteral("rank"), rank);
-    item.insert(QStringLiteral("expiration"), row.expiration);
-    return item;
-}
-
 capture::CaptureConfig makeDetailedCandlesConfig(const QString& outputDirectory,
                                                  const QString& envPath,
                                                  int apiSlot,
@@ -761,6 +550,9 @@ capture::CaptureConfig makeDetailedCandlesConfig(const QString& outputDirectory,
     config.detailedCandlesTimeframe = timeframe.toStdString();
     config.detailedCandlesLimit = static_cast<std::uint32_t>(std::clamp(limit, 1, kDetailedCandlesMaxLimit));
     config.detailedCandlesEndNs = endNs > 0 ? endNs : 0;
+    if (isFinamVenue(venue)) {
+        config.detailedCandlesMaxAttemptsPerPage = kFinamDetailedCandlesAttempts;
+    }
     return config;
 }
 
@@ -1298,7 +1090,8 @@ QVariantList detailedCandlesSymbolSuggestions(const QString& venueKey,
         const QString anchorUnderlying = finamAnchorUnderlying(anchorSymbolText);
         const auto* anchorVenue = venueByKey(anchorVenueKey);
         const QString anchorMarket = anchorVenue == nullptr ? QString{} : QString::fromLatin1(anchorVenue->market);
-        const auto& marketRows = finamRowsForMarket(*venue);
+        const QString venueMarket = QString::fromLatin1(venue->market);
+        const auto& marketRows = finamRowsForMarket(venueMarket);
         const std::vector<const FinamSymbolRow*>* scanRows = &marketRows;
         const bool preferUnderlyingFutures = QString::fromLatin1(venue->market) == QStringLiteral("futures") &&
                                             !anchorUnderlying.isEmpty();
@@ -1311,9 +1104,9 @@ QVariantList detailedCandlesSymbolSuggestions(const QString& venueKey,
             for (const FinamSymbolRow* rowPtr : sourceRows) {
                 if (rowPtr == nullptr) continue;
                 const FinamSymbolRow& row = *rowPtr;
-                if (!finamRowMatchesMarket(row, *venue)) continue;
-                if (!textMatchesQuery(row, normalizedQuery)) continue;
-                rows.push_back(finamSuggestionItem(row, finamSuggestionRank(row, *venue, anchorMarket, anchorUnderlying)));
+                if (!finamRowMatchesMarket(row, venueMarket)) continue;
+                if (!finamTextMatchesQuery(row, normalizedQuery)) continue;
+                rows.push_back(finamSuggestionItem(row, finamSuggestionRank(row, venueMarket, anchorMarket, anchorUnderlying)));
             }
         };
         collectRows(*scanRows);
@@ -1363,13 +1156,13 @@ QVariantList detailedCandlesTimeframeChoices(const QString& venueKey) {
         hft_trader::runtime::candles::CandleRequestLimit limit{};
         if (candleRequestLimitFor(*venue, timeframe, &limit) && limit.maxCandlesPerRequest != 0u) {
             item.insert(QStringLiteral("rightText"),
-                        QStringLiteral("page %1").arg(QString::number(limit.maxCandlesPerRequest)));
+                        QStringLiteral("request %1").arg(QString::number(limit.maxCandlesPerRequest)));
         } else
 #endif
         {
             item.insert(QStringLiteral("rightText"), isFinamVenue(*venue)
                 ? QStringLiteral("FINAM bars")
-                : QStringLiteral("REST pages"));
+                : QStringLiteral("history requests"));
         }
         choices.push_back(item);
     }
@@ -1390,7 +1183,7 @@ QString detailedCandlesLimitHint(const QString& venueKey,
 #if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
     hft_trader::runtime::candles::CandleRequestLimit requestLimit{};
     if (candleRequestLimitFor(*venue, timeframe, &requestLimit) && requestLimit.maxCandlesPerRequest != 0u) {
-        return QStringLiteral("Page max: %1").arg(QString::number(requestLimit.maxCandlesPerRequest));
+        return QStringLiteral("Request max: %1").arg(QString::number(requestLimit.maxCandlesPerRequest));
     }
 #endif
     return QStringLiteral("Total candles");
@@ -1411,7 +1204,7 @@ QString detailedCandlesLimitWarning(const QString& venueKey,
         const QString total = requestLimit.maxTotalUnbounded
             ? QStringLiteral("paged until older candles end")
             : QStringLiteral("max total %1").arg(QString::number(requestLimit.maxTotalCandles));
-        return QStringLiteral("Total target: %1 candles. Max per REST page for %2/%3/%4: %5; paging: %6, %7. Written rows can be lower than requested.")
+        return QStringLiteral("Total target: %1 candles. Max per request/window for %2/%3/%4: %5; paging: %6, %7. Written rows can be lower than requested.")
             .arg(totalText,
                  QString::fromLatin1(venue->exchange),
                  QString::fromLatin1(venue->market),
@@ -1421,7 +1214,7 @@ QString detailedCandlesLimitWarning(const QString& venueKey,
                  total);
     }
 #endif
-    return QStringLiteral("Total target: %1 candles. No exchange page limit metadata yet; paging stops when the exchange returns no older candles.").arg(totalText);
+    return QStringLiteral("Total target: %1 candles. No exchange request-limit metadata yet; paging stops when the exchange returns no older candles.").arg(totalText);
 }
 
 QString buildDetailedCandlesPreview(const QString& venueKey,

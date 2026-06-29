@@ -40,6 +40,7 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "hyperliquid")) return canon::kExchangeIdHyperliquid;
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
     if (textEqualsAscii(exchange, "finam")) return canon::kExchangeIdFinam;
+    if (textEqualsAscii(exchange, "finam_arena")) return canon::kExchangeIdFinamArena;
     if (textEqualsAscii(exchange, "mexc")) return canon::kExchangeIdMexc;
     if (textEqualsAscii(exchange, "xt")) return canon::kExchangeIdXt;
     if (textEqualsAscii(exchange, "bingx")) return canon::kExchangeIdBingx;

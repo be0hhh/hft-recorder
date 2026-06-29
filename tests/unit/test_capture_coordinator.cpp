@@ -7,6 +7,8 @@
 #include <iterator>
 
 #include "core/capture/CaptureCoordinator.hpp"
+#include "core/capture/CaptureCoordinatorInternal.hpp"
+#include "core/corpus/InstrumentMetadata.hpp"
 #include "hft_trader/runtime/diagnostics/RuntimeTestHooks.hpp"
 
 namespace fs = std::filesystem;
@@ -18,6 +20,8 @@ using hftrec::capture::CaptureConfig;
 using hftrec::capture::CaptureCoordinator;
 using hftrec::capture::LiveCacheMode;
 
+std::uint8_t g_lastMetadataApiSlot = 0u;
+
 bool mockFetchMetadata(cxet::UnifiedRequestBuilder& builder,
                        MessageBuffer&,
                        ExchangeId,
@@ -27,6 +31,7 @@ bool mockFetchMetadata(cxet::UnifiedRequestBuilder& builder,
                        std::size_t* outCount,
                        const char**) noexcept {
     if (!out || cap == 0u || !outCount) return false;
+    g_lastMetadataApiSlot = builder.apiSlotRaw();
     out[0] = cxet::composite::InstrumentInfoRow{};
     out[0].symbol = builder.symbol();
     std::memcpy(out[0].tickSize, "0.1", 4u);
@@ -65,6 +70,7 @@ TEST(CaptureCoordinator, RejectsUnsupportedExchange) {
 
     EXPECT_EQ(coordinator.ensureSession(config), Status::InvalidArgument);
     EXPECT_NE(coordinator.lastError().find("capture exchange must be one of"), std::string::npos);
+    EXPECT_NE(coordinator.lastError().find("finam_arena"), std::string::npos);
 }
 
 TEST(CaptureCoordinator, RejectsMultipleSymbolsPerCoordinator) {
@@ -106,6 +112,27 @@ TEST(CaptureCoordinator, WritesManifestAsSoonAsSessionIsEnsured) {
     ASSERT_TRUE(manifestStream.is_open());
     const std::string manifest((std::istreambuf_iterator<char>(manifestStream)), std::istreambuf_iterator<char>());
     EXPECT_NE(manifest.find("\"session_status\": \"recording\""), std::string::npos);
+
+    std::error_code ec;
+    coordinator.finalizeSession();
+    fs::remove_all(config.outputDir, ec);
+}
+
+TEST(CaptureCoordinator, AcceptsFinamArenaExchangeName) {
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+    config.exchange = "finam_arena";
+    config.market = "spot";
+    config.symbols = {"SBER@MISX"};
+
+    ASSERT_EQ(coordinator.ensureSession(config), Status::Ok) << coordinator.lastError();
+
+    const auto manifestPath = coordinator.sessionDirCopy() / "manifest.json";
+    ASSERT_TRUE(fs::exists(manifestPath));
+    std::ifstream manifestStream(manifestPath);
+    ASSERT_TRUE(manifestStream.is_open());
+    const std::string manifest((std::istreambuf_iterator<char>(manifestStream)), std::istreambuf_iterator<char>());
+    EXPECT_NE(manifest.find("\"exchange\": \"finam_arena\""), std::string::npos);
 
     std::error_code ec;
     coordinator.finalizeSession();
@@ -183,6 +210,27 @@ TEST(CaptureCoordinator, WritesInstrumentMetadataFromTraderRuntime) {
     std::error_code ec;
     coordinator.finalizeSession();
     fs::remove_all(config.outputDir, ec);
+}
+
+TEST(CaptureCoordinator, FinamMetadataEnrichmentUsesCaptureApiSlot) {
+    hft_trader::runtime::RuntimeTestHooks hooks{};
+    hooks.fetchMetadata = mockFetchMetadata;
+    RuntimeHooksGuard guard{&hooks};
+    g_lastMetadataApiSlot = 0u;
+
+    auto config = makeValidConfig();
+    config.exchange = "finam";
+    config.market = "futures";
+    config.symbols = {"SRU6@RTSX"};
+    config.apiSlot = 7u;
+
+    auto metadata = hftrec::corpus::makeInstrumentMetadata(config.exchange, config.market, config.symbols.front());
+    EXPECT_TRUE(hftrec::capture::internal::enrichInstrumentMetadataFromExchangeInfo(config, metadata));
+    EXPECT_EQ(g_lastMetadataApiSlot, 7u);
+    ASSERT_TRUE(metadata.priceBasisQtyE8.has_value());
+    EXPECT_EQ(*metadata.priceBasisQtyE8, 10000000000LL);
+    EXPECT_EQ(metadata.metadataSource, "hft_trader");
+    EXPECT_FALSE(metadata.metadataWarning.has_value());
 }
 
 }  // namespace

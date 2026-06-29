@@ -7,6 +7,7 @@
 #include "core/capture/CaptureCoordinator.hpp"
 #if HFTREC_WITH_CXET
 #include "cxet.hpp"
+#include "hft_trader/runtime/config/RuntimeConfig.hpp"
 #endif
 
 namespace hftrec::corpus {
@@ -33,9 +34,11 @@ bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
                            cxet::UnifiedRequestBuilder& builder,
                            std::string& lastError);
 
+hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfig& config) noexcept;
+
 #endif
 
-void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
+bool enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
                                               corpus::InstrumentMetadata& metadata) noexcept;
 Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError);
 bool sessionConfigMatches(const CaptureConfig& lhs, const CaptureConfig& rhs) noexcept;

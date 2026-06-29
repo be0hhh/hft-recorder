@@ -58,6 +58,7 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString riskMaxPositionUsdt READ riskMaxPositionUsdt WRITE setRiskMaxPositionUsdt NOTIFY accountingChanged)
     Q_PROPERTY(QString riskRateLimitGuardMinRemaining READ riskRateLimitGuardMinRemaining WRITE setRiskRateLimitGuardMinRemaining NOTIFY accountingChanged)
     Q_PROPERTY(bool rateLimitsEnabled READ rateLimitsEnabled WRITE setRateLimitsEnabled NOTIFY rateLimitsChanged)
+    Q_PROPERTY(bool strictRateLimitsEnabled READ strictRateLimitsEnabled WRITE setStrictRateLimitsEnabled NOTIFY rateLimitsChanged)
     Q_PROPERTY(QString makerFeeBps READ makerFeeBps WRITE setMakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString takerFeeBps READ takerFeeBps WRITE setTakerFeeBps NOTIFY accountingChanged)
     Q_PROPERTY(QString orderLatencyUs READ orderLatencyUs WRITE setOrderLatencyUs NOTIFY latencyChanged)
@@ -168,6 +169,7 @@ class BacktestViewModel : public QObject {
     QString riskMaxPositionUsdt() const { return riskMaxPositionUsdt_; }
     QString riskRateLimitGuardMinRemaining() const { return riskRateLimitGuardMinRemaining_; }
     bool rateLimitsEnabled() const noexcept { return rateLimitsEnabled_; }
+    bool strictRateLimitsEnabled() const noexcept { return strictRateLimitsEnabled_; }
     QString makerFeeBps() const { return makerFeeBps_; }
     QString takerFeeBps() const { return takerFeeBps_; }
     QString orderLatencyUs() const { return marketOrderLatencyUs_; }
@@ -268,6 +270,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setRiskMaxPositionUsdt(const QString& value);
     Q_INVOKABLE void setRiskRateLimitGuardMinRemaining(const QString& value);
     Q_INVOKABLE void setRateLimitsEnabled(bool enabled);
+    Q_INVOKABLE void setStrictRateLimitsEnabled(bool enabled);
     Q_INVOKABLE void setMakerFeeBps(const QString& value);
     Q_INVOKABLE void setTakerFeeBps(const QString& value);
     Q_INVOKABLE void setOrderLatencyUs(const QString& value);
@@ -298,6 +301,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void startBacktest();
     Q_INVOKABLE void startSweep();
     Q_INVOKABLE void startBatchSweep();
+    Q_INVOKABLE void startBasisChainBatchBacktest(const QString& groupPath);
     Q_INVOKABLE void applySweepPoint(int rowIndex);
     Q_INVOKABLE void applySweepPointById(int pointId);
     Q_INVOKABLE void startDetailedRunFromSweepPoint(int rowIndex);
@@ -489,6 +493,7 @@ class BacktestViewModel : public QObject {
     QString riskMaxPositionUsdt_{};
     QString riskRateLimitGuardMinRemaining_{};
     bool rateLimitsEnabled_{true};
+    bool strictRateLimitsEnabled_{false};
     QString makerFeeBps_{QStringLiteral("0")};
     QString takerFeeBps_{QStringLiteral("0")};
     QString sweepBudget_{QStringLiteral("64")};

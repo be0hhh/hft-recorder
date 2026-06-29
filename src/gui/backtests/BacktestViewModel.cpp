@@ -288,7 +288,7 @@ QStringList BacktestViewModel::selectedSessionPaths_() const {
 
 QStringList BacktestViewModel::orderedSessionPathsForRun_() const {
     QStringList paths = selectedSessionPaths_();
-    if (selectedStrategy_ != QStringLiteral("basis_convergence_probe") || paths.size() != 2) return paths;
+    if (selectedStrategy_ != QStringLiteral("basis_convergence_probe") || paths.size() < 2) return paths;
 
     int spotIndex = -1;
     int futuresIndex = -1;
@@ -302,7 +302,7 @@ QStringList BacktestViewModel::orderedSessionPathsForRun_() const {
                    market == QStringLiteral("usdt") ||
                    market == QStringLiteral("usdc") ||
                    market == QStringLiteral("linear")) {
-            futuresIndex = i;
+            if (futuresIndex < 0) futuresIndex = i;
         }
     }
     if (spotIndex < 0 || futuresIndex < 0 || spotIndex == futuresIndex) return paths;
@@ -638,6 +638,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     const quint64 cancelLatency = cancelOrderLatency;
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
     const bool rateLimitsEnabled = rateLimitsEnabled_;
+    const bool strictRateLimitsEnabled = rateLimitsEnabled && strictRateLimitsEnabled_;
     std::vector<std::int64_t> legInitialBalances;
     std::vector<hft_backtest::BacktestFeeSchedule> feeSchedules;
     std::vector<hft_backtest::BacktestLatencySchedule> latencySchedules;
@@ -672,7 +673,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
     configureWorkerThreadStack_();
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, rateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, rateLimitsEnabled, strictRateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules)] {
         try {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPaths.front().toStdString();
@@ -712,6 +713,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.rateLimitSchedules = rateLimitSchedules;
         request.executionPipeline = guiBacktestExecutionPipeline();
         request.rateLimitsEnabled = rateLimitsEnabled;
+        request.strictRateLimitRejects = strictRateLimitsEnabled;
         request.captureStrategySpread = true;
         request.outputPath = (QDir(outputSessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();
 
@@ -831,6 +833,7 @@ void BacktestViewModel::startSweep() {
     const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
     const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
     const bool rateLimitsEnabled = rateLimitsEnabled_;
+    const bool strictRateLimitsEnabled = rateLimitsEnabled && strictRateLimitsEnabled_;
     std::vector<std::int64_t> legInitialBalances;
     std::vector<hft_backtest::BacktestFeeSchedule> feeSchedules;
     std::vector<hft_backtest::BacktestLatencySchedule> latencySchedules;
@@ -866,7 +869,7 @@ void BacktestViewModel::startSweep() {
     const QString indicatorProfile = selectedIndicatorProfile_;
 
     configureWorkerThreadStack_();
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, rateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules), ranges = std::move(ranges)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, rateLimitsEnabled, strictRateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules), ranges = std::move(ranges)] {
         try {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPaths.front().toStdString();
@@ -903,6 +906,7 @@ void BacktestViewModel::startSweep() {
         request.baseRun.latencySchedules = latencySchedules;
         request.baseRun.rateLimitSchedules = rateLimitSchedules;
         request.baseRun.rateLimitsEnabled = rateLimitsEnabled;
+        request.baseRun.strictRateLimitRejects = strictRateLimitsEnabled;
         request.baseRun.writeArtifacts = false;
         request.sweepId = runId.toStdString();
         request.runBudget = runBudget;

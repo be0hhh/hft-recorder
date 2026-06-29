@@ -127,6 +127,29 @@ QString buildDetailedCandlesPreview(const QString& leg1VenueKey,
                                     const QString& leg2SymbolText,
                                     const QString& timeframe,
                                     int limit);
+QVariantList detailedCandlesModeChoices();
+QVariantList detailedCandlesBasisChainCandidates(const QString& spotVenueKey,
+                                                 const QString& spotSymbolText,
+                                                 int maxEnabled,
+                                                 int maxRows,
+                                                 QString* errorText);
+QStringList enabledBasisChainSymbols(const QVariantList& candidateRows);
+std::vector<capture::CaptureConfig> makeDetailedCandlesBasisChainConfigs(const QString& outputDirectory,
+                                                                         const QString& envPath,
+                                                                         int apiSlot,
+                                                                         const QString& spotVenueKey,
+                                                                         const QString& spotSymbolText,
+                                                                         const QString& futuresVenueKey,
+                                                                         const QVariantList& candidateRows,
+                                                                         const QString& timeframe,
+                                                                         int limit,
+                                                                         QString* errorText,
+                                                                         std::int64_t endNs = 0);
+QString buildDetailedCandlesBasisChainPreview(const QString& spotVenueKey,
+                                              const QString& spotSymbolText,
+                                              const QVariantList& candidateRows,
+                                              const QString& timeframe,
+                                              int limit);
 CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, CaptureRefreshMode mode);
 
 }  // namespace detail

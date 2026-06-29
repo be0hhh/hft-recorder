@@ -76,6 +76,7 @@ QString WorkspaceViewModel::tabHost(const QString& tabId) const {
 QString WorkspaceViewModel::tabTitle(const QString& tabId) const {
     if (tabId == QStringLiteral("capture")) return QStringLiteral("Capture");
     if (tabId == QStringLiteral("viewer")) return QStringLiteral("Viewer");
+    if (tabId == QStringLiteral("moex_basis")) return QStringLiteral("MOEX Basis");
     if (tabId == QStringLiteral("compress")) return QStringLiteral("Compress");
     if (tabId == QStringLiteral("backtests")) return QStringLiteral("Backtests");
     if (tabId == QStringLiteral("quant")) return QStringLiteral("Pair Sweep");

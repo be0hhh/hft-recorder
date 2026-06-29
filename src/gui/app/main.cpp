@@ -12,6 +12,8 @@
 #include "gui/models/ViewerSourceListModel.hpp"
 #include "gui/viewer/BookTickerCompareController.hpp"
 #include "gui/viewer/BookTickerCompareItem.hpp"
+#include "gui/viewer/MoexBasisController.hpp"
+#include "gui/viewer/MoexBasisItem.hpp"
 #include "gui/viewer/RateLimitStripItem.hpp"
 #include "gui/viewer/StrategyIndicatorItem.hpp"
 #include "gui/viewer/ChartController.hpp"
@@ -76,6 +78,8 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<hftrec::gui::WorkspaceViewModel>("HftRecorder", 1, 0, "WorkspaceViewModel");
     qmlRegisterType<hftrec::gui::viewer::BookTickerCompareController>("HftRecorder", 1, 0, "BookTickerCompareController");
     qmlRegisterType<hftrec::gui::viewer::BookTickerCompareItem>("HftRecorder", 1, 0, "BookTickerCompareItem");
+    qmlRegisterType<hftrec::gui::viewer::MoexBasisController>("HftRecorder", 1, 0, "MoexBasisController");
+    qmlRegisterType<hftrec::gui::viewer::MoexBasisItem>("HftRecorder", 1, 0, "MoexBasisItem");
     qmlRegisterType<hftrec::gui::viewer::ChartController>("HftRecorder", 1, 0, "ChartController");
     qmlRegisterType<hftrec::gui::viewer::ChartItem>("HftRecorder", 1, 0, "ChartItem");
     qmlRegisterType<hftrec::gui::viewer::RateLimitStripItem>("HftRecorder", 1, 0, "RateLimitStripItem");

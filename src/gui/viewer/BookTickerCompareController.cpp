@@ -47,9 +47,8 @@ std::int64_t meanWindowNs(double seconds) noexcept {
     return static_cast<std::int64_t>(cleanMeanWindowSeconds(seconds) * 1000000000.0);
 }
 
-bool hasMarketRows(const std::vector<hftrec::replay::BookTickerRow>& rows,
-                   const std::vector<hftrec::replay::CandleRow>& candles) noexcept {
-    return !rows.empty() || !candles.empty();
+bool hasMarketRows(const std::vector<hftrec::replay::BookTickerRow>& rows) noexcept {
+    return !rows.empty();
 }
 
 QString feeSettingsKey(const QString& exchange, const QString& market) {
@@ -97,25 +96,14 @@ std::filesystem::path recordedFundingPath(const std::filesystem::path& sessionPa
     return existingFileOrEmpty(sessionPath / "funding.jsonl");
 }
 
-std::filesystem::path recordedChannelPath(const std::filesystem::path& sessionPath,
-                                          const char* channel,
-                                          const char* fallbackName) {
+std::filesystem::path recordedCandles2Path(const std::filesystem::path& sessionPath) {
     const QJsonObject manifest = readSessionManifestObject(sessionPath);
     const QJsonObject channels = manifest.value(QStringLiteral("channels")).toObject();
-    const QString manifestPath = channels.value(QString::fromLatin1(channel)).toObject().value(QStringLiteral("path")).toString();
+    const QString manifestPath = channels.value(QStringLiteral("candles2")).toObject().value(QStringLiteral("path")).toString();
     if (!manifestPath.isEmpty()) {
         if (const auto path = existingFileOrEmpty(sessionPath / manifestPath.toStdString()); !path.empty()) return path;
     }
-    if (const auto path = existingFileOrEmpty(sessionPath / "jsonl" / fallbackName); !path.empty()) return path;
-    return existingFileOrEmpty(sessionPath / fallbackName);
-}
-
-std::filesystem::path recordedDetailedCandlesPath(const std::filesystem::path& sessionPath) {
-    return recordedChannelPath(sessionPath, "candles2", "candles2.jsonl");
-}
-
-std::filesystem::path recordedTieredCandlesPath(const std::filesystem::path& sessionPath) {
-    return recordedChannelPath(sessionPath, "candles", "candles.jsonl");
+    return existingFileOrEmpty(sessionPath / "jsonl" / "candles2.jsonl");
 }
 
 std::string manifestMarketHint(const std::filesystem::path& sessionPath) {
@@ -151,16 +139,6 @@ void normalizeBookTickerRows(std::vector<hftrec::replay::BookTickerRow>& rows,
     for (auto& row : rows) {
         row.bidPriceE8 = hftrec::arbitrage::normalizeNativePriceE8(row.bidPriceE8, priceBasisQtyE8);
         row.askPriceE8 = hftrec::arbitrage::normalizeNativePriceE8(row.askPriceE8, priceBasisQtyE8);
-    }
-}
-
-void normalizeCandleRows(std::vector<hftrec::replay::CandleRow>& rows,
-                         std::int64_t priceBasisQtyE8) {
-    for (auto& row : rows) {
-        row.openE8 = hftrec::arbitrage::normalizeNativePriceE8(row.openE8, priceBasisQtyE8);
-        row.highE8 = hftrec::arbitrage::normalizeNativePriceE8(row.highE8, priceBasisQtyE8);
-        row.lowE8 = hftrec::arbitrage::normalizeNativePriceE8(row.lowE8, priceBasisQtyE8);
-        row.closeE8 = hftrec::arbitrage::normalizeNativePriceE8(row.closeE8, priceBasisQtyE8);
     }
 }
 
@@ -279,7 +257,7 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
     rateLimitUsage_ = RateLimitUsageData{};
     if (next.isEmpty()) {
         updateLowerPane_();
-        if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
+        if (hasMarketRows(primaryRows_) && hasMarketRows(secondaryRows_) && lowerPaneState_.hasData) {
             setStatus_(comparisonReadyStatus_());
         }
         emit dataChanged();
@@ -310,7 +288,7 @@ bool BookTickerCompareController::setBacktestResult(const QString& resultPath) {
     initializeViewportIfNeeded_();
     if (rateLimitVisible_ && rateLimitUsage_.empty()) {
         setStatus_(QStringLiteral("No rate-limit usage in selected result"));
-    } else if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
+    } else if (hasMarketRows(primaryRows_) && hasMarketRows(secondaryRows_) && lowerPaneState_.hasData) {
         setStatus_(comparisonReadyStatus_());
     }
     emit dataChanged();
@@ -323,7 +301,7 @@ void BookTickerCompareController::setRateLimitVisible(bool visible) {
     updateLowerPane_();
     if (visible && rateLimitUsage_.empty()) {
         setStatus_(QStringLiteral("No rate-limit usage in selected result"));
-    } else if (hasMarketRows(primaryRows_, primaryCandles_) && hasMarketRows(secondaryRows_, secondaryCandles_) && lowerPaneState_.hasData) {
+    } else if (hasMarketRows(primaryRows_) && hasMarketRows(secondaryRows_) && lowerPaneState_.hasData) {
         setStatus_(comparisonReadyStatus_());
     }
     emit dataChanged();
@@ -535,28 +513,20 @@ void BookTickerCompareController::reloadRecorded_(SourceState& state) {
         }
     }
 
-    const auto detailedCandlesPath = recordedDetailedCandlesPath(state.sessionPath);
-    const auto tieredCandlesPath = recordedTieredCandlesPath(state.sessionPath);
-    const bool useDetailedCandles = !detailedCandlesPath.empty();
-    const auto candlePath = useDetailedCandles ? detailedCandlesPath : tieredCandlesPath;
-    if (!candlePath.empty()) {
-        hftrec::replay::SessionReplay candleReplay{};
-        const auto status = useDetailedCandles
-            ? candleReplay.addCandles2File(candlePath)
-            : candleReplay.addCandlesFile(candlePath);
-        if (isOk(status)) {
-            const auto& sourceCandles = useDetailedCandles ? candleReplay.candles2() : candleReplay.candles();
-            state.candles = hftrec::arbitrage::selectCompareCandles(sourceCandles);
-            normalizeCandleRows(state.candles, state.priceBasisQtyE8);
-        } else if (state.rows.empty()) {
-            setStatus_(QStringLiteral("Failed to load recorded candles"));
-        }
-    }
     if (state.marketHint.empty()) {
-        if (!state.candles.empty() && !state.candles.front().market.empty()) {
-            state.marketHint = state.candles.front().market;
-        } else {
-            state.marketHint = state.sourceId.trimmed().toLower().toStdString();
+        state.marketHint = state.sourceId.trimmed().toLower().toStdString();
+    }
+
+    if (!state.rows.empty()) {
+        const auto candlesPath = recordedCandles2Path(state.sessionPath);
+        if (!candlesPath.empty()) {
+            hftrec::replay::SessionReplay candlesReplay{};
+            if (isOk(candlesReplay.addCandles2File(candlesPath))) {
+                state.candles = hftrec::arbitrage::selectCompareCandles(candlesReplay.candles2());
+                std::sort(state.candles.begin(), state.candles.end(), [](const auto& lhs, const auto& rhs) noexcept {
+                    return lhs.tsNs < rhs.tsNs;
+                });
+            }
         }
     }
 }
@@ -599,16 +569,28 @@ void BookTickerCompareController::rebuild_() {
     secondaryCandles_ = secondary_.candles;
     spreadPoints_ = hftrec::arbitrage::buildBestSideBookTickerSpread(primaryRows_, secondaryRows_, totalFeePenaltyBps());
     meanPoints_ = hftrec::arbitrage::buildRollingBookTickerSpreadMean(spreadPoints_, meanWindowNs(meanWindowSeconds_), totalFeePenaltyBps());
-    candleSpreadPoints_ = hftrec::arbitrage::buildBestSideCandleSpread(
-        hftrec::arbitrage::CandleSpreadSource{primaryCandles_, primary_.marketHint},
-        hftrec::arbitrage::CandleSpreadSource{secondaryCandles_, secondary_.marketHint});
+    candleSpreadPoints_.clear();
+    if (!primaryCandles_.empty() && !secondaryCandles_.empty()) {
+        candleSpreadPoints_ = hftrec::arbitrage::buildBestSideCandleSpread(
+            hftrec::arbitrage::CandleSpreadSource{
+                .rows = primaryCandles_,
+                .marketHint = primary_.marketHint,
+                .priceBasisQtyE8 = primary_.priceBasisQtyE8,
+            },
+            hftrec::arbitrage::CandleSpreadSource{
+                .rows = secondaryCandles_,
+                .marketHint = secondary_.marketHint,
+                .priceBasisQtyE8 = secondary_.priceBasisQtyE8,
+            });
+        if (candleSpreadPoints_.size() < 2u) candleSpreadPoints_.clear();
+    }
     updateLowerPane_();
     updateFullRange_();
     initializeViewportIfNeeded_();
 
     if (primarySourceId_.isEmpty() || secondarySourceId_.isEmpty()) {
         setStatus_(QStringLiteral("Select two market sessions"));
-    } else if ((primaryRows_.empty() && primaryCandles_.empty()) || (secondaryRows_.empty() && secondaryCandles_.empty())) {
+    } else if (primaryRows_.empty() || secondaryRows_.empty()) {
         setStatus_(QStringLiteral("Waiting for market rows from both sessions"));
     } else if (rateLimitVisible_ && rateLimitUsage_.empty()) {
         setStatus_(QStringLiteral("No rate-limit usage in selected result"));

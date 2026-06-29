@@ -21,7 +21,7 @@ constexpr long kDetailedCandlesMaxLimit = 1'000'000;
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] [--end-ns ns] [--history-sec n] [--history-page-limit n] [--history-max-rows n] <trades|trades_history|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles|candles2> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
+    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] [--candles-page-limit n] [--end-ns ns] [--history-sec n] [--history-page-limit n] [--history-max-rows n] <trades|trades_history|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles|candles2|candles2_bulk> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
     std::puts("  hft-recorder capture [--env path] [--api-slot n] bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
@@ -44,6 +44,7 @@ void printUsage() {
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 /mnt/d/recordings binance ETHUSDT futures 300");
     std::puts("  hft-recorder capture candles 1 /mnt/d/recordings binance BSBUSDT");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 100000 candles2 1 /mnt/d/recordings finam SBER@MISX spot");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 1000000 candles2_bulk 1 /mnt/d/recordings finam GAZP@MISX spot");
 }
 
 capture::CaptureConfig makeDefaultConfig() {
@@ -97,6 +98,12 @@ bool isDetailedCandlesChannel(std::string_view channel) noexcept {
            channel == "detailed-candles" || channel == "klines2";
 }
 
+bool isDetailedCandlesBulkChannel(std::string_view channel) noexcept {
+    return channel == "candles2_bulk" || channel == "candles2-bulk" ||
+           channel == "bulk-candles2" || channel == "bulk_candles2" ||
+           channel == "klines2_bulk" || channel == "klines2-bulk";
+}
+
 bool isTradesHistoryChannel(std::string_view channel) noexcept {
     return channel == "trades_history" || channel == "trade_history" ||
            channel == "historical_trades" || channel == "history_trades";
@@ -117,6 +124,9 @@ Status startChannel(capture::CaptureCoordinator& coordinator,
         const auto sessionStatus = coordinator.ensureSession(config);
         if (!isOk(sessionStatus)) return sessionStatus;
         return coordinator.captureCandlesOnce(config);
+    }
+    if (isDetailedCandlesBulkChannel(channel)) {
+        return coordinator.captureDetailedCandlesBulk(config);
     }
     if (isDetailedCandlesChannel(channel)) {
         return coordinator.captureDetailedCandlesOnce(config);
@@ -207,6 +217,45 @@ bool stripCaptureOptions(capture::CaptureConfig& config,
                 return false;
             }
             config.detailedCandlesLimit = static_cast<std::uint32_t>(limit);
+            continue;
+        }
+        if (arg == "--candles-page-limit") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --candles-page-limit requires a value\n", stderr);
+                return false;
+            }
+            const long limit = std::strtol(argv[++i], nullptr, 10);
+            if (limit < 0 || limit > kDetailedCandlesMaxLimit) {
+                std::fputs("capture: --candles-page-limit must be in [0,1000000]\n", stderr);
+                return false;
+            }
+            config.detailedCandlesPageLimit = static_cast<std::uint32_t>(limit);
+            continue;
+        }
+        if (arg == "--candles-attempts") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --candles-attempts requires a value\n", stderr);
+                return false;
+            }
+            const long attempts = std::strtol(argv[++i], nullptr, 10);
+            if (attempts < 1 || attempts > 20) {
+                std::fputs("capture: --candles-attempts must be in [1,20]\n", stderr);
+                return false;
+            }
+            config.detailedCandlesMaxAttemptsPerPage = static_cast<std::uint32_t>(attempts);
+            continue;
+        }
+        if (arg == "--candles-empty-windows") {
+            if (i + 1 >= argc) {
+                std::fputs("capture: --candles-empty-windows requires a value\n", stderr);
+                return false;
+            }
+            const long windows = std::strtol(argv[++i], nullptr, 10);
+            if (windows < 0 || windows > 1000000) {
+                std::fputs("capture: --candles-empty-windows must be in [0,1000000]\n", stderr);
+                return false;
+            }
+            config.detailedCandlesMaxEmptyWindows = static_cast<std::uint32_t>(windows);
             continue;
         }
         if (arg == "--end-ns") {
@@ -403,8 +452,8 @@ int runCapture(int argc, char** argv) {
         return 1;
     }
 
-    if (isDetailedCandlesChannel(channel)) {
-        std::printf("capture finished: channel=%s exchange=%s market=%s symbol=%s dir=%s env=%s api_slot=%u timeframe=%s limit=%u candles2_rows=%llu session=%s\n",
+    if (isDetailedCandlesChannel(channel) || isDetailedCandlesBulkChannel(channel)) {
+        std::printf("capture finished: channel=%s exchange=%s market=%s symbol=%s dir=%s env=%s api_slot=%u timeframe=%s limit=%u candles_page_limit=%u candles2_rows=%llu session=%s\n",
                     channel.c_str(),
                     config.exchange.c_str(),
                     config.market.c_str(),
@@ -414,6 +463,7 @@ int runCapture(int argc, char** argv) {
                     static_cast<unsigned>(config.apiSlot == 0u ? 1u : config.apiSlot),
                     config.detailedCandlesTimeframe.c_str(),
                     static_cast<unsigned>(config.detailedCandlesLimit),
+                    static_cast<unsigned>(config.detailedCandlesPageLimit),
                     static_cast<unsigned long long>(coordinator.candles2Count()),
                     coordinator.sessionDirCopy().string().c_str());
         return 0;

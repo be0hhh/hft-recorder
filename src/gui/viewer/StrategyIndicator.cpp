@@ -75,6 +75,10 @@ bool parseIndicatorLine(std::string_view line, StrategyIndicatorPoint& out) noex
     if (!parseByte(parser, out.reasonRaw) || !parser.parseComma()) return false;
     if (!parseByte(parser, out.decisionKind) || !parser.parseComma()) return false;
     if (!parseByte(parser, out.sideRaw)) return false;
+    while (!parser.peek(']')) {
+        std::int64_t ignored = 0;
+        if (!parser.parseComma() || !parser.parseInt64(ignored)) return false;
+    }
     return parser.parseArrayEnd() && parser.finish();
 }
 

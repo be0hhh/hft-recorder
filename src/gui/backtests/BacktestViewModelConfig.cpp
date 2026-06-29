@@ -376,6 +376,16 @@ void BacktestViewModel::setRiskRateLimitGuardMinRemaining(const QString& value) 
 void BacktestViewModel::setRateLimitsEnabled(bool enabled) {
     if (rateLimitsEnabled_ == enabled) return;
     rateLimitsEnabled_ = enabled;
+    if (!rateLimitsEnabled_) strictRateLimitsEnabled_ = false;
+    savePersistentConfig_();
+    emit rateLimitsChanged();
+    emit multiSessionChanged();
+}
+
+void BacktestViewModel::setStrictRateLimitsEnabled(bool enabled) {
+    const bool next = enabled && rateLimitsEnabled_;
+    if (strictRateLimitsEnabled_ == next) return;
+    strictRateLimitsEnabled_ = next;
     savePersistentConfig_();
     emit rateLimitsChanged();
     emit multiSessionChanged();
@@ -509,7 +519,7 @@ void BacktestViewModel::saveProfile() {
     out << "risk_min_leg_equity_usdt=" << riskMinLegEquityUsdt_ << "\n";
     out << "risk_max_position_usdt=" << riskMaxPositionUsdt_ << "\n";
     out << "risk_rate_limit_guard_min_remaining=" << riskRateLimitGuardMinRemaining_ << "\n";
-    writeBacktestRateLimitConfig(out, rateLimitsEnabled_);
+    writeBacktestRateLimitConfig(out, rateLimitsEnabled_, strictRateLimitsEnabled_);
     out << "sweep_budget=" << sweepBudget_ << "\n";
     out << "sweep_seed=" << sweepSeed_ << "\n";
     out << "config_mode=" << configMode_ << "\n\n";
@@ -591,6 +601,7 @@ void BacktestViewModel::loadProfile() {
     const QString riskRateLimitGuardMinRemaining =
         iniValue(text, QStringLiteral("backtest"), QStringLiteral("risk_rate_limit_guard_min_remaining"));
     const QString rateLimitsEnabled = iniValue(text, QStringLiteral("backtest"), QStringLiteral("rate_limits_enabled"));
+    const QString strictRateLimits = iniValue(text, QStringLiteral("backtest"), QStringLiteral("strict_rate_limits"));
     const QString sweepBudget = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_budget"));
     const QString sweepSeed = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_seed"));
     const QString mode = iniValue(text, QStringLiteral("backtest"), QStringLiteral("config_mode"));
@@ -619,6 +630,8 @@ void BacktestViewModel::loadProfile() {
     riskMaxPositionUsdt_ = riskMaxPositionUsdt;
     riskRateLimitGuardMinRemaining_ = riskRateLimitGuardMinRemaining;
     if (!rateLimitsEnabled.isEmpty()) rateLimitsEnabled_ = boolIniValue(rateLimitsEnabled, rateLimitsEnabled_);
+    if (!strictRateLimits.isEmpty()) strictRateLimitsEnabled_ = rateLimitsEnabled_ && boolIniValue(strictRateLimits, strictRateLimitsEnabled_);
+    if (!rateLimitsEnabled_) strictRateLimitsEnabled_ = false;
     if (!sweepBudget.isEmpty()) sweepBudget_ = sweepBudget;
     if (!sweepSeed.isEmpty()) sweepSeed_ = sweepSeed;
     if (!mode.isEmpty()) configMode_ = normalizeConfigMode(mode);
@@ -811,6 +824,10 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (settings_.contains(QStringLiteral("backtests/rate_limits_enabled"))) {
         rateLimitsEnabled_ = settings_.value(QStringLiteral("backtests/rate_limits_enabled"), rateLimitsEnabled_).toBool();
     }
+    if (settings_.contains(QStringLiteral("backtests/strict_rate_limits"))) {
+        strictRateLimitsEnabled_ = rateLimitsEnabled_ && settings_.value(QStringLiteral("backtests/strict_rate_limits"), strictRateLimitsEnabled_).toBool();
+    }
+    if (!rateLimitsEnabled_) strictRateLimitsEnabled_ = false;
     makerFeeBps_ = QStringLiteral("0");
     takerFeeBps_ = QStringLiteral("0");
     sweepBudget_ = settings_.value(QStringLiteral("backtests/sweep_budget"), sweepBudget_).toString().trimmed();
@@ -874,6 +891,7 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/risk_max_position_usdt"), riskMaxPositionUsdt_);
     settings_.setValue(QStringLiteral("backtests/risk_rate_limit_guard_min_remaining"), riskRateLimitGuardMinRemaining_);
     settings_.setValue(QStringLiteral("backtests/rate_limits_enabled"), rateLimitsEnabled_);
+    settings_.setValue(QStringLiteral("backtests/strict_rate_limits"), strictRateLimitsEnabled_);
     settings_.setValue(QStringLiteral("backtests/sweep_budget"), sweepBudget_);
     settings_.setValue(QStringLiteral("backtests/sweep_seed"), sweepSeed_);
     settings_.setValue(QStringLiteral("backtests/batch_universe_id"), batchUniverseId_);
@@ -1010,7 +1028,7 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForSess
     if (!filteredBase.endsWith(QLatin1Char('\n'))) out << "\n";
     out << "\n# recorder backtest overrides\n";
     out << "[backtest]\n";
-    writeBacktestRateLimitConfig(out, rateLimitsEnabled_);
+    writeBacktestRateLimitConfig(out, rateLimitsEnabled_, strictRateLimitsEnabled_);
     out << "\n";
     out << "[strategy]\n";
     out << "type=" << selectedStrategy_ << "\n";

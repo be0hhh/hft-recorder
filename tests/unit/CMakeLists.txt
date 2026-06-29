@@ -3,6 +3,7 @@ include(GoogleTest)
 set(HFTREC_UNIT_TEST_SOURCES
     test_smoke.cpp
     test_capture_serializers.cpp
+    test_candles2_bulk_state.cpp
     test_capture_cli.cpp
     test_history_binance_vision.cpp
     test_corpus_loader.cpp
@@ -42,12 +43,14 @@ if(Qt6_FOUND)
             test_viewer_bookticker_trace.cpp
             test_chart_markers.cpp
             test_workspace_viewmodel.cpp
+            test_moex_basis_series.cpp
             backtests/test_backtest_batch_analysis_helpers.cpp
             backtests/test_backtest_batch_sweep_helpers.cpp
             backtests/test_backtest_viewmodel.cpp
             backtests/test_backtest_viewmodel_helpers.cpp
             test_recorded_render_once.cpp
             test_capture_viewmodel_requests.cpp
+            test_basis_chain_manifest.cpp
             test_strategy_overlay.cpp
             test_strategy_indicator.cpp
             test_rate_limit_usage.cpp
@@ -61,9 +64,12 @@ if(Qt6_FOUND)
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/StrategyIndicator.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/RateLimitUsage.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/BookTickerCompareController.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewer/MoexBasisSeries.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/hit_test/HoverDetection.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewer/ChartController.hpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/CaptureViewModelRequests.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/CaptureViewModelBasisChainHelpers.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/FinamCatalog.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/viewmodels/WorkspaceViewModel.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestExecutionConfigHelpers.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestBatchAnalysisHelpers.cpp

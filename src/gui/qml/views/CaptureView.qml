@@ -168,6 +168,26 @@ Pane {
                                         color: root.textColor
                                     }
 
+                                    RecorderComboBox {
+                                        id: detailedCandlesModeCombo
+                                        Layout.preferredWidth: 150
+                                        Layout.minimumWidth: 140
+                                        caption: "Mode"
+                                        textRole: "label"
+                                        valueRole: "value"
+                                        popupWidth: 220
+                                        panelColor: root.panelColor
+                                        panelAltColor: root.panelAltColor
+                                        panelDeepColor: root.panelColor
+                                        borderColor: root.borderColor
+                                        textColor: root.textColor
+                                        mutedTextColor: root.mutedTextColor
+                                        accentColor: root.accentRequiredColor
+                                        model: root.captureVm.detailedCandlesModeChoices
+                                        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(root.captureVm.detailedCandlesMode))
+                                        onActivated: root.captureVm.detailedCandlesMode = currentValue
+                                    }
+
                                     Label {
                                         text: "Rows " + root.captureVm.candles2Count
                                         color: root.mutedTextColor
@@ -181,7 +201,7 @@ Pane {
                                     rowSpacing: 8
 
                                     Label {
-                                        text: "Leg 1"
+                                        text: root.captureVm.detailedCandlesMode === "basis_chain" ? "Spot" : "Leg 1"
                                         color: root.mutedTextColor
                                     }
 
@@ -260,10 +280,12 @@ Pane {
                                     Label {
                                         text: "Leg 2"
                                         color: root.mutedTextColor
+                                        visible: root.captureVm.detailedCandlesMode !== "single" && root.captureVm.detailedCandlesMode !== "basis_chain"
                                     }
 
                                     RecorderComboBox {
                                         id: detailedCandlesLeg2VenueCombo
+                                        visible: root.captureVm.detailedCandlesMode !== "single" && root.captureVm.detailedCandlesMode !== "basis_chain"
                                         Layout.preferredWidth: 170
                                         Layout.minimumWidth: 150
                                         caption: "Venue"
@@ -284,6 +306,7 @@ Pane {
 
                                     TextField {
                                         id: detailedCandlesLeg2SymbolField
+                                        visible: root.captureVm.detailedCandlesMode !== "single" && root.captureVm.detailedCandlesMode !== "basis_chain"
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 180
                                         text: root.captureVm.detailedCandlesLeg2SymbolsText
@@ -303,6 +326,7 @@ Pane {
                                     }
 
                                     CaptureAccentActionButton {
+                                        visible: root.captureVm.detailedCandlesMode !== "single" && root.captureVm.detailedCandlesMode !== "basis_chain"
                                         Layout.preferredWidth: 82
                                         text: "Find"
                                         accentColor: root.accentRequiredColor
@@ -390,6 +414,120 @@ Pane {
                                     }
                                 }
 
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: root.captureVm.detailedCandlesMode === "basis_chain"
+                                    implicitHeight: visible ? basisChainColumn.implicitHeight + 16 : 0
+                                    radius: 8
+                                    color: root.panelColor
+                                    border.color: root.borderColor
+                                    border.width: 1
+                                    clip: true
+
+                                    ColumnLayout {
+                                        id: basisChainColumn
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+                                        spacing: 8
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 8
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: root.captureVm.detailedCandlesBasisStatus === "" ? "FINAM futures chain" : root.captureVm.detailedCandlesBasisStatus
+                                                color: root.mutedTextColor
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Label {
+                                                text: "Max"
+                                                color: root.mutedTextColor
+                                            }
+
+                                            SpinBox {
+                                                Layout.preferredWidth: 96
+                                                from: 1
+                                                to: 80
+                                                editable: true
+                                                value: root.captureVm.detailedCandlesBasisMaxFutures
+                                                onValueModified: root.captureVm.detailedCandlesBasisMaxFutures = value
+                                            }
+
+                                            CaptureAccentActionButton {
+                                                Layout.preferredWidth: 112
+                                                text: "Build Chain"
+                                                accentColor: root.accentRequiredColor
+                                                actionTextColor: "#071419"
+                                                mutedTextColor: root.mutedTextColor
+                                                onClicked: root.captureVm.refreshDetailedCandlesBasisCandidates()
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            implicitHeight: Math.min(286, Math.max(48, basisChainList.contentHeight + 2))
+                                            radius: 6
+                                            color: root.panelAltColor
+                                            border.color: root.borderColor
+                                            border.width: 1
+                                            clip: true
+
+                                            ListView {
+                                                id: basisChainList
+                                                anchors.fill: parent
+                                                clip: true
+                                                model: root.captureVm.detailedCandlesBasisCandidateRows
+                                                delegate: Rectangle {
+                                                    required property int index
+                                                    required property var modelData
+                                                    width: basisChainList.width
+                                                    height: 44
+                                                    color: index % 2 === 0 ? root.panelAltColor : root.panelColor
+
+                                                    RowLayout {
+                                                        anchors.fill: parent
+                                                        anchors.leftMargin: 8
+                                                        anchors.rightMargin: 8
+                                                        spacing: 8
+
+                                                        CheckBox {
+                                                            checked: modelData.enabled === true
+                                                            onToggled: root.captureVm.setDetailedCandlesBasisCandidateEnabled(index, checked)
+                                                        }
+
+                                                        Label {
+                                                            Layout.preferredWidth: 128
+                                                            text: modelData.symbol || ""
+                                                            color: root.textColor
+                                                            font.bold: modelData.enabled === true
+                                                            elide: Text.ElideRight
+                                                        }
+
+                                                        Label {
+                                                            Layout.fillWidth: true
+                                                            text: modelData.detail || ""
+                                                            color: root.mutedTextColor
+                                                            font.pixelSize: 11
+                                                            elide: Text.ElideRight
+                                                        }
+
+                                                        Label {
+                                                            Layout.preferredWidth: 150
+                                                            text: modelData.rightText || ""
+                                                            color: modelData.archived === true ? root.mutedTextColor : root.accentBuyColor
+                                                            font.pixelSize: 11
+                                                            horizontalAlignment: Text.AlignRight
+                                                            elide: Text.ElideRight
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 function openDetailedSymbolSuggestions(leg) {
                                     var venueKey = leg === 2 ? root.captureVm.detailedCandlesLeg2VenueKey : root.captureVm.detailedCandlesLeg1VenueKey
                                     var query = leg === 2 ? detailedCandlesLeg2SymbolField.text : detailedCandlesLeg1SymbolField.text
@@ -470,6 +608,10 @@ Pane {
                                 Connections {
                                     target: root.captureVm
                                     function onDetailedCandlesChanged() {
+                                        var modeIdx = detailedCandlesModeCombo.indexOfValue(root.captureVm.detailedCandlesMode)
+                                        if (modeIdx >= 0 && detailedCandlesModeCombo.currentIndex !== modeIdx)
+                                            detailedCandlesModeCombo.currentIndex = modeIdx
+
                                         var leg1VenueIdx = detailedCandlesLeg1VenueCombo.indexOfValue(root.captureVm.detailedCandlesLeg1VenueKey)
                                         if (leg1VenueIdx >= 0 && detailedCandlesLeg1VenueCombo.currentIndex !== leg1VenueIdx)
                                             detailedCandlesLeg1VenueCombo.currentIndex = leg1VenueIdx
@@ -503,7 +645,7 @@ Pane {
                                 }
 
                                 CaptureAccentActionButton {
-                                    text: "Download Candles2"
+                                    text: root.captureVm.detailedCandlesMode === "basis_chain" ? "Download Chain" : "Download Candles2"
                                     accentColor: root.accentRequiredColor
                                     actionTextColor: "#071419"
                                     mutedTextColor: root.mutedTextColor

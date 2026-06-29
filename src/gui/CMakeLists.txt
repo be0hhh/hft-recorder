@@ -22,7 +22,10 @@ qt_add_executable(hft-recorder-gui
     backtests/BacktestViewModelConfig.cpp
     backtests/BacktestViewModelResults.cpp
     viewmodels/CaptureViewModel.cpp
+    viewmodels/CaptureViewModelBasisChain.cpp
+    viewmodels/CaptureViewModelBasisChainHelpers.cpp
     viewmodels/CaptureViewModelBatch.cpp
+    viewmodels/FinamCatalog.cpp
     viewmodels/CaptureViewModelRequests.cpp
     viewmodels/CaptureViewModelState.cpp
     viewmodels/CompressionViewModel.cpp
@@ -43,6 +46,9 @@ qt_add_executable(hft-recorder-gui
     viewer/BookTickerCompareController.cpp
     viewer/BookTickerCompareCandlePaint.cpp
     viewer/BookTickerCompareItem.cpp
+    viewer/MoexBasisSeries.cpp
+    viewer/MoexBasisController.cpp
+    viewer/MoexBasisItem.cpp
     viewer/ChartItem.cpp
     viewer/ChartItemHover.cpp
     viewer/ChartItemPaint.cpp
@@ -93,6 +99,7 @@ qt_add_qml_module(hft-recorder-gui
         qml/views/LabView.qml
         qml/views/DashboardView.qml
         qml/views/ViewerView.qml
+        qml/views/MoexBasisView.qml
         qml/views/BacktestResultsView.qml
         qml/views/QuantView.qml
         qml/views/ResultsView.qml

@@ -755,6 +755,28 @@ Pane {
                             }
                             onToggled: root.backtestVm.rateLimitsEnabled = checked
                         }
+
+                        CheckBox {
+                            id: strictRateLimitsBox
+                            x: 68
+                            y: 22
+                            width: 82
+                            height: 28
+                            checked: root.backtestVm.strictRateLimitsEnabled
+                            enabled: root.backtestVm.rateLimitsEnabled
+                            opacity: enabled ? 1.0 : 0.45
+                            text: "Strict"
+                            font.pixelSize: 12
+                            palette.text: root.textColor
+                            contentItem: Text {
+                                leftPadding: strictRateLimitsBox.indicator.width + strictRateLimitsBox.spacing
+                                text: strictRateLimitsBox.text
+                                color: root.textColor
+                                font: strictRateLimitsBox.font
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onToggled: root.backtestVm.strictRateLimitsEnabled = checked
+                        }
                     }
 
                     Item {

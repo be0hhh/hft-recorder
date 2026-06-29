@@ -50,6 +50,11 @@ class CaptureViewModel : public QObject {
     Q_PROPERTY(QString detailedCandlesLeg2SymbolsText READ detailedCandlesLeg2SymbolsText WRITE setDetailedCandlesLeg2SymbolsText NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString detailedCandlesTimeframe READ detailedCandlesTimeframe WRITE setDetailedCandlesTimeframe NOTIFY detailedCandlesChanged)
     Q_PROPERTY(int detailedCandlesLimit READ detailedCandlesLimit WRITE setDetailedCandlesLimit NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesMode READ detailedCandlesMode WRITE setDetailedCandlesMode NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QVariantList detailedCandlesModeChoices READ detailedCandlesModeChoices CONSTANT)
+    Q_PROPERTY(int detailedCandlesBasisMaxFutures READ detailedCandlesBasisMaxFutures WRITE setDetailedCandlesBasisMaxFutures NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QVariantList detailedCandlesBasisCandidateRows READ detailedCandlesBasisCandidateRows NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesBasisStatus READ detailedCandlesBasisStatus NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString detailedCandlesEndMode READ detailedCandlesEndMode WRITE setDetailedCandlesEndMode NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QString detailedCandlesEndUtcText READ detailedCandlesEndUtcText WRITE setDetailedCandlesEndUtcText NOTIFY detailedCandlesChanged)
     Q_PROPERTY(QVariantList detailedCandlesEndModeChoices READ detailedCandlesEndModeChoices NOTIFY detailedCandlesChanged)
@@ -114,6 +119,11 @@ class CaptureViewModel : public QObject {
     QString detailedCandlesLeg2SymbolsText() const;
     QString detailedCandlesTimeframe() const;
     int detailedCandlesLimit() const noexcept;
+    QString detailedCandlesMode() const;
+    QVariantList detailedCandlesModeChoices() const;
+    int detailedCandlesBasisMaxFutures() const noexcept;
+    QVariantList detailedCandlesBasisCandidateRows() const;
+    QString detailedCandlesBasisStatus() const;
     QString detailedCandlesEndMode() const;
     QString detailedCandlesEndUtcText() const;
     QVariantList detailedCandlesEndModeChoices() const;
@@ -169,6 +179,10 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE void setDetailedCandlesLeg2SymbolsText(const QString& symbolsText);
     Q_INVOKABLE void setDetailedCandlesTimeframe(const QString& timeframe);
     Q_INVOKABLE void setDetailedCandlesLimit(int limit);
+    Q_INVOKABLE void setDetailedCandlesMode(const QString& mode);
+    Q_INVOKABLE void setDetailedCandlesBasisMaxFutures(int maxFutures);
+    Q_INVOKABLE void refreshDetailedCandlesBasisCandidates();
+    Q_INVOKABLE void setDetailedCandlesBasisCandidateEnabled(int index, bool enabled);
     Q_INVOKABLE void setDetailedCandlesEndMode(const QString& mode);
     Q_INVOKABLE void setDetailedCandlesEndUtcText(const QString& text);
     Q_INVOKABLE QVariantList detailedCandlesSymbolSuggestions(const QString& venueKey,
@@ -190,6 +204,7 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE void stopBookTicker();
     Q_INVOKABLE bool startCandles();
     Q_INVOKABLE bool startDetailedCandles();
+    Q_INVOKABLE bool startDetailedCandlesBasisChain();
     Q_INVOKABLE bool startOrderbook();
     Q_INVOKABLE void stopOrderbook();
     Q_INVOKABLE bool startMarkPrice();
@@ -271,6 +286,10 @@ class CaptureViewModel : public QObject {
     QString detailedCandlesLeg2SymbolsText_{};
     QString detailedCandlesTimeframe_{"1m"};
     int detailedCandlesLimit_{5000};
+    QString detailedCandlesMode_{"pair"};
+    int detailedCandlesBasisMaxFutures_{10};
+    QVariantList detailedCandlesBasisCandidateRows_{};
+    QString detailedCandlesBasisStatus_{};
     QString detailedCandlesEndMode_{"smart"};
     QString detailedCandlesEndUtcText_{"2026-06-19 20:45:00Z"};
     QStringList tradesAvailableAliases_{};

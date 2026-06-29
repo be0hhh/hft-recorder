@@ -393,8 +393,9 @@ hft_backtest::BacktestRateLimitSchedule rateLimitScheduleFromVenueRow(const QVar
     return schedule;
 }
 
-void writeBacktestRateLimitConfig(QTextStream& out, bool enabled) {
+void writeBacktestRateLimitConfig(QTextStream& out, bool enabled, bool strictRejects) {
     out << "rate_limits_enabled=" << (enabled ? "true" : "false") << "\n";
+    out << "strict_rate_limits=" << (enabled && strictRejects ? "true" : "false") << "\n";
 }
 
 void writeRuntimeRateLimitConfig(QTextStream& out, const QVariantMap& execution) {

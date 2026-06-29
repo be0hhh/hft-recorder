@@ -896,7 +896,7 @@ Pane {
                 Label {
                     Layout.fillWidth: true
                     text: root.compareMode
-                          ? compareChart.statusText + " | bt A: " + compareChart.primaryCount + " B: " + compareChart.secondaryCount + " spread: " + compareChart.spreadCount + " | candles A: " + compareChart.primaryCandleCount + " B: " + compareChart.secondaryCandleCount + " spread: " + compareChart.candleSpreadCount
+                          ? compareChart.statusText + " | bt A: " + compareChart.primaryCount + " B: " + compareChart.secondaryCount + " spread: " + compareChart.spreadCount
                           : (root.singleSelectedSourceId() !== "" ? chart.statusText : "Pick one session for full viewer or two sessions for spread compare")
                     color: root.mutedTextColor
                     elide: Text.ElideRight
@@ -1047,7 +1047,7 @@ Pane {
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 text: root.compareMode
-                    ? "Top: combined market traces and routed backtest markers. Bottom: " + compareChart.lowerPaneTitle + "."
+                    ? "Top: combined bookTicker traces and routed backtest markers. Bottom: " + compareChart.lowerPaneTitle + "."
                     : (chart.selectedBacktestResult !== "" || root.preferChartStatusText())
                         ? chart.statusText
                         : root.tabActive && root.performanceDiagnosticsText !== ""

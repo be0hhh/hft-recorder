@@ -490,6 +490,34 @@ Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
     return out.good() ? Status::Ok : Status::IoError;
 }
 
+Status CaptureCoordinator::refreshInstrumentMetadataFromExchangeInfo() noexcept {
+    if (sessionDir_.empty() || config_.symbols.empty()) return Status::InvalidArgument;
+    auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
+    const bool enriched = internal::enrichInstrumentMetadataFromExchangeInfo(config_, metadata);
+    const bool hasPriceBasis = metadata.priceBasisQtyE8.has_value() && *metadata.priceBasisQtyE8 > 0;
+
+    const auto metadataPath = sessionDir_ / manifest_.instrumentMetadataPath;
+    const auto tempPath = sessionDir_ / (manifest_.instrumentMetadataPath + ".tmp");
+    if (const auto writeStatus = writeFileFully(tempPath, corpus::renderInstrumentMetadataJson(metadata)); !isOk(writeStatus)) {
+        lastError_ = "failed to write refreshed instrument metadata sidecar";
+        return writeStatus;
+    }
+    if (const auto replaceStatus = replaceFilePreservingPrevious(tempPath, metadataPath); !isOk(replaceStatus)) {
+        lastError_ = "failed to replace refreshed instrument metadata sidecar";
+        return replaceStatus;
+    }
+
+    instrumentMetadataReady_ = enriched && hasPriceBasis;
+    if (!instrumentMetadataReady_) {
+        lastError_ = "instrument metadata missing price_basis_qty_e8";
+        if (metadata.metadataWarning.has_value() && !metadata.metadataWarning->empty()) {
+            lastError_ += " ";
+            lastError_ += *metadata.metadataWarning;
+        }
+    }
+    return Status::Ok;
+}
+
 Status CaptureCoordinator::writeSupportArtifacts() noexcept {
     std::error_code ec;
     std::filesystem::create_directories(sessionDir_ / "reports", ec);

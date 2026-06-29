@@ -46,9 +46,17 @@ QString compactValue(std::int64_t value, const QString& unit) {
     return unit.isEmpty() ? base : QStringLiteral("%1 %2").arg(base, unit);
 }
 
+bool isToxicFlowPairIndicator(const StrategyIndicatorData& indicator) noexcept {
+    return indicator.profile == QStringLiteral("toxic_flow_pair");
+}
+
 QString indicatorRawTitle(const StrategyIndicatorData& indicator) {
     QString title = indicator.title.isEmpty() ? indicator.profile : indicator.title;
-    if (!indicator.auxLabel.isEmpty()) {
+    if (isToxicFlowPairIndicator(indicator) && !indicator.valueLabel.isEmpty() && !indicator.auxLabel.isEmpty()) {
+        title = title.isEmpty()
+            ? QStringLiteral("%1/%2").arg(indicator.valueLabel, indicator.auxLabel)
+            : QStringLiteral("%1 %2/%3").arg(title, indicator.valueLabel, indicator.auxLabel);
+    } else if (!indicator.auxLabel.isEmpty()) {
         title = title.isEmpty() ? indicator.auxLabel : QStringLiteral("%1 %2").arg(title, indicator.auxLabel);
     }
     return title;
@@ -93,11 +101,16 @@ void StrategyIndicatorItem::paint(QPainter* painter) {
     std::int64_t maxValue = std::numeric_limits<std::int64_t>::min();
     std::size_t firstVisible = indicator.points.size();
     std::size_t lastVisible = 0;
+    const bool pairIndicator = isToxicFlowPairIndicator(indicator);
     for (std::size_t i = 0; i < indicator.points.size(); ++i) {
         const auto& point = indicator.points[i];
         if (point.tsNs < tsMin || point.tsNs > tsMax) continue;
         if (firstVisible == indicator.points.size()) firstVisible = i;
         lastVisible = i;
+        if (pairIndicator) {
+            minValue = std::min(minValue, point.valueRaw);
+            maxValue = std::max(maxValue, point.valueRaw);
+        }
         minValue = std::min(minValue, point.auxRaw);
         maxValue = std::max(maxValue, point.auxRaw);
     }
@@ -115,21 +128,25 @@ void StrategyIndicatorItem::paint(QPainter* painter) {
     painter->drawLine(QPointF(left + plotWidth, top), QPointF(left + plotWidth, top + plotHeight));
 
     const int bucketCount = std::max(1, static_cast<int>(std::ceil(plotWidth)));
+    std::vector<PixelBucket> valueBuckets(static_cast<std::size_t>(pairIndicator ? bucketCount : 0));
     std::vector<PixelBucket> buckets(static_cast<std::size_t>(bucketCount));
+    auto absorbBucket = [](PixelBucket& bucket, std::int64_t value) noexcept {
+        if (!bucket.has) {
+            bucket.has = true;
+            bucket.minValue = value;
+            bucket.maxValue = value;
+        } else {
+            bucket.minValue = std::min(bucket.minValue, value);
+            bucket.maxValue = std::max(bucket.maxValue, value);
+        }
+        bucket.lastValue = value;
+    };
     for (std::size_t i = firstVisible; i <= lastVisible; ++i) {
         const auto& point = indicator.points[i];
         if (point.tsNs < tsMin || point.tsNs > tsMax) continue;
         int x = static_cast<int>(std::clamp<qreal>(mapX(point.tsNs, tsMin, tsMax, left, plotWidth), 0.0, plotWidth - 1.0));
-        PixelBucket& bucket = buckets[static_cast<std::size_t>(x)];
-        if (!bucket.has) {
-            bucket.has = true;
-            bucket.minValue = point.auxRaw;
-            bucket.maxValue = point.auxRaw;
-        } else {
-            bucket.minValue = std::min(bucket.minValue, point.auxRaw);
-            bucket.maxValue = std::max(bucket.maxValue, point.auxRaw);
-        }
-        bucket.lastValue = point.auxRaw;
+        if (pairIndicator) absorbBucket(valueBuckets[static_cast<std::size_t>(x)], point.valueRaw);
+        absorbBucket(buckets[static_cast<std::size_t>(x)], point.auxRaw);
     }
 
     auto drawBuckets = [&](const std::vector<PixelBucket>& source, const QColor& color, qreal width) {
@@ -156,7 +173,8 @@ void StrategyIndicatorItem::paint(QPainter* painter) {
         if (started) painter->drawPath(path);
     };
 
-    drawBuckets(buckets, QColor("#24c2cb"), 1.6);
+    if (pairIndicator) drawBuckets(valueBuckets, QColor("#58c8ff"), 1.6);
+    drawBuckets(buckets, pairIndicator ? QColor("#ff5c70") : QColor("#24c2cb"), 1.6);
 
     painter->setPen(QColor("#f1f4f8"));
     painter->setFont(QFont(painter->font().family(), 10));

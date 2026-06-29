@@ -285,7 +285,9 @@ TEST(CaptureViewModelRequests, DetailedCandlesRejectsMultipleSymbols) {
 
 TEST(CaptureViewModelRequests, DetailedCandlesTimeframeChoicesAreFilteredByVenue) {
     const auto finam = choiceValues(detailedCandlesTimeframeChoices(QStringLiteral("finam_spot")));
-    EXPECT_TRUE(finam.contains(QStringLiteral("1M")));
+    EXPECT_TRUE(finam.contains(QStringLiteral("1d")));
+    EXPECT_FALSE(finam.contains(QStringLiteral("1w")));
+    EXPECT_FALSE(finam.contains(QStringLiteral("1M")));
     EXPECT_FALSE(finam.contains(QStringLiteral("10m")));
 
     const auto okx = choiceValues(detailedCandlesTimeframeChoices(QStringLiteral("okx_futures")));

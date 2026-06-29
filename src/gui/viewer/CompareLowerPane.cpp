@@ -42,7 +42,11 @@ CompareLowerPaneState selectCompareLowerPane(const StrategyOverlayData& overlay,
     }
     if (!indicator.empty()) {
         QString title = indicator.title.isEmpty() ? indicator.profile : indicator.title;
-        if (!indicator.auxLabel.isEmpty()) {
+        if (indicator.profile == QStringLiteral("toxic_flow_pair") && !indicator.valueLabel.isEmpty() && !indicator.auxLabel.isEmpty()) {
+            title = title.isEmpty()
+                ? QStringLiteral("%1/%2").arg(indicator.valueLabel, indicator.auxLabel)
+                : QStringLiteral("%1 %2/%3").arg(title, indicator.valueLabel, indicator.auxLabel);
+        } else if (!indicator.auxLabel.isEmpty()) {
             title = title.isEmpty() ? indicator.auxLabel : QStringLiteral("%1 %2").arg(title, indicator.auxLabel);
         }
         return CompareLowerPaneState{

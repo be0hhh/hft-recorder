@@ -20,6 +20,7 @@
 #include "composite/level_0/SubscribeObject.hpp"
 #include "cxet.hpp"
 #include "hft_trader/runtime/prep/SymbolMetadataRuntime.hpp"
+#include "hft_trader/runtime/config/RuntimeConfig.hpp"
 #include "primitives/buf/Symbol.hpp"
 #endif
 
@@ -69,6 +70,7 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "hyperliquid")) return canon::kExchangeIdHyperliquid;
     if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
     if (textEqualsAscii(exchange, "finam")) return canon::kExchangeIdFinam;
+    if (textEqualsAscii(exchange, "finam_arena")) return canon::kExchangeIdFinamArena;
     if (textEqualsAscii(exchange, "mexc")) return canon::kExchangeIdMexc;
     if (textEqualsAscii(exchange, "xt")) return canon::kExchangeIdXt;
     if (textEqualsAscii(exchange, "bingx")) return canon::kExchangeIdBingx;
@@ -160,22 +162,23 @@ Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexc
     return Status::Ok;
 }
 
-void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
+bool enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
                                               corpus::InstrumentMetadata& metadata) noexcept {
 #if HFTREC_WITH_CXET
     if (config.symbols.empty()) {
         metadata.metadataWarning = "hft_trader_metadata_skipped_empty_symbol";
-        return;
+        return false;
     }
     hft_trader::runtime::SymbolMetadataResolveResult result{};
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     const bool ok = hft_trader::runtime::resolveSymbolMetadataOnce(exchange,
                                                                    marketTypeFromConfig(exchange, config.market),
                                                                    makeSymbol(primaryRouteSymbolText(config)),
-                                                                   result);
+                                                                   result,
+                                                                   normalizedApiSlot(config));
     if (!ok) {
         metadata.metadataWarning = std::string{"hft_trader_metadata_failed:"} + (result.error.empty() ? "unknown" : result.error);
-        return;
+        return false;
     }
     metadata.tickSizeE8 = result.instrumentSpec.tickSizeRaw;
     metadata.tickSizeSource = "hft_trader_exchange_info";
@@ -196,9 +199,11 @@ void enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
     }
     metadata.metadataSource = "hft_trader";
     metadata.metadataWarning.reset();
+    return true;
 #else
     (void)config;
     metadata.metadataWarning = "hft_trader_metadata_unavailable_no_cxet";
+    return false;
 #endif
 }
 
@@ -282,6 +287,26 @@ bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
     builder.aliases(Span<const canon::FieldId>(fieldIds, parsedCount));
     return true;
 }
+
+hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfig& config) noexcept {
+    hft_trader::runtime::VenueRuntimeConfig venue{};
+    venue.name = config.exchange + "." + config.market;
+    venue.exchange = exchangeIdFromConfig(config.exchange);
+    venue.market = marketTypeFromConfig(venue.exchange, config.market);
+    venue.apiSlot = normalizedApiSlot(config);
+    venue.hasApiSlot = true;
+    venue.marketEnabled = true;
+    venue.userEnabled = false;
+    venue.orderEnabled = false;
+    venue.controlEnabled = false;
+    const std::string_view routeSymbolText = primaryRouteSymbolText(config);
+    if (!routeSymbolText.empty()) {
+        Symbol symbol = makeSymbol(routeSymbolText);
+        if (symbol.data[0] != '\0') venue.symbols.push_back(symbol);
+    }
+    hft_trader::runtime::setStrategyParam(venue.params, "reference_poll_interval_ms", "5000");
+    return venue;
+}
 #endif
 
 Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError) {
@@ -304,7 +329,7 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
 #if HFTREC_WITH_CXET
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     if (exchange.raw == canon::kExchangeIdUnknown.raw) {
-        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, hyperliquid, okx, finam, mexc, xt, bingx, bitmart, toobit, htx, phemex";
+        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, hyperliquid, okx, finam, finam_arena, mexc, xt, bingx, bitmart, toobit, htx, phemex";
         return Status::InvalidArgument;
     }
     if (marketTypeFromConfig(exchange, config.market).raw == canon::kMarketTypeUnknown.raw) {

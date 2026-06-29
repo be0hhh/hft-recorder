@@ -17,7 +17,7 @@ QString exchangeExecutionPresetSummary(const QString& exchange, const QString& m
 hft_backtest::BacktestExecutionPipeline guiBacktestExecutionPipeline() noexcept;
 hft_backtest::BacktestFeeSchedule feeScheduleFromVenueRow(const QVariantMap& row);
 hft_backtest::BacktestRateLimitSchedule rateLimitScheduleFromVenueRow(const QVariantMap& row);
-void writeBacktestRateLimitConfig(QTextStream& out, bool enabled);
+void writeBacktestRateLimitConfig(QTextStream& out, bool enabled, bool strictRejects = false);
 void writeRuntimeRateLimitConfig(QTextStream& out, const QVariantMap& execution);
 
 }  // namespace hftrec::gui

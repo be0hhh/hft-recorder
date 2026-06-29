@@ -16,7 +16,9 @@ class ChannelJsonWriter {
                             const std::filesystem::path& relativePath,
                             bool append = true) noexcept;
     Status writeLine(const std::string& jsonLine) noexcept;
+    Status writeLineBuffered(const std::string& jsonLine) noexcept;
     Status writeJson(const std::string& jsonDocument) noexcept;
+    Status flush() noexcept;
     Status close() noexcept;
 
   private:

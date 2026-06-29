@@ -20,9 +20,10 @@ TEST(WorkspaceViewModel, StartsWithSingletonTabsInMainHost) {
 
     hftrec::gui::WorkspaceViewModel workspace;
 
-    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")), QStringList({QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("compress"), QStringLiteral("backtests"), QStringLiteral("quant"), QStringLiteral("results")}));
+    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")), QStringList({QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("moex_basis"), QStringLiteral("compress"), QStringLiteral("backtests"), QStringLiteral("quant"), QStringLiteral("results")}));
     EXPECT_EQ(workspace.activeTab(QStringLiteral("main")), QStringLiteral("capture"));
     EXPECT_EQ(workspace.tabHost(QStringLiteral("viewer")), QStringLiteral("main"));
+    EXPECT_EQ(workspace.tabTitle(QStringLiteral("moex_basis")), QStringLiteral("MOEX Basis"));
     EXPECT_TRUE(workspace.floatingHosts().empty());
 }
 
@@ -69,8 +70,26 @@ TEST(WorkspaceViewModel, RestoreAllTabsToMainClearsFloatingHosts) {
     workspace.restoreAllTabsToMain();
 
     EXPECT_TRUE(workspace.floatingHosts().empty());
-    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")), QStringList({QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("compress"), QStringLiteral("backtests"), QStringLiteral("quant"), QStringLiteral("results")}));
+    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")), QStringList({QStringLiteral("capture"), QStringLiteral("viewer"), QStringLiteral("moex_basis"), QStringLiteral("compress"), QStringLiteral("backtests"), QStringLiteral("quant"), QStringLiteral("results")}));
     EXPECT_EQ(workspace.tabHost(QStringLiteral("viewer")), QStringLiteral("main"));
+}
+
+TEST(WorkspaceViewModel, MoexBasisTabFloatsLikeOtherSingletonTabs) {
+    isolateSettings(QStringLiteral("basis"));
+
+    hftrec::gui::WorkspaceViewModel workspace;
+
+    const QString floatingHost = workspace.detachTab(QStringLiteral("moex_basis"), 360, 260, 1100, 700);
+
+    ASSERT_FALSE(floatingHost.isEmpty());
+    EXPECT_TRUE(workspace.isFloatingHost(floatingHost));
+    EXPECT_EQ(workspace.hostTabs(floatingHost), QStringList({QStringLiteral("moex_basis")}));
+    EXPECT_EQ(workspace.tabHost(QStringLiteral("moex_basis")), floatingHost);
+
+    workspace.dockTab(QStringLiteral("moex_basis"), QStringLiteral("main"));
+
+    EXPECT_EQ(workspace.tabHost(QStringLiteral("moex_basis")), QStringLiteral("main"));
+    EXPECT_EQ(workspace.hostTabs(QStringLiteral("main")).count(QStringLiteral("moex_basis")), 1);
 }
 
 TEST(WorkspaceViewModel, PersistsFloatingLayoutAcrossInstances) {

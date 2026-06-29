@@ -1,18 +1,28 @@
 ﻿#include "gui/viewmodels/CaptureViewModel.hpp"
 
 #include <QDateTime>
+#include <QDir>
 #include <QStringList>
 #include <QVariantMap>
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iterator>
 #include <memory>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "core/capture/CaptureChannelSupport.hpp"
+#include "core/corpus/InstrumentMetadata.hpp"
+#include "core/recordings/BasisChainManifest.hpp"
+#include "core/recordings/BasisChainSeries.hpp"
+#include "core/recordings/RecordingDiscovery.hpp"
+#include "core/recordings/RecordingRoot.hpp"
+#include "core/replay/SessionReplay.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
 #include "gui/viewmodels/CaptureViewModelInternal.hpp"
 
@@ -64,6 +74,222 @@ QString configKey(const capture::CaptureConfig& config) {
 
 bool configsMatch(const capture::CaptureConfig& lhs, const capture::CaptureConfig& rhs) {
     return configKey(lhs) == configKey(rhs);
+}
+
+bool textEqualsAscii(std::string_view lhs, std::string_view rhs) {
+    if (lhs.size() != rhs.size()) return false;
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        char a = lhs[i];
+        char b = rhs[i];
+        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
+        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + ('a' - 'A'));
+        if (a != b) return false;
+    }
+    return true;
+}
+
+bool useBulkDetailedCandles(const capture::CaptureConfig& config) {
+    return textEqualsAscii(config.exchange, "finam") || textEqualsAscii(config.exchange, "finam_arena");
+}
+
+QString safePathComponent(QString value) {
+    value = value.trimmed();
+    if (value.isEmpty()) return QStringLiteral("UNKNOWN");
+    QString out;
+    out.reserve(value.size());
+    for (const QChar ch : value) {
+        out.push_back(ch.isLetterOrNumber() || ch == QLatin1Char('_') || ch == QLatin1Char('-') || ch == QLatin1Char('.')
+            ? ch
+            : QLatin1Char('_'));
+    }
+    while (out.startsWith(QLatin1Char('_'))) out.remove(0, 1);
+    while (out.endsWith(QLatin1Char('_'))) out.chop(1);
+    return out.isEmpty() ? QStringLiteral("UNKNOWN") : out;
+}
+
+std::filesystem::path uniqueBasisGroupPath(const QString& outputDirectory,
+                                           const QString& underlying,
+                                           std::int64_t nowNs) {
+    const std::filesystem::path root = recordings::normalizeExplicitRecordingsPath(std::filesystem::path{outputDirectory.toStdString()});
+    const QString stamp = QString::fromStdString(recordings::recordingFolderTimestamp(nowNs));
+    const QString base = QStringLiteral("%1_%2_basis_chain")
+        .arg(stamp.isEmpty() ? QStringLiteral("undated") : stamp, safePathComponent(underlying));
+    std::filesystem::path candidate = root / base.toStdString();
+    std::error_code ec;
+    if (!std::filesystem::exists(candidate, ec)) return candidate;
+    for (int i = 2; i < 1000; ++i) {
+        candidate = root / QStringLiteral("%1_%2").arg(base).arg(i, 2, 10, QLatin1Char('0')).toStdString();
+        if (!std::filesystem::exists(candidate, ec)) return candidate;
+    }
+    return root / (base + QStringLiteral("_overflow")).toStdString();
+}
+
+QVariantMap candidateBySymbol(const QVariantList& rows, const QString& symbol) {
+    for (const QVariant& value : rows) {
+        const QVariantMap row = value.toMap();
+        if (row.value(QStringLiteral("symbol")).toString() == symbol) return row;
+    }
+    return {};
+}
+
+std::uint64_t manifestTotalRows(const capture::SessionManifest& manifest) {
+    return manifest.tradesCount + manifest.liquidationsCount + manifest.bookTickerCount +
+           manifest.depthCount + manifest.candlesCount + manifest.candles2Count +
+           manifest.markPriceCount + manifest.indexPriceCount + manifest.fundingCount +
+           manifest.priceLimitCount;
+}
+
+std::string readFile(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::in | std::ios::binary);
+    if (!in) return {};
+    std::ostringstream out;
+    out << in.rdbuf();
+    return out.str();
+}
+
+std::filesystem::path existingSessionFile(const std::filesystem::path& sessionPath,
+                                          const std::string& manifestPath,
+                                          std::string_view fallback) {
+    if (!manifestPath.empty()) {
+        std::filesystem::path path{manifestPath};
+        if (path.is_relative()) path = sessionPath / path;
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec) && !ec) return path;
+    }
+    const std::filesystem::path fallbackPath = sessionPath / std::string{fallback};
+    std::error_code ec;
+    return std::filesystem::exists(fallbackPath, ec) && !ec ? fallbackPath : std::filesystem::path{};
+}
+
+std::filesystem::path candlePathFor(const std::filesystem::path& sessionPath,
+                                    const capture::SessionManifest& manifest,
+                                    bool& detailed) {
+    detailed = true;
+    auto path = existingSessionFile(sessionPath, manifest.candles2Path, "jsonl/candles2.jsonl");
+    if (!path.empty()) return path;
+    path = existingSessionFile(sessionPath, {}, "jsonl/candlesv2.jsonl");
+    if (!path.empty()) return path;
+    detailed = false;
+    return existingSessionFile(sessionPath, manifest.candlesPath, "jsonl/candles.jsonl");
+}
+
+bool loadMetadataForSeries(const std::filesystem::path& sessionPath,
+                           recordings::BasisChainSeriesLegInput& out) {
+    corpus::InstrumentMetadata metadata{};
+    const std::string text = readFile(sessionPath / "instrument_metadata.json");
+    if (text.empty() || !isOk(corpus::parseInstrumentMetadataJson(text, metadata))) return false;
+    if (metadata.expiryUtcNs.has_value()) out.expiryUtcNs = *metadata.expiryUtcNs;
+    if (metadata.priceBasisQtyE8.has_value()) out.priceBasisQtyE8 = *metadata.priceBasisQtyE8;
+    return true;
+}
+
+bool loadSeriesLegInput(const std::filesystem::path& sessionPath,
+                        const capture::SessionManifest& manifest,
+                        const QString& role,
+                        const QString& underlying,
+                        const QString& expiration,
+                        recordings::BasisChainSeriesLegInput& out,
+                        QString* errorText) {
+    if (errorText != nullptr) errorText->clear();
+    if (sessionPath.empty()) {
+        if (errorText != nullptr) *errorText = QStringLiteral("empty session path");
+        return false;
+    }
+
+    out = {};
+    out.role = role.toStdString();
+    out.sessionId = manifest.sessionId;
+    out.path = sessionPath.filename().string();
+    out.exchange = manifest.exchange;
+    out.market = manifest.market;
+    out.symbol = manifest.symbols.empty() ? std::string{} : manifest.symbols.front();
+    out.underlying = underlying.toStdString();
+    out.expiration = expiration.toStdString();
+    out.priceBasisQtyE8 = 100000000LL;
+    (void)loadMetadataForSeries(sessionPath, out);
+
+    bool detailed = true;
+    const std::filesystem::path candlePath = candlePathFor(sessionPath, manifest, detailed);
+    if (candlePath.empty()) {
+        if (errorText != nullptr) *errorText = QStringLiteral("missing candles file");
+        return false;
+    }
+
+    replay::SessionReplay replay{};
+    const auto status = detailed ? replay.addCandles2File(candlePath) : replay.addCandlesFile(candlePath);
+    if (!isOk(status)) {
+        if (errorText != nullptr) {
+            *errorText = QStringLiteral("failed to load candles: %1")
+                .arg(QString::fromUtf8(hftrec::statusToString(status).data()));
+        }
+        return false;
+    }
+    out.candles = detailed ? replay.candles2() : replay.candles();
+    if (out.candles.empty()) {
+        if (errorText != nullptr) *errorText = QStringLiteral("no candles rows");
+        return false;
+    }
+    return true;
+}
+
+capture::SessionManifest finalizedSessionManifest(const std::filesystem::path& sessionPath,
+                                                  const capture::SessionManifest& fallback) {
+    if (!sessionPath.empty()) {
+        capture::SessionManifest parsed{};
+        const std::string manifestText = readFile(sessionPath / "manifest.json");
+        if (!manifestText.empty() && isOk(capture::parseManifestJson(manifestText, parsed))) return parsed;
+    }
+    return fallback;
+}
+
+recordings::RecordedSessionInfo recordedSessionFromManifest(const std::filesystem::path& groupPath,
+                                                            const std::filesystem::path& sessionPath,
+                                                            const capture::SessionManifest& manifest) {
+    recordings::RecordedSessionInfo out;
+    out.path = sessionPath;
+    out.manifestPath = sessionPath / "manifest.json";
+    out.groupPath = groupPath;
+    out.sessionId = manifest.sessionId;
+    out.groupId = groupPath.filename().string();
+    out.exchange = manifest.exchange;
+    out.market = manifest.market;
+    out.symbols = manifest.symbols;
+    out.normalizedSymbol = recordings::normalizeRecordingSymbol(manifest.symbols.empty() ? std::string{} : manifest.symbols.front());
+    out.sessionHealth = std::string{toString(manifest.sessionHealth)};
+    out.warningSummary = manifest.warningSummary;
+    out.displayTime = recordings::recordingDisplayTimestamp(manifest.startedAtNs);
+    out.startedAtNs = manifest.startedAtNs;
+    out.endedAtNs = manifest.endedAtNs;
+    out.bookTickerCount = manifest.bookTickerCount;
+    out.candleCount = manifest.candles2Count > 0 ? manifest.candles2Count : manifest.candlesCount;
+    out.totalRows = manifestTotalRows(manifest);
+    out.grouped = true;
+    out.complete = manifest.endedAtNs > 0;
+    return out;
+}
+
+recordings::RecordingGroupInfo makeBasisRecordingGroup(const std::filesystem::path& groupPath,
+                                                       const QString& underlying,
+                                                       const std::vector<recordings::RecordedSessionInfo>& sessions) {
+    recordings::RecordingGroupInfo group;
+    group.path = groupPath;
+    group.id = groupPath.filename().string();
+    group.title = QStringLiteral("%1 %2 basis chain")
+        .arg(QString::fromStdString(recordings::recordingDisplayTimestamp(currentUtcNs())),
+             underlying.isEmpty() ? QStringLiteral("UNKNOWN") : underlying)
+        .toStdString();
+    group.normalizedSymbol = underlying.toStdString();
+    group.physical = true;
+    group.sessions = sessions;
+    for (const auto& session : group.sessions) {
+        if (group.startedAtNs == 0 || (session.startedAtNs > 0 && session.startedAtNs < group.startedAtNs)) {
+            group.startedAtNs = session.startedAtNs;
+        }
+        if (session.endedAtNs > group.endedAtNs) group.endedAtNs = session.endedAtNs;
+        group.totalRows += session.totalRows;
+    }
+    group.displayTime = recordings::recordingDisplayTimestamp(group.startedAtNs);
+    return group;
 }
 
 bool hasRunningChannel(const capture::CaptureCoordinator& coordinator) noexcept {
@@ -245,11 +471,16 @@ bool CaptureViewModel::startCandles() {
 }
 
 bool CaptureViewModel::startDetailedCandles() {
+    if (detailedCandlesMode_ == QStringLiteral("basis_chain")) {
+        return startDetailedCandlesBasisChain();
+    }
+
     QString errorText;
+    const QString effectiveLeg2Symbols = detailedCandlesMode_ == QStringLiteral("pair") ? detailedCandlesLeg2SymbolsText_ : QString{};
     const auto endCandidates = detail::detailedCandlesEndCandidatesNs(detailedCandlesEndMode_,
                                                                       detailedCandlesEndUtcText_,
                                                                       detailedCandlesVenueKey_,
-                                                                      detailedCandlesLeg2SymbolsText_.trimmed().isEmpty()
+                                                                      effectiveLeg2Symbols.trimmed().isEmpty()
                                                                           ? QString{}
                                                                           : detailedCandlesLeg2VenueKey_,
                                                                       currentUtcNs(),
@@ -272,7 +503,7 @@ bool CaptureViewModel::startDetailedCandles() {
                                                      detailedCandlesVenueKey_,
                                                      detailedCandlesSymbolsText_,
                                                      detailedCandlesLeg2VenueKey_,
-                                                     detailedCandlesLeg2SymbolsText_,
+                                                     effectiveLeg2Symbols,
                                                      detailedCandlesTimeframe_,
                                                      detailedCandlesLimit_,
                                                      &errorText,
@@ -290,7 +521,7 @@ bool CaptureViewModel::startDetailedCandles() {
                                                                        detailedCandlesVenueKey_,
                                                                        detailedCandlesSymbolsText_,
                                                                        detailedCandlesLeg2VenueKey_,
-                                                                       detailedCandlesLeg2SymbolsText_,
+                                                                       effectiveLeg2Symbols,
                                                                        detailedCandlesTimeframe_,
                                                                        detailedCandlesLimit_,
                                                                        &errorText,
@@ -365,7 +596,9 @@ bool CaptureViewModel::startDetailedCandles() {
         }
         existing->config = config;
         const auto beforeRows = existing->coordinator->candles2Count();
-        const auto status = existing->coordinator->captureDetailedCandlesOnce(existing->config);
+        const auto status = useBulkDetailedCandles(existing->config)
+            ? existing->coordinator->captureDetailedCandlesBulk(existing->config)
+            : existing->coordinator->captureDetailedCandlesOnce(existing->config);
         const auto afterRows = existing->coordinator->candles2Count();
         const auto symbol = config.symbols.empty() ? QString{} : QString::fromStdString(config.symbols.front());
         const auto venue = QStringLiteral("%1/%2/%3/%4")
@@ -397,6 +630,236 @@ bool CaptureViewModel::startDetailedCandles() {
     } else {
         setStatusText(joinCoordinatorErrors_());
     }
+    refreshState(detail::CaptureRefreshMode::Full);
+    return ok;
+}
+
+bool CaptureViewModel::startDetailedCandlesBasisChain() {
+    if (detailedCandlesBasisCandidateRows_.isEmpty()) {
+        refreshDetailedCandlesBasisCandidates();
+    }
+    if (detailedCandlesBasisCandidateRows_.isEmpty()) {
+        setStatusText(detailedCandlesBasisStatus_.isEmpty()
+            ? QStringLiteral("Basis chain failed: build futures candidates first")
+            : QStringLiteral("Basis chain failed: %1").arg(detailedCandlesBasisStatus_));
+        return false;
+    }
+
+    QString errorText;
+    const auto endCandidates = detail::detailedCandlesEndCandidatesNs(detailedCandlesEndMode_,
+                                                                      detailedCandlesEndUtcText_,
+                                                                      detailedCandlesVenueKey_,
+                                                                      QStringLiteral("finam_futures"),
+                                                                      currentUtcNs(),
+                                                                      nullptr,
+                                                                      &errorText);
+    if (endCandidates.empty()) {
+        setStatusText(errorText.isEmpty() ? QStringLiteral("Enter detailed candles end time") : errorText);
+        return false;
+    }
+
+    std::int64_t selectedEndNs = 0;
+    QString probeFailure;
+    const bool directNowPath = endCandidates.size() == 1u && endCandidates.front() == 0;
+    if (!directNowPath) {
+        bool foundSpotWindow = false;
+        for (const auto endNs : endCandidates) {
+            auto probeConfigs = detail::makeDetailedCandlesBasisChainConfigs(outputDirectory_,
+                                                                             envPath_,
+                                                                             apiSlot_,
+                                                                             detailedCandlesVenueKey_,
+                                                                             detailedCandlesSymbolsText_,
+                                                                             QStringLiteral("finam_futures"),
+                                                                             detailedCandlesBasisCandidateRows_,
+                                                                             detailedCandlesTimeframe_,
+                                                                             detailedCandlesLimit_,
+                                                                             &errorText,
+                                                                             endNs);
+            if (probeConfigs.empty()) {
+                setStatusText(errorText.isEmpty() ? QStringLiteral("Basis chain config is empty") : errorText);
+                return false;
+            }
+
+            capture::CaptureCoordinator probe{};
+            const auto probeStatus = probe.probeDetailedCandlesOnce(probeConfigs.front());
+            if (isOk(probeStatus)) {
+                selectedEndNs = endNs;
+                foundSpotWindow = true;
+                break;
+            }
+
+            const auto failure = QString::fromStdString(probe.lastError()).trimmed();
+            probeFailure = QStringLiteral("%1 end=%2: %3")
+                .arg(QString::fromStdString(probeConfigs.front().symbols.empty() ? std::string{} : probeConfigs.front().symbols.front()),
+                     endLabelForStatus(endNs),
+                     failure.isEmpty() ? QString::fromUtf8(hftrec::statusToString(probeStatus).data()) : failure);
+            if (!retryableDetailedCandlesWindowError(probeFailure)) break;
+        }
+
+        if (!foundSpotWindow) {
+            setStatusText(probeFailure.isEmpty()
+                ? QStringLiteral("Basis chain failed: no valid smart end candidate")
+                : QStringLiteral("Basis chain failed: %1").arg(probeFailure));
+            return false;
+        }
+    }
+
+    const QVariantMap firstCandidate = detailedCandlesBasisCandidateRows_.isEmpty()
+        ? QVariantMap{}
+        : detailedCandlesBasisCandidateRows_.front().toMap();
+    const QString underlying = firstCandidate.value(QStringLiteral("underlying")).toString().trimmed().isEmpty()
+        ? QStringLiteral("UNKNOWN")
+        : firstCandidate.value(QStringLiteral("underlying")).toString().trimmed();
+    const std::int64_t nowNs = currentUtcNs();
+    const std::filesystem::path groupPath = uniqueBasisGroupPath(outputDirectory_, underlying, nowNs);
+    const QString groupPathText = QDir::cleanPath(QString::fromStdString(groupPath.string()));
+
+    auto configs = detail::makeDetailedCandlesBasisChainConfigs(groupPathText,
+                                                                envPath_,
+                                                                apiSlot_,
+                                                                detailedCandlesVenueKey_,
+                                                                detailedCandlesSymbolsText_,
+                                                                QStringLiteral("finam_futures"),
+                                                                detailedCandlesBasisCandidateRows_,
+                                                                detailedCandlesTimeframe_,
+                                                                detailedCandlesLimit_,
+                                                                &errorText,
+                                                                selectedEndNs);
+    if (configs.empty()) {
+        setStatusText(errorText.isEmpty() ? QStringLiteral("Basis chain config is empty") : errorText);
+        return false;
+    }
+
+    setStatusText(QStringLiteral("Basis chain downloading %1 legs to %2")
+        .arg(QString::number(configs.size()), groupPathText));
+
+    recordings::BasisChainManifest basisManifest;
+    basisManifest.groupId = groupPath.filename().string();
+    basisManifest.title = QStringLiteral("%1 basis chain").arg(underlying).toStdString();
+    basisManifest.underlying = underlying.toStdString();
+    basisManifest.timeframe = detailedCandlesTimeframe_.toStdString();
+    basisManifest.requestedEndNs = selectedEndNs;
+    basisManifest.requestedLimit = static_cast<std::uint32_t>(std::clamp(detailedCandlesLimit_, 1, 1'000'000));
+    basisManifest.createdAtNs = nowNs;
+
+    std::vector<recordings::RecordedSessionInfo> recordedSessions;
+    std::vector<recordings::BasisChainSeriesLegInput> seriesLegs;
+    QStringList failures;
+    bool spotOk = false;
+    int futureOkCount = 0;
+
+    for (std::size_t i = 0; i < configs.size(); ++i) {
+        const bool spotLeg = i == 0;
+        const auto& config = configs[i];
+        const QString symbol = QString::fromStdString(config.symbols.empty() ? std::string{} : config.symbols.front());
+        const QVariantMap candidate = spotLeg ? QVariantMap{} : candidateBySymbol(detailedCandlesBasisCandidateRows_, symbol);
+
+        capture::CaptureCoordinator coordinator{};
+        const auto status = useBulkDetailedCandles(config)
+            ? coordinator.captureDetailedCandlesBulk(config)
+            : coordinator.captureDetailedCandlesOnce(config);
+        const std::filesystem::path sessionPath = coordinator.sessionDirCopy();
+        const capture::SessionManifest preFinalizeManifest = coordinator.manifestCopy();
+        const auto finalizeStatus = coordinator.finalizeSession();
+        const capture::SessionManifest sessionManifest = finalizedSessionManifest(sessionPath, preFinalizeManifest);
+
+        recordings::BasisChainLegInfo leg;
+        leg.role = spotLeg ? "spot" : "future";
+        leg.sessionId = sessionManifest.sessionId;
+        leg.path = sessionPath.empty() ? std::string{} : sessionPath.filename().string();
+        leg.exchange = config.exchange;
+        leg.market = config.market;
+        leg.symbol = symbol.toStdString();
+        leg.underlying = underlying.toStdString();
+        leg.expiration = candidate.value(QStringLiteral("expiration")).toString().toStdString();
+        leg.candles2Count = sessionManifest.candles2Count;
+
+        const bool legOk = isOk(status) && isOk(finalizeStatus) && sessionManifest.candles2Count > 0;
+        if (legOk) {
+            leg.status = "ok";
+            if (spotLeg) spotOk = true;
+            else ++futureOkCount;
+
+            recordings::BasisChainSeriesLegInput seriesLeg;
+            QString seriesError;
+            if (loadSeriesLegInput(sessionPath,
+                                   sessionManifest,
+                                   spotLeg ? QStringLiteral("spot") : QStringLiteral("future"),
+                                   underlying,
+                                   candidate.value(QStringLiteral("expiration")).toString(),
+                                   seriesLeg,
+                                   &seriesError)) {
+                seriesLegs.push_back(std::move(seriesLeg));
+            } else {
+                failures.push_back(QStringLiteral("%1 %2 series: %3")
+                    .arg(spotLeg ? QStringLiteral("spot") : QStringLiteral("future"),
+                         symbol,
+                         seriesError.isEmpty() ? QStringLiteral("failed to load candles") : seriesError));
+            }
+        } else {
+            leg.status = "failed";
+            QString error = QString::fromStdString(coordinator.lastError()).trimmed();
+            if (error.isEmpty() && !isOk(status)) error = QString::fromUtf8(hftrec::statusToString(status).data());
+            if (error.isEmpty() && !isOk(finalizeStatus)) error = QString::fromUtf8(hftrec::statusToString(finalizeStatus).data());
+            if (error.isEmpty()) error = QStringLiteral("no candles2 rows");
+            leg.error = error.toStdString();
+            failures.push_back(QStringLiteral("%1 %2: %3")
+                .arg(spotLeg ? QStringLiteral("spot") : QStringLiteral("future"), symbol, error));
+        }
+        basisManifest.legs.push_back(std::move(leg));
+
+        if (!sessionPath.empty() && !sessionManifest.sessionId.empty()) {
+            recordedSessions.push_back(recordedSessionFromManifest(groupPath, sessionPath, sessionManifest));
+        }
+    }
+
+    QStringList manifestFailures;
+    bool seriesHasSpot = false;
+    bool seriesHasFuture = false;
+    for (const auto& leg : seriesLegs) {
+        if (leg.role == "spot") seriesHasSpot = true;
+        if (leg.role == "future") seriesHasFuture = true;
+    }
+    if (seriesHasSpot && seriesHasFuture) {
+        recordings::BasisChainSeriesStats seriesStats;
+        std::string seriesError;
+        if (recordings::writeBasisChainSeries(groupPath, seriesLegs, &seriesStats, &seriesError)) {
+            basisManifest.seriesRows = seriesStats.rows;
+            basisManifest.frontRankCount = seriesStats.frontRankCount;
+        } else {
+            manifestFailures.push_back(QStringLiteral("basis_chain_series: %1").arg(QString::fromStdString(seriesError)));
+        }
+    } else {
+        manifestFailures.push_back(QStringLiteral("basis_chain_series: need loaded spot + at least one future"));
+    }
+
+    if (!recordedSessions.empty()) {
+        recordings::RecordingGroupInfo group = makeBasisRecordingGroup(groupPath, underlying, recordedSessions);
+        std::string groupError;
+        if (!recordings::writeGroupManifest(group, &groupError)) {
+            manifestFailures.push_back(QStringLiteral("group_manifest: %1").arg(QString::fromStdString(groupError)));
+        }
+    }
+
+    std::string basisError;
+    if (!recordings::writeBasisChainManifest(groupPath, basisManifest, &basisError)) {
+        manifestFailures.push_back(QStringLiteral("basis_chain_manifest: %1").arg(QString::fromStdString(basisError)));
+    }
+
+    lastSessionId_ = QString::fromStdString(groupPath.filename().string());
+    lastSessionPath_ = groupPathText;
+    emit sessionStateChanged();
+
+    const bool ok = spotOk && futureOkCount > 0 && manifestFailures.isEmpty();
+    QString status = ok
+        ? QStringLiteral("Basis chain downloaded: spot + %1 futures -> %2").arg(futureOkCount).arg(groupPathText)
+        : QStringLiteral("Basis chain partial/failed: spot=%1 futures_ok=%2 -> %3")
+              .arg(spotOk ? QStringLiteral("ok") : QStringLiteral("failed"))
+              .arg(futureOkCount)
+              .arg(groupPathText);
+    if (!failures.isEmpty()) status += QStringLiteral(" | failed: %1").arg(failures.mid(0, 6).join(QStringLiteral(" | ")));
+    if (!manifestFailures.isEmpty()) status += QStringLiteral(" | manifest: %1").arg(manifestFailures.join(QStringLiteral(" | ")));
+    setStatusText(status);
     refreshState(detail::CaptureRefreshMode::Full);
     return ok;
 }

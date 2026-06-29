@@ -7,6 +7,7 @@ set(HFTREC_CORE_SOURCES
     arbitrage/CandleSpread.cpp
     capture/SessionId.cpp
     capture/SessionManifest.cpp
+    capture/Candles2BulkState.cpp
     capture/ChannelJsonWriter.cpp
     capture/CaptureChannelSupport.cpp
     capture/CaptureCoordinatorInternal.cpp
@@ -35,6 +36,8 @@ set(HFTREC_CORE_SOURCES
     replay/CxetReplaySessionLoader.cpp
     replay/SessionReplay.cpp
     replay/SessionReplayTimeline.cpp
+    recordings/BasisChainManifest.cpp
+    recordings/BasisChainSeries.cpp
     recordings/RecordingDiscovery.cpp
     recordings/RecordingRoot.cpp
     storage/EventStorage.cpp
@@ -49,6 +52,7 @@ set(HFTREC_CORE_SOURCES
 
 if(HFTREC_WITH_CXET)
     list(APPEND HFTREC_CORE_SOURCES
+        capture/CaptureCoordinatorBulk.cpp
         capture/CaptureCoordinatorRuntime.cpp
         cxet_bridge/CxetCaptureBridge.cpp
         local_exchange/LocalMarketDataBus.cpp

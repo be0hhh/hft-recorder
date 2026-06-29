@@ -12,11 +12,16 @@
 
 #include <algorithm>
 #include <exception>
+#include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "hft_backtest/backtest.hpp"
 #include "hft_backtest/backtest_sweep.hpp"
+#include "core/recordings/RecordingDiscovery.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 #include "gui/backtests/BacktestBatchAnalysisHelpers.hpp"
 #include "gui/backtests/BacktestBatchSweepHelpers.hpp"
 #include "gui/backtests/BacktestExecutionConfigHelpers.hpp"
@@ -40,12 +45,34 @@ struct PreparedBatchPair {
     hft_backtest::BacktestSweepRequest request{};
 };
 
+struct PreparedBasisChainPair {
+    BatchSweepPair pair{};
+    QString configPath{};
+    QString outputPath{};
+    hft_backtest::BacktestRunRequest request{};
+};
+
 bool batchProgressCallback(const hft_backtest::BacktestProgress& progress, void* userData) noexcept {
     auto* ctx = static_cast<BatchProgressContext*>(userData);
     if (ctx == nullptr || ctx->vm == nullptr) return false;
     const int pairCount = std::max(1, ctx->pairCount);
     const int percent = std::clamp(((ctx->pairIndex * 100) + static_cast<int>(progress.percent)) / pairCount, 0, 99);
     const QString text = QStringLiteral("%1: %2/%3 points")
+        .arg(ctx->label)
+        .arg(static_cast<qulonglong>(progress.eventsDone))
+        .arg(static_cast<qulonglong>(progress.eventsTotal));
+    QMetaObject::invokeMethod(ctx->vm, [vm = ctx->vm, percent, text] {
+        vm->applyWorkerProgress(percent, text);
+    }, Qt::QueuedConnection);
+    return !ctx->vm->workerCancelRequested();
+}
+
+bool basisChainProgressCallback(const hft_backtest::BacktestProgress& progress, void* userData) noexcept {
+    auto* ctx = static_cast<BatchProgressContext*>(userData);
+    if (ctx == nullptr || ctx->vm == nullptr) return false;
+    const int pairCount = std::max(1, ctx->pairCount);
+    const int percent = std::clamp(((ctx->pairIndex * 100) + static_cast<int>(progress.percent)) / pairCount, 0, 99);
+    const QString text = QStringLiteral("%1: %2/%3 events")
         .arg(ctx->label)
         .arg(static_cast<qulonglong>(progress.eventsDone))
         .arg(static_cast<qulonglong>(progress.eventsTotal));
@@ -99,6 +126,100 @@ BatchSweepSessionInfo sessionInfoForPath(const QString& path) {
     return out;
 }
 
+bool basisSpotMarket(const QString& market) {
+    const QString m = market.trimmed().toLower();
+    return m.contains(QStringLiteral("spot")) || m.contains(QStringLiteral("share")) ||
+           m.contains(QStringLiteral("stock")) || m.contains(QStringLiteral("misx"));
+}
+
+qint64 basisExpiryNs(const QString& sessionPath) {
+    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("instrument_metadata.json")));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return 0;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) return 0;
+    return doc.object().value(QStringLiteral("expiry_utc_ns")).toVariant().toLongLong();
+}
+
+QString basisChainPairSlug(const BatchSweepPair& pair) {
+    const qint64 expiry = basisExpiryNs(pair.second.path);
+    const QString expiryPart = expiry > 0 ? QString::number(expiry) : pair.second.sessionId;
+    return cleanRunSlugPart(pair.first.symbol) + QStringLiteral("-spot-") +
+           cleanRunSlugPart(pair.second.symbol) + QStringLiteral("-") +
+           cleanRunSlugPart(expiryPart) + QStringLiteral("-p") +
+           QString::number(pair.pairId);
+}
+
+QVector<BatchSweepPair> buildBasisChainPairs(const QString& groupPath, QVariantList* skippedRows = nullptr) {
+    QVector<BatchSweepSessionInfo> sessions;
+    const QString requested = QDir::cleanPath(groupPath);
+    const auto discovery = hftrec::recordings::discoverRecordings(hftrec::recordings::defaultRecordingsRoot());
+    for (const auto& group : discovery.groups) {
+        if (QDir::cleanPath(QString::fromStdString(group.path.string())) != requested) continue;
+        sessions.reserve(static_cast<int>(group.sessions.size()));
+        for (const auto& session : group.sessions) {
+            sessions.push_back(sessionInfoForPath(QString::fromStdString(session.path.string())));
+        }
+        break;
+    }
+    if (sessions.empty()) {
+        QVariantMap row;
+        row.insert(QStringLiteral("reason"), QStringLiteral("basis group not found"));
+        row.insert(QStringLiteral("groupPath"), requested);
+        if (skippedRows != nullptr) skippedRows->push_back(row);
+        return {};
+    }
+
+    BatchSweepSessionInfo spot;
+    QVector<BatchSweepSessionInfo> futures;
+    for (const BatchSweepSessionInfo& session : sessions) {
+        if (spot.path.isEmpty() && basisSpotMarket(session.market)) {
+            spot = session;
+            continue;
+        }
+        if (isBatchFuturesMarket(session.market)) futures.push_back(session);
+    }
+    if (spot.path.isEmpty()) {
+        QVariantMap row;
+        row.insert(QStringLiteral("reason"), QStringLiteral("basis group has no spot leg"));
+        row.insert(QStringLiteral("groupPath"), requested);
+        if (skippedRows != nullptr) skippedRows->push_back(row);
+        return {};
+    }
+    std::sort(futures.begin(), futures.end(), [](const BatchSweepSessionInfo& lhs, const BatchSweepSessionInfo& rhs) {
+        const qint64 le = basisExpiryNs(lhs.path);
+        const qint64 re = basisExpiryNs(rhs.path);
+        if (le != re) return (le == 0 ? std::numeric_limits<qint64>::max() : le) <
+                             (re == 0 ? std::numeric_limits<qint64>::max() : re);
+        return lhs.symbol < rhs.symbol;
+    });
+
+    QVector<BatchSweepPair> pairs;
+    pairs.reserve(futures.size());
+    int pairId = 0;
+    for (const BatchSweepSessionInfo& future : futures) {
+        if (!isVenueSectionKnown(spot.exchange, spot.market) || !isVenueSectionKnown(future.exchange, future.market)) {
+            QVariantMap row;
+            row.insert(QStringLiteral("reason"), QStringLiteral("unsupported venue"));
+            row.insert(QStringLiteral("symbol"), future.symbol);
+            row.insert(QStringLiteral("exchangePair"), QStringLiteral("%1/%2").arg(spot.exchange, future.exchange));
+            if (skippedRows != nullptr) skippedRows->push_back(row);
+            continue;
+        }
+        BatchSweepPair pair;
+        pair.pairId = ++pairId;
+        pair.first = spot;
+        pair.second = future;
+        pairs.push_back(std::move(pair));
+    }
+    if (pairs.empty()) {
+        QVariantMap row;
+        row.insert(QStringLiteral("reason"), QStringLiteral("basis group has no runnable futures legs"));
+        row.insert(QStringLiteral("groupPath"), requested);
+        if (skippedRows != nullptr) skippedRows->push_back(row);
+    }
+    return pairs;
+}
+
 QString cleanPairSlug(const BatchSweepPair& pair) {
     const QString symbol = pair.first.canonicalSymbol.isEmpty() ? pair.first.symbol : pair.first.canonicalSymbol;
     return cleanRunSlugPart(symbol) + QStringLiteral("-") +
@@ -134,6 +255,44 @@ QVariantMap enrichedBatchRow(const QVariantMap& row,
     out.insert(QStringLiteral("riskStopped"), out.value(QStringLiteral("risk_stopped")).toBool());
     out.insert(QStringLiteral("liquidated"), out.value(QStringLiteral("liquidated")).toBool());
     out.insert(QStringLiteral("paramsLabel"), batchParamsLabel(out.value(QStringLiteral("params")).toMap()));
+    return out;
+}
+
+QVariantMap basisChainBatchRow(const PreparedBasisChainPair& pair,
+                               const hft_backtest::BacktestRunResult& result,
+                               const QString& batchId) {
+    const std::string_view statusView = hft_backtest::statusToString(result.status);
+    const QString status = QString::fromUtf8(statusView.data(), static_cast<qsizetype>(statusView.size()));
+    const QString exchangePair = QStringLiteral("%1/%2").arg(pair.pair.first.exchange, pair.pair.second.exchange);
+    QVariantMap out;
+    out.insert(QStringLiteral("batchId"), batchId);
+    out.insert(QStringLiteral("runId"), QString::fromStdString(result.runId));
+    out.insert(QStringLiteral("pairId"), pair.pair.pairId);
+    out.insert(QStringLiteral("status"), status);
+    out.insert(QStringLiteral("error"), QString::fromStdString(result.error));
+    out.insert(QStringLiteral("symbol"), pair.pair.second.symbol);
+    out.insert(QStringLiteral("exchangePair"), exchangePair);
+    out.insert(QStringLiteral("exchange_pair"), exchangePair);
+    out.insert(QStringLiteral("firstExchange"), pair.pair.first.exchange);
+    out.insert(QStringLiteral("secondExchange"), pair.pair.second.exchange);
+    out.insert(QStringLiteral("firstMarket"), pair.pair.first.market);
+    out.insert(QStringLiteral("secondMarket"), pair.pair.second.market);
+    out.insert(QStringLiteral("firstSymbol"), pair.pair.first.symbol);
+    out.insert(QStringLiteral("secondSymbol"), pair.pair.second.symbol);
+    out.insert(QStringLiteral("firstSessionPath"), pair.pair.first.path);
+    out.insert(QStringLiteral("secondSessionPath"), pair.pair.second.path);
+    out.insert(QStringLiteral("resultPath"), QString::fromStdString(result.resultPath.generic_string()));
+    out.insert(QStringLiteral("totalPnlE8"), static_cast<qint64>(result.totalPnlE8));
+    out.insert(QStringLiteral("total_pnl_e8"), static_cast<qint64>(result.totalPnlE8));
+    out.insert(QStringLiteral("maxDrawdownE8"), static_cast<qint64>(result.maxDrawdownE8));
+    out.insert(QStringLiteral("max_drawdown_e8"), static_cast<qint64>(result.maxDrawdownE8));
+    out.insert(QStringLiteral("fills"), static_cast<qint64>(result.fills));
+    out.insert(QStringLiteral("orders"), static_cast<qint64>(result.orders));
+    out.insert(QStringLiteral("riskStopped"), result.riskStopTsNs > 0);
+    out.insert(QStringLiteral("risk_stopped"), result.riskStopTsNs > 0);
+    out.insert(QStringLiteral("liquidated"), result.liquidationTsNs > 0);
+    out.insert(QStringLiteral("params"), QVariantMap{});
+    out.insert(QStringLiteral("paramsLabel"), QStringLiteral("fixed"));
     return out;
 }
 
@@ -214,6 +373,293 @@ QStringList BacktestViewModel::batchUniverseSessionPaths_() const {
     const QStringList rowPaths = sessionPathsFromRow(row);
     if (!rowPaths.empty()) return rowPaths;
     return selectedSessionPaths_();
+}
+
+void BacktestViewModel::startBasisChainBatchBacktest(const QString& groupPath) {
+    if (running_) return;
+    const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
+    if (metadata == nullptr || !strategyMetadataSupportsSessionCount(*metadata, 2)) {
+        setStatusText_(QStringLiteral("Selected strategy does not support spot+future basis batch"));
+        return;
+    }
+
+    QVariantList skipped;
+    const QVector<BatchSweepPair> pairs = buildBasisChainPairs(groupPath, &skipped);
+    if (pairs.empty()) {
+        batchSkippedRows_ = skipped;
+        batchStableRows_.clear();
+        batchProfitRows_.clear();
+        batchSymbolRows_.clear();
+        batchPairRows_.clear();
+        batchParamRows_.clear();
+        batchSummaryCards_ = batchSummaryCardsFromRows(QVariantList{}, skipped, 0, 0);
+        batchPairMatrixColumns_.clear();
+        batchPairMatrixCells_.clear();
+        batchTimeRows_.clear();
+        batchPlateauRows_.clear();
+        batchSummaryText_ = QStringLiteral("No runnable spot+future pairs in basis group");
+        emit batchResultsChanged();
+        setStatusText_(batchSummaryText_);
+        return;
+    }
+
+    stopWorker_();
+    cancelRequested_.store(false, std::memory_order_release);
+    setRunning_(true);
+    setProgress_(0, QStringLiteral("Starting basis chain batch"));
+    setStatusText_(QStringLiteral("Basis chain batch running"));
+
+    const QString batchId = QStringLiteral("basis-chain-") + runId_();
+    const QString groupRoot = QDir::cleanPath(groupPath);
+    const QString batchRoot = QDir(groupRoot).absoluteFilePath(QStringLiteral("backtests/basis_chain_batches/%1").arg(batchId));
+    QDir().mkpath(batchRoot);
+
+    const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
+    const quint64 latencySeed = latencyValue_(latencySeed_, 0);
+    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 250);
+    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 100);
+    const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
+    const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
+    const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
+    const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
+    const quint64 cancelOrderLatency = latencyValue_(cancelOrderLatencyUs_, limitOrderLatency);
+    const quint64 cancelOrderJitter = latencyValue_(cancelOrderJitterUs_, limitOrderJitter);
+    const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
+    const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
+    const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
+    const bool rateLimitsEnabled = rateLimitsEnabled_;
+    const bool strictRateLimitsEnabled = rateLimitsEnabled && strictRateLimitsEnabled_;
+    const QString strategy = selectedStrategy_;
+    const QString indicatorProfile = selectedIndicatorProfile_;
+
+    std::vector<PreparedBasisChainPair> prepared;
+    prepared.reserve(static_cast<std::size_t>(pairs.size()));
+    QString firstConfigError;
+    for (const BatchSweepPair& pair : pairs) {
+        const QStringList sessionPaths{pair.first.path, pair.second.path};
+        const QString pairSlug = basisChainPairSlug(pair);
+        const RunConfigWriteResult config = writeRunConfigForSessionPaths_(QStringLiteral("basis_chain_batches/%1/pair_configs/%2").arg(batchId, pairSlug),
+                                                                           sessionPaths,
+                                                                           {},
+                                                                           true,
+                                                                           false);
+        if (!config.ok()) {
+            if (firstConfigError.isEmpty()) firstConfigError = config.error;
+            QVariantMap row;
+            row.insert(QStringLiteral("reason"), QStringLiteral("failed to write basis pair config: %1").arg(config.error));
+            row.insert(QStringLiteral("symbol"), pair.second.symbol);
+            row.insert(QStringLiteral("exchangePair"), QStringLiteral("%1/%2").arg(pair.first.exchange, pair.second.exchange));
+            skipped.push_back(row);
+            continue;
+        }
+
+        PreparedBasisChainPair item;
+        item.pair = pair;
+        item.configPath = config.path;
+        item.outputPath = QDir(batchRoot).absoluteFilePath(QStringLiteral("runs/%1").arg(pairSlug));
+        item.request.sessionPath = pair.first.path.toStdString();
+        hft_backtest::BacktestSessionRequest leg;
+        leg.path = pair.second.path.toStdString();
+        leg.venue = pair.second.venue.toStdString();
+        leg.symbol = pair.second.symbol.toStdString();
+        item.request.sessions.push_back(std::move(leg));
+        item.request.configPath = item.configPath.toStdString();
+        item.request.outputPath = item.outputPath.toStdString();
+        item.request.strategy = strategy.toStdString();
+        item.request.indicatorProfile = indicatorProfile.toStdString();
+        item.request.runId = QStringLiteral("%1-%2").arg(batchId, pairSlug).toStdString();
+        item.request.requestId = item.request.runId;
+        item.request.latencySeed = latencySeed;
+        item.request.marketDataLatency.baseUs = marketDataLatency;
+        item.request.marketDataLatency.jitterUs = marketDataJitter;
+        item.request.marketOrderLatency.baseUs = marketOrderLatency;
+        item.request.marketOrderLatency.jitterUs = marketOrderJitter;
+        item.request.limitOrderLatency.baseUs = limitOrderLatency;
+        item.request.limitOrderLatency.jitterUs = limitOrderJitter;
+        item.request.cancelOrderLatency.baseUs = cancelOrderLatency;
+        item.request.cancelOrderLatency.jitterUs = cancelOrderJitter;
+        item.request.userDataLatency.baseUs = userDataLatency;
+        item.request.userDataLatency.jitterUs = userDataJitter;
+        item.request.orderLatencyUs = marketOrderLatency;
+        item.request.cancelLatencyUs = cancelOrderLatency;
+        item.request.initialBalanceE8 = initialBalance;
+        const std::vector<QVariantMap> venueRows = venueExecutionRowsForPaths_(sessionPaths);
+        for (const QVariantMap& row : venueRows) {
+            item.request.legInitialBalancesE8.push_back(decimalE8Value_(row.value(QStringLiteral("initialBalanceUsdt")).toString(), initialBalance));
+            item.request.feeSchedules.push_back(feeScheduleFromVenueRow(row));
+            hft_backtest::BacktestLatencySchedule latency;
+            latency.exchange = row.value(QStringLiteral("exchange")).toString().toStdString();
+            latency.market = row.value(QStringLiteral("market")).toString().toStdString();
+            latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
+            latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
+            latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
+            latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
+            latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
+            latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
+            latency.cancelOrder.baseUs = latencyValue_(row.value(QStringLiteral("cancelOrderLatencyUs")).toString(), cancelOrderLatency);
+            latency.cancelOrder.jitterUs = latencyValue_(row.value(QStringLiteral("cancelOrderJitterUs")).toString(), cancelOrderJitter);
+            latency.userData.baseUs = latencyValue_(row.value(QStringLiteral("userDataLatencyUs")).toString(), userDataLatency);
+            latency.userData.jitterUs = latencyValue_(row.value(QStringLiteral("userDataJitterUs")).toString(), userDataJitter);
+            item.request.latencySchedules.push_back(std::move(latency));
+            hft_backtest::BacktestRateLimitSchedule rateLimit = rateLimitScheduleFromVenueRow(row);
+            if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) item.request.rateLimitSchedules.push_back(std::move(rateLimit));
+        }
+        item.request.rateLimitsEnabled = rateLimitsEnabled;
+        item.request.strictRateLimitRejects = strictRateLimitsEnabled;
+        item.request.executionPipeline = guiBacktestExecutionPipeline();
+        item.request.writeArtifacts = true;
+        item.request.captureStrategySpread = true;
+        prepared.push_back(std::move(item));
+    }
+
+    if (prepared.empty()) {
+        setRunning_(false);
+        setProgress_(100, QStringLiteral("Basis chain batch failed"));
+        batchSkippedRows_ = skipped;
+        batchSummaryCards_ = batchSummaryCardsFromRows(QVariantList{}, skipped, 0, 0);
+        batchPairMatrixColumns_.clear();
+        batchPairMatrixCells_.clear();
+        batchTimeRows_.clear();
+        batchPlateauRows_.clear();
+        batchSummaryText_ = firstConfigError.isEmpty()
+            ? QStringLiteral("No runnable basis pairs after config generation")
+            : QStringLiteral("No runnable basis pairs after config generation: %1").arg(firstConfigError);
+        emit batchResultsChanged();
+        setStatusText_(batchSummaryText_);
+        return;
+    }
+
+    configureWorkerThreadStack_();
+    worker_ = std::thread([this, prepared = std::move(prepared), skipped = std::move(skipped), batchId, batchRoot, strategy] {
+        try {
+            QVariantList batchRows;
+            QVariantList skippedRows = skipped;
+            QString errorText;
+            const QString rowsPath = QDir(batchRoot).absoluteFilePath(QStringLiteral("batch_rows.jsonl"));
+            QFile rowsFile(rowsPath);
+            if (!rowsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+                errorText = QStringLiteral("failed to write basis chain batch rows");
+            }
+
+            for (int i = 0; errorText.isEmpty() && i < static_cast<int>(prepared.size()); ++i) {
+                if (workerCancelRequested()) {
+                    errorText = QStringLiteral("cancelled");
+                    break;
+                }
+                const PreparedBasisChainPair& pair = prepared[static_cast<std::size_t>(i)];
+                BatchProgressContext progressCtx{this, i, static_cast<int>(prepared.size()), pair.pair.second.symbol};
+                const hft_backtest::BacktestRunResult result = hft_backtest::runBacktest(pair.request, basisChainProgressCallback, &progressCtx);
+                QVariantMap row = basisChainBatchRow(pair, result, batchId);
+                batchRows.push_back(row);
+                if (!appendJsonl(rowsFile, row)) {
+                    errorText = QStringLiteral("failed to append basis chain batch row");
+                    break;
+                }
+            }
+            rowsFile.close();
+
+            QVariantList stableRows = batchStableRowsFromRows(batchRows);
+            QVariantList profitRows = batchProfitRowsFromRows(batchRows);
+            QVariantList symbolRows = batchSymbolRowsFromRows(batchRows);
+            QVariantList pairRows = batchPairRowsFromRows(batchRows);
+            QVariantList paramRows = batchParamRowsFromRows(batchRows);
+            QVariantList summaryCards = batchSummaryCardsFromRows(batchRows, skippedRows, static_cast<int>(prepared.size()), static_cast<quint64>(prepared.size()));
+            QVariantList matrixColumns = batchPairMatrixColumnsFromRows(batchRows);
+            QVariantList matrixCells = batchPairMatrixCellsFromRows(batchRows);
+            QVariantList timeRows;
+            QVariantList plateauRows = batchPlateauRowsFromRows(batchRows);
+            trimTable(stableRows, 200);
+            trimTable(profitRows, 200);
+            trimTable(symbolRows, 200);
+            trimTable(pairRows, 200);
+            trimTable(paramRows, 200);
+            trimTable(plateauRows, 200);
+
+            QJsonObject manifest;
+            manifest.insert(QStringLiteral("type"), QStringLiteral("basis_chain_batch.result.v1"));
+            manifest.insert(QStringLiteral("schema_version"), 1);
+            manifest.insert(QStringLiteral("batch_id"), batchId);
+            manifest.insert(QStringLiteral("strategy"), strategy);
+            manifest.insert(QStringLiteral("pairs_evaluated"), static_cast<int>(prepared.size()));
+            QJsonObject rowsObject;
+            rowsObject.insert(QStringLiteral("path"), QStringLiteral("batch_rows.jsonl"));
+            rowsObject.insert(QStringLiteral("row_schema"), QStringLiteral("object.v1"));
+            manifest.insert(QStringLiteral("rows"), rowsObject);
+            QJsonArray errors;
+            if (!errorText.isEmpty() && errorText != QStringLiteral("cancelled")) {
+                QJsonObject errorObject;
+                errorObject.insert(QStringLiteral("message"), errorText);
+                errors.push_back(errorObject);
+            }
+            manifest.insert(QStringLiteral("errors"), errors);
+            writeJson(QDir(batchRoot).absoluteFilePath(QStringLiteral("manifest.json")), manifest);
+
+            const QString summary = errorText == QStringLiteral("cancelled")
+                ? QStringLiteral("Basis chain batch cancelled: %1 rows").arg(batchRows.size())
+                : (!errorText.isEmpty()
+                       ? QStringLiteral("Basis chain batch error: %1 (%2 rows)").arg(errorText).arg(batchRows.size())
+                       : QStringLiteral("Basis chain batch complete: %1 pairs, %2 rows")
+                             .arg(prepared.size())
+                             .arg(batchRows.size()));
+
+            QMetaObject::invokeMethod(this, [this,
+                                             batchId,
+                                             batchRoot,
+                                             summary,
+                                             stableRows = std::move(stableRows),
+                                             profitRows = std::move(profitRows),
+                                             symbolRows = std::move(symbolRows),
+                                             pairRows = std::move(pairRows),
+                                             paramRows = std::move(paramRows),
+                                             skippedRows = std::move(skippedRows),
+                                             summaryCards = std::move(summaryCards),
+                                             matrixColumns = std::move(matrixColumns),
+                                             matrixCells = std::move(matrixCells),
+                                             timeRows = std::move(timeRows),
+                                             plateauRows = std::move(plateauRows)] {
+                setRunning_(false);
+                setProgress_(100, summary);
+                setStatusText_(summary);
+                batchRunId_ = batchId;
+                batchResultPath_ = batchRoot;
+                batchSummaryText_ = summary;
+                batchStableRows_ = stableRows;
+                batchProfitRows_ = profitRows;
+                batchSymbolRows_ = symbolRows;
+                batchPairRows_ = pairRows;
+                batchParamRows_ = paramRows;
+                batchSkippedRows_ = skippedRows;
+                batchSummaryCards_ = summaryCards;
+                batchPairMatrixColumns_ = matrixColumns;
+                batchPairMatrixCells_ = matrixCells;
+                batchTimeRows_ = timeRows;
+                batchPlateauRows_ = plateauRows;
+                emit batchResultsChanged();
+                refresh();
+                reloadSessions();
+            }, Qt::QueuedConnection);
+        } catch (const std::exception& ex) {
+            const QString status = QStringLiteral("Basis chain batch crashed: ") + QString::fromUtf8(ex.what());
+            QMetaObject::invokeMethod(this, [this, status] {
+                setRunning_(false);
+                setProgress_(100, status);
+                setStatusText_(status);
+                batchSummaryText_ = status;
+                emit batchResultsChanged();
+                refresh();
+            }, Qt::QueuedConnection);
+        } catch (...) {
+            const QString status = QStringLiteral("Basis chain batch crashed: unknown exception");
+            QMetaObject::invokeMethod(this, [this, status] {
+                setRunning_(false);
+                setProgress_(100, status);
+                setStatusText_(status);
+                batchSummaryText_ = status;
+                emit batchResultsChanged();
+                refresh();
+            }, Qt::QueuedConnection);
+        }
+    });
 }
 
 void BacktestViewModel::startBatchSweep() {

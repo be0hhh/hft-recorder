@@ -55,6 +55,9 @@ struct CaptureConfig {
     std::string orderbookRequestCommand{};
     std::string detailedCandlesTimeframe{"15m"};
     std::uint32_t detailedCandlesLimit{5000u};
+    std::uint32_t detailedCandlesPageLimit{0u};
+    std::uint32_t detailedCandlesMaxAttemptsPerPage{3u};
+    std::uint32_t detailedCandlesMaxEmptyWindows{96u};
     std::int64_t detailedCandlesEndNs{0};
     LiveCacheMode liveCacheMode{LiveCacheMode::Off};
 };
@@ -93,6 +96,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status captureCandlesOnce(const CaptureConfig& config) noexcept;
     Status probeDetailedCandlesOnce(const CaptureConfig& config) noexcept;
     Status captureDetailedCandlesOnce(const CaptureConfig& config) noexcept;
+    Status captureDetailedCandlesBulk(const CaptureConfig& config) noexcept;
     Status captureTradesHistoryOnce(const CaptureConfig& config) noexcept;
     void reapStoppedThreads() noexcept;
 
@@ -153,6 +157,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     void syncManifestIntegrityFromReplay_() noexcept;
     Status writeManifestFile_() noexcept;
     Status writeInstrumentMetadataFile() noexcept;
+    Status refreshInstrumentMetadataFromExchangeInfo() noexcept;
     Status writeSupportArtifacts() noexcept;
     bool liveCacheEnabled() const noexcept { return liveCacheEnabled_.load(std::memory_order_acquire); }
     Status appendLiveTrade(const replay::TradeRow& row) noexcept;

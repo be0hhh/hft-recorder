@@ -132,11 +132,19 @@ TEST(BacktestExecutionConfigHelpers, WritesBacktestRateLimitEnabledFlag) {
     QTextStream enabledStream(&enabledText);
     hftrec::gui::writeBacktestRateLimitConfig(enabledStream, true);
     EXPECT_TRUE(enabledText.contains(QStringLiteral("rate_limits_enabled=true")));
+    EXPECT_TRUE(enabledText.contains(QStringLiteral("strict_rate_limits=false")));
+
+    QString strictText;
+    QTextStream strictStream(&strictText);
+    hftrec::gui::writeBacktestRateLimitConfig(strictStream, true, true);
+    EXPECT_TRUE(strictText.contains(QStringLiteral("rate_limits_enabled=true")));
+    EXPECT_TRUE(strictText.contains(QStringLiteral("strict_rate_limits=true")));
 
     QString disabledText;
     QTextStream disabledStream(&disabledText);
-    hftrec::gui::writeBacktestRateLimitConfig(disabledStream, false);
+    hftrec::gui::writeBacktestRateLimitConfig(disabledStream, false, true);
     EXPECT_TRUE(disabledText.contains(QStringLiteral("rate_limits_enabled=false")));
+    EXPECT_TRUE(disabledText.contains(QStringLiteral("strict_rate_limits=false")));
 }
 
 TEST(BacktestExecutionConfigHelpers, ExecutionPresetSummaryShowsDisabledRateLimits) {

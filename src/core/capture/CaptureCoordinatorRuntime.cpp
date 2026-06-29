@@ -9,7 +9,6 @@
 #include <thread>
 #include <vector>
 
-#include "canon/MarketMapping.hpp"
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
 #include "core/capture/CaptureCoordinatorInternal.hpp"
@@ -480,50 +479,9 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
 }
 
 bool detailedCandlesNeedInstrumentMetadata(const CaptureConfig& config) noexcept {
-    return textEqualsAscii(config.exchange, "finam")
+    return (textEqualsAscii(config.exchange, "finam") || textEqualsAscii(config.exchange, "finam_arena"))
         && !textEqualsAscii(config.market, "spot")
         && !textEqualsAscii(config.market, "shares");
-}
-
-ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
-    if (textEqualsAscii(exchange, "binance")) return canon::kExchangeIdBinance;
-    if (textEqualsAscii(exchange, "bybit")) return canon::kExchangeIdBybit;
-    if (textEqualsAscii(exchange, "kucoin")) return canon::kExchangeIdKucoin;
-    if (textEqualsAscii(exchange, "gate")) return canon::kExchangeIdGate;
-    if (textEqualsAscii(exchange, "bitget")) return canon::kExchangeIdBitget;
-    if (textEqualsAscii(exchange, "aster")) return canon::kExchangeIdAster;
-    if (textEqualsAscii(exchange, "hyperliquid")) return canon::kExchangeIdHyperliquid;
-    if (textEqualsAscii(exchange, "okx")) return canon::kExchangeIdOkx;
-    if (textEqualsAscii(exchange, "finam")) return canon::kExchangeIdFinam;
-    if (textEqualsAscii(exchange, "mexc")) return canon::kExchangeIdMexc;
-    if (textEqualsAscii(exchange, "xt")) return canon::kExchangeIdXt;
-    if (textEqualsAscii(exchange, "bingx")) return canon::kExchangeIdBingx;
-    if (textEqualsAscii(exchange, "bitmart")) return canon::kExchangeIdBitmart;
-    if (textEqualsAscii(exchange, "toobit")) return canon::kExchangeIdToobit;
-    if (textEqualsAscii(exchange, "htx")) return canon::kExchangeIdHtx;
-    if (textEqualsAscii(exchange, "phemex")) return canon::kExchangeIdPhemex;
-    return canon::kExchangeIdUnknown;
-}
-
-canon::MarketType marketTypeFromConfig(ExchangeId exchange, std::string_view market) noexcept {
-    char apiMarket[64]{};
-    if (market.size() + 1u < sizeof(apiMarket)) {
-        for (std::size_t i = 0u; i < market.size(); ++i) {
-            char c = market[i];
-            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
-            apiMarket[i] = c;
-        }
-        const canon::MarketType mapped = canon::exchangeApiStringToCanonical(exchange, apiMarket);
-        if (mapped.raw != canon::kMarketTypeUnknown.raw) return mapped;
-    }
-    if (textEqualsAscii(market, "spot") || textEqualsAscii(market, "shares")) return canon::kMarketTypeSpot;
-    if (textEqualsAscii(market, "margin")) return canon::kMarketTypeMargin;
-    if (textEqualsAscii(market, "inverse")) return canon::kMarketTypeInverse;
-    if (textEqualsAscii(market, "swap")) return canon::kMarketTypeSwap;
-    if (textEqualsAscii(market, "futures") ||
-        textEqualsAscii(market, "forts") ||
-        textEqualsAscii(market, "futures_usd")) return canon::kMarketTypeFutures;
-    return canon::kMarketTypeUnknown;
 }
 
 bool shouldFetchInitialOrderbookSnapshot(const CaptureConfig& config) noexcept {
@@ -531,24 +489,7 @@ bool shouldFetchInitialOrderbookSnapshot(const CaptureConfig& config) noexcept {
 }
 
 hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfig& config) {
-    hft_trader::runtime::VenueRuntimeConfig venue{};
-    venue.name = config.exchange + "." + config.market;
-    venue.exchange = exchangeIdFromConfig(config.exchange);
-    venue.market = marketTypeFromConfig(venue.exchange, config.market);
-    venue.apiSlot = internal::normalizedApiSlot(config);
-    venue.hasApiSlot = true;
-    venue.marketEnabled = true;
-    venue.userEnabled = false;
-    venue.orderEnabled = false;
-    venue.controlEnabled = false;
-    const std::string_view routeSymbolText = internal::primaryRouteSymbolText(config);
-    if (!routeSymbolText.empty()) {
-        Symbol symbol{};
-        copySymbolFromText(symbol, routeSymbolText);
-        if (symbol.data[0] != '\0') venue.symbols.push_back(symbol);
-    }
-    hft_trader::runtime::setStrategyParam(venue.params, "reference_poll_interval_ms", "5000");
-    return venue;
+    return internal::makeTraderVenueConfig(config);
 }
 
 bool validDetailedCandle(const cxet::composite::Ohlcv& candle) noexcept {
@@ -633,8 +574,12 @@ bool fetchDetailedCandlesRows(const CaptureConfig& config,
                     " timeframe=" + tfText;
         if (!fetchFailure.empty()) errorText += " reason=" + fetchFailure;
         if (requestBuf.size() != 0u) {
-            errorText += " request=";
-            errorText.append(requestBuf.data(), std::min<std::size_t>(requestBuf.size(), 240u));
+            if (requestBuf.isWsBinary()) {
+                errorText += " request_bytes=" + std::to_string(requestBuf.size());
+            } else {
+                errorText += " request=";
+                errorText.append(requestBuf.data(), std::min<std::size_t>(requestBuf.size(), 240u));
+            }
         }
         errorText += " response_bytes=" + std::to_string(recvBuf.size());
         return false;
@@ -851,8 +796,17 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
     if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
-        lastError_ = "candles2: finam futures instrument metadata is required for price-basis logic; "
+        const auto metadataStatus = refreshInstrumentMetadataFromExchangeInfo();
+        if (!isOk(metadataStatus)) return metadataStatus;
+    }
+    if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
+        const std::string metadataDetail = lastError_;
+        lastError_ = "candles2: finam/finam_arena futures instrument metadata is required for price-basis logic; "
                      "refresh Finam auth and retry so /v1/assets/<symbol> can provide price_basis_qty_e8";
+        if (!metadataDetail.empty()) {
+            lastError_ += " metadata=";
+            lastError_ += metadataDetail;
+        }
         return Status::Unknown;
     }
 

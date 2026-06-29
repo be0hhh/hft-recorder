@@ -62,6 +62,10 @@ QString indicatorRawLabel(const StrategyIndicatorData& indicator) {
     return QStringLiteral("value");
 }
 
+bool isToxicFlowPairIndicator(const StrategyIndicatorData& indicator) noexcept {
+    return indicator.profile == QStringLiteral("toxic_flow_pair");
+}
+
 double bpsFromE8(std::int64_t value) noexcept {
     return static_cast<double>(value) / kE8;
 }
@@ -235,9 +239,8 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
     if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator && !indicator.points.empty()) {
         double rawSum = 0.0;
         std::size_t rawCount = 0u;
-        for (const auto& point : indicator.points) {
-            if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
-            const double raw = static_cast<double>(point.auxRaw);
+        const bool pairIndicator = isToxicFlowPairIndicator(indicator);
+        auto absorbIndicator = [&](double raw) noexcept {
             if (!hasSpread) {
                 ranges.spreadMin = raw;
                 ranges.spreadMax = raw;
@@ -248,6 +251,11 @@ Ranges computeRanges(const std::vector<hftrec::replay::BookTickerRow>& a,
             }
             rawSum += raw;
             ++rawCount;
+        };
+        for (const auto& point : indicator.points) {
+            if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
+            if (pairIndicator) absorbIndicator(static_cast<double>(point.valueRaw));
+            absorbIndicator(static_cast<double>(point.auxRaw));
         }
         if (rawCount > 0u) ranges.meanAvg = rawSum / static_cast<double>(rawCount);
     }
@@ -663,14 +671,23 @@ void drawStrategyIndicatorTrace(QPainter& painter,
                                 const Ranges& ranges,
                                 const QRectF& rect) {
     if (indicator.points.empty()) return;
-    QPolygonF rawLine;
-    rawLine.reserve(static_cast<int>(std::min<std::size_t>(indicator.points.size(), 1000000)));
+    QPolygonF valueLine;
+    QPolygonF auxLine;
+    valueLine.reserve(static_cast<int>(std::min<std::size_t>(indicator.points.size(), 1000000)));
+    auxLine.reserve(static_cast<int>(std::min<std::size_t>(indicator.points.size(), 1000000)));
+    const bool pairIndicator = isToxicFlowPairIndicator(indicator);
     for (const auto& point : indicator.points) {
         if (point.tsNs < ranges.tsMin || point.tsNs > ranges.tsMax) continue;
         const double x = xFor(point.tsNs, ranges, rect);
-        rawLine.push_back(QPointF{x, spreadYFor(static_cast<double>(point.auxRaw), ranges, rect)});
+        if (pairIndicator) valueLine.push_back(QPointF{x, spreadYFor(static_cast<double>(point.valueRaw), ranges, rect)});
+        auxLine.push_back(QPointF{x, spreadYFor(static_cast<double>(point.auxRaw), ranges, rect)});
     }
-    drawPolyline(painter, rawLine, QColor{36, 194, 203}, 2);
+    if (pairIndicator) {
+        drawPolyline(painter, valueLine, sourceColor(0u), 2);
+        drawPolyline(painter, auxLine, sourceColor(1u), 2);
+    } else {
+        drawPolyline(painter, auxLine, QColor{36, 194, 203}, 2);
+    }
 }
 
 void drawSideTriangle(QPainter& painter, qreal x, qreal y, qreal r, bool buy, const QColor& fill) {
@@ -1155,9 +1172,15 @@ void BookTickerCompareItem::paint(QPainter* painter) {
         if (lowerPaneKind == CompareLowerPaneKind::StrategyIndicator) {
             const auto* point = nearestStrategyIndicatorPoint(indicator.points, ts);
             if (point != nullptr) {
-                const QString label = QStringLiteral("%1 %2")
-                                          .arg(indicatorRawLabel(indicator),
-                                               QString::number(point->auxRaw));
+                const QString label = isToxicFlowPairIndicator(indicator)
+                    ? QStringLiteral("%1 %2  %3 %4")
+                          .arg(indicator.valueLabel.isEmpty() ? QStringLiteral("A") : indicator.valueLabel,
+                               QString::number(point->valueRaw),
+                               indicator.auxLabel.isEmpty() ? QStringLiteral("B") : indicator.auxLabel,
+                               QString::number(point->auxRaw))
+                    : QStringLiteral("%1 %2")
+                          .arg(indicatorRawLabel(indicator),
+                               QString::number(point->auxRaw));
                 drawLabel(*painter, hoverPoint_, label, chartBounds);
             }
         } else if (lowerPaneKind == CompareLowerPaneKind::RateLimitUsage) {
