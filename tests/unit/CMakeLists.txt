@@ -18,6 +18,7 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_bookticker_spread.cpp
     test_candle_spread.cpp
     test_event_storage.cpp
+    finam/test_finam_env_sync.cpp
     test_capture_channel_support.cpp
     test_tui_launch.cpp
     test_tui_preset.cpp

@@ -21,15 +21,26 @@ QString normalizedSessionId(QString value) {
     return QFileInfo(value).fileName();
 }
 
-QString resultLegSessionId(const QJsonObject& manifest, int legIndex) {
+QStringList resultLegSessionIds(const QJsonObject& manifest) {
+    QStringList ids;
     const QJsonArray legs = manifest.value(QStringLiteral("legs")).toArray();
+    if (legs.empty()) {
+        const QString primary = normalizedSessionId(manifest.value(QStringLiteral("session_path")).toString());
+        if (!primary.isEmpty()) ids.push_back(primary);
+        return ids;
+    }
+    ids.reserve(legs.size());
+    for (int i = 0; i < legs.size(); ++i) {
+        ids.push_back(QString{});
+    }
     for (int i = 0; i < legs.size(); ++i) {
         const QJsonObject leg = legs.at(i).toObject();
         const int index = leg.value(QStringLiteral("leg_index")).toInt(i);
-        if (index == legIndex) return normalizedSessionId(leg.value(QStringLiteral("session_path")).toString());
+        if (index < 0 || index >= ids.size()) continue;
+        ids[index] = normalizedSessionId(leg.value(QStringLiteral("session_path")).toString());
     }
-    if (legIndex == 0) return normalizedSessionId(manifest.value(QStringLiteral("session_path")).toString());
-    return {};
+    while (!ids.empty() && ids.last().isEmpty()) ids.removeLast();
+    return ids;
 }
 
 QString resultArtifactPath(const QString& manifestPath, const QJsonObject& manifest, const QString& key, const QString& fallback) {
@@ -52,21 +63,21 @@ QJsonObject readFirstJsonlObject(const QString& path) {
     return {};
 }
 
-QString sweepRowLegSessionId(const QString& manifestPath, const QJsonObject& manifest, int legIndex) {
+QStringList sweepRowLegSessionIds(const QString& manifestPath, const QJsonObject& manifest) {
     const QStringList keys = {QStringLiteral("rows"), QStringLiteral("curves")};
     const QStringList fallbacks = {QStringLiteral("sweep_results.jsonl"), QStringLiteral("sweep_curves.jsonl")};
     for (int i = 0; i < keys.size(); ++i) {
         const QJsonObject row = readFirstJsonlObject(resultArtifactPath(manifestPath, manifest, keys.at(i), fallbacks.at(i)));
-        const QString id = resultLegSessionId(row, legIndex);
-        if (!id.isEmpty()) return id;
+        QStringList ids = resultLegSessionIds(row);
+        if (!ids.empty()) return ids;
     }
     return {};
 }
 
-QString resultLegSessionId(const QString& manifestPath, const QJsonObject& manifest, int legIndex) {
-    QString id = resultLegSessionId(manifest, legIndex);
-    if (!id.isEmpty() || manifest.value(QStringLiteral("type")).toString() != QStringLiteral("sweep.result.v1")) return id;
-    return sweepRowLegSessionId(manifestPath, manifest, legIndex);
+QStringList resultLegSessionIds(const QString& manifestPath, const QJsonObject& manifest) {
+    QStringList ids = resultLegSessionIds(manifest);
+    if (!ids.empty() || manifest.value(QStringLiteral("type")).toString() != QStringLiteral("sweep.result.v1")) return ids;
+    return sweepRowLegSessionIds(manifestPath, manifest);
 }
 
 QJsonObject readManifestObject(const QString& manifestPath) {
@@ -85,6 +96,7 @@ void addLegCount(QHash<QString, BacktestLegCounts>& counts, const QString& sessi
     const QString id = normalizedSessionId(sessionId);
     if (id.isEmpty()) return;
     auto& row = counts[id];
+    ++row.total;
     if (legIndex == 0) ++row.firstLeg;
     else if (legIndex == 1) ++row.secondLeg;
 }
@@ -97,8 +109,10 @@ void scanResultDir(const QDir& dir, QHash<QString, BacktestLegCounts>& counts) {
         const QString manifestPath = QDir(resultDir.absoluteFilePath()).absoluteFilePath(QStringLiteral("manifest.json"));
         const QJsonObject manifest = readManifestObject(manifestPath);
         if (!isBacktestResultManifest(manifest)) continue;
-        addLegCount(counts, resultLegSessionId(manifestPath, manifest, 0), 0);
-        addLegCount(counts, resultLegSessionId(manifestPath, manifest, 1), 1);
+        const QStringList legSessionIds = resultLegSessionIds(manifestPath, manifest);
+        for (int legIndex = 0; legIndex < legSessionIds.size(); ++legIndex) {
+            addLegCount(counts, legSessionIds.at(legIndex), legIndex);
+        }
     }
 }
 
@@ -135,10 +149,10 @@ BacktestLegCounts backtestLegCountsForSession(const QString& recordingsRoot, con
 }
 
 QString sessionBacktestSummaryText(int bookTickerCount, const BacktestLegCounts& counts, qint64 startedAtNs) {
-    QString summary = QStringLiteral("L1 %1 | 1BT %2 | 2BT %3")
+    const int total = counts.total > 0 ? counts.total : counts.firstLeg + counts.secondLeg;
+    QString summary = QStringLiteral("L1 %1 | BT %2")
         .arg(bookTickerCount)
-        .arg(counts.firstLeg)
-        .arg(counts.secondLeg);
+        .arg(total);
     const QString startedAt = formatStartedAt(startedAtNs);
     if (!startedAt.isEmpty()) summary += QStringLiteral(" | %1").arg(startedAt);
     return summary;
@@ -185,21 +199,34 @@ QString appendSessionHealthSummary(QString summary, const QString& sessionHealth
 }
 
 bool backtestManifestMatchesLegs(const QString& manifestPath, const QString& primarySessionId, const QString& secondarySessionId) {
-    const QString primaryId = normalizedSessionId(primarySessionId);
-    const QString secondaryId = normalizedSessionId(secondarySessionId);
-    if (primaryId.isEmpty()) return false;
+    QStringList expected{primarySessionId};
+    if (!secondarySessionId.trimmed().isEmpty()) expected.push_back(secondarySessionId);
+    return backtestManifestMatchesLegs(manifestPath, expected);
+}
+
+bool backtestManifestMatchesLegs(const QString& manifestPath, const QStringList& sessionIds) {
+    QStringList expected;
+    for (const QString& sessionId : sessionIds) {
+        const QString normalized = normalizedSessionId(sessionId);
+        if (!normalized.isEmpty() && !expected.contains(normalized)) expected.push_back(normalized);
+    }
+    if (expected.empty()) return false;
 
     const QJsonObject manifest = readManifestObject(manifestPath);
     if (!isBacktestResultManifest(manifest)) return false;
 
-    const QString firstLegId = resultLegSessionId(manifestPath, manifest, 0);
-    const QString secondLegId = resultLegSessionId(manifestPath, manifest, 1);
-    if (secondaryId.isEmpty()) {
-        return firstLegId.isEmpty() || (firstLegId == primaryId && secondLegId.isEmpty());
+    const QStringList actual = resultLegSessionIds(manifestPath, manifest);
+    if (expected.size() == 1) {
+        return actual.empty() || (actual.size() == 1 && actual.front() == expected.front());
     }
-    if (firstLegId.isEmpty() || secondLegId.isEmpty()) return false;
-    return (firstLegId == primaryId && secondLegId == secondaryId)
-        || (firstLegId == secondaryId && secondLegId == primaryId);
+    if (expected.size() == 2) {
+        return actual.size() == 2 && actual.contains(expected.at(0)) && actual.contains(expected.at(1));
+    }
+    if (actual.size() != expected.size()) return false;
+    for (int i = 0; i < expected.size(); ++i) {
+        if (actual.at(i) != expected.at(i)) return false;
+    }
+    return true;
 }
 
 }  // namespace hftrec::gui

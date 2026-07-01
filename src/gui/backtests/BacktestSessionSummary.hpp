@@ -2,12 +2,14 @@
 
 #include <QHash>
 #include <QString>
+#include <QStringList>
 
 namespace hftrec::gui {
 
 struct BacktestLegCounts {
     int firstLeg{0};
     int secondLeg{0};
+    int total{0};
 };
 
 QHash<QString, BacktestLegCounts> backtestLegCountsBySession(const QString& recordingsRoot);
@@ -16,6 +18,7 @@ QString sessionBacktestSummaryText(int bookTickerCount, const BacktestLegCounts&
 QString sessionHealthSummaryLabel(const QString& sessionHealth, const QString& warningSummary);
 QString appendSessionHealthSummary(QString summary, const QString& sessionHealth, const QString& warningSummary);
 bool backtestManifestMatchesLegs(const QString& manifestPath, const QString& primarySessionId, const QString& secondarySessionId);
+bool backtestManifestMatchesLegs(const QString& manifestPath, const QStringList& sessionIds);
 QString sessionIdFromSessionPathText(const QString& sessionPath);
 
 }  // namespace hftrec::gui

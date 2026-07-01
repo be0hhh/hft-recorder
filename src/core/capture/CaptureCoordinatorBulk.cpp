@@ -343,6 +343,13 @@ Status CaptureCoordinator::captureDetailedCandlesBulk(const CaptureConfig& confi
         &streamStats,
         &fetchFailure,
         options);
+    if (const auto authPersistStatus = internal::persistFinamAuthForConfig(config, lastError_);
+        !isOk(authPersistStatus)) {
+        state.status = "failed";
+        state.lastError = lastError_;
+        (void)writeCandles2BulkStateFile(sessionDir_, state, nullptr);
+        return authPersistStatus;
+    }
 
     state.pageLimit = streamStats.pageLimit;
     state.emptyWindowsSkipped = streamStats.emptyWindowsSkipped;

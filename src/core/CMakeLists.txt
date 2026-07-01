@@ -20,6 +20,7 @@ set(HFTREC_CORE_SOURCES
     corpus/CorpusLoader.cpp
     corpus/InstrumentMetadata.cpp
     execution/ExecutionVenue.cpp
+    finam/FinamEnvSync.cpp
     history/BinanceVisionFormat.cpp
     history/ZipReader.cpp
     block/FileHeader.cpp
@@ -54,6 +55,7 @@ if(HFTREC_WITH_CXET)
     list(APPEND HFTREC_CORE_SOURCES
         capture/CaptureCoordinatorBulk.cpp
         capture/CaptureCoordinatorRuntime.cpp
+        capture/CaptureCoordinatorRuntimeLoops.cpp
         cxet_bridge/CxetCaptureBridge.cpp
         local_exchange/LocalMarketDataBus.cpp
         local_exchange/LocalOrderEngine.cpp

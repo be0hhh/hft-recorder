@@ -109,7 +109,7 @@ Pane {
     }
 
     function rebuildSecondarySessionRows() {
-        var rows = [{ "id": "", "label": "No second leg", "rightText": "" }]
+        var rows = [{ "id": "", "label": "No extra legs", "rightText": "" }]
         var sessions = root.backtestVm.sessions || []
         var primaryId = String(root.backtestVm.selectedSessionId || "")
         var currentExtra = root.firstExtraSessionId()
@@ -158,81 +158,6 @@ Pane {
         function onSelectionChanged() { root.selectedSweepPointId = -1; root.sweepPercentMode = false; root.showRawSummary = false }
     }
 
-    component ActionButton: Rectangle {
-        property string text: ""
-        property bool enabledValue: true
-        property color accent: root.accentColor
-        signal clicked()
-        radius: 6
-        implicitWidth: Math.max(76, label.implicitWidth + 18)
-        implicitHeight: 30
-        Layout.minimumWidth: implicitWidth
-        Layout.preferredWidth: implicitWidth
-        Layout.preferredHeight: implicitHeight
-        color: enabledValue ? (mouse.containsMouse ? "#2b303a" : root.panelColor) : root.panelDeepColor
-        border.color: enabledValue ? accent : root.borderColor
-        border.width: 1
-        opacity: enabledValue ? 1.0 : 0.5
-        Text { id: label; anchors.centerIn: parent; width: parent.width - 12; text: parent.text; color: enabledValue ? root.textColor : root.mutedTextColor; font.pixelSize: 11; font.bold: true; elide: Text.ElideRight; horizontalAlignment: Text.AlignHCenter }
-        MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; enabled: parent.enabledValue; onClicked: parent.clicked() }
-    }
-
-    component MetricCard: Rectangle {
-        property var metric: ({})
-        property bool selected: false
-        signal clicked(string key)
-        width: 146
-        height: 58
-        radius: 7
-        color: metricMouse.containsMouse ? root.panelColor : root.panelDeepColor
-        border.color: selected ? root.accentColor : (metric.primary ? "#4a9aa0" : root.borderColor)
-        border.width: selected ? 2 : 1
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 8
-            spacing: 2
-            Label { text: metric.group || "Metric"; color: root.mutedTextColor; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
-            Label { text: metric.value || ""; color: root.textColor; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-            Label { text: metric.label || ""; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
-        }
-        MouseArea { id: metricMouse; anchors.fill: parent; hoverEnabled: true; onClicked: parent.clicked(metric.key || "") }
-    }
-
-    component CompactField: Item {
-        property string caption: ""
-        property alias text: input.text
-        property int fieldWidth: 92
-        signal edited(string value)
-        Layout.preferredWidth: fieldWidth
-        Layout.minimumWidth: fieldWidth
-        Layout.preferredHeight: 42
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: 2
-            Label { text: caption; color: root.mutedTextColor; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
-            TextField {
-                id: input
-                Layout.fillWidth: true
-                Layout.preferredHeight: 24
-                color: root.textColor
-                font.pixelSize: 12
-                selectByMouse: true
-                background: Rectangle { radius: 5; color: root.panelDeepColor; border.color: root.borderColor; border.width: 1 }
-                onEditingFinished: edited(text)
-            }
-        }
-    }
-
-    component ExecutionField: TextField {
-        property int fieldWidth: 70
-        selectByMouse: true
-        color: root.textColor
-        font.pixelSize: 12
-        Layout.preferredWidth: fieldWidth
-        Layout.preferredHeight: 24
-        background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-    }
-
     ColumnLayout {
         anchors.fill: parent
         spacing: 8
@@ -262,6 +187,7 @@ Pane {
                         rows: root.backtestVm.sessions
                         emptyLabel: "Select session"
                         popupWidth: 720
+                        allowGroupSelection: true
                         onPicked: function(id) {
                             if (root.firstExtraSessionId() === id)
                                 root.backtestVm.setExtraSessionIds("")
@@ -269,7 +195,7 @@ Pane {
                         }
                         Component.onCompleted: root.syncSelections()
                     }
-                    CompactField {
+                    BacktestCompactField {
                         id: symbolField
                         caption: "Symbol"
                         fieldWidth: 120
@@ -320,7 +246,7 @@ Pane {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
-                    CompactField {
+                    BacktestCompactField {
                         caption: "Balance USDT"
                         fieldWidth: 126
                         text: root.backtestVm.initialBalanceUsdt
@@ -330,10 +256,11 @@ Pane {
                         id: secondarySessionBox
                         Layout.fillWidth: true
                         Layout.preferredWidth: 260
-                        caption: "Second leg"
+                        caption: "Extra legs"
                         rows: root.secondarySessionRows
-                        emptyLabel: "No second leg"
+                        emptyLabel: "No extra legs"
                         popupWidth: 720
+                        allowGroupSelection: true
                         preferredOpenGroupId: root.sessionGroupId(root.backtestVm.selectedSessionId)
                         scrollToPreferredGroupOnOpen: true
                         enabled: root.secondarySessionRows.length > 1 || root.firstExtraSessionId().length > 0
@@ -341,211 +268,33 @@ Pane {
                         onPicked: function(id) { root.backtestVm.setExtraSessionIds(id) }
                         Component.onCompleted: root.syncSelections()
                     }
-                    CompactField {
+                    BacktestCompactField {
                         caption: "Sweep budget"
                         fieldWidth: 106
                         text: root.backtestVm.sweepBudget
                         onEdited: function(value) { root.backtestVm.sweepBudget = value }
                     }
-                    CompactField {
+                    BacktestCompactField {
                         caption: "Sweep seed"
                         fieldWidth: 92
                         text: root.backtestVm.sweepSeed
                         onEdited: function(value) { root.backtestVm.sweepSeed = value }
                     }
-                    ActionButton { text: "Refresh"; onClicked: { root.backtestVm.reloadSessions(); root.backtestVm.refreshResults() } }
-                    ActionButton { text: root.backtestVm.running ? "Running" : "Start"; enabledValue: root.backtestVm.canRun; accent: root.goodColor; onClicked: root.backtestVm.startBacktest() }
-                    ActionButton { text: "Start sweep"; enabledValue: root.backtestVm.canRun; accent: root.accentColor; onClicked: root.backtestVm.startSweep() }
-                    ActionButton { visible: root.backtestVm.running; text: "Cancel"; enabledValue: root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.cancelBacktest() }
+                    BacktestActionButton { text: "Refresh"; onClicked: { root.backtestVm.reloadSessions(); root.backtestVm.refreshResults() } }
+                    BacktestActionButton { text: root.backtestVm.running ? "Running" : "Start"; enabledValue: root.backtestVm.canRun; accent: root.goodColor; onClicked: root.backtestVm.startBacktest() }
+                    BacktestActionButton { text: "Start sweep"; enabledValue: root.backtestVm.canRun; accent: root.accentColor; onClicked: root.backtestVm.startSweep() }
+                    BacktestActionButton { visible: root.backtestVm.running; text: "Cancel"; enabledValue: root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.cancelBacktest() }
                 }
 
-                Rectangle {
+                BacktestLegExecutionTable {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(104, 44 + root.backtestVm.selectedSessionLegs.length * 74)
-                    Layout.maximumHeight: Layout.preferredHeight
-                    Layout.leftMargin: 0
-                    Layout.rightMargin: 0
-                    color: "transparent"
-
-                    Flickable {
-                        id: executionFlick
-                        property int tableWidth: 1160
-                        anchors.fill: parent
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-                        contentWidth: Math.max(width, tableWidth)
-                        contentHeight: executionContent.implicitHeight
-
-                        ColumnLayout {
-                            id: executionContent
-                            width: Math.max(executionFlick.width, executionFlick.tableWidth)
-                            spacing: 4
-
-                            RowLayout {
-                                width: executionContent.width
-                                spacing: 8
-                                Label { text: "Leg"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 210 }
-                                Label { text: "Balance"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
-                                Label { text: "MD base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
-                                Label { text: "MD jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
-                                Label { text: "Mkt base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
-                                Label { text: "Mkt jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
-                                Label { text: "Limit base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
-                                Label { text: "Limit jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
-                                Label { text: "Cancel base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
-                                Label { text: "Cancel jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
-                                Label { text: "User base"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
-                                Label { text: "User jit"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
-                                CompactField {
-                                    caption: "Seed"
-                                    fieldWidth: 82
-                                    text: root.backtestVm.latencySeed
-                                    onEdited: function(value) { root.backtestVm.latencySeed = value }
-                                }
-                                Item { Layout.fillWidth: true }
-                            }
-
-                            Repeater {
-                                model: root.backtestVm.selectedSessionLegs
-                                delegate: ColumnLayout {
-                                    required property var modelData
-                                    width: executionContent.width
-                                    spacing: 4
-
-                                    RowLayout {
-                                        width: parent.width
-                                        spacing: 8
-                                        Label {
-                                            text: modelData.label
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            elide: Text.ElideRight
-                                            Layout.preferredWidth: 210
-                                        }
-                                        TextField {
-                                            text: modelData.initialBalanceUsdt
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 82
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "initial_balance_usdt", text)
-                                        }
-                                        TextField {
-                                            text: modelData.marketDataLatencyUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 70
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_data_latency_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.marketDataJitterUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 70
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_data_jitter_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.marketOrderLatencyUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 74
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_order_latency_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.marketOrderJitterUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 74
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "market_order_jitter_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.limitOrderLatencyUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 78
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "limit_order_latency_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.limitOrderJitterUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 78
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "limit_order_jitter_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.cancelOrderLatencyUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 82
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "cancel_order_latency_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.cancelOrderJitterUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 78
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "cancel_order_jitter_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.userDataLatencyUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 78
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "user_data_latency_us", text)
-                                        }
-                                        TextField {
-                                            text: modelData.userDataJitterUs
-                                            selectByMouse: true
-                                            color: root.textColor
-                                            font.pixelSize: 12
-                                            Layout.preferredWidth: 74
-                                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                            onEditingFinished: root.backtestVm.setVenueExecutionValue(modelData.index, "user_data_jitter_us", text)
-                                        }
-                                        Item { Layout.fillWidth: true }
-                                    }
-
-                                    Label {
-                                        text: modelData.executionPresetSummary
-                                        color: root.mutedTextColor
-                                        font.pixelSize: 11
-                                        wrapMode: Text.Wrap
-                                        maximumLineCount: 2
-                                        elide: Text.ElideRight
-                                        Layout.leftMargin: 0
-                                        Layout.fillWidth: true
-                                    }
-                                    Label {
-                                        visible: root.backtestVm.selectedSessionCount > 1 && !root.backtestVm.canRun
-                                        text: visible ? root.backtestVm.statusText : ""
-                                        color: root.badColor
-                                        font.pixelSize: 12
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                            }
-                        }
-                    }
-                    }
+                    Layout.preferredHeight: implicitHeight
+                    Layout.maximumHeight: implicitHeight
+                    backtestVm: root.backtestVm
+                    panelDeepColor: root.panelDeepColor
+                    borderColor: root.borderColor
+                    textColor: root.textColor
+                    mutedTextColor: root.mutedTextColor
                 }
 
                 RowLayout {
@@ -559,349 +308,10 @@ Pane {
             }
         }
 
-        Rectangle {
-            property int parameterCount: root.backtestVm.strategyParameters ? root.backtestVm.strategyParameters.length : 0
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(78, paramsFlow.childrenRect.height + 16)
-            Layout.minimumHeight: Layout.preferredHeight
-            Layout.maximumHeight: Layout.preferredHeight
-            Layout.leftMargin: 10
-            Layout.rightMargin: 10
-            color: root.panelColor
-            border.color: root.borderColor
-            radius: 6
-
-            Item {
-                anchors.fill: parent
-                anchors.margins: 8
-
-                Flow {
-                    id: paramsFlow
-                    width: Math.max(1, parent.width)
-                    spacing: 10
-
-                    Repeater {
-                        model: root.backtestVm.strategyParameters
-                        delegate: Item {
-                            required property var modelData
-                            property bool choiceRow: modelData.isChoice === true
-                            property bool fixedRow: modelData.mode === "fixed"
-                            width: 292
-                            height: choiceRow || fixedRow ? 62 : 92
-                            ToolTip.visible: paramHover.hovered && String(modelData.description || "").length > 0
-                            ToolTip.text: modelData.description || ""
-                            ToolTip.delay: 350
-
-                            HoverHandler { id: paramHover }
-
-                            Label {
-                                x: 0
-                                y: 0
-                                width: parent.width
-                                height: 18
-                                text: modelData.label
-                                color: root.textColor
-                                font.pixelSize: 11
-                                font.bold: true
-                                elide: Text.ElideRight
-                            }
-
-                            RecorderComboBox {
-                                visible: choiceRow
-                                x: 0
-                                y: 24
-                                width: parent.width
-                                height: 28
-                                caption: ""
-                                textRole: "label"
-                                valueRole: "id"
-                                model: modelData.choices || []
-                                popupWidth: 170
-                                Component.onCompleted: currentIndex = indexOfValue(modelData.value)
-                                onActivated: root.backtestVm.setStrategyParameterGroup(modelData.group, currentValue)
-                            }
-
-                            RecorderComboBox {
-                                visible: !choiceRow
-                                x: 0
-                                y: 24
-                                width: 110
-                                height: 28
-                                caption: ""
-                                textRole: "label"
-                                valueRole: "id"
-                                model: modelData.modeChoices || []
-                                popupWidth: 120
-                                Component.onCompleted: currentIndex = indexOfValue(modelData.mode)
-                                onActivated: root.backtestVm.setStrategyParameterMode(modelData.key, currentValue)
-                            }
-
-                            TextField {
-                                visible: !choiceRow && fixedRow
-                                x: 118
-                                y: 24
-                                width: 112
-                                height: 26
-                                text: modelData.value
-                                selectByMouse: true
-                                color: root.textColor
-                                font.pixelSize: 12
-                                background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                onEditingFinished: root.backtestVm.setStrategyParameter(modelData.key, text)
-                            }
-
-                            TextField {
-                                id: minField
-                                visible: !choiceRow && !fixedRow
-                                x: 0
-                                y: 56
-                                width: 88
-                                height: 24
-                                placeholderText: "min"
-                                text: modelData.min || ""
-                                selectByMouse: true
-                                color: root.textColor
-                                font.pixelSize: 11
-                                background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                onEditingFinished: root.backtestVm.setStrategyParameterRange(modelData.key, text, maxField.text, stepField.text)
-                            }
-
-                            TextField {
-                                id: maxField
-                                visible: !choiceRow && !fixedRow
-                                x: 96
-                                y: 56
-                                width: 88
-                                height: 24
-                                placeholderText: "max"
-                                text: modelData.max || ""
-                                selectByMouse: true
-                                color: root.textColor
-                                font.pixelSize: 11
-                                background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                onEditingFinished: root.backtestVm.setStrategyParameterRange(modelData.key, minField.text, text, stepField.text)
-                            }
-
-                            TextField {
-                                id: stepField
-                                visible: !choiceRow && !fixedRow
-                                x: 192
-                                y: 56
-                                width: 88
-                                height: 24
-                                placeholderText: "step"
-                                text: modelData.step || ""
-                                selectByMouse: true
-                                color: root.textColor
-                                font.pixelSize: 11
-                                background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                                onEditingFinished: root.backtestVm.setStrategyParameterRange(modelData.key, minField.text, maxField.text, text)
-                            }
-                        }
-                    }
-
-                    Item {
-                        width: 150
-                        height: 62
-
-                        Label {
-                            x: 0
-                            y: 0
-                            width: parent.width
-                            height: 18
-                            text: "Rate limits"
-                            color: root.textColor
-                            font.pixelSize: 11
-                            font.bold: true
-                        }
-
-                        CheckBox {
-                            id: rateLimitsEnabledBox
-                            x: 0
-                            y: 22
-                            width: 78
-                            height: 28
-                            checked: root.backtestVm.rateLimitsEnabled
-                            text: "On"
-                            font.pixelSize: 12
-                            palette.text: root.textColor
-                            indicator: Rectangle {
-                                implicitWidth: 18
-                                implicitHeight: 18
-                                width: 18
-                                height: 18
-                                x: 0
-                                y: parent.height / 2 - height / 2
-                                radius: 4
-                                color: rateLimitsEnabledBox.checked ? root.panelAltColor : root.panelDeepColor
-                                border.width: 1
-                                border.color: rateLimitsEnabledBox.checked ? root.accentColor : root.borderColor
-
-                                Rectangle {
-                                    width: 8
-                                    height: 8
-                                    anchors.centerIn: parent
-                                    radius: 2
-                                    color: root.accentColor
-                                    visible: rateLimitsEnabledBox.checked
-                                }
-                            }
-                            contentItem: Text {
-                                leftPadding: rateLimitsEnabledBox.indicator.width + rateLimitsEnabledBox.spacing
-                                text: rateLimitsEnabledBox.text
-                                color: root.textColor
-                                font: rateLimitsEnabledBox.font
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onToggled: root.backtestVm.rateLimitsEnabled = checked
-                        }
-
-                        CheckBox {
-                            id: strictRateLimitsBox
-                            x: 68
-                            y: 22
-                            width: 82
-                            height: 28
-                            checked: root.backtestVm.strictRateLimitsEnabled
-                            enabled: root.backtestVm.rateLimitsEnabled
-                            opacity: enabled ? 1.0 : 0.45
-                            text: "Strict"
-                            font.pixelSize: 12
-                            palette.text: root.textColor
-                            contentItem: Text {
-                                leftPadding: strictRateLimitsBox.indicator.width + strictRateLimitsBox.spacing
-                                text: strictRateLimitsBox.text
-                                color: root.textColor
-                                font: strictRateLimitsBox.font
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onToggled: root.backtestVm.strictRateLimitsEnabled = checked
-                        }
-                    }
-
-                    Item {
-                        width: 620
-                        height: 62
-
-                        Label {
-                            x: 0
-                            y: 0
-                            width: parent.width
-                            height: 18
-                            text: "Risk"
-                            color: root.textColor
-                            font.pixelSize: 11
-                            font.bold: true
-                        }
-
-                        CheckBox {
-                            id: riskEnabledBox
-                            x: 0
-                            y: 22
-                            width: 62
-                            height: 28
-                            checked: root.backtestVm.riskEnabled
-                            text: "On"
-                            font.pixelSize: 12
-                            palette.text: root.textColor
-                            contentItem: Text {
-                                leftPadding: riskEnabledBox.indicator.width + riskEnabledBox.spacing
-                                text: riskEnabledBox.text
-                                color: root.textColor
-                                font: riskEnabledBox.font
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            onToggled: root.backtestVm.riskEnabled = checked
-                        }
-
-                        TextField {
-                            x: 70
-                            y: 24
-                            width: 92
-                            height: 26
-                            placeholderText: "equity %"
-                            text: root.backtestVm.riskMinEquityPct
-                            enabled: root.backtestVm.riskEnabled
-                            opacity: enabled ? 1.0 : 0.45
-                            selectByMouse: true
-                            color: root.textColor
-                            placeholderTextColor: root.mutedTextColor
-                            font.pixelSize: 12
-                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                            onEditingFinished: root.backtestVm.riskMinEquityPct = text
-                        }
-
-                        TextField {
-                            x: 170
-                            y: 24
-                            width: 92
-                            height: 26
-                            placeholderText: "leg %"
-                            text: root.backtestVm.riskMinLegEquityPct
-                            enabled: root.backtestVm.riskEnabled
-                            opacity: enabled ? 1.0 : 0.45
-                            selectByMouse: true
-                            color: root.textColor
-                            placeholderTextColor: root.mutedTextColor
-                            font.pixelSize: 12
-                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                            onEditingFinished: root.backtestVm.riskMinLegEquityPct = text
-                        }
-
-                        TextField {
-                            x: 270
-                            y: 24
-                            width: 112
-                            height: 26
-                            placeholderText: "leg USDT"
-                            text: root.backtestVm.riskMinLegEquityUsdt
-                            enabled: root.backtestVm.riskEnabled
-                            opacity: enabled ? 1.0 : 0.45
-                            selectByMouse: true
-                            color: root.textColor
-                            placeholderTextColor: root.mutedTextColor
-                            font.pixelSize: 12
-                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                            onEditingFinished: root.backtestVm.riskMinLegEquityUsdt = text
-                        }
-
-                        TextField {
-                            x: 390
-                            y: 24
-                            width: 120
-                            height: 26
-                            placeholderText: "max pos USDT"
-                            text: root.backtestVm.riskMaxPositionUsdt
-                            enabled: root.backtestVm.riskEnabled
-                            opacity: enabled ? 1.0 : 0.45
-                            selectByMouse: true
-                            color: root.textColor
-                            placeholderTextColor: root.mutedTextColor
-                            font.pixelSize: 12
-                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                            onEditingFinished: root.backtestVm.riskMaxPositionUsdt = text
-                        }
-
-                        TextField {
-                            x: 520
-                            y: 24
-                            width: 92
-                            height: 26
-                            placeholderText: "RL min"
-                            text: root.backtestVm.riskRateLimitGuardMinRemaining
-                            enabled: root.backtestVm.rateLimitsEnabled
-                            opacity: enabled ? 1.0 : 0.45
-                            selectByMouse: true
-                            color: root.textColor
-                            placeholderTextColor: root.mutedTextColor
-                            font.pixelSize: 12
-                            background: Rectangle { color: root.panelDeepColor; border.color: root.borderColor; radius: 5 }
-                            onEditingFinished: root.backtestVm.riskRateLimitGuardMinRemaining = text
-                        }
-                    }
-                }
-            }
+        BacktestStrategyParametersPanel {
+            backtestVm: root.backtestVm
         }
+
         SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -1014,17 +424,17 @@ Pane {
                             Component.onCompleted: currentIndex = indexOfValue(root.backtestVm.selectedSweepDistributionParam)
                             onActivated: root.backtestVm.setSelectedSweepDistributionParam(currentValue)
                         }
-                        ActionButton {
+                        BacktestActionButton {
                             text: root.backtestVm.selectedDetailsLoading ? "Loading" : (root.hasSelectedVisualData() ? "Visual loaded" : (root.backtestVm.selectedDetailsLoaded ? "Reload visual" : "Load visual"))
                             visible: root.backtestVm.hasSelection
                             enabledValue: !root.backtestVm.selectedDetailsLoading && !root.hasSelectedVisualData()
                             accent: root.goodColor
                             onClicked: root.loadOrReloadVisual()
                         }
-                        ActionButton { text: root.sweepPercentMode ? "PnL %" : "PnL $"; visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded; enabledValue: root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.sweepPercentMode = !root.sweepPercentMode; sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint(); distributionCanvas.requestPaint(); distributionHoverCanvas.requestPaint() } }
-                        ActionButton { text: "Apply"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedDetailsLoaded && root.selectedSweepPointId >= 0 && !root.backtestVm.running; onClicked: root.backtestVm.applySweepPointById(root.selectedSweepPointId) }
-                        ActionButton { text: "Detailed run"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedDetailsLoaded && root.selectedSweepPointId >= 0 && !root.backtestVm.running; accent: root.goodColor; onClicked: root.backtestVm.startDetailedRunFromSweepPointById(root.selectedSweepPointId) }
-                        ActionButton { text: "Delete"; visible: root.backtestVm.hasSelection; enabledValue: root.backtestVm.hasSelection && !root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.deleteSelectedRun() }
+                        BacktestActionButton { text: root.sweepPercentMode ? "PnL %" : "PnL $"; visible: root.backtestVm.selectedIsSweep && root.backtestVm.selectedDetailsLoaded; enabledValue: root.backtestVm.selectedInitialBalanceE8 > 0; onClicked: { root.sweepPercentMode = !root.sweepPercentMode; sweepCanvas.requestPaint(); sweepHoverCanvas.requestPaint(); distributionCanvas.requestPaint(); distributionHoverCanvas.requestPaint() } }
+                        BacktestActionButton { text: "Apply"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedDetailsLoaded && root.selectedSweepPointId >= 0 && !root.backtestVm.running; onClicked: root.backtestVm.applySweepPointById(root.selectedSweepPointId) }
+                        BacktestActionButton { text: "Detailed run"; visible: root.backtestVm.selectedIsSweep; enabledValue: root.backtestVm.selectedDetailsLoaded && root.selectedSweepPointId >= 0 && !root.backtestVm.running; accent: root.goodColor; onClicked: root.backtestVm.startDetailedRunFromSweepPointById(root.selectedSweepPointId) }
+                        BacktestActionButton { text: "Delete"; visible: root.backtestVm.hasSelection; enabledValue: root.backtestVm.hasSelection && !root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.deleteSelectedRun() }
                         Label {
                             text: root.selectedErrorDisplayText()
                             visible: text !== ""
@@ -1060,84 +470,20 @@ Pane {
                         }
                     }
 
-                    Rectangle {
-                        visible: root.selectedErrorDisplayText() !== ""
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.min(132, Math.max(54, errorContent.implicitHeight + 20))
-                        color: "#2c1f22"
-                        border.color: root.badColor
-                        radius: 6
-                        clip: true
-
-                        Flickable {
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            clip: true
-                            boundsBehavior: Flickable.StopAtBounds
-                            contentWidth: Math.max(1, width)
-                            contentHeight: errorContent.implicitHeight
-                            interactive: contentHeight > height
-
-                            ColumnLayout {
-                                id: errorContent
-                                width: parent.width
-                                spacing: 4
-                                Label {
-                                    text: "Errors"
-                                    color: root.badColor
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: root.selectedErrorDisplayText()
-                                    color: root.textColor
-                                    font.pixelSize: 11
-                                    wrapMode: Text.WrapAnywhere
-                                    Layout.fillWidth: true
-                                }
-                            }
-                        }
+                    BacktestMessagePanel {
+                        title: "Errors"
+                        message: root.selectedErrorDisplayText()
+                        panelColor: "#2c1f22"
+                        borderColor: root.badColor
+                        titleColor: root.badColor
                     }
 
-                    Rectangle {
-                        visible: root.backtestVm.selectedWarningText !== ""
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.min(132, Math.max(54, warningContent.implicitHeight + 20))
-                        color: "#2a251b"
-                        border.color: "#8f6b2d"
-                        radius: 6
-                        clip: true
-
-                        Flickable {
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            clip: true
-                            boundsBehavior: Flickable.StopAtBounds
-                            contentWidth: Math.max(1, width)
-                            contentHeight: warningContent.implicitHeight
-                            interactive: contentHeight > height
-
-                            ColumnLayout {
-                                id: warningContent
-                                width: parent.width
-                                spacing: 4
-                                Label {
-                                    text: "Warnings"
-                                    color: "#f0b35a"
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    Layout.fillWidth: true
-                                }
-                                Label {
-                                    text: root.backtestVm.selectedWarningText
-                                    color: root.textColor
-                                    font.pixelSize: 11
-                                    wrapMode: Text.WrapAnywhere
-                                    Layout.fillWidth: true
-                                }
-                            }
-                        }
+                    BacktestMessagePanel {
+                        title: "Warnings"
+                        message: root.backtestVm.selectedWarningText
+                        panelColor: "#2a251b"
+                        borderColor: "#8f6b2d"
+                        titleColor: "#f0b35a"
                     }
 
                     ColumnLayout {
@@ -1180,7 +526,7 @@ Pane {
                             spacing: 8
                             Repeater {
                                 model: root.backtestVm.selectedResultMetrics
-                                delegate: MetricCard {
+                                delegate: BacktestMetricCard {
                                     metric: modelData
                                     selected: modelData.key === root.backtestVm.selectedResultMetricKey
                                     onClicked: function(key) { root.backtestVm.setSelectedResultMetricKey(key) }
@@ -1384,7 +730,7 @@ Pane {
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            ActionButton { text: root.showRawSummary ? "Hide details" : "Details"; onClicked: root.showRawSummary = !root.showRawSummary }
+                            BacktestActionButton { text: root.showRawSummary ? "Hide details" : "Details"; onClicked: root.showRawSummary = !root.showRawSummary }
                             Label { text: "Raw summary JSON"; color: root.mutedTextColor; font.pixelSize: 11; visible: root.showRawSummary }
                         }
                         TextArea {

@@ -18,6 +18,7 @@ ComboBox {
     property int popupWidth: width
     property int popupMaxWidth: 0
     property bool popupAlignRight: false
+    property bool allowGroupSelection: false
     property string preferredOpenGroupId: ""
     property bool scrollToPreferredGroupOnOpen: false
     property string searchText: ""
@@ -169,19 +170,33 @@ ComboBox {
         if (!row || row.index < 0)
             return
         if (row.isGroup) {
-            var nextExpanded = ({})
-            for (var key in picker.expandedGroups)
-                nextExpanded[key] = picker.expandedGroups[key]
-            nextExpanded[row.groupId] = nextExpanded[row.groupId] !== true
-            picker.expandedGroups = nextExpanded
-            picker.rebuildFilter()
+            if (picker.allowGroupSelection && row.selectable !== false) {
+                picker.pickFilteredRow(row)
+            } else {
+                picker.toggleGroup(row)
+            }
             return
         }
-        if (row.selectable === false)
+        picker.pickFilteredRow(row)
+    }
+
+    function pickFilteredRow(row) {
+        if (!row || row.index < 0 || (row.selectable === false && !(picker.allowGroupSelection && row.isGroup)))
             return
         picker.currentIndex = row.index
         picker.popup.close()
         picker.picked(row.value)
+    }
+
+    function toggleGroup(row) {
+        if (!row || !row.isGroup)
+            return
+        var nextExpanded = ({})
+        for (var key in picker.expandedGroups)
+            nextExpanded[key] = picker.expandedGroups[key]
+        nextExpanded[row.groupId] = nextExpanded[row.groupId] !== true
+        picker.expandedGroups = nextExpanded
+        picker.rebuildFilter()
     }
 
     function currentRightText() {
@@ -370,6 +385,13 @@ ComboBox {
                     font.pixelSize: 11
                     font.bold: true
                     verticalAlignment: Text.AlignVCenter
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: function(mouse) {
+                            mouse.accepted = true
+                            picker.toggleGroup(modelData)
+                        }
+                    }
                 }
                 Text {
                     Layout.fillWidth: true
@@ -391,6 +413,35 @@ ComboBox {
                     horizontalAlignment: Text.AlignRight
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
+                }
+                Rectangle {
+                    visible: picker.allowGroupSelection
+                    Layout.preferredWidth: 58
+                    Layout.preferredHeight: 24
+                    Layout.rightMargin: 8
+                    radius: 5
+                    color: selectGroupMouse.containsMouse ? picker.panelColor : picker.panelDeepColor
+                    border.color: picker.accentColor
+                    border.width: 1
+                    Text {
+                        anchors.centerIn: parent
+                        width: parent.width - 8
+                        text: "Select"
+                        color: picker.textColor
+                        font.pixelSize: 10
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+                    MouseArea {
+                        id: selectGroupMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: function(mouse) {
+                            mouse.accepted = true
+                            picker.pickFilteredRow(modelData)
+                        }
+                    }
                 }
             }
 

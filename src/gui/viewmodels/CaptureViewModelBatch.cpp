@@ -600,16 +600,22 @@ bool CaptureViewModel::startDetailedCandles() {
             ? existing->coordinator->captureDetailedCandlesBulk(existing->config)
             : existing->coordinator->captureDetailedCandlesOnce(existing->config);
         const auto afterRows = existing->coordinator->candles2Count();
+        const auto captureError = QString::fromStdString(existing->coordinator->lastError()).trimmed();
+        const auto finalizeStatus = hasRunningChannel(*existing->coordinator)
+            ? hftrec::Status::Ok
+            : existing->coordinator->finalizeSession();
         const auto symbol = config.symbols.empty() ? QString{} : QString::fromStdString(config.symbols.front());
         const auto venue = QStringLiteral("%1/%2/%3/%4")
             .arg(QString::fromStdString(config.exchange),
                  QString::fromStdString(config.market),
                  symbol,
                  QString::fromStdString(config.detailedCandlesTimeframe));
-        if (!isOk(status)) {
+        if (!isOk(status) || !isOk(finalizeStatus)) {
             ok = false;
-            const auto error = QString::fromStdString(existing->coordinator->lastError()).trimmed();
-            const auto statusText = QString::fromUtf8(hftrec::statusToString(status).data());
+            const auto error = captureError.isEmpty()
+                ? QString::fromStdString(existing->coordinator->lastError()).trimmed()
+                : captureError;
+            const auto statusText = QString::fromUtf8(hftrec::statusToString(!isOk(status) ? status : finalizeStatus).data());
             failures.push_back(error.isEmpty()
                 ? QStringLiteral("%1: %2").arg(venue, statusText)
                 : QStringLiteral("%1: %2").arg(venue, error));

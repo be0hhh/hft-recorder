@@ -910,6 +910,44 @@ TEST(BacktestViewModel, GroupedSessionRowsUseGroupsAsTreeHeaders) {
     EXPECT_EQ(asterRow.value(QStringLiteral("label")).toString(), QStringLiteral("aster/futures %1").arg(unique));
 }
 
+TEST(BacktestViewModel, SelectingGroupedSessionUsesAllFolderSessions) {
+    isolateSettings(QStringLiteral("grouped_session_launch"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString unique = QStringLiteral("GROUPRUN%1").arg(std::rand());
+    const QString groupId = QStringLiteral("2026-06-22_18-25-31_%1").arg(unique);
+    const QString groupDir = QDir(vm.recordingsRoot()).absoluteFilePath(groupId);
+    const qint64 startNs = 1782141931000000000LL;
+    const QString binanceId = QStringLiteral("run_binance_%1").arg(unique);
+    const QString okxId = QStringLiteral("run_okx_%1").arg(unique);
+
+    writeRecordingManifest(QDir(groupDir).absoluteFilePath(binanceId),
+                           binanceId,
+                           QStringLiteral("binance"),
+                           QStringLiteral("futures"),
+                           unique,
+                           startNs);
+    writeRecordingManifest(QDir(groupDir).absoluteFilePath(okxId),
+                           okxId,
+                           QStringLiteral("okx"),
+                           QStringLiteral("futures"),
+                           unique,
+                           startNs + 1'000'000LL);
+
+    vm.reloadSessions();
+    vm.setSelectedSessionId(QStringLiteral("group:%1").arg(groupId));
+
+    EXPECT_EQ(vm.selectedSessionId(), QStringLiteral("group:%1").arg(groupId));
+    EXPECT_EQ(vm.selectedSessionCount(), 2);
+    EXPECT_TRUE(hasChoiceId(vm.strategyChoices(), QStringLiteral("stat_arb_band_ladder")));
+    const QVariantList legs = vm.selectedSessionLegs();
+    ASSERT_EQ(legs.size(), 2);
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("id")).toString(), binanceId);
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("id")).toString(), okxId);
+
+    QDir(groupDir).removeRecursively();
+}
+
 TEST(BacktestViewModel, ExplainsWhenSelectedStrategyDoesNotSupportExtraSessions) {
     isolateSettings(QStringLiteral("multi_session_gate"));
 

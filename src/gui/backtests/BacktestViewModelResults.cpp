@@ -342,13 +342,13 @@ void BacktestViewModel::refresh() {
     QStringList filesToWatch;
     if (!dirPath.isEmpty()) {
         const QStringList selectedPaths = selectedSessionPaths_();
-        const QString primarySessionId = selectedPaths.empty() ? QString{} : sessionIdFromPath_(selectedPaths.at(0));
-        const QString secondarySessionId = selectedPaths.size() > 1 ? sessionIdFromPath_(selectedPaths.at(1)) : QString{};
+        QStringList selectedSessionIds;
+        for (const QString& path : selectedPaths) selectedSessionIds.push_back(sessionIdFromPath_(path));
         auto addRunDir = [&](const QFileInfo& runDir) {
             const QDir candidateDir(runDir.absoluteFilePath());
             const QString manifestPath = candidateDir.absoluteFilePath(QStringLiteral("manifest.json"));
             if (!QFileInfo::exists(manifestPath)) return;
-            if (!backtestManifestMatchesLegs(manifestPath, primarySessionId, secondarySessionId)) return;
+            if (!backtestManifestMatchesLegs(manifestPath, selectedSessionIds)) return;
             const RunRecord* cached = recordForPath_(runDir.absoluteFilePath());
             RunRecord record = loadRecord_(runDir.absoluteFilePath(), RecordLoadMode::MetadataOnly);
             if (!record.strategy.isEmpty() && record.strategy != selectedStrategy_) return;
@@ -447,6 +447,8 @@ void BacktestViewModel::refresh() {
     if (!running_) {
         if (selectedSessionPath().isEmpty()) {
             setStatusText_(QStringLiteral("Select a session and strategy"));
+        } else if (selectedSessionPaths_().empty()) {
+            setStatusText_(QStringLiteral("Select at least one leg"));
         } else if (!strategySupportsSelectedSessionCount_()) {
             const QString gateText = strategySessionGateText(selectedStrategy_, selectedSessionCount());
             setStatusText_(gateText.isEmpty() ? QStringLiteral("Selected strategy does not support selected sessions") : gateText);
@@ -837,7 +839,8 @@ void BacktestViewModel::updateWatcher_() {
     QStringList desiredDirs;
     const QString dirPath = backtestsDirectory();
     if (!dirPath.isEmpty()) {
-        QDir sessionDir(selectedSessionPath());
+        const QStringList selectedPaths = selectedSessionPaths_();
+        QDir sessionDir(selectedPaths.empty() ? selectedSessionPath() : selectedPaths.front());
         if (sessionDir.exists()) {
             sessionDir.mkpath(QStringLiteral("backtests"));
             if (QDir(dirPath).exists()) desiredDirs.push_back(dirPath);
@@ -879,6 +882,8 @@ void BacktestViewModel::refreshSessionGateStatus_() {
     }
     if (selectedSessionPath().isEmpty()) {
         setStatusText_(QStringLiteral("Select a session and strategy"));
+    } else if (selectedSessionPaths_().empty()) {
+        setStatusText_(QStringLiteral("Select at least one leg"));
     } else {
         setStatusText_(QStringLiteral("Watching %1 result%2")
                            .arg(static_cast<qulonglong>(records_.size()))

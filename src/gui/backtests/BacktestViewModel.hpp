@@ -261,6 +261,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setCancelOrderJitterUs(const QString& value);
     Q_INVOKABLE void setUserDataLatencyUs(const QString& value);
     Q_INVOKABLE void setUserDataJitterUs(const QString& value);
+    Q_INVOKABLE void setSessionLegEnabled(const QString& path, bool enabled);
     Q_INVOKABLE void setVenueExecutionValue(int legIndex, const QString& field, const QString& value);
     Q_INVOKABLE void setInitialBalanceUsdt(const QString& value);
     Q_INVOKABLE void setRiskEnabled(bool enabled);
@@ -446,6 +447,7 @@ class BacktestViewModel : public QObject {
                                                         const QHash<QString, QString>& overrides = {},
                                                         bool fixedOnly = false,
                                                         bool useSelectedSymbolOverride = true);
+    QStringList selectedSessionCandidatePaths_() const;
     QStringList selectedSessionPaths_() const;
     QStringList orderedSessionPathsForRun_() const;
     QStringList batchUniverseSessionPaths_() const;
@@ -466,6 +468,7 @@ class BacktestViewModel : public QObject {
     QString selectedSessionId_{};
     QString manualSessionPath_{};
     QString extraSessionIds_{};
+    QStringList disabledSessionLegPaths_{};
     QString symbolOverride_{};
     QString selectedRunId_{};
     QString activeRunId_{};

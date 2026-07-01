@@ -18,6 +18,11 @@ namespace hftrec::capture::internal {
 
 void ensureCxetInitialized() noexcept;
 Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexcept;
+Status refreshFinamAuthForConfig(const CaptureConfig& config,
+                                 bool requireAccountId,
+                                 std::string& lastError) noexcept;
+Status persistFinamAuthForConfig(const CaptureConfig& config, std::string& lastError) noexcept;
+bool finamConfigNeedsAccountId(const CaptureConfig& config) noexcept;
 std::int64_t nowNs() noexcept;
 long long nowSec() noexcept;
 std::uint8_t normalizedApiSlot(const CaptureConfig& config) noexcept;

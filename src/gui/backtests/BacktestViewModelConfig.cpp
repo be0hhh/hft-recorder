@@ -40,7 +40,8 @@ void BacktestViewModel::reloadSessions() {
     sessions_ = loadSessions_();
     if (manualSessionPath_.trimmed().isEmpty()) {
         const QVariantMap selectedRow = sessionRowById(sessions_, selectedSessionId_);
-        if (selectedSessionId_.trimmed().isEmpty() || selectedRow.isEmpty() || !sessionRowSelectable(selectedRow)) {
+        const bool selectedGroup = selectedRow.value(QStringLiteral("isGroup")).toBool();
+        if (selectedSessionId_.trimmed().isEmpty() || selectedRow.isEmpty() || (!selectedGroup && !sessionRowSelectable(selectedRow))) {
             selectedSessionId_ = firstSelectableSessionId(sessions_);
         }
     }
@@ -57,6 +58,7 @@ void BacktestViewModel::setSelectedSessionId(const QString& sessionId) {
     if (selectedSessionId_ == next && manualSessionPath_.isEmpty()) return;
     selectedSessionId_ = next;
     manualSessionPath_.clear();
+    disabledSessionLegPaths_.clear();
     symbolOverride_.clear();
     selectedRunId_.clear();
     ++detailsLoadGeneration_;
@@ -77,6 +79,7 @@ void BacktestViewModel::setSessionPath(const QString& sessionPath) {
     if (selectedSessionPath() == normalized) return;
     manualSessionPath_ = normalized;
     selectedSessionId_ = sessionIdFromPath_(normalized);
+    disabledSessionLegPaths_.clear();
     symbolOverride_.clear();
     selectedRunId_.clear();
     ++detailsLoadGeneration_;
@@ -96,6 +99,7 @@ void BacktestViewModel::setExtraSessionIds(const QString& sessionIds) {
     const QString next = sessionIds.trimmed();
     if (extraSessionIds_ == next) return;
     extraSessionIds_ = next;
+    disabledSessionLegPaths_.clear();
     savePersistentConfig_();
     const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit multiSessionChanged();
@@ -296,10 +300,33 @@ void BacktestViewModel::setUserDataJitterUs(const QString& value) {
     emit latencyChanged();
 }
 
+void BacktestViewModel::setSessionLegEnabled(const QString& path, bool enabled) {
+    const QString normalized = normalizedPath_(path);
+    if (normalized.isEmpty()) return;
+    const QStringList candidates = selectedSessionCandidatePaths_();
+    if (!candidates.contains(normalized)) return;
+
+    const bool disabled = disabledSessionLegPaths_.contains(normalized);
+    if (enabled && disabled) {
+        disabledSessionLegPaths_.removeAll(normalized);
+    } else if (!enabled && !disabled) {
+        disabledSessionLegPaths_.push_back(normalized);
+    } else {
+        return;
+    }
+
+    const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
+    emit multiSessionChanged();
+    if (!strategyChanged) emit selectedStrategyChanged();
+    emit canRunChanged();
+    refreshSessionGateStatus_();
+    refresh();
+}
+
 void BacktestViewModel::setVenueExecutionValue(int legIndex, const QString& field, const QString& value) {
     const QString normalizedField = field.trimmed().toLower();
     if (!isVenueExecutionField(normalizedField)) return;
-    const QStringList paths = selectedSessionPaths_();
+    const QStringList paths = selectedSessionCandidatePaths_();
     if (legIndex < 0 || legIndex >= paths.size()) return;
     const QString venueKey = venueExecutionKey(paths.at(legIndex));
     if (venueKey.isEmpty()) return;

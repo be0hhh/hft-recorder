@@ -10,6 +10,7 @@
 
 #include "gui/backtests/BacktestExecutionConfigHelpers.hpp"
 #include "gui/backtests/BacktestSessionHelpers.hpp"
+#include "gui/backtests/BacktestSessionSummary.hpp"
 #include "gui/backtests/BacktestStrategyConfigHelpers.hpp"
 #include "gui/backtests/BacktestSweepHelpers.hpp"
 
@@ -40,19 +41,73 @@ TEST(BacktestSessionHelpers, MapsVenueSectionsFromExchangeAndMarket) {
 
 TEST(BacktestSessionSummary, AppendsCompactCaptureHealthWarning) {
     const QString clean = hftrec::gui::appendSessionHealthSummary(
-        QStringLiteral("L1 10 | 1BT 0 | 2BT 0"),
+        QStringLiteral("L1 10 | BT 0"),
         QStringLiteral("clean"),
         QString{});
-    EXPECT_EQ(clean, QStringLiteral("L1 10 | 1BT 0 | 2BT 0"));
+    EXPECT_EQ(clean, QStringLiteral("L1 10 | BT 0"));
 
     const QString degraded = hftrec::gui::appendSessionHealthSummary(
-        QStringLiteral("L1 10 | 1BT 0 | 2BT 0"),
+        QStringLiteral("L1 10 | BT 0"),
         QStringLiteral("clean"),
         QStringLiteral("reference: route status=disconnected stream=mark_price symbol=AGLDUSDT"));
-    EXPECT_EQ(degraded, QStringLiteral("L1 10 | 1BT 0 | 2BT 0 | degraded: mark_price disconnected"));
+    EXPECT_EQ(degraded, QStringLiteral("L1 10 | BT 0 | degraded: mark_price disconnected"));
 
     EXPECT_EQ(hftrec::gui::sessionHealthSummaryLabel(QStringLiteral("corrupt"), QString{}),
               QStringLiteral("corrupt"));
+}
+
+TEST(BacktestSessionSummary, MatchesThreeLegResultsOnlyInSelectedOrder) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString manifestPath = QDir(dir.path()).absoluteFilePath(QStringLiteral("manifest.json"));
+    writeTextFile(manifestPath, QByteArrayLiteral(R"json({
+      "type":"run.result.v2",
+      "run_id":"multi-leg",
+      "legs":[
+        {"leg_index":0,"session_path":"/recordings/binance_btc"},
+        {"leg_index":1,"session_path":"/recordings/bybit_btc"},
+        {"leg_index":2,"session_path":"/recordings/okx_btc"}
+      ]
+    })json"));
+
+    EXPECT_TRUE(hftrec::gui::backtestManifestMatchesLegs(
+        manifestPath,
+        QStringList{QStringLiteral("binance_btc"), QStringLiteral("bybit_btc"), QStringLiteral("okx_btc")}));
+    EXPECT_FALSE(hftrec::gui::backtestManifestMatchesLegs(
+        manifestPath,
+        QStringList{QStringLiteral("bybit_btc"), QStringLiteral("binance_btc"), QStringLiteral("okx_btc")}));
+    EXPECT_FALSE(hftrec::gui::backtestManifestMatchesLegs(
+        manifestPath,
+        QStringList{QStringLiteral("binance_btc"), QStringLiteral("bybit_btc")}));
+}
+
+TEST(BacktestSessionSummary, KeepsTwoLegResultsOrderIndependent) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString manifestPath = QDir(dir.path()).absoluteFilePath(QStringLiteral("manifest.json"));
+    writeTextFile(manifestPath, QByteArrayLiteral(R"json({
+      "type":"run.result.v2",
+      "run_id":"pair",
+      "legs":[
+        {"leg_index":0,"session_path":"/recordings/binance_eth"},
+        {"leg_index":1,"session_path":"/recordings/bybit_eth"}
+      ]
+    })json"));
+
+    EXPECT_TRUE(hftrec::gui::backtestManifestMatchesLegs(
+        manifestPath,
+        QStringList{QStringLiteral("bybit_eth"), QStringLiteral("binance_eth")}));
+}
+
+TEST(BacktestSessionSummary, FormatsTotalBacktestCountForManyLegs) {
+    hftrec::gui::BacktestLegCounts counts;
+    counts.firstLeg = 1;
+    counts.secondLeg = 1;
+    counts.total = 3;
+
+    const QString summary = hftrec::gui::sessionBacktestSummaryText(42, counts, 0);
+
+    EXPECT_EQ(summary, QStringLiteral("L1 42 | BT 3"));
 }
 
 TEST(BacktestExecutionConfigHelpers, BuildsRateLimitScheduleFromVenueRow) {

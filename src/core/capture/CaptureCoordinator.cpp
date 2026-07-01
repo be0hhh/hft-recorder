@@ -119,6 +119,12 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
     if (const auto validateStatus = internal::validateSupportedConfig(normalizedConfig, lastError_); !isOk(validateStatus)) {
         return validateStatus;
     }
+    if (const auto authStatus = internal::refreshFinamAuthForConfig(
+            normalizedConfig,
+            internal::finamConfigNeedsAccountId(normalizedConfig),
+            lastError_); !isOk(authStatus)) {
+        return authStatus;
+    }
 
     std::lock_guard<std::mutex> lock(stateMutex_);
     if (sessionOpen()) {

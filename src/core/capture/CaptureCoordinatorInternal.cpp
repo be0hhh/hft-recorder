@@ -9,6 +9,7 @@
 #include <string_view>
 
 #include "core/corpus/InstrumentMetadata.hpp"
+#include "core/finam/FinamEnvSync.hpp"
 
 #if HFTREC_WITH_CXET
 #include "api/dispatch/BuildDispatch.hpp"
@@ -25,6 +26,22 @@
 #endif
 
 namespace hftrec::capture::internal {
+
+namespace {
+
+bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
+    if (lhs.size() != rhs.size()) return false;
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        char a = lhs[i];
+        char b = rhs[i];
+        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
+        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + ('a' - 'A'));
+        if (a != b) return false;
+    }
+    return true;
+}
+
+}  // namespace
 
 #if HFTREC_WITH_CXET
 namespace {
@@ -46,18 +63,6 @@ Symbol makeSymbol(std::string_view symbolText) noexcept {
     for (std::size_t i = 0u; i < copyLen; ++i) text[i] = symbolText[i];
     symbol.copyFrom(text);
     return symbol;
-}
-
-bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
-    if (lhs.size() != rhs.size()) return false;
-    for (std::size_t i = 0; i < lhs.size(); ++i) {
-        char a = lhs[i];
-        char b = rhs[i];
-        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
-        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + ('a' - 'A'));
-        if (a != b) return false;
-    }
-    return true;
 }
 
 ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
@@ -160,6 +165,44 @@ Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexc
     (void)lastError;
 #endif
     return Status::Ok;
+}
+
+bool finamConfigNeedsAccountId(const CaptureConfig& config) noexcept {
+    return hftrec::finam::isFinamExchangeName(config.exchange)
+        && !textEqualsAscii(config.market, "spot")
+        && !textEqualsAscii(config.market, "shares");
+}
+
+Status refreshFinamAuthForConfig(const CaptureConfig& config,
+                                 bool requireAccountId,
+                                 std::string& lastError) noexcept {
+    if (!hftrec::finam::isFinamExchangeName(config.exchange)) return Status::Ok;
+    hftrec::finam::FinamEnvSyncRequest request{};
+    request.envPath = config.envPath;
+    request.apiSlot = normalizedApiSlot(config);
+    request.requireAccountId = requireAccountId;
+    request.mirrorStandardEnv = true;
+    hftrec::finam::FinamEnvSyncResult result{};
+    const auto status = hftrec::finam::refreshFinamEnvAndBearer(request, &result);
+    if (!isOk(status)) {
+        lastError = result.error.empty() ? "Finam auth preflight failed" : result.error;
+    }
+    return status;
+}
+
+Status persistFinamAuthForConfig(const CaptureConfig& config, std::string& lastError) noexcept {
+    if (!hftrec::finam::isFinamExchangeName(config.exchange)) return Status::Ok;
+    hftrec::finam::FinamEnvSyncRequest request{};
+    request.envPath = config.envPath;
+    request.apiSlot = normalizedApiSlot(config);
+    request.requireAccountId = finamConfigNeedsAccountId(config);
+    request.mirrorStandardEnv = true;
+    hftrec::finam::FinamEnvSyncResult result{};
+    const auto status = hftrec::finam::persistCurrentFinamBearer(request, &result);
+    if (!isOk(status)) {
+        lastError = result.error.empty() ? "Finam auth persist failed" : result.error;
+    }
+    return status;
 }
 
 bool enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,

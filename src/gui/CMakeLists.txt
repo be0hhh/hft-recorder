@@ -29,6 +29,8 @@ qt_add_executable(hft-recorder-gui
     viewmodels/CaptureViewModelRequests.cpp
     viewmodels/CaptureViewModelState.cpp
     viewmodels/CompressionViewModel.cpp
+    viewmodels/CompressionViewModelHelpers.cpp
+    viewmodels/CompressionViewModelPreview.cpp
     viewmodels/WorkspaceViewModel.cpp
     viewer/ChartController.cpp
     viewer/ChartControllerSession.cpp
@@ -80,6 +82,12 @@ qt_add_qml_module(hft-recorder-gui
         qml/components/CaptureAccentActionButton.qml
         qml/components/CaptureSessionSummaryCard.qml
         qml/components/CaptureChannelCard.qml
+        qml/components/BacktestActionButton.qml
+        qml/components/BacktestCompactField.qml
+        qml/components/BacktestMessagePanel.qml
+        qml/components/BacktestMetricCard.qml
+        qml/components/BacktestStrategyParametersPanel.qml
+        qml/components/BacktestLegExecutionTable.qml
         qml/components/RecorderComboBox.qml
         qml/components/SessionPickerCombo.qml
         qml/components/ViewerChromeButton.qml

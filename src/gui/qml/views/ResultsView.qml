@@ -23,7 +23,7 @@ Pane {
     property color netColor: "#9b78d6"
     property color feesColor: "#ff8f5c"
     property bool pnlPercentMode: false
-    property int resultLegMode: root.backtestVm.selectedSessionCount > 1 ? 2 : 1
+    property var secondarySessionRows: []
 
     function e8Text(value) {
         var negative = value < 0
@@ -79,12 +79,13 @@ Pane {
     }
 
     function syncSelections() {
+        root.rebuildSecondarySessionRows()
         sessionBox.currentIndex = sessionBox.indexOfValue(root.backtestVm.selectedSessionId)
-        secondarySessionBox.currentIndex = secondarySessionBox.indexOfValue(root.secondarySessionId())
+        secondarySessionBox.currentIndex = secondarySessionBox.indexOfValue(root.firstExtraSessionId())
         runBox.currentIndex = runBox.indexOfValue(root.backtestVm.selectedRunId)
     }
 
-    function secondarySessionId() {
+    function firstExtraSessionId() {
         var text = String(root.backtestVm.extraSessionIds || "").trim()
         if (text === "") return ""
         var parts = text.split(/[,\;\n]+/)
@@ -93,6 +94,35 @@ Pane {
             if (part !== "") return part
         }
         return ""
+    }
+
+    function rebuildSecondarySessionRows() {
+        var rows = [{ "id": "", "label": "No extra legs", "rightText": "" }]
+        var sessions = root.backtestVm.sessions || []
+        var primaryId = String(root.backtestVm.selectedSessionId || "")
+        var currentExtra = root.firstExtraSessionId()
+        var currentFound = currentExtra.length === 0
+        for (var i = 0; i < sessions.length; ++i) {
+            var row = sessions[i]
+            if (!row)
+                continue
+            var id = String(row.id || "")
+            var selectable = row.selectable !== false
+            if (row.isGroup === true) {
+                if (id === currentExtra)
+                    currentFound = true
+                rows.push(row)
+                continue
+            }
+            if (!selectable || id.length === 0 || id === primaryId)
+                continue
+            if (id === currentExtra)
+                currentFound = true
+            rows.push(row)
+        }
+        if (!currentFound && currentExtra !== primaryId)
+            rows.push({ "id": currentExtra, "label": currentExtra, "rightText": "custom" })
+        root.secondarySessionRows = rows
     }
 
     function sessionGroupId(sessionId) {
@@ -113,28 +143,6 @@ Pane {
         return ""
     }
 
-    function fallbackSecondarySessionId() {
-        var primary = String(root.backtestVm.selectedSessionId || "").trim()
-        var rows = root.backtestVm.sessions || []
-        for (var i = 0; i < rows.length; ++i) {
-            var id = String(rows[i].id || "").trim()
-            var selectable = rows[i].selectable !== false
-            if (selectable && id !== "" && id !== primary) return id
-        }
-        return ""
-    }
-
-    function setResultLegMode(count) {
-        root.resultLegMode = count
-        if (count <= 1) {
-            root.backtestVm.setExtraSessionIds("")
-        } else if (root.secondarySessionId() === "" || root.secondarySessionId() === root.backtestVm.selectedSessionId) {
-            root.backtestVm.setExtraSessionIds(root.fallbackSecondarySessionId())
-        }
-        Qt.callLater(root.syncSelections)
-        Qt.callLater(root.requestChartPaint)
-    }
-
     function requestChartPaint() {
         if (pnlCanvas !== null && pnlCanvas !== undefined) {
             pnlCanvas.clearHover()
@@ -150,10 +158,7 @@ Pane {
         target: root.backtestVm
         function onSessionsChanged() { root.syncSelections() }
         function onSelectedSessionChanged() { root.syncSelections() }
-        function onMultiSessionChanged() {
-            root.resultLegMode = root.backtestVm.selectedSessionCount > 1 ? 2 : root.resultLegMode
-            root.syncSelections()
-        }
+        function onMultiSessionChanged() { root.syncSelections() }
         function onRunsChanged() { root.syncSelections(); Qt.callLater(root.requestChartPaint) }
         function onSelectionChanged() { root.syncSelections(); Qt.callLater(root.requestChartPaint) }
         function onPreviewLoadingChanged() { Qt.callLater(root.requestChartPaint) }
@@ -175,22 +180,6 @@ Pane {
         opacity: enabledValue ? 1.0 : 0.5
         Text { id: label; anchors.centerIn: parent; width: parent.width - 12; text: parent.text; color: enabledValue ? root.textColor : root.mutedTextColor; font.pixelSize: 11; font.bold: true; elide: Text.ElideRight; horizontalAlignment: Text.AlignHCenter }
         MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; enabled: parent.enabledValue; onClicked: parent.clicked() }
-    }
-
-    component SegmentButton: Rectangle {
-        property string text: ""
-        property bool checked: false
-        signal clicked()
-        radius: 5
-        implicitWidth: 52
-        implicitHeight: 30
-        Layout.preferredWidth: implicitWidth
-        Layout.preferredHeight: implicitHeight
-        color: checked ? "#26333a" : (mouse.containsMouse ? "#2b303a" : root.panelDeepColor)
-        border.color: checked ? root.accentColor : root.borderColor
-        border.width: 1
-        Text { anchors.centerIn: parent; text: parent.text; color: checked ? root.textColor : root.mutedTextColor; font.pixelSize: 11; font.bold: true }
-        MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; onClicked: parent.clicked() }
     }
 
     component LegendChip: Rectangle {
@@ -255,39 +244,36 @@ Pane {
                     Label { text: "Backtest Results"; color: root.textColor; font.pixelSize: 17; font.bold: true }
                     Label { text: root.backtestVm.selectedRunId === "" ? "Select or run a backtest" : root.backtestVm.selectedRunId + " / " + root.backtestVm.selectedStrategy; color: root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
                 }
-                RowLayout {
-                    Layout.fillWidth: false
-                    spacing: 4
-                    SegmentButton { text: "1 leg"; checked: root.resultLegMode === 1; onClicked: root.setResultLegMode(1) }
-                    SegmentButton { text: "2 legs"; checked: root.resultLegMode === 2; onClicked: root.setResultLegMode(2) }
-                }
                 SessionPickerCombo {
                     id: sessionBox
                     Layout.fillWidth: false
-                    Layout.preferredWidth: root.resultLegMode === 2 ? 280 : 360
-                    caption: root.resultLegMode === 2 ? "Leg 1" : "Session"
+                    Layout.preferredWidth: 320
+                    caption: "Session"
                     rows: root.backtestVm.sessions
                     emptyLabel: "Select session"
-                    popupWidth: 640
+                    popupWidth: 720
+                    allowGroupSelection: true
                     onPicked: function(id) {
+                        if (root.firstExtraSessionId() === id)
+                            root.backtestVm.setExtraSessionIds("")
                         root.backtestVm.setSelectedSessionId(id)
-                        if (root.resultLegMode === 2 && root.secondarySessionId() === id)
-                            root.backtestVm.setExtraSessionIds(root.fallbackSecondarySessionId())
                         Qt.callLater(root.syncSelections)
                     }
                     Component.onCompleted: root.syncSelections()
                 }
                 SessionPickerCombo {
                     id: secondarySessionBox
-                    visible: root.resultLegMode === 2
                     Layout.fillWidth: false
-                    Layout.preferredWidth: visible ? 280 : 0
-                    caption: "Leg 2"
-                    rows: root.backtestVm.sessions
-                    emptyLabel: "Select session"
-                    popupWidth: 640
+                    Layout.preferredWidth: 320
+                    caption: "Extra legs"
+                    rows: root.secondarySessionRows
+                    emptyLabel: "No extra legs"
+                    popupWidth: 720
+                    allowGroupSelection: true
                     preferredOpenGroupId: root.sessionGroupId(root.backtestVm.selectedSessionId)
                     scrollToPreferredGroupOnOpen: true
+                    enabled: root.secondarySessionRows.length > 1 || root.firstExtraSessionId().length > 0
+                    opacity: enabled ? 1.0 : 0.55
                     onPicked: function(id) {
                         if (id !== root.backtestVm.selectedSessionId)
                             root.backtestVm.setExtraSessionIds(id)

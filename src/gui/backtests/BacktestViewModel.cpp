@@ -158,12 +158,14 @@ QVariantList BacktestViewModel::loadSessions_() const {
         QVariantList groupPaths;
         int groupFirstLegBacktests = 0;
         int groupSecondLegBacktests = 0;
+        int groupBacktests = 0;
         for (const auto& session : group.sessions) {
             const QString sessionId = QString::fromStdString(session.sessionId);
             groupPaths.push_back(QString::fromStdString(session.path.string()));
             const BacktestLegCounts counts = backtestCountsBySession.value(sessionId);
             groupFirstLegBacktests += counts.firstLeg;
             groupSecondLegBacktests += counts.secondLeg;
+            groupBacktests += counts.total > 0 ? counts.total : counts.firstLeg + counts.secondLeg;
         }
         if (!group.sessions.empty()) {
             QVariantMap groupRow;
@@ -173,17 +175,16 @@ QVariantList BacktestViewModel::loadSessions_() const {
             groupRow.insert(QStringLiteral("sessionPaths"), groupPaths);
             groupRow.insert(QStringLiteral("hasManifest"), true);
             groupRow.insert(QStringLiteral("hasBacktests"), groupFirstLegBacktests > 0 || groupSecondLegBacktests > 0);
-            groupRow.insert(QStringLiteral("backtestCount"), groupFirstLegBacktests);
+            groupRow.insert(QStringLiteral("backtestCount"), groupBacktests);
             groupRow.insert(QStringLiteral("firstLegBacktestCount"), groupFirstLegBacktests);
             groupRow.insert(QStringLiteral("secondLegBacktestCount"), groupSecondLegBacktests);
             groupRow.insert(QStringLiteral("isGroup"), true);
             groupRow.insert(QStringLiteral("selectable"), false);
             groupRow.insert(QStringLiteral("groupId"), QString::fromStdString(group.id));
-            groupRow.insert(QStringLiteral("rightText"), QStringLiteral("%1 legs | rows %2 | 1BT %3 | 2BT %4")
+            groupRow.insert(QStringLiteral("rightText"), QStringLiteral("%1 legs | rows %2 | BT %3")
                                                     .arg(group.sessions.size())
                                                     .arg(QString::number(static_cast<qulonglong>(group.totalRows)))
-                                                    .arg(groupFirstLegBacktests)
-                                                    .arg(groupSecondLegBacktests));
+                                                    .arg(groupBacktests));
             out.push_back(groupRow);
         }
 
@@ -202,7 +203,7 @@ QVariantList BacktestViewModel::loadSessions_() const {
             row.insert(QStringLiteral("sessionPaths"), QVariantList{path});
             row.insert(QStringLiteral("hasManifest"), QFileInfo::exists(QDir(path).absoluteFilePath(QStringLiteral("manifest.json"))));
             row.insert(QStringLiteral("hasBacktests"), backtestsDir.exists());
-            row.insert(QStringLiteral("backtestCount"), backtestCounts.firstLeg);
+            row.insert(QStringLiteral("backtestCount"), backtestCounts.total > 0 ? backtestCounts.total : backtestCounts.firstLeg + backtestCounts.secondLeg);
             row.insert(QStringLiteral("firstLegBacktestCount"), backtestCounts.firstLeg);
             row.insert(QStringLiteral("secondLegBacktestCount"), backtestCounts.secondLeg);
             row.insert(QStringLiteral("isGroup"), false);
@@ -234,7 +235,8 @@ void BacktestViewModel::applyLoadedSessions_(std::uint64_t generation, QVariantL
     sessions_ = std::move(sessions);
     if (manualSessionPath_.trimmed().isEmpty()) {
         const QVariantMap selectedRow = sessionRowById(sessions_, selectedSessionId_);
-        if (selectedSessionId_.trimmed().isEmpty() || selectedRow.isEmpty() || !sessionRowSelectable(selectedRow)) {
+        const bool selectedGroup = selectedRow.value(QStringLiteral("isGroup")).toBool();
+        if (selectedSessionId_.trimmed().isEmpty() || selectedRow.isEmpty() || (!selectedGroup && !sessionRowSelectable(selectedRow))) {
             selectedSessionId_ = firstSelectableSessionId(sessions_);
         }
     }
@@ -256,19 +258,23 @@ QString BacktestViewModel::selectedSessionPath() const {
     return sessionPathFromToken(recordingsRoot(), selectedSessionId_);
 }
 
-QStringList BacktestViewModel::selectedSessionPaths_() const {
+QStringList BacktestViewModel::selectedSessionCandidatePaths_() const {
     QStringList out;
+    const auto appendPath = [&out](const QString& value) {
+        const QString path = normalizedPath_(value);
+        if (!path.isEmpty() && !out.contains(path)) out.push_back(path);
+    };
+
     if (!manualSessionPath_.trimmed().isEmpty()) {
-        out.push_back(manualSessionPath_);
+        appendPath(manualSessionPath_);
     } else {
         const QStringList primaryPaths = sessionPathsFromRow(sessionRowById(sessions_, selectedSessionId_));
         for (const QString& path : primaryPaths) {
-            if (!path.trimmed().isEmpty() && !out.contains(path)) out.push_back(path);
-            if (out.size() >= 8) break;
+            appendPath(path);
         }
         if (out.empty()) {
             const QString primary = selectedSessionPath();
-            if (!primary.trimmed().isEmpty()) out.push_back(primary);
+            appendPath(primary);
         }
     }
     const QStringList tokens = extraSessionIds_.split(QRegularExpression(QStringLiteral("[,;\\n]+")), Qt::SkipEmptyParts);
@@ -277,11 +283,17 @@ QStringList BacktestViewModel::selectedSessionPaths_() const {
         const QStringList rowPaths = sessionPathsFromRow(sessionRowById(sessions_, token.trimmed()));
         const QStringList paths = rowPaths.empty() ? QStringList{sessionPathFromToken(root, token)} : rowPaths;
         for (const QString& path : paths) {
-            if (path.isEmpty() || out.contains(path)) continue;
-            out.push_back(path);
-            if (out.size() >= 8) break;
+            appendPath(path);
         }
-        if (out.size() >= 8) break;
+    }
+    return out;
+}
+
+QStringList BacktestViewModel::selectedSessionPaths_() const {
+    QStringList out;
+    const QStringList candidates = selectedSessionCandidatePaths_();
+    for (const QString& path : candidates) {
+        if (!disabledSessionLegPaths_.contains(path)) out.push_back(path);
     }
     return out;
 }
@@ -311,14 +323,16 @@ QStringList BacktestViewModel::orderedSessionPathsForRun_() const {
 
 QVariantList BacktestViewModel::selectedSessionLegs() const {
     QVariantList out;
-    const QStringList paths = selectedSessionPaths_();
+    const QStringList paths = selectedSessionCandidatePaths_();
     for (int i = 0; i < paths.size(); ++i) {
         QVariantMap row;
         const QString path = paths.at(i);
+        const bool enabled = !disabledSessionLegPaths_.contains(path);
         const QString venueKey = venueExecutionKey(path);
         const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
         const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
         row.insert(QStringLiteral("index"), i);
+        row.insert(QStringLiteral("enabled"), enabled);
         row.insert(QStringLiteral("path"), path);
         row.insert(QStringLiteral("id"), sessionIdFromPath_(path));
         row.insert(QStringLiteral("symbol"), symbolForSessionPath(path));
@@ -433,7 +447,8 @@ QString BacktestViewModel::selectedSymbol() const {
 }
 
 QString BacktestViewModel::backtestsDirectory() const {
-    const QString path = selectedSessionPath();
+    const QStringList paths = orderedSessionPathsForRun_();
+    const QString path = paths.empty() ? selectedSessionPath() : paths.front();
     return path.isEmpty() ? QString{} : QDir(path).absoluteFilePath(QStringLiteral("backtests"));
 }
 
@@ -451,9 +466,14 @@ QVariantList BacktestViewModel::strategyChoices() const {
         row.insert(QStringLiteral("label"), id);
         const int minCount = metadata->minSessionCount == 0u ? 1 : static_cast<int>(metadata->minSessionCount);
         const int maxCount = metadata->maxSessionCount == 0u ? 1 : static_cast<int>(metadata->maxSessionCount);
+        QString category = QStringLiteral("single");
+        if (maxCount > 2) category = QStringLiteral("multi-leg");
+        else if (minCount == 2 && maxCount == 2) category = QStringLiteral("2-leg");
+        else if (maxCount == 2) category = QStringLiteral("1-2 leg");
         row.insert(QStringLiteral("minSessions"), minCount);
         row.insert(QStringLiteral("maxSessions"), maxCount);
-        row.insert(QStringLiteral("rightText"), strategySessionRangeText(*metadata));
+        row.insert(QStringLiteral("category"), category);
+        row.insert(QStringLiteral("rightText"), QStringLiteral("%1 | %2").arg(category, strategySessionRangeText(*metadata)));
         out.push_back(row);
     }
     return out;
@@ -579,7 +599,7 @@ QVariantList BacktestViewModel::runs() const {
 }
 
 bool BacktestViewModel::canRun() const {
-    return !running_ && !selectedSessionPath().trimmed().isEmpty() && !selectedStrategy_.trimmed().isEmpty() && strategySupportsSelectedSessionCount_();
+    return !running_ && !orderedSessionPathsForRun_().empty() && !selectedStrategy_.trimmed().isEmpty() && strategySupportsSelectedSessionCount_();
 }
 
 void BacktestViewModel::startBacktest() {
@@ -591,13 +611,13 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     stopWorker_();
     cancelRequested_.store(false, std::memory_order_release);
 
-    const QString outputSessionPath = selectedSessionPath();
     const QStringList sessionPaths = orderedSessionPathsForRun_();
     if (sessionPaths.empty()) {
         setRunning_(false);
         setStatusText_(QStringLiteral("Select at least one session"));
         return;
     }
+    const QString outputSessionPath = sessionPaths.front();
     QString venueError;
     for (const QString& path : sessionPaths) {
         if (!sessionVenueIsKnown(path, &venueError)) {
@@ -789,13 +809,13 @@ void BacktestViewModel::startSweep() {
     stopWorker_();
     cancelRequested_.store(false, std::memory_order_release);
 
-    const QString outputSessionPath = selectedSessionPath();
     const QStringList sessionPaths = orderedSessionPathsForRun_();
     if (sessionPaths.empty()) {
         setRunning_(false);
         setStatusText_(QStringLiteral("Select at least one session"));
         return;
     }
+    const QString outputSessionPath = sessionPaths.front();
     QString venueError;
     for (const QString& path : sessionPaths) {
         if (!sessionVenueIsKnown(path, &venueError)) {
