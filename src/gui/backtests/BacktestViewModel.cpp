@@ -495,7 +495,7 @@ QVariantList BacktestViewModel::configModeChoices() const {
     QVariantList out;
     QVariantMap fixed;
     fixed.insert(QStringLiteral("id"), QStringLiteral("fixed"));
-    fixed.insert(QStringLiteral("label"), QStringLiteral("Fixed bps"));
+    fixed.insert(QStringLiteral("label"), QStringLiteral("Fixed"));
     out.push_back(fixed);
     return out;
 }
