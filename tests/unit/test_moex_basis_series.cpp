@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "gui/viewer/MoexBasisSeries.hpp"
 
 namespace {
@@ -57,4 +59,44 @@ TEST(MoexBasisSeries, RejectsFutureWithoutExpiryOrPriceBasisMetadata) {
 
     future.priceBasisQtyE8 = kScale;
     EXPECT_FALSE(hftrec::gui::viewer::buildMoexBasisPoints(spot, future).empty());
+}
+
+TEST(MoexBasisSeries, LoadedTimeRangeUsesAllSpotAndFutureCandlesWithoutExpiryMarkers) {
+    hftrec::gui::viewer::MoexBasisLegSeries spot{};
+    spot.candles = {
+        candle(1000, 100 * kScale),
+        candle(2000, 101 * kScale),
+    };
+
+    hftrec::gui::viewer::MoexBasisLegSeries future{};
+    future.expiryUtcNs = 9000;
+    future.priceBasisQtyE8 = kScale;
+    future.candles = {
+        candle(500, 99 * kScale),
+        candle(5000, 103 * kScale),
+    };
+
+    const auto range = hftrec::gui::viewer::moexBasisLoadedTimeRange(spot.candles, {future});
+
+    ASSERT_TRUE(range.hasData);
+    EXPECT_EQ(range.minTsNs, 500);
+    EXPECT_EQ(range.maxTsNs, 5000);
+}
+
+TEST(MoexBasisSeries, DetectsEnabledFuturesWithSameExpiryAsConflicts) {
+    using hftrec::gui::viewer::MoexBasisFutureConflictInput;
+
+    const auto conflicts = hftrec::gui::viewer::findMoexBasisFutureConflicts({
+        MoexBasisFutureConflictInput{"SRM6@RTSX", 1000, true, true},
+        MoexBasisFutureConflictInput{"SRU6@RTSX", 1000, true, true},
+        MoexBasisFutureConflictInput{"SRZ6@RTSX", 2000, true, true},
+        MoexBasisFutureConflictInput{"SRH7@RTSX", 1000, false, true},
+        MoexBasisFutureConflictInput{"SRM7@RTSX", 3000, true, false},
+    });
+
+    ASSERT_EQ(conflicts.size(), 1u);
+    EXPECT_EQ(conflicts[0].expiryUtcNs, 1000);
+    ASSERT_EQ(conflicts[0].symbols.size(), 2u);
+    EXPECT_EQ(conflicts[0].symbols[0], "SRM6@RTSX");
+    EXPECT_EQ(conflicts[0].symbols[1], "SRU6@RTSX");
 }

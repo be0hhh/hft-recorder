@@ -49,6 +49,7 @@ qt_add_executable(hft-recorder-gui
     viewer/BookTickerCompareCandlePaint.cpp
     viewer/BookTickerCompareItem.cpp
     viewer/MoexBasisSeries.cpp
+    viewer/moex/MoexBasisDataLoad.cpp
     viewer/MoexBasisController.cpp
     viewer/MoexBasisItem.cpp
     viewer/ChartItem.cpp

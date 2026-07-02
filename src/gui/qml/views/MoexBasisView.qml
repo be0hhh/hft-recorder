@@ -27,15 +27,15 @@ Pane {
         groupPicker.setCurrentId(basis.groupPath)
     }
 
-    function syncModePicker() {
-        for (var i = 0; i < basis.displayModeChoices.length; ++i) {
-            var row = basis.displayModeChoices[i]
-            if ((row.id || row.value) === basis.displayMode) {
-                modePicker.currentIndex = i
+    function syncStrategyPicker() {
+        for (var i = 0; i < basis.strategyResultRows.length; ++i) {
+            var row = basis.strategyResultRows[i]
+            if ((row.id || row.value || "") === basis.selectedStrategyResult) {
+                strategyPicker.currentIndex = i
                 return
             }
         }
-        modePicker.currentIndex = 0
+        strategyPicker.currentIndex = 0
     }
 
     background: Rectangle { color: root.windowColor }
@@ -50,7 +50,7 @@ Pane {
     Connections {
         target: basis
         function onGroupsChanged() { root.syncGroupPicker() }
-        function onDataChanged() { root.syncModePicker() }
+        function onStrategyResultsChanged() { root.syncStrategyPicker() }
     }
 
     ColumnLayout {
@@ -72,7 +72,7 @@ Pane {
 
                 SessionPickerCombo {
                     id: groupPicker
-                    Layout.preferredWidth: 620
+                    Layout.preferredWidth: 430
                     rows: basis.groupRows
                     caption: "MOEX basis chain"
                     emptyLabel: "Select spot + futures group"
@@ -87,117 +87,42 @@ Pane {
                     onPicked: function(groupPath) { basis.loadGroup(groupPath) }
                 }
 
-                Button {
-                    id: reloadButton
-                    text: "Reload"
-                    contentItem: Text {
-                        text: reloadButton.text
-                        color: root.textColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: 7
-                        color: reloadButton.down ? root.panelAltColor : root.panelColor
-                        border.color: root.borderColor
-                        border.width: 1
-                    }
-                    onClicked: {
-                        basis.reloadGroups()
-                        if (basis.groupPath !== "")
-                            basis.loadGroup(basis.groupPath)
-                    }
-                }
-
-                Button {
-                    id: fitButton
-                    text: "Fit"
-                    enabled: basis.ready
-                    contentItem: Text {
-                        text: fitButton.text
-                        color: fitButton.enabled ? root.textColor : root.mutedTextColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: 7
-                        color: fitButton.down ? root.panelAltColor : root.panelColor
-                        border.color: fitButton.enabled ? root.borderColor : "#343438"
-                        border.width: 1
-                    }
-                    onClicked: basis.autoFit()
-                }
+                Label { text: "Strategy"; color: root.mutedTextColor }
 
                 ComboBox {
-                    id: modePicker
-                    Layout.preferredWidth: 150
-                    model: basis.displayModeChoices
+                    id: strategyPicker
+                    Layout.preferredWidth: 290
+                    model: basis.strategyResultRows
                     textRole: "label"
                     valueRole: "id"
-                    onActivated: basis.setDisplayMode(currentValue)
-                    Component.onCompleted: root.syncModePicker()
+                    enabled: basis.groupPath !== "" && basis.strategyResultRows.length > 0
+                    onActivated: basis.setStrategyResult(currentValue || "")
+                    Component.onCompleted: root.syncStrategyPicker()
                     contentItem: Text {
                         leftPadding: 9
                         rightPadding: 20
-                        text: modePicker.displayText
-                        color: root.textColor
+                        text: strategyPicker.displayText
+                        color: strategyPicker.enabled ? root.textColor : root.mutedTextColor
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
                     }
                     background: Rectangle {
                         radius: 7
                         color: root.panelColor
-                        border.color: root.borderColor
+                        border.color: strategyPicker.enabled ? root.borderColor : "#343438"
                         border.width: 1
                     }
-                }
-
-                SpinBox {
-                    id: rankPicker
-                    visible: basis.displayMode === "front_rank"
-                    Layout.preferredWidth: visible ? 78 : 0
-                    from: 1
-                    to: 10
-                    value: basis.frontRank
-                    onValueModified: basis.setFrontRank(value)
-                    contentItem: TextInput {
-                        text: "F" + rankPicker.value
-                        color: root.textColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        readOnly: true
-                    }
-                    background: Rectangle {
-                        radius: 7
-                        color: root.panelColor
-                        border.color: root.borderColor
-                        border.width: 1
-                    }
-                }
-
-                Button {
-                    id: batchButton
-                    text: "Run Chain"
-                    enabled: basis.groupPath !== "" && root.backtestVm && !root.backtestVm.running
-                    contentItem: Text {
-                        text: batchButton.text
-                        color: batchButton.enabled ? root.textColor : root.mutedTextColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: 7
-                        color: batchButton.down ? root.panelAltColor : root.panelColor
-                        border.color: batchButton.enabled ? root.accentBuyColor : "#343438"
-                        border.width: 1
-                    }
-                    onClicked: root.backtestVm.startBasisChainBatchBacktest(basis.groupPath)
                 }
 
                 Label {
                     Layout.fillWidth: true
-                    text: basis.statusText + (basis.ready ? " | futures: " + basis.enabledFutureCount + " | points: " + basis.basisPointCount : "")
-                    color: root.mutedTextColor
+                    text: basis.statusText +
+                          " | spot: " + basis.spotCandleCount +
+                          " | future candles: " + basis.activeFutureCandleCount +
+                          " | spread: " + basis.basisPointCount +
+                          (basis.hasFutureConflicts ? " | conflict: duplicate expiry" : "") +
+                          (basis.strategyStatusText !== "" ? " | " + basis.strategyStatusText : "")
+                    color: basis.hasFutureConflicts ? "#ef6f6c" : root.mutedTextColor
                     elide: Text.ElideRight
                 }
             }
@@ -279,7 +204,7 @@ Pane {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
-                text: "Top: spot candles and futures overlays. Bottom: basis bps, convergence lines, and expiry markers."
+                text: "Top: spot and selected futures candles. Bottom: basis spread; selected strategy adds lower spread lines only."
                 color: root.mutedTextColor
                 font.pixelSize: 12
                 elide: Text.ElideRight

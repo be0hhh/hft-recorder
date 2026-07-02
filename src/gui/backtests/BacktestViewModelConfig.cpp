@@ -721,12 +721,28 @@ QString BacktestViewModel::displayName_() const {
 
 QString BacktestViewModel::configSummary_(const QHash<QString, QString>& overrides) const {
     QStringList parts;
+    QSet<QString> shown;
     for (const QString& key : paramOrder_) {
         const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
         if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
         const QString value = overrides.value(key, paramValues_.value(key)).trimmed();
-        if (!value.isEmpty()) parts.push_back(QStringLiteral("%1=%2").arg(key, value));
+        if (!value.isEmpty()) {
+            parts.push_back(QStringLiteral("%1=%2").arg(key, value));
+            shown.insert(key);
+        }
         if (parts.size() >= 3) break;
+    }
+    if (parts.size() < 3 && !overrides.empty()) {
+        QStringList keys = overrides.keys();
+        std::sort(keys.begin(), keys.end());
+        for (const QString& rawKey : keys) {
+            const QString key = rawKey.trimmed().toLower();
+            if (key.isEmpty() || shown.contains(key)) continue;
+            const QString value = overrides.value(rawKey).trimmed();
+            if (value.isEmpty()) continue;
+            parts.push_back(QStringLiteral("%1=%2").arg(key, value));
+            if (parts.size() >= 3) break;
+        }
     }
     QString summary = configMode_.trimmed();
     if (!parts.empty()) summary += QStringLiteral(": ") + parts.join(QStringLiteral(", "));
@@ -1059,12 +1075,29 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForSess
     out << "\n";
     out << "[strategy]\n";
     out << "type=" << selectedStrategy_ << "\n";
+    QSet<QString> writtenStrategyKeys;
+    writtenStrategyKeys.insert(QStringLiteral("type"));
     for (const QString& key : paramOrder_) {
         const hft_backtest::StrategyParamMetadata* param = paramMetadataFor(selectedStrategy_, key);
         if (param != nullptr && param->exclusiveGroup != 0u && activeParamByGroup_.value(static_cast<int>(param->exclusiveGroup)) != key) continue;
         if (fixedOnly && paramModes_.value(key, QStringLiteral("fixed")) != QStringLiteral("fixed")) continue;
         const QString value = overrides.value(key, paramValues_.value(key)).trimmed();
-        if (!value.isEmpty()) out << key << "=" << value << "\n";
+        if (!value.isEmpty()) {
+            out << key << "=" << value << "\n";
+            writtenStrategyKeys.insert(key);
+        }
+    }
+    if (!overrides.empty()) {
+        QStringList keys = overrides.keys();
+        std::sort(keys.begin(), keys.end());
+        for (const QString& rawKey : keys) {
+            const QString key = rawKey.trimmed().toLower();
+            if (key.isEmpty() || key == QStringLiteral("type") || key == QStringLiteral("enabled") || writtenStrategyKeys.contains(key)) continue;
+            const QString value = overrides.value(rawKey).trimmed();
+            if (value.isEmpty()) continue;
+            out << key << "=" << value << "\n";
+            writtenStrategyKeys.insert(key);
+        }
     }
     const bool hasRiskRateLimitGuard = rateLimitsEnabled_ && !riskRateLimitGuardMinRemaining_.trimmed().isEmpty();
     if (riskEnabled_ || hasRiskRateLimitGuard) {

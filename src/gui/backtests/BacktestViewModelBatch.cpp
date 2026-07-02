@@ -3,10 +3,13 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QMetaObject>
+#include <QSet>
 #include <QTextStream>
 #include <QVariantMap>
 
@@ -104,6 +107,13 @@ QVector<QVariantMap> readJsonlMaps(const QString& path) {
     return out;
 }
 
+QJsonObject readJsonObject(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    return doc.isObject() ? doc.object() : QJsonObject{};
+}
+
 bool appendJsonl(QFile& file, const QVariantMap& map) {
     file.write(QJsonDocument(QJsonObject::fromVariantMap(map)).toJson(QJsonDocument::Compact));
     file.write("\n");
@@ -114,15 +124,58 @@ QString normalizedExchange(const QString& value) {
     return value.trimmed().toLower();
 }
 
+QString firstJsonString(const QJsonObject& object, const QString& key) {
+    const QJsonValue value = object.value(key);
+    if (value.isString()) return value.toString();
+    if (value.isArray() && !value.toArray().isEmpty()) return value.toArray().at(0).toString();
+    return {};
+}
+
+QString manifestString(const QJsonObject& manifest, const QString& key) {
+    const QString direct = firstJsonString(manifest, key);
+    if (!direct.isEmpty()) return direct;
+    return firstJsonString(manifest.value(QStringLiteral("identity")).toObject(), key);
+}
+
+qint64 channelRows(const QJsonObject& manifest, const QString& channel) {
+    return manifest.value(QStringLiteral("channels"))
+        .toObject()
+        .value(channel)
+        .toObject()
+        .value(QStringLiteral("declared_event_count"))
+        .toInteger();
+}
+
+qint64 sessionCandleRows(const QJsonObject& manifest) {
+    const qint64 candles2 = channelRows(manifest, QStringLiteral("candles2"));
+    if (candles2 > 0) return candles2;
+    const qint64 candlesV2 = channelRows(manifest, QStringLiteral("candlesv2"));
+    if (candlesV2 > 0) return candlesV2;
+    return channelRows(manifest, QStringLiteral("candles"));
+}
+
+qint64 metadataInt64(const QString& sessionPath, const QString& key) {
+    const QJsonObject metadata = readJsonObject(QDir(sessionPath).absoluteFilePath(QStringLiteral("instrument_metadata.json")));
+    return metadata.value(key).toInteger();
+}
+
 BatchSweepSessionInfo sessionInfoForPath(const QString& path) {
     BatchSweepSessionInfo out;
     out.path = path;
     out.sessionId = QFileInfo(path).fileName();
-    out.exchange = normalizedExchange(manifestValue(path, QStringLiteral("exchange")));
-    out.market = manifestValue(path, QStringLiteral("market")).trimmed().toLower();
-    out.symbol = symbolForSessionPath(path).trimmed().toUpper();
+    out.sessionDirExists = QFileInfo(path).isDir();
+    const QString manifestPath = QDir(path).absoluteFilePath(QStringLiteral("manifest.json"));
+    out.manifestPresent = QFileInfo(manifestPath).isFile();
+    const QJsonObject manifest = readJsonObject(manifestPath);
+    out.exchange = normalizedExchange(manifestString(manifest, QStringLiteral("exchange")));
+    out.market = manifestString(manifest, QStringLiteral("market")).trimmed().toLower();
+    out.symbol = manifestString(manifest, QStringLiteral("symbols")).trimmed().toUpper();
+    if (out.symbol.isEmpty()) out.symbol = symbolFromSessionId(out.sessionId).toUpper();
     out.canonicalSymbol = batchCanonicalSymbol(out.symbol);
-    out.venue = venueSectionForSession(path);
+    out.venue = venueSectionFor(out.exchange, out.market);
+    out.candleRows = sessionCandleRows(manifest);
+    out.expiryUtcNs = metadataInt64(path, QStringLiteral("expiry_utc_ns"));
+    out.priceBasisQtyE8 = metadataInt64(path, QStringLiteral("price_basis_qty_e8"));
     return out;
 }
 
@@ -133,15 +186,11 @@ bool basisSpotMarket(const QString& market) {
 }
 
 qint64 basisExpiryNs(const QString& sessionPath) {
-    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("instrument_metadata.json")));
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return 0;
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    if (!doc.isObject()) return 0;
-    return doc.object().value(QStringLiteral("expiry_utc_ns")).toVariant().toLongLong();
+    return metadataInt64(sessionPath, QStringLiteral("expiry_utc_ns"));
 }
 
 QString basisChainPairSlug(const BatchSweepPair& pair) {
-    const qint64 expiry = basisExpiryNs(pair.second.path);
+    const qint64 expiry = pair.second.expiryUtcNs > 0 ? pair.second.expiryUtcNs : basisExpiryNs(pair.second.path);
     const QString expiryPart = expiry > 0 ? QString::number(expiry) : pair.second.sessionId;
     return cleanRunSlugPart(pair.first.symbol) + QStringLiteral("-spot-") +
            cleanRunSlugPart(pair.second.symbol) + QStringLiteral("-") +
@@ -149,7 +198,40 @@ QString basisChainPairSlug(const BatchSweepPair& pair) {
            QString::number(pair.pairId);
 }
 
-QVector<BatchSweepPair> buildBasisChainPairs(const QString& groupPath, QVariantList* skippedRows = nullptr) {
+QSet<QString> cleanedPathSet(const QVariantList& values) {
+    QSet<QString> out;
+    for (const QVariant& value : values) {
+        const QString path = QDir::cleanPath(value.toString());
+        if (!path.trimmed().isEmpty()) out.insert(path);
+    }
+    return out;
+}
+
+qint64 timeframeSeconds(QString timeframe) {
+    timeframe = timeframe.trimmed();
+    if (timeframe.isEmpty()) return 60;
+    const QChar unit = timeframe.at(timeframe.size() - 1);
+    bool ok = false;
+    const qint64 value = timeframe.left(timeframe.size() - 1).toLongLong(&ok);
+    if (!ok || value <= 0) return 60;
+    if (unit == QLatin1Char('s') || unit == QLatin1Char('S')) return value;
+    if (unit == QLatin1Char('m')) return value * 60;
+    if (unit == QLatin1Char('h') || unit == QLatin1Char('H')) return value * 60 * 60;
+    if (unit == QLatin1Char('d') || unit == QLatin1Char('D')) return value * 24 * 60 * 60;
+    return 60;
+}
+
+QHash<QString, QString> basisChainStrategyOverrides(const QString& groupPath) {
+    const QJsonObject manifest = readJsonObject(QDir(groupPath).absoluteFilePath(QStringLiteral("basis_chain_manifest.json")));
+    QHash<QString, QString> out;
+    out.insert(QStringLiteral("source"), QStringLiteral("candles"));
+    out.insert(QStringLiteral("timeframe_sec"), QString::number(timeframeSeconds(manifest.value(QStringLiteral("timeframe")).toString())));
+    return out;
+}
+
+QVector<BatchSweepPair> buildBasisChainPairs(const QString& groupPath,
+                                             const QSet<QString>& enabledFuturePaths,
+                                             QVariantList* skippedRows = nullptr) {
     QVector<BatchSweepSessionInfo> sessions;
     const QString requested = QDir::cleanPath(groupPath);
     const auto discovery = hftrec::recordings::discoverRecordings(hftrec::recordings::defaultRecordingsRoot());
@@ -169,14 +251,49 @@ QVector<BatchSweepPair> buildBasisChainPairs(const QString& groupPath, QVariantL
         return {};
     }
 
+    auto appendSkippedSession = [&](const BatchSweepSessionInfo& session, const QString& reason) {
+        if (skippedRows == nullptr || reason.isEmpty()) return;
+        QVariantMap row;
+        row.insert(QStringLiteral("reason"), reason);
+        row.insert(QStringLiteral("sessionId"), session.sessionId);
+        row.insert(QStringLiteral("symbol"), session.symbol);
+        row.insert(QStringLiteral("exchange"), session.exchange);
+        row.insert(QStringLiteral("market"), session.market);
+        row.insert(QStringLiteral("sessionPath"), session.path);
+        row.insert(QStringLiteral("candleRows"), session.candleRows);
+        row.insert(QStringLiteral("expiryUtcNs"), session.expiryUtcNs);
+        row.insert(QStringLiteral("priceBasisQtyE8"), session.priceBasisQtyE8);
+        skippedRows->push_back(row);
+    };
+
     BatchSweepSessionInfo spot;
     QVector<BatchSweepSessionInfo> futures;
     for (const BatchSweepSessionInfo& session : sessions) {
-        if (spot.path.isEmpty() && basisSpotMarket(session.market)) {
+        if (basisSpotMarket(session.market)) {
+            const QString reason = basisChainSpotSkipReason(session);
+            if (!reason.isEmpty()) {
+                appendSkippedSession(session, reason);
+                continue;
+            }
+            if (!spot.path.isEmpty()) {
+                appendSkippedSession(session, QStringLiteral("extra spot leg ignored"));
+                continue;
+            }
             spot = session;
             continue;
         }
-        if (isBatchFuturesMarket(session.market)) futures.push_back(session);
+        if (isBatchFuturesMarket(session.market)) {
+            if (!enabledFuturePaths.empty() && !enabledFuturePaths.contains(QDir::cleanPath(session.path))) {
+                appendSkippedSession(session, QStringLiteral("future disabled in MOEX Basis"));
+                continue;
+            }
+            const QString reason = basisChainFutureSkipReason(session);
+            if (!reason.isEmpty()) {
+                appendSkippedSession(session, reason);
+                continue;
+            }
+            futures.push_back(session);
+        }
     }
     if (spot.path.isEmpty()) {
         QVariantMap row;
@@ -186,8 +303,8 @@ QVector<BatchSweepPair> buildBasisChainPairs(const QString& groupPath, QVariantL
         return {};
     }
     std::sort(futures.begin(), futures.end(), [](const BatchSweepSessionInfo& lhs, const BatchSweepSessionInfo& rhs) {
-        const qint64 le = basisExpiryNs(lhs.path);
-        const qint64 re = basisExpiryNs(rhs.path);
+        const qint64 le = lhs.expiryUtcNs;
+        const qint64 re = rhs.expiryUtcNs;
         if (le != re) return (le == 0 ? std::numeric_limits<qint64>::max() : le) <
                              (re == 0 ? std::numeric_limits<qint64>::max() : re);
         return lhs.symbol < rhs.symbol;
@@ -195,8 +312,23 @@ QVector<BatchSweepPair> buildBasisChainPairs(const QString& groupPath, QVariantL
 
     QVector<BatchSweepPair> pairs;
     pairs.reserve(futures.size());
+    QHash<qint64, int> expiryCounts;
+    for (const BatchSweepSessionInfo& future : futures) {
+        const qint64 expiry = future.expiryUtcNs;
+        if (expiry > 0) expiryCounts[expiry] += 1;
+    }
     int pairId = 0;
     for (const BatchSweepSessionInfo& future : futures) {
+        const qint64 expiry = future.expiryUtcNs;
+        if (expiry > 0 && expiryCounts.value(expiry) > 1) {
+            QVariantMap row;
+            row.insert(QStringLiteral("reason"), QStringLiteral("duplicate expiry; uncheck conflicting futures in MOEX Basis"));
+            row.insert(QStringLiteral("symbol"), future.symbol);
+            row.insert(QStringLiteral("expiryUtcNs"), expiry);
+            row.insert(QStringLiteral("sessionPath"), future.path);
+            if (skippedRows != nullptr) skippedRows->push_back(row);
+            continue;
+        }
         if (!isVenueSectionKnown(spot.exchange, spot.market) || !isVenueSectionKnown(future.exchange, future.market)) {
             QVariantMap row;
             row.insert(QStringLiteral("reason"), QStringLiteral("unsupported venue"));
@@ -258,18 +390,40 @@ QVariantMap enrichedBatchRow(const QVariantMap& row,
     return out;
 }
 
+QString basisChainNoSignalReason(const hft_backtest::BacktestRunResult& result) {
+    for (const std::string& warning : result.warnings) {
+        const QString text = QString::fromStdString(warning).trimmed();
+        if (text.contains(QStringLiteral("candle"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("metadata"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("price_basis"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("expiry"), Qt::CaseInsensitive) ||
+            text.contains(QStringLiteral("session"), Qt::CaseInsensitive)) {
+            return text;
+        }
+    }
+    if (result.events == 0) return QStringLiteral("basis strategy produced no strategy_spread rows: no replay events");
+    return QStringLiteral("basis strategy produced no strategy_spread rows");
+}
+
 QVariantMap basisChainBatchRow(const PreparedBasisChainPair& pair,
                                const hft_backtest::BacktestRunResult& result,
                                const QString& batchId) {
     const std::string_view statusView = hft_backtest::statusToString(result.status);
-    const QString status = QString::fromUtf8(statusView.data(), static_cast<qsizetype>(statusView.size()));
+    const QString backtestStatus = QString::fromUtf8(statusView.data(), static_cast<qsizetype>(statusView.size()));
+    QString status = backtestStatus;
+    QString error = QString::fromStdString(result.error);
+    if (hft_backtest::isOk(result.status) && result.strategySpreadRows == 0) {
+        status = QStringLiteral("NoSignal");
+        if (error.trimmed().isEmpty()) error = basisChainNoSignalReason(result);
+    }
     const QString exchangePair = QStringLiteral("%1/%2").arg(pair.pair.first.exchange, pair.pair.second.exchange);
     QVariantMap out;
     out.insert(QStringLiteral("batchId"), batchId);
     out.insert(QStringLiteral("runId"), QString::fromStdString(result.runId));
     out.insert(QStringLiteral("pairId"), pair.pair.pairId);
     out.insert(QStringLiteral("status"), status);
-    out.insert(QStringLiteral("error"), QString::fromStdString(result.error));
+    out.insert(QStringLiteral("backtestStatus"), backtestStatus);
+    out.insert(QStringLiteral("error"), error);
     out.insert(QStringLiteral("symbol"), pair.pair.second.symbol);
     out.insert(QStringLiteral("exchangePair"), exchangePair);
     out.insert(QStringLiteral("exchange_pair"), exchangePair);
@@ -288,6 +442,8 @@ QVariantMap basisChainBatchRow(const PreparedBasisChainPair& pair,
     out.insert(QStringLiteral("max_drawdown_e8"), static_cast<qint64>(result.maxDrawdownE8));
     out.insert(QStringLiteral("fills"), static_cast<qint64>(result.fills));
     out.insert(QStringLiteral("orders"), static_cast<qint64>(result.orders));
+    out.insert(QStringLiteral("strategySpreadRows"), static_cast<qint64>(result.strategySpreadRows));
+    out.insert(QStringLiteral("strategy_spread_rows"), static_cast<qint64>(result.strategySpreadRows));
     out.insert(QStringLiteral("riskStopped"), result.riskStopTsNs > 0);
     out.insert(QStringLiteral("risk_stopped"), result.riskStopTsNs > 0);
     out.insert(QStringLiteral("liquidated"), result.liquidationTsNs > 0);
@@ -376,6 +532,10 @@ QStringList BacktestViewModel::batchUniverseSessionPaths_() const {
 }
 
 void BacktestViewModel::startBasisChainBatchBacktest(const QString& groupPath) {
+    startBasisChainBatchBacktestForFutures(groupPath, {});
+}
+
+void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& groupPath, const QVariantList& enabledFutureSessionPaths) {
     if (running_) return;
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata == nullptr || !strategyMetadataSupportsSessionCount(*metadata, 2)) {
@@ -384,7 +544,7 @@ void BacktestViewModel::startBasisChainBatchBacktest(const QString& groupPath) {
     }
 
     QVariantList skipped;
-    const QVector<BatchSweepPair> pairs = buildBasisChainPairs(groupPath, &skipped);
+    const QVector<BatchSweepPair> pairs = buildBasisChainPairs(groupPath, cleanedPathSet(enabledFutureSessionPaths), &skipped);
     if (pairs.empty()) {
         batchSkippedRows_ = skipped;
         batchStableRows_.clear();
@@ -412,6 +572,7 @@ void BacktestViewModel::startBasisChainBatchBacktest(const QString& groupPath) {
     const QString batchId = QStringLiteral("basis-chain-") + runId_();
     const QString groupRoot = QDir::cleanPath(groupPath);
     const QString batchRoot = QDir(groupRoot).absoluteFilePath(QStringLiteral("backtests/basis_chain_batches/%1").arg(batchId));
+    const QHash<QString, QString> strategyOverrides = basisChainStrategyOverrides(groupRoot);
     QDir().mkpath(batchRoot);
 
     const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
@@ -440,7 +601,7 @@ void BacktestViewModel::startBasisChainBatchBacktest(const QString& groupPath) {
         const QString pairSlug = basisChainPairSlug(pair);
         const RunConfigWriteResult config = writeRunConfigForSessionPaths_(QStringLiteral("basis_chain_batches/%1/pair_configs/%2").arg(batchId, pairSlug),
                                                                            sessionPaths,
-                                                                           {},
+                                                                           strategyOverrides,
                                                                            true,
                                                                            false);
         if (!config.ok()) {

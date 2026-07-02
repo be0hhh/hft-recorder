@@ -1,6 +1,7 @@
 #include "gui/viewer/MoexBasisSeries.hpp"
 
 #include <algorithm>
+#include <map>
 
 #include "core/arbitrage/PriceBasis.hpp"
 
@@ -88,6 +89,47 @@ std::vector<MoexBasisPoint> buildMoexBasisPoints(const MoexBasisLegSeries& spot,
         }
         ++si;
         ++fi;
+    }
+    return out;
+}
+
+MoexBasisTimeRange moexBasisLoadedTimeRange(const std::vector<hftrec::replay::CandleRow>& spotCandles,
+                                            const std::vector<MoexBasisLegSeries>& futureLegs) noexcept {
+    MoexBasisTimeRange out{};
+    auto absorb = [&](std::int64_t tsNs) noexcept {
+        if (tsNs <= 0) return;
+        if (!out.hasData) {
+            out.minTsNs = tsNs;
+            out.maxTsNs = tsNs;
+            out.hasData = true;
+            return;
+        }
+        if (tsNs < out.minTsNs) out.minTsNs = tsNs;
+        if (tsNs > out.maxTsNs) out.maxTsNs = tsNs;
+    };
+
+    for (const auto& candle : spotCandles) absorb(candle.tsNs);
+    for (const auto& leg : futureLegs) {
+        for (const auto& candle : leg.candles) absorb(candle.tsNs);
+    }
+    if (!out.hasData) return out;
+    if (out.maxTsNs <= out.minTsNs) out.maxTsNs = out.minTsNs + 1000000;
+    return out;
+}
+
+std::vector<MoexBasisFutureConflict> findMoexBasisFutureConflicts(
+    const std::vector<MoexBasisFutureConflictInput>& futures) {
+    std::map<std::int64_t, std::vector<std::string>> byExpiry;
+    for (const auto& future : futures) {
+        if (!future.enabled || !future.valid || future.expiryUtcNs <= 0) continue;
+        byExpiry[future.expiryUtcNs].push_back(future.symbol);
+    }
+
+    std::vector<MoexBasisFutureConflict> out;
+    for (auto& [expiryUtcNs, symbols] : byExpiry) {
+        if (symbols.size() < 2u) continue;
+        std::stable_sort(symbols.begin(), symbols.end());
+        out.push_back(MoexBasisFutureConflict{expiryUtcNs, symbols});
     }
     return out;
 }

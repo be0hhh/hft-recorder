@@ -1,35 +1,33 @@
 #include "gui/viewer/MoexBasisController.hpp"
 
 #include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
+#include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSet>
+#include <QStringList>
 #include <QVariantMap>
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
 #include <limits>
 #include <map>
-#include <sstream>
 #include <string>
-#include <string_view>
+#include <system_error>
+#include <utility>
 
 #include "core/arbitrage/PriceBasis.hpp"
-#include "core/capture/SessionManifest.hpp"
-#include "core/corpus/InstrumentMetadata.hpp"
 #include "core/recordings/RecordingDiscovery.hpp"
 #include "core/recordings/RecordingRoot.hpp"
-#include "core/replay/SessionReplay.hpp"
+#include "core/recordings/BasisChainSeries.hpp"
+#include "gui/backtests/BacktestSessionSummary.hpp"
+#include "gui/viewer/moex/MoexBasisDataLoad.hpp"
 
 namespace hftrec::gui::viewer {
 namespace {
-
-std::string readFile(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::in | std::ios::binary);
-    if (!in) return {};
-    std::ostringstream out;
-    out << in.rdbuf();
-    return out.str();
-}
 
 QString cleanPath(const std::filesystem::path& path) {
     return QDir::cleanPath(QString::fromStdString(path.string()));
@@ -51,97 +49,6 @@ bool isFutureMarket(const QString& market) {
            m.contains(QStringLiteral("rtsx"));
 }
 
-bool readSessionManifest(const std::filesystem::path& sessionPath,
-                         hftrec::capture::SessionManifest& manifest) {
-    const std::string text = readFile(sessionPath / "manifest.json");
-    return !text.empty() && isOk(hftrec::capture::parseManifestJson(text, manifest));
-}
-
-std::filesystem::path existingSessionFile(const std::filesystem::path& sessionPath,
-                                          std::string_view manifestPath,
-                                          std::string_view fallback) {
-    if (!manifestPath.empty()) {
-        std::filesystem::path path{std::string{manifestPath}};
-        if (path.is_relative()) path = sessionPath / path;
-        std::error_code ec;
-        if (std::filesystem::exists(path, ec) && !ec) return path;
-    }
-    const auto fallbackPath = sessionPath / std::string{fallback};
-    std::error_code ec;
-    return std::filesystem::exists(fallbackPath, ec) && !ec ? fallbackPath : std::filesystem::path{};
-}
-
-std::filesystem::path candlePathFor(const std::filesystem::path& sessionPath,
-                                    const hftrec::capture::SessionManifest& manifest,
-                                    bool& detailed) {
-    detailed = true;
-    auto path = existingSessionFile(sessionPath, manifest.candles2Path, "jsonl/candles2.jsonl");
-    if (!path.empty()) return path;
-    path = existingSessionFile(sessionPath, {}, "jsonl/candlesv2.jsonl");
-    if (!path.empty()) return path;
-    detailed = false;
-    return existingSessionFile(sessionPath, manifest.candlesPath, "jsonl/candles.jsonl");
-}
-
-bool loadMetadata(const std::filesystem::path& sessionPath,
-                  std::int64_t& priceBasisQtyE8,
-                  std::int64_t& expiryUtcNs) {
-    hftrec::corpus::InstrumentMetadata metadata{};
-    const std::string text = readFile(sessionPath / "instrument_metadata.json");
-    if (text.empty() || !isOk(hftrec::corpus::parseInstrumentMetadataJson(text, metadata))) return false;
-    if (metadata.priceBasisQtyE8.has_value()) priceBasisQtyE8 = *metadata.priceBasisQtyE8;
-    if (metadata.expiryUtcNs.has_value()) expiryUtcNs = *metadata.expiryUtcNs;
-    return true;
-}
-
-MoexBasisController::LegState loadLeg(const hftrec::recordings::RecordedSessionInfo& session,
-                                      const QString& role) {
-    MoexBasisController::LegState leg{};
-    leg.role = role;
-    leg.label = QStringLiteral("%1/%2 %3")
-                    .arg(QString::fromStdString(session.exchange),
-                         QString::fromStdString(session.market),
-                         QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front()));
-    leg.symbol = QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front());
-    leg.exchange = QString::fromStdString(session.exchange);
-    leg.market = QString::fromStdString(session.market);
-    leg.sessionPath = cleanPath(session.path);
-    leg.priceBasisQtyE8 = 100000000LL;
-    leg.metadataReady = role == QStringLiteral("spot");
-
-    const std::filesystem::path path = session.path;
-    (void)loadMetadata(path, leg.priceBasisQtyE8, leg.expiryUtcNs);
-    if (role == QStringLiteral("future")) {
-        leg.metadataReady = leg.priceBasisQtyE8 > 0 && leg.expiryUtcNs > 0;
-    }
-
-    hftrec::capture::SessionManifest manifest{};
-    if (!readSessionManifest(path, manifest)) {
-        leg.status = QStringLiteral("missing manifest");
-        return leg;
-    }
-
-    bool detailed = true;
-    const auto candlePath = candlePathFor(path, manifest, detailed);
-    if (candlePath.empty()) {
-        leg.status = QStringLiteral("missing candles");
-        return leg;
-    }
-
-    hftrec::replay::SessionReplay replay{};
-    const auto status = detailed ? replay.addCandles2File(candlePath) : replay.addCandlesFile(candlePath);
-    if (!isOk(status)) {
-        leg.status = QStringLiteral("failed to load candles");
-        return leg;
-    }
-    const auto& rows = detailed ? replay.candles2() : replay.candles();
-    leg.candles = selectMoexBasisCandles(rows);
-    if (leg.candles.empty()) leg.status = QStringLiteral("no valid candles");
-    else if (!leg.metadataReady) leg.status = QStringLiteral("missing expiry/price basis");
-    else leg.status = QStringLiteral("%1 candles").arg(static_cast<qulonglong>(leg.candles.size()));
-    return leg;
-}
-
 std::int64_t normalizePrice(std::int64_t nativePriceE8, std::int64_t priceBasisQtyE8) noexcept {
     return hftrec::arbitrage::normalizeNativePriceE8(nativePriceE8, priceBasisQtyE8 <= 0 ? 100000000LL : priceBasisQtyE8);
 }
@@ -157,6 +64,13 @@ hftrec::replay::CandleRow normalizedCandle(const hftrec::replay::CandleRow& row,
     out.closeE8 = normalizePrice(moexBasisClosePriceE8(row), priceBasisQtyE8);
     out.hasOhlc = out.openE8 > 0 && out.highE8 > 0 && out.lowE8 > 0 && out.closeE8 > 0;
     return out;
+}
+
+QJsonObject readJsonObject(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    return doc.isObject() ? doc.object() : QJsonObject{};
 }
 
 double clampZoom(double value) noexcept {
@@ -216,9 +130,8 @@ QVariantList MoexBasisController::displayModeChoices() const {
         row.insert(QStringLiteral("rightText"), rightText);
         rows.push_back(row);
     };
-    append(QStringLiteral("front_rank"), QStringLiteral("Front rank"), QStringLiteral("continuous F1/F2"));
-    append(QStringLiteral("checked_raw"), QStringLiteral("Checked raw"), QStringLiteral("selected contracts"));
-    append(QStringLiteral("all_raw"), QStringLiteral("All raw"), QStringLiteral("all contracts"));
+    append(QStringLiteral("checked_raw"), QStringLiteral("Checked futures"), QStringLiteral("selected contracts"));
+    append(QStringLiteral("all_raw"), QStringLiteral("All futures"), QStringLiteral("all contracts"));
     return rows;
 }
 
@@ -237,6 +150,42 @@ int MoexBasisController::basisPointCount() const noexcept {
         count += static_cast<int>(future.basisPoints.size());
     }
     return count;
+}
+
+int MoexBasisController::activeFutureCandleCount() const noexcept {
+    int count = 0;
+    for (const auto& future : renderFutures_) {
+        if (!future.enabled || !future.metadataReady) continue;
+        count += static_cast<int>(future.candles.size());
+    }
+    return count;
+}
+
+bool MoexBasisController::hasFutureConflicts() const {
+    return !futureConflicts_().empty();
+}
+
+QVariantList MoexBasisController::conflictRows() const {
+    QVariantList rows;
+    for (const auto& conflict : futureConflicts_()) {
+        QVariantMap row;
+        row.insert(QStringLiteral("expiryUtcNs"), static_cast<qint64>(conflict.expiryUtcNs));
+        QStringList symbols;
+        for (const auto& symbol : conflict.symbols) symbols.push_back(QString::fromStdString(symbol));
+        row.insert(QStringLiteral("symbols"), symbols.join(QStringLiteral(", ")));
+        row.insert(QStringLiteral("rightText"), QStringLiteral("same expiry"));
+        rows.push_back(row);
+    }
+    return rows;
+}
+
+QVariantList MoexBasisController::enabledFutureSessionPaths() const {
+    QVariantList rows;
+    for (const auto& future : futures_) {
+        if (!future.enabled || !future.metadataReady || future.candles.empty() || future.sessionPath.trimmed().isEmpty()) continue;
+        rows.push_back(future.sessionPath);
+    }
+    return rows;
 }
 
 void MoexBasisController::reloadGroups() {
@@ -268,38 +217,81 @@ bool MoexBasisController::loadGroup(const QString& path) {
     groupPath_ = requested;
     resetValueScale_();
 
+    const std::filesystem::path selectedPath = selected->path;
+    std::vector<hftrec::recordings::BasisChainSeriesRow> seriesRows;
+    std::string seriesError;
+    std::error_code seriesEc;
+    const bool hasSeriesFile = std::filesystem::is_regular_file(selectedPath / "basis_chain_series.jsonl", seriesEc) && !seriesEc;
+    const bool useSeriesRows = hasSeriesFile &&
+        hftrec::recordings::readBasisChainSeries(selectedPath, seriesRows, &seriesError) &&
+        !seriesRows.empty();
+    const moex::LegLoadMode legLoadMode = useSeriesRows ? moex::LegLoadMode::MetadataOnly : moex::LegLoadMode::FullCandles;
+
     for (const auto& session : selected->sessions) {
         const QString market = QString::fromStdString(session.market);
         if (spot_.label.isEmpty() && isSpotMarket(market)) {
-            spot_ = loadLeg(session, QStringLiteral("spot"));
+            spot_ = moex::loadLeg(session, QStringLiteral("spot"), legLoadMode);
             continue;
         }
     }
     for (const auto& session : selected->sessions) {
         const QString market = QString::fromStdString(session.market);
-        if (isFutureMarket(market)) futures_.push_back(loadLeg(session, QStringLiteral("future")));
+        if (isFutureMarket(market)) futures_.push_back(moex::loadLeg(session, QStringLiteral("future"), legLoadMode));
     }
     std::sort(futures_.begin(), futures_.end(), [](const auto& lhs, const auto& rhs) {
         if (lhs.expiryUtcNs != rhs.expiryUtcNs) return lhs.expiryUtcNs < rhs.expiryUtcNs;
         return lhs.symbol < rhs.symbol;
     });
 
+    bool seriesApplied = false;
+    if (useSeriesRows) {
+        seriesApplied = moex::applyBasisChainSeriesRows(seriesRows, spot_, futures_);
+        if (!seriesApplied) {
+            spot_ = {};
+            futures_.clear();
+            for (const auto& session : selected->sessions) {
+                const QString market = QString::fromStdString(session.market);
+                if (spot_.label.isEmpty() && isSpotMarket(market)) {
+                    spot_ = moex::loadLeg(session, QStringLiteral("spot"), moex::LegLoadMode::FullCandles);
+                    continue;
+                }
+            }
+            for (const auto& session : selected->sessions) {
+                const QString market = QString::fromStdString(session.market);
+                if (isFutureMarket(market)) futures_.push_back(moex::loadLeg(session, QStringLiteral("future"), moex::LegLoadMode::FullCandles));
+            }
+            std::sort(futures_.begin(), futures_.end(), [](const auto& lhs, const auto& rhs) {
+                if (lhs.expiryUtcNs != rhs.expiryUtcNs) return lhs.expiryUtcNs < rhs.expiryUtcNs;
+                return lhs.symbol < rhs.symbol;
+            });
+        }
+    }
     rebuildBasis_();
     rebuildRenderFutures_();
     updateFullRange_();
+    reloadStrategyResults_();
     if (spot_.label.isEmpty()) {
         setStatus_(QStringLiteral("Selected group has no spot leg"));
     } else if (futures_.empty()) {
         setStatus_(QStringLiteral("Selected group has no futures legs"));
+    } else if (hasFutureConflicts()) {
+        setStatus_(QStringLiteral("Resolve duplicate-expiry futures before running strategy"));
     } else if (enabledFutureCount() == 0) {
-        setStatus_(QStringLiteral("No valid futures basis lines; check expiry and price_basis metadata"));
+        if (hasSeriesFile && !useSeriesRows) {
+            setStatus_(QStringLiteral("Series load failed, fallback candles used: %1")
+                           .arg(QString::fromStdString(seriesError.empty() ? std::string{"empty series"} : seriesError)));
+        } else {
+            setStatus_(QStringLiteral("No valid futures basis lines; check expiry and price_basis metadata"));
+        }
     } else {
-        setStatus_(QStringLiteral("MOEX basis ready: %1 futures, %2 points")
+        setStatus_(QStringLiteral("MOEX basis ready: %1 futures, %2 points%3")
                        .arg(enabledFutureCount())
-                       .arg(basisPointCount()));
+                       .arg(basisPointCount())
+                       .arg(seriesApplied ? QStringLiteral(" | series") : QString{}));
     }
     emit dataChanged();
     emit viewportChanged();
+    emit strategyResultsChanged();
     return ready();
 }
 
@@ -308,6 +300,10 @@ void MoexBasisController::clear() {
     spot_ = {};
     futures_.clear();
     renderFutures_.clear();
+    strategyResultRows_.clear();
+    selectedStrategyResult_.clear();
+    strategyOverlay_ = {};
+    strategyStatusText_ = QStringLiteral("No strategy result selected");
     fullTsMin_ = 0;
     fullTsMax_ = 1;
     tsMin_ = 0;
@@ -316,6 +312,7 @@ void MoexBasisController::clear() {
     setStatus_(QStringLiteral("Select a MOEX basis group"));
     emit dataChanged();
     emit viewportChanged();
+    emit strategyResultsChanged();
 }
 
 void MoexBasisController::setFutureEnabled(int index, bool enabled) {
@@ -325,30 +322,27 @@ void MoexBasisController::setFutureEnabled(int index, bool enabled) {
     future.enabled = enabled;
     rebuildRenderFutures_();
     updateFullRange_();
-    setStatus_(QStringLiteral("MOEX basis ready: %1 futures, %2 points")
-                   .arg(enabledFutureCount())
-                   .arg(basisPointCount()));
+    reloadStrategyResults_();
+    setReadyStatus_();
     emit dataChanged();
     emit viewportChanged();
+    emit strategyResultsChanged();
 }
 
 void MoexBasisController::setDisplayMode(const QString& mode) {
     const QString next = [&]() {
         const QString value = mode.trimmed().toLower();
         if (value == QStringLiteral("all_raw") ||
-            value == QStringLiteral("checked_raw") ||
-            value == QStringLiteral("front_rank")) {
+            value == QStringLiteral("checked_raw")) {
             return value;
         }
-        return QStringLiteral("front_rank");
+        return QStringLiteral("checked_raw");
     }();
     if (displayMode_ == next) return;
     displayMode_ = next;
     rebuildRenderFutures_();
     updateFullRange_();
-    setStatus_(QStringLiteral("MOEX basis ready: %1 futures, %2 points")
-                   .arg(enabledFutureCount())
-                   .arg(basisPointCount()));
+    setReadyStatus_();
     emit dataChanged();
     emit viewportChanged();
 }
@@ -360,14 +354,82 @@ void MoexBasisController::setFrontRank(int rank) {
     if (displayMode_ == QStringLiteral("front_rank")) {
         rebuildRenderFutures_();
         updateFullRange_();
-        setStatus_(QStringLiteral("MOEX basis ready: %1 futures, %2 points")
-                       .arg(enabledFutureCount())
-                       .arg(basisPointCount()));
+        setReadyStatus_();
         emit dataChanged();
         emit viewportChanged();
     } else {
         emit dataChanged();
     }
+}
+
+void MoexBasisController::reloadStrategyResults() {
+    reloadStrategyResults_();
+    emit strategyResultsChanged();
+}
+
+void MoexBasisController::setStrategyResult(const QString& path) {
+    const QString requested = QDir::cleanPath(path);
+    if (requested.trimmed().isEmpty()) {
+        clearStrategyResult_(QStringLiteral("No strategy result selected"));
+        emit strategyResultsChanged();
+        emit dataChanged();
+        return;
+    }
+
+    bool listed = false;
+    for (const QVariant& value : strategyResultRows_) {
+        if (value.toMap().value(QStringLiteral("id")).toString() == requested) {
+            listed = true;
+            break;
+        }
+    }
+    if (!listed) {
+        reloadStrategyResults_();
+        for (const QVariant& value : strategyResultRows_) {
+            if (value.toMap().value(QStringLiteral("id")).toString() == requested) {
+                listed = true;
+                break;
+            }
+        }
+    }
+    if (!listed) {
+        clearStrategyResult_(QStringLiteral("Strategy result does not match selected spot/future"));
+        emit strategyResultsChanged();
+        emit dataChanged();
+        return;
+    }
+
+    StrategyOverlayData overlay;
+    std::string error;
+    if (!loadStrategyOverlayFromResult(std::filesystem::path{requested.toStdString()},
+                                       static_cast<std::int64_t>(tsMax_),
+                                       overlay,
+                                       error)) {
+        clearStrategyResult_(QStringLiteral("Strategy load failed: %1").arg(QString::fromStdString(error)));
+        emit strategyResultsChanged();
+        emit dataChanged();
+        return;
+    }
+    if (overlay.spreadPoints.empty()) {
+        clearStrategyResult_(QStringLiteral("Strategy result has no strategy_spread rows"));
+        emit strategyResultsChanged();
+        emit dataChanged();
+        return;
+    }
+
+    selectedStrategyResult_ = requested;
+    strategyOverlay_ = std::move(overlay);
+    strategyStatusText_ = QStringLiteral("%1 | spread points %2")
+        .arg(strategyOverlay_.strategy.isEmpty() ? QStringLiteral("strategy") : strategyOverlay_.strategy)
+        .arg(static_cast<qulonglong>(strategyOverlay_.spreadPoints.size()));
+    emit strategyResultsChanged();
+    emit dataChanged();
+}
+
+void MoexBasisController::clearStrategyResult() {
+    clearStrategyResult_(QStringLiteral("No strategy result selected"));
+    emit strategyResultsChanged();
+    emit dataChanged();
 }
 
 void MoexBasisController::autoFit() {
@@ -382,16 +444,8 @@ void MoexBasisController::panTime(double fraction) {
     const qint64 span = tsMax_ - tsMin_;
     if (span <= 0) return;
     const qint64 delta = static_cast<qint64>(static_cast<double>(span) * fraction);
-    qint64 nextMin = tsMin_ + delta;
-    qint64 nextMax = tsMax_ + delta;
-    if (nextMin < fullTsMin_) {
-        nextMax += fullTsMin_ - nextMin;
-        nextMin = fullTsMin_;
-    }
-    if (nextMax > fullTsMax_) {
-        nextMin -= nextMax - fullTsMax_;
-        nextMax = fullTsMax_;
-    }
+    const qint64 nextMin = tsMin_ + delta;
+    const qint64 nextMax = tsMax_ + delta;
     if (nextMax <= nextMin) return;
     tsMin_ = nextMin;
     tsMax_ = nextMax;
@@ -399,21 +453,14 @@ void MoexBasisController::panTime(double fraction) {
 }
 
 void MoexBasisController::zoomTimeAt(double factor, double anchorFraction) {
-    if (!std::isfinite(factor) || factor <= 0.0 || fullTsMax_ <= fullTsMin_) return;
+    if (!std::isfinite(factor) || factor <= 0.0) return;
     anchorFraction = std::clamp(anchorFraction, 0.0, 1.0);
     const double currentSpan = static_cast<double>(tsMax_ - tsMin_);
-    const double nextSpan = std::clamp(currentSpan / factor, 1000000.0, static_cast<double>(fullTsMax_ - fullTsMin_));
+    if (currentSpan <= 0.0) return;
+    const double nextSpan = std::max(currentSpan / factor, 1000000.0);
     const double anchor = static_cast<double>(tsMin_) + currentSpan * anchorFraction;
     qint64 nextMin = static_cast<qint64>(anchor - nextSpan * anchorFraction);
     qint64 nextMax = static_cast<qint64>(static_cast<double>(nextMin) + nextSpan);
-    if (nextMin < fullTsMin_) {
-        nextMax += fullTsMin_ - nextMin;
-        nextMin = fullTsMin_;
-    }
-    if (nextMax > fullTsMax_) {
-        nextMin -= nextMax - fullTsMax_;
-        nextMax = fullTsMax_;
-    }
     if (nextMax <= nextMin) return;
     tsMin_ = nextMin;
     tsMax_ = nextMax;
@@ -517,8 +564,8 @@ MoexBasisController::LegState MoexBasisController::buildFrontRankLeg_(int rank) 
         }
     }
 
-    QString previousSymbol;
-    for (auto& [ts, candidates] : byTs) {
+    for (auto& entry : byTs) {
+        auto& candidates = entry.second;
         std::sort(candidates.begin(), candidates.end(), [](const Candidate& lhs, const Candidate& rhs) {
             if (lhs.leg->expiryUtcNs != rhs.leg->expiryUtcNs) return lhs.leg->expiryUtcNs < rhs.leg->expiryUtcNs;
             return lhs.leg->symbol < rhs.leg->symbol;
@@ -528,13 +575,6 @@ MoexBasisController::LegState MoexBasisController::buildFrontRankLeg_(int rank) 
         leg.candles.push_back(normalizedCandle(*selected.candle, leg.symbol, selected.leg->priceBasisQtyE8));
         leg.expiryUtcNs = std::max(leg.expiryUtcNs == std::numeric_limits<std::int64_t>::max() / 4 ? 0 : leg.expiryUtcNs,
                                   selected.leg->expiryUtcNs);
-        if (!previousSymbol.isEmpty() && previousSymbol != selected.leg->symbol) {
-            LegState::RollMarker marker;
-            marker.tsNs = ts;
-            marker.label = selected.leg->symbol;
-            leg.rollMarkers.push_back(std::move(marker));
-        }
-        previousSymbol = selected.leg->symbol;
     }
 
     MoexBasisLegSeries spotSeries{};
@@ -565,30 +605,164 @@ void MoexBasisController::rebuildRenderFutures_() {
     }
 }
 
-void MoexBasisController::updateFullRange_() noexcept {
-    bool hasTs = false;
-    auto absorb = [&](qint64 ts) noexcept {
-        if (ts <= 0) return;
-        if (!hasTs) {
-            fullTsMin_ = ts;
-            fullTsMax_ = ts;
-            hasTs = true;
-            return;
-        }
-        if (ts < fullTsMin_) fullTsMin_ = ts;
-        if (ts > fullTsMax_) fullTsMax_ = ts;
-    };
-    for (const auto& row : spot_.candles) absorb(row.tsNs);
-    for (const auto& future : renderFutures_) {
-        if (!future.enabled) continue;
-        for (const auto& point : future.basisPoints) absorb(point.tsNs);
-        if (future.expiryUtcNs > 0) absorb(future.expiryUtcNs);
+std::vector<MoexBasisFutureConflict> MoexBasisController::futureConflicts_() const {
+    std::vector<MoexBasisFutureConflictInput> inputs;
+    inputs.reserve(futures_.size());
+    for (const auto& future : futures_) {
+        inputs.push_back(MoexBasisFutureConflictInput{
+            future.symbol.toStdString(),
+            future.expiryUtcNs,
+            future.enabled,
+            future.metadataReady && !future.candles.empty(),
+        });
     }
-    if (!hasTs) {
+    return findMoexBasisFutureConflicts(inputs);
+}
+
+void MoexBasisController::clearStrategyResult_(const QString& statusText) {
+    selectedStrategyResult_.clear();
+    strategyOverlay_ = {};
+    strategyStatusText_ = statusText;
+}
+
+void MoexBasisController::reloadStrategyResults_() {
+    QVariantList rows;
+    QVariantMap none;
+    none.insert(QStringLiteral("id"), QString{});
+    none.insert(QStringLiteral("value"), QString{});
+    none.insert(QStringLiteral("label"), QStringLiteral("No strategy"));
+    none.insert(QStringLiteral("rightText"), QStringLiteral("lower spread only"));
+    none.insert(QStringLiteral("selectable"), true);
+    rows.push_back(none);
+
+    if (groupPath_.trimmed().isEmpty() || spot_.sessionPath.trimmed().isEmpty() || hasFutureConflicts()) {
+        strategyResultRows_ = rows;
+        if (selectedStrategyResult_.isEmpty()) {
+            strategyStatusText_ = hasFutureConflicts()
+                ? QStringLiteral("Resolve duplicate-expiry futures before loading strategy")
+                : QStringLiteral("No strategy result selected");
+        } else {
+            clearStrategyResult_(QStringLiteral("Strategy cleared: current futures are conflicting"));
+        }
+        return;
+    }
+
+    QStringList futurePaths;
+    QHash<QString, QString> futureSymbolByPath;
+    for (const auto& future : futures_) {
+        if (!future.enabled || !future.metadataReady || future.candles.empty() || future.sessionPath.trimmed().isEmpty()) continue;
+        const QString clean = QDir::cleanPath(future.sessionPath);
+        if (futurePaths.contains(clean)) continue;
+        futurePaths.push_back(clean);
+        futureSymbolByPath.insert(clean, future.symbol);
+    }
+
+    QStringList roots;
+    auto addBacktestsRoot = [&](const QString& ownerPath) {
+        if (ownerPath.trimmed().isEmpty()) return;
+        const QString root = QDir(QDir::cleanPath(ownerPath)).absoluteFilePath(QStringLiteral("backtests"));
+        if (QFileInfo::exists(root) && !roots.contains(root)) roots.push_back(root);
+    };
+    addBacktestsRoot(groupPath_);
+    addBacktestsRoot(spot_.sessionPath);
+    for (const QString& path : futurePaths) addBacktestsRoot(path);
+
+    QSet<QString> seenResults;
+    for (const QString& root : roots) {
+        QDirIterator it(root,
+                        QStringList{QStringLiteral("manifest.json")},
+                        QDir::Files,
+                        QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString manifestPath = QDir::cleanPath(it.next());
+            const QString resultPath = QDir::cleanPath(QFileInfo(manifestPath).absolutePath());
+            if (seenResults.contains(resultPath)) continue;
+            seenResults.insert(resultPath);
+            if (!QFileInfo::exists(QDir(resultPath).absoluteFilePath(QStringLiteral("strategy_spread.jsonl")))) continue;
+
+            const QJsonObject manifest = readJsonObject(manifestPath);
+            if (manifest.value(QStringLiteral("type")).toString() != QStringLiteral("run.result.v2")) continue;
+
+            QString matchedFuturePath;
+            for (const QString& futurePath : futurePaths) {
+                if (hftrec::gui::backtestManifestMatchesLegs(manifestPath, QStringList{spot_.sessionPath, futurePath})) {
+                    matchedFuturePath = futurePath;
+                    break;
+                }
+            }
+            if (matchedFuturePath.isEmpty()) continue;
+
+            const QString runId = manifest.value(QStringLiteral("run_id")).toString(QFileInfo(resultPath).fileName());
+            const QString strategy = manifest.value(QStringLiteral("strategy")).toString();
+            QVariantMap row;
+            row.insert(QStringLiteral("id"), resultPath);
+            row.insert(QStringLiteral("value"), resultPath);
+            row.insert(QStringLiteral("label"), runId);
+            row.insert(QStringLiteral("rightText"), QStringLiteral("%1 | %2")
+                           .arg(strategy.isEmpty() ? QStringLiteral("strategy") : strategy,
+                                futureSymbolByPath.value(matchedFuturePath)));
+            row.insert(QStringLiteral("strategy"), strategy);
+            row.insert(QStringLiteral("futureSessionPath"), matchedFuturePath);
+            row.insert(QStringLiteral("resultPath"), resultPath);
+            row.insert(QStringLiteral("searchText"), QStringLiteral("%1 %2 %3")
+                           .arg(runId, strategy, resultPath));
+            rows.push_back(row);
+        }
+    }
+
+    bool selectedStillValid = selectedStrategyResult_.isEmpty();
+    if (!selectedStrategyResult_.isEmpty()) {
+        for (const QVariant& value : rows) {
+            if (value.toMap().value(QStringLiteral("id")).toString() == selectedStrategyResult_) {
+                selectedStillValid = true;
+                break;
+            }
+        }
+    }
+    strategyResultRows_ = rows;
+    if (!selectedStillValid) {
+        clearStrategyResult_(QStringLiteral("Strategy cleared: result no longer matches selected futures"));
+        return;
+    }
+    if (selectedStrategyResult_.isEmpty()) {
+        strategyStatusText_ = rows.size() > 0
+            ? QStringLiteral("%1 matching strategy result(s)").arg(static_cast<qulonglong>(rows.size()))
+            : QStringLiteral("No matching strategy result");
+    }
+}
+
+void MoexBasisController::setReadyStatus_() {
+    if (spot_.label.isEmpty()) {
+        setStatus_(QStringLiteral("Selected group has no spot leg"));
+    } else if (futures_.empty()) {
+        setStatus_(QStringLiteral("Selected group has no futures legs"));
+    } else if (hasFutureConflicts()) {
+        setStatus_(QStringLiteral("Resolve duplicate-expiry futures before running strategy"));
+    } else if (enabledFutureCount() == 0) {
+        setStatus_(QStringLiteral("No valid futures basis lines; check expiry and price_basis metadata"));
+    } else {
+        setStatus_(QStringLiteral("MOEX basis ready: %1 futures, %2 points")
+                       .arg(enabledFutureCount())
+                       .arg(basisPointCount()));
+    }
+}
+
+void MoexBasisController::updateFullRange_() noexcept {
+    std::vector<MoexBasisLegSeries> futureSeries;
+    futureSeries.reserve(renderFutures_.size());
+    for (const auto& future : renderFutures_) {
+        if (!future.enabled || !future.metadataReady) continue;
+        MoexBasisLegSeries series;
+        series.candles = future.candles;
+        futureSeries.push_back(std::move(series));
+    }
+    const MoexBasisTimeRange range = moexBasisLoadedTimeRange(spot_.candles, futureSeries);
+    if (!range.hasData) {
         fullTsMin_ = 0;
         fullTsMax_ = 1;
-    } else if (fullTsMax_ <= fullTsMin_) {
-        fullTsMax_ = fullTsMin_ + 1000000;
+    } else {
+        fullTsMin_ = static_cast<qint64>(range.minTsNs);
+        fullTsMax_ = static_cast<qint64>(range.maxTsNs);
     }
     tsMin_ = fullTsMin_;
     tsMax_ = fullTsMax_;

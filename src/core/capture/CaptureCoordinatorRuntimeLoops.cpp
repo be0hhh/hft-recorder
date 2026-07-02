@@ -17,7 +17,9 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <memory>
 #include <mutex>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
@@ -25,13 +27,29 @@
 namespace hftrec::capture {
 using namespace runtime;
 
+namespace {
+
+using TraderMarketDataRuntimePtr = std::unique_ptr<hft_trader::runtime::MarketDataRuntime>;
+
+TraderMarketDataRuntimePtr makeTraderMarketDataRuntime() noexcept {
+    return TraderMarketDataRuntimePtr(new (std::nothrow) hft_trader::runtime::MarketDataRuntime{});
+}
+
+}  // namespace
+
 void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
-    hft_trader::runtime::MarketDataRuntime traderMarket{};
+    auto traderMarket = makeTraderMarketDataRuntime();
+    if (!traderMarket) {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastError_ = "liquidations: failed to allocate trader market-data runtime";
+        liquidationsRunning_.store(false, std::memory_order_release);
+        return;
+    }
     const cxet::api::market::PublicMarketDataStream streams[] = {
         cxet::api::market::PublicMarketDataStream::Liquidations,
     };
     std::string err;
-    if (!applyTraderMarketDataConfig(traderMarket, config, Span<const cxet::api::market::PublicMarketDataStream>(streams, 1u), err)) {
+    if (!applyTraderMarketDataConfig(*traderMarket, config, Span<const cxet::api::market::PublicMarketDataStream>(streams, 1u), err)) {
         std::lock_guard<std::mutex> lock(stateMutex_);
         lastError_ = err.empty() ? "liquidations: trader market-data apply failed" : err;
         liquidationsRunning_.store(false, std::memory_order_release);
@@ -43,13 +61,13 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
     while (!liquidationsStop_.load(std::memory_order_acquire)) {
         (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
         std::string routeDiagnostic;
-        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs, &routeDiagnostic, "liquidations");
+        pollMarketDataLifecycleIfDue(*traderMarket, nextLifecyclePollNs, &routeDiagnostic, "liquidations");
         if (!routeDiagnostic.empty()) {
             std::lock_guard<std::mutex> lock(stateMutex_);
             lastError_ = routeDiagnostic;
         }
         hft_trader::runtime::MarketDataRuntimeEvent event{};
-        if (traderMarket.pollAvailableOne(event)) {
+        if (traderMarket->pollAvailableOne(event)) {
             if (event.stream != cxet::api::market::PublicMarketDataStream::Liquidations ||
                 event.status != cxet::api::market::PublicMarketDataStatus::Parsed) {
                 continue;
@@ -82,12 +100,22 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
     }
     nextManifestFlushNs = 0;
     (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
-    traderMarket.closeAll();
+    traderMarket->closeAll();
     liquidationsRunning_.store(false, std::memory_order_release);
 }
 
 void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcept {
-    hft_trader::runtime::MarketDataRuntime traderMarket{};
+    auto traderMarket = makeTraderMarketDataRuntime();
+    if (!traderMarket) {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastError_ = "reference: failed to allocate trader market-data runtime";
+        priceLimitRunning_.store(false, std::memory_order_release);
+        markPriceRunning_.store(false, std::memory_order_release);
+        indexPriceRunning_.store(false, std::memory_order_release);
+        fundingRunning_.store(false, std::memory_order_release);
+        referenceDataRunning_.store(false, std::memory_order_release);
+        return;
+    }
     std::uint8_t appliedMask = 0u;
     bool haveLastFunding = false;
     replay::FundingRow lastFunding{};
@@ -112,7 +140,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
 
         std::string err;
         const Span<const cxet::api::market::PublicMarketDataStream> desiredStreams(streams.data(), count);
-        if (applyTraderMarketDataConfig(traderMarket, config, desiredStreams, err)) return true;
+        if (applyTraderMarketDataConfig(*traderMarket, config, desiredStreams, err)) return true;
 
         auto clearUnsupportedReferenceStream = [&](cxet::api::market::PublicMarketDataStream stream) noexcept {
             if (stream == cxet::api::market::PublicMarketDataStream::PriceLimit) {
@@ -141,14 +169,14 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
         std::size_t supportedCount = 0u;
         std::string skipped;
         for (std::size_t i = 0u; i < count; ++i) {
-            hft_trader::runtime::MarketDataRuntime probe{};
+            auto probe = makeTraderMarketDataRuntime();
             std::string singleErr;
-            const bool supportedStream = applyTraderMarketDataConfig(
-                probe,
-                config,
-                Span<const cxet::api::market::PublicMarketDataStream>(&streams[i], 1u),
-                singleErr);
-            probe.closeAll();
+            const bool supportedStream = probe &&
+                applyTraderMarketDataConfig(*probe,
+                                            config,
+                                            Span<const cxet::api::market::PublicMarketDataStream>(&streams[i], 1u),
+                                            singleErr);
+            if (probe) probe->closeAll();
             if (supportedStream) {
                 supported[supportedCount++] = streams[i];
             } else {
@@ -165,7 +193,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
         }
 
         err.clear();
-        if (!applyTraderMarketDataConfig(traderMarket,
+        if (!applyTraderMarketDataConfig(*traderMarket,
                                          config,
                                          Span<const cxet::api::market::PublicMarketDataStream>(supported.data(), supportedCount),
                                          err)) {
@@ -264,14 +292,14 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
             appliedMask = mask;
         }
         std::string routeDiagnostic;
-        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs, &routeDiagnostic, "reference");
+        pollMarketDataLifecycleIfDue(*traderMarket, nextLifecyclePollNs, &routeDiagnostic, "reference");
         if (!routeDiagnostic.empty()) {
             std::lock_guard<std::mutex> lock(stateMutex_);
             lastError_ = routeDiagnostic;
         }
 
         hft_trader::runtime::MarketDataRuntimeEvent event{};
-        if (!traderMarket.pollAvailableOne(event)) {
+        if (!traderMarket->pollAvailableOne(event)) {
             (void)sleepCaptureStopAware(&referenceDataStop_, 1u);
             continue;
         }
@@ -286,7 +314,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
             !writePriceLimit(makePriceLimitRow(event.priceLimit))) break;
     }
 
-    traderMarket.closeAll();
+    traderMarket->closeAll();
     priceLimitRunning_.store(false, std::memory_order_release);
     markPriceRunning_.store(false, std::memory_order_release);
     indexPriceRunning_.store(false, std::memory_order_release);
@@ -295,7 +323,16 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
 }
 
 void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
-    hft_trader::runtime::MarketDataRuntime traderMarket{};
+    auto traderMarket = makeTraderMarketDataRuntime();
+    if (!traderMarket) {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        lastError_ = "market-data: failed to allocate trader market-data runtime";
+        tradesRunning_.store(false, std::memory_order_release);
+        bookTickerRunning_.store(false, std::memory_order_release);
+        orderbookRunning_.store(false, std::memory_order_release);
+        marketDataRunning_.store(false, std::memory_order_release);
+        return;
+    }
     std::uint8_t appliedMask = 0u;
     bool initialOrderbookSeedAttempted = depthCount_.load(std::memory_order_acquire) != 0u;
     std::vector<replay::PricePair> bitgetPreviousOrderbookLevels{};
@@ -316,7 +353,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         if (wantOrderbook) streams[streamCount++] = cxet::api::market::PublicMarketDataStream::Orderbook;
 
         std::string err;
-        if (!applyTraderMarketDataConfig(traderMarket,
+        if (!applyTraderMarketDataConfig(*traderMarket,
                                          config,
                                          Span<const cxet::api::market::PublicMarketDataStream>(streams.data(), streamCount),
                                          err)) {
@@ -338,14 +375,14 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 std::size_t supportedCount = 0u;
                 std::string skipped;
                 for (std::size_t i = 0u; i < streamCount; ++i) {
-                    hft_trader::runtime::MarketDataRuntime probe{};
+                    auto probe = makeTraderMarketDataRuntime();
                     std::string singleErr;
-                    const bool supportedStream = applyTraderMarketDataConfig(
-                        probe,
-                        config,
-                        Span<const cxet::api::market::PublicMarketDataStream>(&streams[i], 1u),
-                        singleErr);
-                    probe.closeAll();
+                    const bool supportedStream = probe &&
+                        applyTraderMarketDataConfig(*probe,
+                                                    config,
+                                                    Span<const cxet::api::market::PublicMarketDataStream>(&streams[i], 1u),
+                                                    singleErr);
+                    if (probe) probe->closeAll();
                     if (supportedStream) {
                         supported[supportedCount++] = streams[i];
                     } else {
@@ -363,7 +400,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 if (supportedCount != 0u) {
                     err.clear();
                     if (applyTraderMarketDataConfig(
-                            traderMarket,
+                            *traderMarket,
                             config,
                             Span<const cxet::api::market::PublicMarketDataStream>(supported.data(), supportedCount),
                             err)) {
@@ -404,10 +441,10 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                         std::lock_guard<std::mutex> lock(stateMutex_);
                         lastError_ = "orderbook: initial trader snapshot fetch failed; continuing with WS depth";
                     } else {
-                        for (std::size_t i = 0u; i < traderMarket.channelCount(); ++i) {
-                            const auto* channel = traderMarket.channelAt(i);
+                        for (std::size_t i = 0u; i < traderMarket->channelCount(); ++i) {
+                            const auto* channel = traderMarket->channelAt(i);
                             if (channel && channel->stream == cxet::api::market::PublicMarketDataStream::Orderbook) {
-                                (void)traderMarket.seedOrderBookSnapshot(i, initialSnapshot);
+                                (void)traderMarket->seedOrderBookSnapshot(i, initialSnapshot);
                                 break;
                             }
                         }
@@ -650,7 +687,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
             startTradesWarmupIfNeeded();
         }
         std::string routeDiagnostic;
-        pollMarketDataLifecycleIfDue(traderMarket, nextLifecyclePollNs, &routeDiagnostic, "market-data");
+        pollMarketDataLifecycleIfDue(*traderMarket, nextLifecyclePollNs, &routeDiagnostic, "market-data");
         if (!routeDiagnostic.empty()) {
             std::lock_guard<std::mutex> lock(stateMutex_);
             lastError_ = routeDiagnostic;
@@ -659,7 +696,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         if (!flushTradesWarmupIfReady()) break;
 
         hft_trader::runtime::MarketDataRuntimeEvent event{};
-        if (!traderMarket.pollAvailableOne(event)) {
+        if (!traderMarket->pollAvailableOne(event)) {
             (void)sleepCaptureStopAware(&marketDataStop_, 1u);
             continue;
         }
@@ -788,7 +825,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
 
     nextManifestFlushNs = 0;
     (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
-    traderMarket.closeAll();
+    traderMarket->closeAll();
     tradesRunning_.store(false, std::memory_order_release);
     bookTickerRunning_.store(false, std::memory_order_release);
     orderbookRunning_.store(false, std::memory_order_release);

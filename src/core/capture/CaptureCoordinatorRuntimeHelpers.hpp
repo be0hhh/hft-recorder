@@ -123,6 +123,10 @@ bool fetchDetailedCandlesRows(const CaptureConfig& config,
                               std::string& tfText,
                               std::string& errorText) noexcept;
 Status detailedCandlesFetchStatus(std::string_view errorText) noexcept;
+bool traderMarketDataRuntimeAbiMatches(std::uint64_t compiledFingerprint,
+                                       std::uint64_t linkedFingerprint,
+                                       std::string& err) noexcept;
+bool linkedTraderMarketDataRuntimeAbiMatches(std::string& err) noexcept;
 bool applyTraderMarketDataConfig(hft_trader::runtime::MarketDataRuntime& runtime,
                                  const CaptureConfig& config,
                                  Span<const cxet::api::market::PublicMarketDataStream> streams,

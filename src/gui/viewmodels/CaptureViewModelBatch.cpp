@@ -31,6 +31,7 @@ namespace hftrec::gui {
 namespace {
 
 constexpr qint64 kNsPerMs = 1'000'000ll;
+constexpr std::uint32_t kDetailedCandlesProbeLimit = 256u;
 
 QString buildViewerSourceId(const QString& exchange, const QString& market, const QString& symbol) {
     return QStringLiteral("live:%1:%2:%3")
@@ -90,6 +91,17 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) {
 
 bool useBulkDetailedCandles(const capture::CaptureConfig& config) {
     return textEqualsAscii(config.exchange, "finam") || textEqualsAscii(config.exchange, "finam_arena");
+}
+
+capture::CaptureConfig detailedCandlesProbeConfig(capture::CaptureConfig config) {
+    const std::uint32_t requested = config.detailedCandlesLimit == 0u
+        ? kDetailedCandlesProbeLimit
+        : std::min(config.detailedCandlesLimit, kDetailedCandlesProbeLimit);
+    config.detailedCandlesLimit = std::max<std::uint32_t>(1u, requested);
+    if (config.detailedCandlesPageLimit == 0u || config.detailedCandlesPageLimit > config.detailedCandlesLimit) {
+        config.detailedCandlesPageLimit = config.detailedCandlesLimit;
+    }
+    return config;
 }
 
 QString safePathComponent(QString value) {
@@ -535,7 +547,7 @@ bool CaptureViewModel::startDetailedCandles() {
             QStringList candidateFailures;
             for (const auto& config : candidateConfigs) {
                 capture::CaptureCoordinator probe{};
-                const auto probeStatus = probe.probeDetailedCandlesOnce(config);
+                const auto probeStatus = probe.probeDetailedCandlesOnce(detailedCandlesProbeConfig(config));
                 if (isOk(probeStatus)) continue;
 
                 candidateOk = false;
@@ -687,7 +699,7 @@ bool CaptureViewModel::startDetailedCandlesBasisChain() {
             }
 
             capture::CaptureCoordinator probe{};
-            const auto probeStatus = probe.probeDetailedCandlesOnce(probeConfigs.front());
+            const auto probeStatus = probe.probeDetailedCandlesOnce(detailedCandlesProbeConfig(probeConfigs.front()));
             if (isOk(probeStatus)) {
                 selectedEndNs = endNs;
                 foundSpotWindow = true;

@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "canon/PositionAndExchange.hpp"
@@ -574,6 +575,26 @@ Status detailedCandlesFetchStatus(std::string_view errorText) noexcept {
     return Status::Unknown;
 }
 
+bool traderMarketDataRuntimeAbiMatches(std::uint64_t compiledFingerprint,
+                                       std::uint64_t linkedFingerprint,
+                                       std::string& err) noexcept {
+    if (compiledFingerprint == linkedFingerprint) {
+        err.clear();
+        return true;
+    }
+    err = "hft-trader market-data runtime ABI mismatch: rebuild apps/hft-trader and apps/hft-recorder "
+          "before running recorder capture compiled=" + std::to_string(compiledFingerprint) +
+          " linked=" + std::to_string(linkedFingerprint);
+    return false;
+}
+
+bool linkedTraderMarketDataRuntimeAbiMatches(std::string& err) noexcept {
+    return traderMarketDataRuntimeAbiMatches(
+        hft_trader::runtime::kMarketDataRuntimeAbiFingerprint,
+        hft_trader::runtime::marketDataRuntimeAbiFingerprint(),
+        err);
+}
+
 hft_trader::runtime::HftRuntimeConfig makeTraderMarketDataConfig(
     const CaptureConfig& config,
     Span<const cxet::api::market::PublicMarketDataStream> streams) {
@@ -783,7 +804,7 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
     }
     if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
         const std::string metadataDetail = lastError_;
-        lastError_ = "candles2: finam/finam_arena futures instrument metadata is required for price-basis logic; "
+        lastError_ = "candles2: FINAM futures instrument metadata is required for price-basis logic; "
                      "refresh Finam auth and retry so /v1/assets/<symbol> can provide price_basis_qty_e8";
         if (!metadataDetail.empty()) {
             lastError_ += " metadata=";
@@ -1032,6 +1053,12 @@ Status CaptureCoordinator::captureTradesHistoryOnce(const CaptureConfig& config)
 }
 
 Status CaptureCoordinator::startManagedMarketData_(const CaptureConfig& config, ManagedStreamKind stream) noexcept {
+    std::string abiError;
+    if (!runtime::linkedTraderMarketDataRuntimeAbiMatches(abiError)) {
+        lastError_ = std::move(abiError);
+        return Status::Unknown;
+    }
+
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
 
@@ -1237,6 +1264,12 @@ Status CaptureCoordinator::stopTrades() noexcept {
 }
 
 Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexcept {
+    std::string abiError;
+    if (!runtime::linkedTraderMarketDataRuntimeAbiMatches(abiError)) {
+        lastError_ = std::move(abiError);
+        return Status::Unknown;
+    }
+
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
 

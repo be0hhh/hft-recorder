@@ -49,6 +49,13 @@ QString rowText(const QVariantMap& row, const QString& camelKey, const QString& 
     return row.value(snakeKey).toString().trimmed();
 }
 
+QString basisChainSessionSkipReason(const BatchSweepSessionInfo& session, const QString& role) {
+    if (!session.sessionDirExists) return QStringLiteral("%1 session directory missing").arg(role);
+    if (!session.manifestPresent) return QStringLiteral("%1 manifest missing").arg(role);
+    if (session.candleRows <= 0) return QStringLiteral("%1 has no candle rows").arg(role);
+    return {};
+}
+
 struct Aggregate {
     QString key{};
     QString label{};
@@ -152,6 +159,18 @@ QString batchParamsLabel(const QVariantMap& params) {
     QStringList parts;
     for (const QString& key : keys) parts.push_back(QStringLiteral("%1=%2").arg(key, params.value(key).toString()));
     return parts.join(QStringLiteral(", "));
+}
+
+QString basisChainSpotSkipReason(const BatchSweepSessionInfo& session) {
+    return basisChainSessionSkipReason(session, QStringLiteral("spot"));
+}
+
+QString basisChainFutureSkipReason(const BatchSweepSessionInfo& session) {
+    const QString availability = basisChainSessionSkipReason(session, QStringLiteral("future"));
+    if (!availability.isEmpty()) return availability;
+    if (session.expiryUtcNs <= 0) return QStringLiteral("future missing expiry_utc_ns");
+    if (session.priceBasisQtyE8 <= 0) return QStringLiteral("future missing price_basis_qty_e8");
+    return {};
 }
 
 QVector<BatchSweepPair> buildBatchSweepPairs(const QVector<BatchSweepSessionInfo>& sessions,

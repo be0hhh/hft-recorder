@@ -238,7 +238,7 @@ Status CaptureCoordinator::captureDetailedCandlesBulk(const CaptureConfig& confi
     }
     if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
         const std::string metadataDetail = lastError_;
-        lastError_ = "candles2_bulk: finam/finam_arena futures instrument metadata is required for price-basis logic";
+        lastError_ = "candles2_bulk: FINAM futures instrument metadata is required for price-basis logic";
         if (!metadataDetail.empty()) {
             lastError_ += " metadata=";
             lastError_ += metadataDetail;

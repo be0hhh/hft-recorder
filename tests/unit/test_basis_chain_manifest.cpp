@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <utility>
 
@@ -119,6 +120,98 @@ TEST(BasisChainSeries, RendersLongJsonLine) {
     EXPECT_NE(json.find("\"symbol\": \"SRM6@RTSX\""), std::string::npos);
     EXPECT_NE(json.find("\"front_rank\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"basis_bps_e8\": 10000000000"), std::string::npos);
+}
+
+TEST(BasisChainSeries, ParsesRenderedJsonLine) {
+    hftrec::recordings::BasisChainSeriesRow row;
+    row.kind = "future";
+    row.tsNs = 1000;
+    row.symbol = "SRM6@RTSX";
+    row.exchange = "finam";
+    row.market = "futures";
+    row.timeframe = "1m";
+    row.durationNs = 60000000000ll;
+    row.openE8 = 10000000000ll;
+    row.highE8 = 10200000000ll;
+    row.lowE8 = 9900000000ll;
+    row.closeE8 = 10100000000ll;
+    row.volumeE8 = 500000000ll;
+    row.quoteAmountE8 = 50500000000ll;
+    row.expiryUtcNs = 5000;
+    row.priceBasisQtyE8 = 100000000ll;
+    row.contractOrder = 1;
+    row.frontRank = 1;
+    row.basisBpsE8 = 10000000000ll;
+
+    hftrec::recordings::BasisChainSeriesRow parsed;
+    ASSERT_TRUE(hftrec::recordings::parseBasisChainSeriesJsonLine(
+        hftrec::recordings::renderBasisChainSeriesJsonLine(row), parsed));
+
+    EXPECT_EQ(parsed.kind, row.kind);
+    EXPECT_EQ(parsed.tsNs, row.tsNs);
+    EXPECT_EQ(parsed.symbol, row.symbol);
+    EXPECT_EQ(parsed.exchange, row.exchange);
+    EXPECT_EQ(parsed.market, row.market);
+    EXPECT_EQ(parsed.timeframe, row.timeframe);
+    EXPECT_EQ(parsed.durationNs, row.durationNs);
+    EXPECT_EQ(parsed.openE8, row.openE8);
+    EXPECT_EQ(parsed.highE8, row.highE8);
+    EXPECT_EQ(parsed.lowE8, row.lowE8);
+    EXPECT_EQ(parsed.closeE8, row.closeE8);
+    EXPECT_EQ(parsed.volumeE8, row.volumeE8);
+    EXPECT_EQ(parsed.quoteAmountE8, row.quoteAmountE8);
+    EXPECT_EQ(parsed.expiryUtcNs, row.expiryUtcNs);
+    EXPECT_EQ(parsed.priceBasisQtyE8, row.priceBasisQtyE8);
+    EXPECT_EQ(parsed.contractOrder, row.contractOrder);
+    EXPECT_EQ(parsed.frontRank, row.frontRank);
+    EXPECT_EQ(parsed.basisBpsE8, row.basisBpsE8);
+}
+
+TEST(BasisChainSeries, ReadsGroupSeriesFile) {
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "hftrec_basis_chain_series_reader";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    hftrec::recordings::BasisChainSeriesRow spot;
+    spot.kind = "spot";
+    spot.tsNs = 1000;
+    spot.symbol = "SBER@MISX";
+    spot.exchange = "finam";
+    spot.market = "spot";
+    spot.timeframe = "1m";
+    spot.closeE8 = 10000000000ll;
+
+    hftrec::recordings::BasisChainSeriesRow future;
+    future.kind = "future";
+    future.tsNs = 1000;
+    future.symbol = "SRM6@RTSX";
+    future.exchange = "finam";
+    future.market = "futures";
+    future.timeframe = "1m";
+    future.closeE8 = 10100000000ll;
+    future.expiryUtcNs = 5000;
+    future.priceBasisQtyE8 = 100000000ll;
+    future.contractOrder = 1;
+    future.frontRank = 1;
+    future.basisBpsE8 = 10000000000ll;
+
+    {
+        std::ofstream out(dir / "basis_chain_series.jsonl", std::ios::binary | std::ios::trunc);
+        out << hftrec::recordings::renderBasisChainSeriesJsonLine(spot) << '\n';
+        out << '\n';
+        out << hftrec::recordings::renderBasisChainSeriesJsonLine(future) << '\n';
+    }
+
+    std::vector<hftrec::recordings::BasisChainSeriesRow> rows;
+    std::string error;
+    ASSERT_TRUE(hftrec::recordings::readBasisChainSeries(dir, rows, &error)) << error;
+
+    ASSERT_EQ(rows.size(), 2u);
+    EXPECT_EQ(rows[0].kind, "spot");
+    EXPECT_EQ(rows[1].kind, "future");
+    EXPECT_EQ(rows[1].basisBpsE8, 10000000000ll);
+
+    std::filesystem::remove_all(dir);
 }
 
 TEST(BasisChainHelpers, SelectsEditableFinamFuturesChainForSpot) {

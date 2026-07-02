@@ -18,6 +18,11 @@ hftrec::gui::BatchSweepSessionInfo session(QString id, QString exchange, QString
     out.symbol = std::move(symbol);
     out.canonicalSymbol = hftrec::gui::batchCanonicalSymbol(out.symbol);
     out.venue = out.exchange + QLatin1Char('_') + out.market;
+    out.candleRows = 10;
+    out.expiryUtcNs = 1000000000;
+    out.priceBasisQtyE8 = 100000000;
+    out.sessionDirExists = true;
+    out.manifestPresent = true;
     return out;
 }
 
@@ -81,6 +86,37 @@ TEST(BacktestBatchSweepHelpers, HonorsPairBudget) {
     const QVector<hftrec::gui::BatchSweepPair> pairs = hftrec::gui::buildBatchSweepPairs(sessions, 2, true, nullptr);
 
     EXPECT_EQ(pairs.size(), 2);
+}
+
+TEST(BacktestBatchSweepHelpers, ExplainsBasisChainUnavailableSpot) {
+    hftrec::gui::BatchSweepSessionInfo spot = session(QStringLiteral("spot"),
+                                                      QStringLiteral("finam"),
+                                                      QStringLiteral("spot"),
+                                                      QStringLiteral("GAZP@MISX"));
+    EXPECT_TRUE(hftrec::gui::basisChainSpotSkipReason(spot).isEmpty());
+
+    spot.candleRows = 0;
+
+    EXPECT_EQ(hftrec::gui::basisChainSpotSkipReason(spot), QStringLiteral("spot has no candle rows"));
+}
+
+TEST(BacktestBatchSweepHelpers, ExplainsBasisChainUnavailableFuture) {
+    hftrec::gui::BatchSweepSessionInfo future = session(QStringLiteral("future"),
+                                                        QStringLiteral("finam"),
+                                                        QStringLiteral("futures"),
+                                                        QStringLiteral("GZU6"));
+    EXPECT_TRUE(hftrec::gui::basisChainFutureSkipReason(future).isEmpty());
+
+    future.expiryUtcNs = 0;
+    EXPECT_EQ(hftrec::gui::basisChainFutureSkipReason(future), QStringLiteral("future missing expiry_utc_ns"));
+
+    future.expiryUtcNs = 1000000000;
+    future.priceBasisQtyE8 = 0;
+    EXPECT_EQ(hftrec::gui::basisChainFutureSkipReason(future), QStringLiteral("future missing price_basis_qty_e8"));
+
+    future.priceBasisQtyE8 = 100000000;
+    future.candleRows = 0;
+    EXPECT_EQ(hftrec::gui::basisChainFutureSkipReason(future), QStringLiteral("future has no candle rows"));
 }
 
 TEST(BacktestBatchSweepHelpers, StableAndProfitLeaderboardsUseDifferentPriorities) {

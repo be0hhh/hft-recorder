@@ -307,6 +307,33 @@ bool allFinalized(const std::vector<RunningJob>& jobs) {
     return true;
 }
 
+int startJobsInProgress(const std::vector<RunningJob>& jobs) noexcept {
+    int count = 0;
+    for (const auto& job : jobs) {
+        if (job.startInProgress) ++count;
+    }
+    return count;
+}
+
+void markStartJobsStopped(std::vector<RunningJob>& jobs) {
+    for (auto& job : jobs) {
+        if (!job.startInProgress) continue;
+        job.stopRequested = true;
+        job.startInProgress = false;
+        job.running = false;
+        job.finalized = true;
+        job.status = "stopped_starting";
+        if (job.error.empty()) job.error = "stop requested while startup was still in progress";
+    }
+}
+
+void finalizeNonStartingJobs(std::vector<RunningJob>& jobs) {
+    for (auto& job : jobs) {
+        if (job.startInProgress) continue;
+        finalizeJob(job);
+    }
+}
+
 std::uint64_t totalRows(const std::vector<RunningJob>& jobs) noexcept {
     std::uint64_t rows = 0;
     for (const auto& job : jobs) {
@@ -532,14 +559,27 @@ int runPresetFile(const tui::RecorderTuiPreset& preset, const std::filesystem::p
     }
 
     for (auto& job : jobs) requestStopJob(job);
-    for (auto& job : jobs) waitForStartJob(job);
-    for (auto& job : jobs) finalizeJob(job);
-    writeRunGroupManifests(preset.outputDir, outputGroups);
+    for (auto& job : jobs) (void)completeStartJobIfReady(job);
+
+    const int blockedStarts = startJobsInProgress(jobs);
+    if (blockedStarts == 0) {
+        for (auto& job : jobs) waitForStartJob(job);
+    } else {
+        markStartJobsStopped(jobs);
+    }
+    finalizeNonStartingJobs(jobs);
+    if (blockedStarts == 0) writeRunGroupManifests(preset.outputDir, outputGroups);
     writeStatusFile(statusPath,
                     jobs,
                     Clock::now(),
                     gPresetRunnerStop ? "stopped" : "done",
-                    gPresetRunnerStop ? "stop requested" : "done");
+                    blockedStarts > 0
+                        ? "stop requested while startup was still in progress"
+                        : (gPresetRunnerStop ? "stop requested" : "done"));
+    if (blockedStarts > 0) {
+        // std::future from std::async blocks in its destructor; leave after status is on disk.
+        std::_Exit(0);
+    }
     return 0;
 }
 

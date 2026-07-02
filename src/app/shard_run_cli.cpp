@@ -187,6 +187,11 @@ std::uint64_t u64Value(const std::map<std::string, std::string>& values, std::st
 }
 
 void refreshShardStatus(ShardProcess& shard) {
+    const bool preserveExitStatus = shard.exited;
+    const std::string exitState = shard.status.state;
+    const std::string exitMessage = shard.status.message;
+    const int exitErrors = shard.status.errors;
+
     const auto values = readKeyValueFile(shard.statusPath);
     if (!values.empty()) {
         if (const auto it = values.find("state"); it != values.end()) shard.status.state = it->second;
@@ -199,6 +204,12 @@ void refreshShardStatus(ShardProcess& shard) {
         shard.status.finalized = intValue(values, "finalized");
         shard.status.errors = intValue(values, "errors");
         shard.status.rows = u64Value(values, "rows");
+    }
+
+    if (preserveExitStatus) {
+        shard.status.state = exitState;
+        shard.status.message = exitMessage;
+        shard.status.errors = std::max(shard.status.errors, exitErrors);
     }
 
     if (shard.pid <= 0 || shard.exited) return;
@@ -222,8 +233,17 @@ void reapShard(ShardProcess& shard) {
         shard.exited = true;
         shard.exitStatus = status;
         shard.rssKb = 0;
+        const bool cleanExit = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (WIFEXITED(status)) {
+            shard.status.message = "exit=" + std::to_string(WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            shard.status.message = "signal=" + std::to_string(WTERMSIG(status));
+        } else {
+            shard.status.message = "exit=unknown";
+        }
+        if (!cleanExit && shard.status.errors == 0) shard.status.errors = 1;
         if (shard.status.state == "starting" || shard.status.state == "running") {
-            shard.status.state = WIFEXITED(status) && WEXITSTATUS(status) == 0 ? "done" : "exited";
+            shard.status.state = cleanExit ? "done" : "exited";
         }
     }
 }
@@ -293,7 +313,9 @@ void renderShards(const std::vector<ShardProcess>& shards,
              << " done=" << shard.status.finalized
              << " err=" << shard.status.errors
              << " rows=" << shard.status.rows
-             << " rss=" << (shard.rssKb / 1024) << "MB"
+             << " rss=" << (shard.rssKb / 1024) << "MB";
+        if (!shard.status.message.empty()) line << " " << shard.status.message;
+        line
              << " log=" << tui::compactSessionPath(shard.logPath, std::max(16, viewport.cols / 3));
         lines.push_back(line.str());
     }
@@ -303,7 +325,7 @@ void renderShards(const std::vector<ShardProcess>& shards,
         printLine(line, viewport);
     }
     std::putchar('\n');
-    printLine("[q/a] stop all and return", viewport);
+    printLine("[q] stop all and return", viewport);
     if (!message.empty()) printLine(message, viewport);
     std::fflush(stdout);
 }
@@ -315,6 +337,10 @@ char readControlKey(int timeoutMs) {
     char ch = 0;
     if (::read(STDIN_FILENO, &ch, 1) != 1) return 0;
     return ch;
+}
+
+bool isStopKey(char ch) noexcept {
+    return ch == 'q' || ch == 'Q';
 }
 
 int runShardSupervisor(const tui::RecorderTuiPreset& preset,
@@ -354,7 +380,7 @@ int runShardSupervisor(const tui::RecorderTuiPreset& preset,
         }
 
         const char ch = readControlKey(250);
-        if (ch == 'q' || ch == 'Q' || ch == 'a' || ch == 'A') {
+        if (isStopKey(ch)) {
             stopAllShards(shards);
             message = "stop requested for all shards";
             renderShards(shards, runRoot, message);
@@ -365,7 +391,7 @@ int runShardSupervisor(const tui::RecorderTuiPreset& preset,
             renderShards(shards, runRoot, message);
             while (true) {
                 const char doneKey = readControlKey(500);
-                if (doneKey == 'q' || doneKey == 'Q' || doneKey == 'a' || doneKey == 'A') break;
+                if (isStopKey(doneKey)) break;
             }
             return 0;
         }

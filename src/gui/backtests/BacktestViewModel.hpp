@@ -303,6 +303,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void startSweep();
     Q_INVOKABLE void startBatchSweep();
     Q_INVOKABLE void startBasisChainBatchBacktest(const QString& groupPath);
+    Q_INVOKABLE void startBasisChainBatchBacktestForFutures(const QString& groupPath, const QVariantList& enabledFutureSessionPaths);
     Q_INVOKABLE void applySweepPoint(int rowIndex);
     Q_INVOKABLE void applySweepPointById(int pointId);
     Q_INVOKABLE void startDetailedRunFromSweepPoint(int rowIndex);

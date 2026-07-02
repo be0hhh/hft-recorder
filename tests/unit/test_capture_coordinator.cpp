@@ -8,6 +8,7 @@
 
 #include "core/capture/CaptureCoordinator.hpp"
 #include "core/capture/CaptureCoordinatorInternal.hpp"
+#include "core/capture/CaptureCoordinatorRuntimeHelpers.hpp"
 #include "core/corpus/InstrumentMetadata.hpp"
 #include "hft_trader/runtime/diagnostics/RuntimeTestHooks.hpp"
 
@@ -61,6 +62,23 @@ CaptureConfig makeValidConfig() {
     config.outputDir = fs::temp_directory_path()
         / ("hftrec_capture_coordinator_tests_" + std::to_string(std::rand()));
     return config;
+}
+
+TEST(CaptureCoordinatorRuntimeAbi, AcceptsMatchingTraderMarketDataRuntimeFingerprint) {
+    std::string error = "stale";
+
+    EXPECT_TRUE(hftrec::capture::runtime::traderMarketDataRuntimeAbiMatches(1234u, 1234u, error));
+    EXPECT_TRUE(error.empty());
+}
+
+TEST(CaptureCoordinatorRuntimeAbi, RejectsMismatchedTraderMarketDataRuntimeFingerprint) {
+    std::string error;
+
+    EXPECT_FALSE(hftrec::capture::runtime::traderMarketDataRuntimeAbiMatches(1234u, 5678u, error));
+    EXPECT_NE(error.find("hft-trader market-data runtime ABI mismatch"), std::string::npos);
+    EXPECT_NE(error.find("rebuild apps/hft-trader and apps/hft-recorder"), std::string::npos);
+    EXPECT_NE(error.find("compiled=1234"), std::string::npos);
+    EXPECT_NE(error.find("linked=5678"), std::string::npos);
 }
 
 TEST(CaptureCoordinator, RejectsUnsupportedExchange) {

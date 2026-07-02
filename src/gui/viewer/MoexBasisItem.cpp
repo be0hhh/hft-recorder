@@ -3,13 +3,16 @@
 #include <QColor>
 #include <QPainter>
 #include <QPen>
+#include <QPolygonF>
 #include <QRectF>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 #include "core/arbitrage/PriceBasis.hpp"
+#include "gui/viewer/BookTickerCompareCandlePaint.hpp"
 #include "gui/viewer/MoexBasisController.hpp"
 
 namespace hftrec::gui::viewer {
@@ -75,18 +78,32 @@ std::int64_t normalizedClose(const hftrec::replay::CandleRow& row, std::int64_t 
     return hftrec::arbitrage::normalizeNativePriceE8(moexBasisClosePriceE8(row), priceBasisQtyE8);
 }
 
+std::int64_t normalizedPrice(std::int64_t priceE8, std::int64_t priceBasisQtyE8) noexcept {
+    return hftrec::arbitrage::normalizeNativePriceE8(priceE8, priceBasisQtyE8 <= 0 ? 100000000LL : priceBasisQtyE8);
+}
+
 Range priceRange(const MoexBasisController& controller, qint64 tsMin, qint64 tsMax) {
     Range range{};
     bool hasValue = false;
     for (const auto& row : controller.spotLeg().candles) {
         if (row.tsNs < tsMin || row.tsNs > tsMax) continue;
-        absorb(range, hasValue, static_cast<double>(moexBasisClosePriceE8(row)));
+        if (row.hasOhlc && row.highE8 > 0 && row.lowE8 > 0) {
+            absorb(range, hasValue, static_cast<double>(row.highE8));
+            absorb(range, hasValue, static_cast<double>(row.lowE8));
+        } else {
+            absorb(range, hasValue, static_cast<double>(moexBasisClosePriceE8(row)));
+        }
     }
     for (const auto& future : controller.renderFutureLegs()) {
         if (!future.enabled || !future.metadataReady) continue;
         for (const auto& row : future.candles) {
             if (row.tsNs < tsMin || row.tsNs > tsMax) continue;
-            absorb(range, hasValue, static_cast<double>(normalizedClose(row, future.priceBasisQtyE8)));
+            if (row.hasOhlc && row.highE8 > 0 && row.lowE8 > 0) {
+                absorb(range, hasValue, static_cast<double>(normalizedPrice(row.highE8, future.priceBasisQtyE8)));
+                absorb(range, hasValue, static_cast<double>(normalizedPrice(row.lowE8, future.priceBasisQtyE8)));
+            } else {
+                absorb(range, hasValue, static_cast<double>(normalizedClose(row, future.priceBasisQtyE8)));
+            }
         }
     }
     if (!hasValue) return Range{0.0, 1.0};
@@ -104,6 +121,15 @@ Range basisRange(const MoexBasisController& controller, qint64 tsMin, qint64 tsM
             absorb(range, hasValue, point.basisBps);
         }
     }
+    for (const auto& point : controller.strategyOverlay().spreadPoints) {
+        if (point.tsNs < tsMin || point.tsNs > tsMax) continue;
+        const double spread = static_cast<double>(point.spreadBpsE8) / 100000000.0;
+        const double ema = static_cast<double>(point.emaBpsE8) / 100000000.0;
+        const double cost = static_cast<double>(point.costBandBpsE8) / 100000000.0;
+        absorb(range, hasValue, spread);
+        absorb(range, hasValue, ema + cost);
+        absorb(range, hasValue, ema - cost);
+    }
     return applyScale(range, controller.basisZoom(), controller.basisPan());
 }
 
@@ -118,62 +144,6 @@ void drawGrid(QPainter& painter, const QRectF& rect, const QColor& color) {
     for (int i = 1; i < 6; ++i) {
         const double x = rect.left() + rect.width() * (static_cast<double>(i) / 6.0);
         painter.drawLine(QPointF{x, rect.top()}, QPointF{x, rect.bottom()});
-    }
-}
-
-void drawSpotCandles(QPainter& painter,
-                     const std::vector<hftrec::replay::CandleRow>& candles,
-                     qint64 tsMin,
-                     qint64 tsMax,
-                     Range range,
-                     const QRectF& rect) {
-    QPen wickPen{QColor{228, 228, 232, 210}};
-    wickPen.setWidth(1);
-    QColor fill{228, 228, 232, 82};
-    painter.setPen(wickPen);
-    painter.setBrush(fill);
-    for (const auto& row : candles) {
-        if (row.tsNs < tsMin || row.tsNs > tsMax) continue;
-        if (!row.hasOhlc || row.highE8 <= 0 || row.lowE8 <= 0 || row.openE8 <= 0 || row.closeE8 <= 0) continue;
-        const double x = xFor(row.tsNs, tsMin, tsMax, rect);
-        const double yHigh = yFor(static_cast<double>(row.highE8), range, rect);
-        const double yLow = yFor(static_cast<double>(row.lowE8), range, rect);
-        const double yOpen = yFor(static_cast<double>(row.openE8), range, rect);
-        const double yClose = yFor(static_cast<double>(row.closeE8), range, rect);
-        const double width = std::clamp(rect.width() / 260.0, 2.0, 8.0);
-        painter.drawLine(QPointF{x, yHigh}, QPointF{x, yLow});
-        painter.drawRect(QRectF{x - width * 0.5, std::min(yOpen, yClose), width, std::max(2.0, std::abs(yClose - yOpen))});
-    }
-    painter.setBrush(Qt::NoBrush);
-}
-
-template <typename ValueFn>
-void drawLine(QPainter& painter,
-              const std::vector<hftrec::replay::CandleRow>& candles,
-              qint64 tsMin,
-              qint64 tsMax,
-              Range range,
-              const QRectF& rect,
-              const QColor& color,
-              ValueFn valueFn) {
-    QPen pen{color};
-    pen.setWidth(2);
-    pen.setCapStyle(Qt::SquareCap);
-    painter.setPen(pen);
-    bool hasPrevious = false;
-    QPointF previous{};
-    for (const auto& row : candles) {
-        if (row.tsNs < tsMin) continue;
-        if (row.tsNs > tsMax) break;
-        const double value = valueFn(row);
-        if (value <= 0.0) {
-            hasPrevious = false;
-            continue;
-        }
-        const QPointF current{xFor(row.tsNs, tsMin, tsMax, rect), yFor(value, range, rect)};
-        if (hasPrevious) painter.drawLine(previous, current);
-        previous = current;
-        hasPrevious = true;
     }
 }
 
@@ -198,6 +168,147 @@ void drawBasisLine(QPainter& painter,
         previous = current;
         hasPrevious = true;
     }
+}
+
+std::int64_t candleDurationNs(const hftrec::replay::CandleRow& row) noexcept {
+    if (row.durationNs > 0) return row.durationNs;
+    if (row.tier == 1) return 60ll * 1000000000ll;
+    if (row.tier == 2) return 15ll * 60ll * 1000000000ll;
+    if (row.tier == 3) return 24ll * 60ll * 60ll * 1000000000ll;
+    return 60ll * 1000000000ll;
+}
+
+std::int64_t rangeBound(double value) noexcept {
+    if (!std::isfinite(value)) return 0;
+    if (value > static_cast<double>(std::numeric_limits<std::int64_t>::max())) return std::numeric_limits<std::int64_t>::max();
+    if (value < static_cast<double>(std::numeric_limits<std::int64_t>::min())) return std::numeric_limits<std::int64_t>::min();
+    return static_cast<std::int64_t>(std::llround(value));
+}
+
+BookTickerCompareCandlePaintRanges paintRanges(qint64 tsMin, qint64 tsMax, Range prices, Range basis) noexcept {
+    BookTickerCompareCandlePaintRanges ranges;
+    ranges.tsMin = static_cast<std::int64_t>(tsMin);
+    ranges.tsMax = static_cast<std::int64_t>(tsMax);
+    ranges.priceMin = rangeBound(prices.min);
+    ranges.priceMax = rangeBound(prices.max <= prices.min ? prices.min + 1.0 : prices.max);
+    ranges.spreadMin = basis.min;
+    ranges.spreadMax = basis.max <= basis.min ? basis.min + 1.0 : basis.max;
+    return ranges;
+}
+
+void drawNormalizedCandleBodies(QPainter& painter,
+                                const std::vector<hftrec::replay::CandleRow>& rows,
+                                const BookTickerCompareCandlePaintRanges& ranges,
+                                const QRectF& rect,
+                                const QColor& sourceFillColor,
+                                std::int64_t priceBasisQtyE8) {
+    const Range priceRange{static_cast<double>(ranges.priceMin), static_cast<double>(ranges.priceMax)};
+    for (const auto& row : rows) {
+        if (row.tsNs < ranges.tsMin) continue;
+        if (row.tsNs > ranges.tsMax) break;
+        if (!row.hasOhlc) continue;
+
+        const std::int64_t open = normalizedPrice(row.openE8, priceBasisQtyE8);
+        const std::int64_t high = normalizedPrice(row.highE8, priceBasisQtyE8);
+        const std::int64_t low = normalizedPrice(row.lowE8, priceBasisQtyE8);
+        const std::int64_t close = normalizedPrice(moexBasisClosePriceE8(row), priceBasisQtyE8);
+        if (open <= 0 || high <= 0 || low <= 0 || close <= 0 || high < low) continue;
+
+        const qreal x = xFor(row.tsNs, ranges.tsMin, ranges.tsMax, rect);
+        const qreal nextX = xFor(std::min<std::int64_t>(row.tsNs + candleDurationNs(row), ranges.tsMax),
+                                 ranges.tsMin,
+                                 ranges.tsMax,
+                                 rect);
+        const qreal width = std::clamp(std::abs(nextX - x) * 0.65, 3.0, 14.0);
+        if ((x + width) < rect.left() || (x - width) > rect.right()) continue;
+
+        const qreal yHigh = yFor(static_cast<double>(high), priceRange, rect);
+        const qreal yLow = yFor(static_cast<double>(low), priceRange, rect);
+        const qreal yOpen = yFor(static_cast<double>(open), priceRange, rect);
+        const qreal yClose = yFor(static_cast<double>(close), priceRange, rect);
+
+        QColor color = sourceFillColor;
+        color.setAlpha(235);
+        QPen pen{color};
+        pen.setWidth(1);
+        pen.setCapStyle(Qt::SquareCap);
+        painter.setPen(pen);
+        painter.drawLine(QPointF{x, yHigh}, QPointF{x, yLow});
+
+        QColor fill = color;
+        fill.setAlpha(125);
+        painter.setBrush(fill);
+        const qreal top = std::min(yOpen, yClose);
+        const qreal bottom = std::max(yOpen, yClose);
+        painter.drawRect(QRectF{x - width * 0.5, top, width, std::max<qreal>(2.0, bottom - top)});
+    }
+    painter.setBrush(Qt::NoBrush);
+}
+
+double bpsFromE8(std::int64_t value) noexcept {
+    return static_cast<double>(value) / 100000000.0;
+}
+
+QColor strategyDirectionColor(std::uint8_t direction) {
+    if (direction == 1u) return QColor{36, 194, 203};
+    if (direction == 2u) return QColor{239, 111, 108};
+    return QColor{235, 235, 240};
+}
+
+double spreadYFor(double spreadBps, const BookTickerCompareCandlePaintRanges& ranges, const QRectF& rect) noexcept {
+    return rect.bottom() - ((spreadBps - ranges.spreadMin) / (ranges.spreadMax - ranges.spreadMin)) * rect.height();
+}
+
+void drawPolyline(QPainter& painter, const QPolygonF& line, const QColor& color, int width, Qt::PenStyle style = Qt::SolidLine) {
+    if (line.size() < 2) return;
+    QPen pen{color};
+    pen.setWidth(width);
+    pen.setStyle(style);
+    pen.setCapStyle(Qt::SquareCap);
+    pen.setJoinStyle(Qt::MiterJoin);
+    painter.setPen(pen);
+    painter.drawPolyline(line);
+}
+
+void drawStrategySpread(QPainter& painter,
+                        const std::vector<StrategySpreadPoint>& points,
+                        const BookTickerCompareCandlePaintRanges& ranges,
+                        const QRectF& rect) {
+    if (points.empty()) return;
+    QPolygonF emaLine;
+    QPolygonF upperBand;
+    QPolygonF lowerBand;
+    QPointF previousSpread;
+    std::uint8_t previousDirection = 0u;
+    bool hasPreviousSpread = false;
+
+    for (const auto& point : points) {
+        if (point.tsNs < ranges.tsMin) continue;
+        if (point.tsNs > ranges.tsMax) break;
+        const double x = xFor(point.tsNs, ranges.tsMin, ranges.tsMax, rect);
+        const double spread = bpsFromE8(point.spreadBpsE8);
+        const double ema = bpsFromE8(point.emaBpsE8);
+        const double cost = bpsFromE8(point.costBandBpsE8);
+        const QPointF current{x, spreadYFor(spread, ranges, rect)};
+        if (hasPreviousSpread) {
+            QPen pen{strategyDirectionColor(point.direction != 0u ? point.direction : previousDirection)};
+            pen.setWidth(2);
+            pen.setCapStyle(Qt::SquareCap);
+            pen.setJoinStyle(Qt::MiterJoin);
+            painter.setPen(pen);
+            painter.drawLine(previousSpread, current);
+        }
+        previousSpread = current;
+        previousDirection = point.direction;
+        hasPreviousSpread = true;
+        emaLine.push_back(QPointF{x, spreadYFor(ema, ranges, rect)});
+        upperBand.push_back(QPointF{x, spreadYFor(ema + cost, ranges, rect)});
+        lowerBand.push_back(QPointF{x, spreadYFor(ema - cost, ranges, rect)});
+    }
+
+    drawPolyline(painter, upperBand, QColor{145, 145, 150, 160}, 1, Qt::DashLine);
+    drawPolyline(painter, lowerBand, QColor{145, 145, 150, 160}, 1, Qt::DashLine);
+    drawPolyline(painter, emaLine, QColor{255, 214, 84}, 2);
 }
 
 }  // namespace
@@ -273,64 +384,24 @@ void MoexBasisItem::paint(QPainter* painter) {
 
     const Range prices = priceRange(*controller_, tsMin, tsMax);
     const Range basis = basisRange(*controller_, tsMin, tsMax);
+    const BookTickerCompareCandlePaintRanges ranges = paintRanges(tsMin, tsMax, prices, basis);
     const auto colors = palette();
 
-    drawSpotCandles(*painter, controller_->spotLeg().candles, tsMin, tsMax, prices, priceRect);
+    drawCompareCandleBodies(*painter,
+                            controller_->spotLeg().candles,
+                            ranges,
+                            priceRect,
+                            QColor{228, 228, 232});
 
     int colorIndex = 0;
     for (const auto& future : controller_->renderFutureLegs()) {
         if (!future.enabled || !future.metadataReady) continue;
         const QColor color = colors[static_cast<std::size_t>(colorIndex) % colors.size()];
         ++colorIndex;
-        drawLine(*painter,
-                 future.candles,
-                 tsMin,
-                 tsMax,
-                 prices,
-                 priceRect,
-                 color,
-                 [&](const hftrec::replay::CandleRow& row) {
-                     return static_cast<double>(normalizedClose(row, future.priceBasisQtyE8));
-                 });
+        drawNormalizedCandleBodies(*painter, future.candles, ranges, priceRect, color, future.priceBasisQtyE8);
         drawBasisLine(*painter, future.basisPoints, tsMin, tsMax, basis, basisRect, color);
-
-        if (!future.basisPoints.empty() && future.expiryUtcNs > tsMin && future.expiryUtcNs <= tsMax) {
-            const double x = xFor(future.expiryUtcNs, tsMin, tsMax, priceRect);
-            QColor marker{210, 74, 92, 170};
-            QPen markerPen{marker};
-            markerPen.setWidth(1);
-            painter->setPen(markerPen);
-            painter->drawLine(QPointF{x, priceRect.top()}, QPointF{x, basisRect.bottom()});
-            painter->drawText(QRectF{x + 3, priceRect.top() + 4, 92, 18}, Qt::AlignLeft | Qt::AlignVCenter, future.symbol);
-
-            const auto first = std::find_if(future.basisPoints.begin(), future.basisPoints.end(), [&](const auto& point) {
-                return point.tsNs >= tsMin && point.tsNs <= tsMax;
-            });
-            if (first != future.basisPoints.end()) {
-                QColor fair = marker;
-                fair.setAlpha(105);
-                QPen fairPen{fair};
-                fairPen.setWidth(1);
-                fairPen.setStyle(Qt::DashLine);
-                painter->setPen(fairPen);
-                painter->drawLine(QPointF{xFor(first->tsNs, tsMin, tsMax, basisRect), yFor(first->basisBps, basis, basisRect)},
-                                  QPointF{xFor(future.expiryUtcNs, tsMin, tsMax, basisRect), yFor(0.0, basis, basisRect)});
-            }
-        }
-        for (const auto& marker : future.rollMarkers) {
-            if (marker.tsNs <= tsMin || marker.tsNs > tsMax) continue;
-            const double x = xFor(marker.tsNs, tsMin, tsMax, priceRect);
-            QColor rollColor{36, 194, 203, 165};
-            QPen rollPen{rollColor};
-            rollPen.setWidth(1);
-            rollPen.setStyle(Qt::DashLine);
-            painter->setPen(rollPen);
-            painter->drawLine(QPointF{x, priceRect.top()}, QPointF{x, basisRect.bottom()});
-            painter->drawText(QRectF{x + 3, priceRect.bottom() - 22, 100, 18},
-                              Qt::AlignLeft | Qt::AlignVCenter,
-                              QStringLiteral("roll %1").arg(marker.label));
-        }
     }
+    drawStrategySpread(*painter, controller_->strategyOverlay().spreadPoints, ranges, basisRect);
 
     QPen zeroPen{QColor{230, 230, 235, 115}};
     zeroPen.setWidth(1);
@@ -339,8 +410,8 @@ void MoexBasisItem::paint(QPainter* painter) {
     painter->drawLine(QPointF{basisRect.left(), zeroY}, QPointF{basisRect.right(), zeroY});
 
     painter->setPen(QColor{235, 235, 240});
-    painter->drawText(QRectF{priceRect.left() + 8, priceRect.top() + 6, 260, 20}, Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Spot + futures candles"));
-    painter->drawText(QRectF{basisRect.left() + 8, basisRect.top() + 6, 260, 20}, Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Basis bps"));
+    painter->drawText(QRectF{priceRect.left() + 8, priceRect.top() + 6, 320, 20}, Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Spot + futures candles"));
+    painter->drawText(QRectF{basisRect.left() + 8, basisRect.top() + 6, 320, 20}, Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Basis spread bps"));
 
     if (hoverActive_) {
         QPen hoverPen{QColor{245, 245, 245, 120}};
