@@ -9,11 +9,13 @@
 namespace hftrec::gui {
 
 class CaptureViewModel;
+class RecordingCatalog;
 
 class ViewerSourceListModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(QString recordingsRoot READ recordingsRoot CONSTANT)
     Q_PROPERTY(QObject* captureViewModel READ captureViewModel WRITE setCaptureViewModel NOTIFY captureViewModelChanged)
+    Q_PROPERTY(QObject* recordingCatalog READ recordingCatalog WRITE setRecordingCatalog NOTIFY recordingCatalogChanged)
 
   public:
     enum Roles {
@@ -54,6 +56,8 @@ class ViewerSourceListModel : public QAbstractListModel {
     QString recordingsRoot() const;
     QObject* captureViewModel() const;
     void setCaptureViewModel(QObject* captureViewModel);
+    QObject* recordingCatalog() const;
+    void setRecordingCatalog(QObject* recordingCatalog);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
@@ -61,6 +65,7 @@ class ViewerSourceListModel : public QAbstractListModel {
 
   signals:
     void captureViewModelChanged();
+    void recordingCatalogChanged();
 
   private:
     struct Entry {
@@ -80,11 +85,14 @@ class ViewerSourceListModel : public QAbstractListModel {
     };
 
     void reconnectCaptureVm_();
+    void reconnectRecordingCatalog_();
     QVariantList currentLiveSources_() const;
     void rebuildEntries_();
 
     CaptureViewModel* captureVm_{nullptr};
+    RecordingCatalog* recordingCatalog_{nullptr};
     QMetaObject::Connection captureSourcesConnection_{};
+    QMetaObject::Connection catalogSnapshotConnection_{};
     QList<Entry> entries_{};
 };
 

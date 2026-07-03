@@ -132,8 +132,9 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
         return liveCacheEnabled_.load(std::memory_order_acquire) ? &liveStore_ : nullptr;
     }
 
-  private:
-    void resetSessionState() noexcept;
+	  private:
+	    Status ensureSession_(const CaptureConfig& config, bool allowMultiSymbol) noexcept;
+	    void resetSessionState() noexcept;
     bool sessionOpen() const noexcept;
     enum class ManagedStreamKind : std::uint8_t {
         Trades,

@@ -1,6 +1,5 @@
 #include "gui/backtests/BacktestSessionHelpers.hpp"
 
-#include "core/recordings/RecordingDiscovery.hpp"
 #include "core/recordings/RecordingRoot.hpp"
 #include "gui/backtests/BacktestResultHelpers.hpp"
 
@@ -90,18 +89,8 @@ QString sessionPathFromToken(const QString& recordingsRoot, const QString& token
     if (trimmed.isEmpty()) return {};
     const QFileInfo info(trimmed);
     if (info.isAbsolute()) return QDir::cleanPath(info.absoluteFilePath());
-    const auto discovery = hftrec::recordings::discoverRecordings(recordingsRoot.toStdString());
     const QString groupPrefix = QStringLiteral("group:");
-    if (trimmed.startsWith(groupPrefix)) {
-        const QString groupId = trimmed.mid(groupPrefix.size());
-        for (const auto& group : discovery.groups) {
-            if (QString::fromStdString(group.id) != groupId || group.sessions.empty()) continue;
-            return QString::fromStdString(group.sessions.front().path.string());
-        }
-    }
-    for (const auto& session : discovery.sessions) {
-        if (QString::fromStdString(session.sessionId) == trimmed) return QString::fromStdString(session.path.string());
-    }
+    if (trimmed.startsWith(groupPrefix)) return {};
     return QDir(recordingsRoot).absoluteFilePath(trimmed);
 }
 

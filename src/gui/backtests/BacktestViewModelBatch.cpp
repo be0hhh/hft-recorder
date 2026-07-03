@@ -628,6 +628,11 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
         item.request.outputPath = item.outputPath.toStdString();
         item.request.strategy = strategy.toStdString();
         item.request.indicatorProfile = indicatorProfile.toStdString();
+        item.request.hasPrimaryLegIndex = true;
+        item.request.primaryLegIndex = static_cast<std::uint32_t>(selectedPrimaryLegIndexForPaths_(sessionPaths));
+        item.request.tradeMode = selectedTradeMode_ == QStringLiteral("primary")
+            ? hft_backtest::BacktestTradeMode::PrimaryOnly
+            : hft_backtest::BacktestTradeMode::AllLegs;
         item.request.runId = QStringLiteral("%1-%2").arg(batchId, pairSlug).toStdString();
         item.request.requestId = item.request.runId;
         item.request.latencySeed = latencySeed;
@@ -950,6 +955,11 @@ void BacktestViewModel::startBatchSweep() {
         item.request.baseRun.configPath = item.configPath.toStdString();
         item.request.baseRun.strategy = strategy.toStdString();
         item.request.baseRun.indicatorProfile = indicatorProfile.toStdString();
+        item.request.baseRun.hasPrimaryLegIndex = true;
+        item.request.baseRun.primaryLegIndex = static_cast<std::uint32_t>(selectedPrimaryLegIndexForPaths_(sessionPaths));
+        item.request.baseRun.tradeMode = selectedTradeMode_ == QStringLiteral("primary")
+            ? hft_backtest::BacktestTradeMode::PrimaryOnly
+            : hft_backtest::BacktestTradeMode::AllLegs;
         item.request.baseRun.latencySeed = latencySeed;
         item.request.baseRun.marketDataLatency.baseUs = marketDataLatency;
         item.request.baseRun.marketDataLatency.jitterUs = marketDataJitter;

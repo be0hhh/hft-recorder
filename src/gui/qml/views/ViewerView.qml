@@ -10,6 +10,7 @@ Pane {
     required property AppViewModel appVm
     required property CaptureViewModel captureVm
     required property var backtestVm
+    required property var recordingCatalog
     required property bool tabActive
 
     property color windowColor: "#161616"
@@ -545,6 +546,7 @@ Pane {
     ViewerSourceListModel {
         id: sourcesModel
         captureViewModel: root.captureVm
+        recordingCatalog: root.recordingCatalog
     }
 
     ChartController { id: chart; objectName: "chartController" }

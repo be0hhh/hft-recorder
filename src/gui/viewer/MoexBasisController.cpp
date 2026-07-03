@@ -20,10 +20,8 @@
 #include <utility>
 
 #include "core/arbitrage/PriceBasis.hpp"
-#include "core/recordings/RecordingDiscovery.hpp"
-#include "core/recordings/RecordingRoot.hpp"
 #include "core/recordings/BasisChainSeries.hpp"
-#include "gui/backtests/BacktestSessionSummary.hpp"
+#include "gui/models/RecordingCatalog.hpp"
 #include "gui/viewer/moex/MoexBasisDataLoad.hpp"
 
 namespace hftrec::gui::viewer {
@@ -91,6 +89,19 @@ double clampPan(double pan, double zoom) noexcept {
 MoexBasisController::MoexBasisController(QObject* parent)
     : QObject(parent) {
     rebuildGroupRows_();
+}
+
+QObject* MoexBasisController::recordingCatalog() const {
+    return recordingCatalog_;
+}
+
+void MoexBasisController::setRecordingCatalog(QObject* recordingCatalog) {
+    auto* typedCatalog = qobject_cast<hftrec::gui::RecordingCatalog*>(recordingCatalog);
+    if (typedCatalog == recordingCatalog_) return;
+    recordingCatalog_ = typedCatalog;
+    reconnectRecordingCatalog_();
+    rebuildGroupRows_();
+    emit recordingCatalogChanged();
 }
 
 QVariantList MoexBasisController::legRows() const {
@@ -189,6 +200,7 @@ QVariantList MoexBasisController::enabledFutureSessionPaths() const {
 }
 
 void MoexBasisController::reloadGroups() {
+    if (recordingCatalog_ != nullptr) recordingCatalog_->refresh();
     rebuildGroupRows_();
 }
 
@@ -199,7 +211,11 @@ bool MoexBasisController::loadGroup(const QString& path) {
         return false;
     }
 
-    const auto discovery = hftrec::recordings::discoverRecordings(hftrec::recordings::defaultRecordingsRoot());
+    if (recordingCatalog_ == nullptr || !recordingCatalog_->hasSnapshot()) {
+        setStatus_(QStringLiteral("Basis catalog not loaded"));
+        return false;
+    }
+    const auto& discovery = recordingCatalog_->snapshot().discovery;
     const hftrec::recordings::RecordingGroupInfo* selected = nullptr;
     for (const auto& group : discovery.groups) {
         if (cleanPath(group.path) == requested) {
@@ -491,6 +507,14 @@ void MoexBasisController::zoomBasisAt(double factor, double anchorFraction) {
     emit viewportChanged();
 }
 
+void MoexBasisController::reconnectRecordingCatalog_() {
+    QObject::disconnect(catalogSnapshotConnection_);
+    catalogSnapshotConnection_ = {};
+    if (recordingCatalog_ == nullptr) return;
+    catalogSnapshotConnection_ =
+        connect(recordingCatalog_, &hftrec::gui::RecordingCatalog::snapshotChanged, this, &MoexBasisController::rebuildGroupRows_);
+}
+
 void MoexBasisController::setStatus_(const QString& statusText) {
     if (statusText_ == statusText) return;
     statusText_ = statusText;
@@ -499,8 +523,13 @@ void MoexBasisController::setStatus_(const QString& statusText) {
 
 void MoexBasisController::rebuildGroupRows_() {
     QVariantList rows;
-    const auto discovery = hftrec::recordings::discoverRecordings(hftrec::recordings::defaultRecordingsRoot());
-    for (const auto& group : discovery.groups) {
+    if (recordingCatalog_ == nullptr || !recordingCatalog_->hasSnapshot()) {
+        groupRows_ = rows;
+        emit groupsChanged();
+        return;
+    }
+    const auto& groups = recordingCatalog_->snapshot().discovery.groups;
+    for (const auto& group : groups) {
         int spotCount = 0;
         int futureCount = 0;
         for (const auto& session : group.sessions) {

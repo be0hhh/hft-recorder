@@ -2,14 +2,18 @@
 
 #include <QAbstractListModel>
 #include <QList>
+#include <QMetaObject>
 #include <QString>
 
 namespace hftrec::gui {
+
+class RecordingCatalog;
 
 class SessionListModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(QString recordingsRoot READ recordingsRoot CONSTANT)
     Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY searchTextChanged)
+    Q_PROPERTY(QObject* recordingCatalog READ recordingCatalog WRITE setRecordingCatalog NOTIFY recordingCatalogChanged)
 
   public:
     enum Roles {
@@ -30,6 +34,8 @@ class SessionListModel : public QAbstractListModel {
     QString recordingsRoot() const;
     QString searchText() const { return searchText_; }
     void setSearchText(const QString& searchText);
+    QObject* recordingCatalog() const;
+    void setRecordingCatalog(QObject* recordingCatalog);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role) const override;
@@ -37,6 +43,7 @@ class SessionListModel : public QAbstractListModel {
 
   signals:
     void searchTextChanged();
+    void recordingCatalogChanged();
 
   private:
     struct Entry {
@@ -49,8 +56,12 @@ class SessionListModel : public QAbstractListModel {
         int indent{0};
     };
 
+    void reconnectRecordingCatalog_();
+    void rebuildFromCatalog_();
     void applyFilter_();
 
+    RecordingCatalog* recordingCatalog_{nullptr};
+    QMetaObject::Connection catalogSnapshotConnection_{};
     QList<Entry> allSessions_{};
     QList<Entry> sessions_{};
     QString searchText_{};

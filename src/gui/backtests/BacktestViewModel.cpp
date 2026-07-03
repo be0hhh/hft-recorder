@@ -42,6 +42,7 @@
 #include "gui/backtests/BacktestSessionHelpers.hpp"
 #include "gui/backtests/BacktestStrategyConfigHelpers.hpp"
 #include "gui/backtests/BacktestSweepHelpers.hpp"
+#include "gui/models/RecordingCatalog.hpp"
 
 namespace hftrec::gui {
 namespace {
@@ -102,6 +103,22 @@ bool sessionVenueIsKnown(const QString& sessionPath, QString* reason) {
     return true;
 }
 
+QString catalogSessionSummary(const hftrec::recordings::RecordedSessionInfo& session, const BacktestLegCounts& counts) {
+    QString summary = sessionBacktestSummaryText(static_cast<int>(session.bookTickerCount), counts, session.startedAtNs);
+    if (session.candleCount > 0) summary += QStringLiteral(" | C %1").arg(session.candleCount);
+    return appendSessionHealthSummary(summary,
+                                      QString::fromStdString(session.sessionHealth),
+                                      QString::fromStdString(session.warningSummary));
+}
+
+QVariantMap tradeModeChoice(const QString& id, const QString& label) {
+    QVariantMap row;
+    row.insert(QStringLiteral("id"), id);
+    row.insert(QStringLiteral("label"), label);
+    row.insert(QStringLiteral("value"), id);
+    return row;
+}
+
 }  // namespace
 
 void BacktestViewModel::configureWorkerThreadStack_() noexcept {
@@ -129,7 +146,6 @@ BacktestViewModel::BacktestViewModel(QObject* parent) : QObject(parent) {
     connect(&watcher_, &QFileSystemWatcher::fileChanged, this, [this]() { scheduleRefresh_(); });
     loadPersistentConfig_();
     setStatusText_(QStringLiteral("Loading sessions"));
-    reloadSessionsAsync_();
 }
 
 BacktestViewModel::~BacktestViewModel() {
@@ -149,12 +165,24 @@ QVariantList BacktestViewModel::sessions() const {
     return sessions_;
 }
 
+QObject* BacktestViewModel::recordingCatalog() const {
+    return recordingCatalog_;
+}
+
+void BacktestViewModel::setRecordingCatalog(QObject* recordingCatalog) {
+    auto* typedCatalog = qobject_cast<RecordingCatalog*>(recordingCatalog);
+    if (typedCatalog == recordingCatalog_) return;
+    recordingCatalog_ = typedCatalog;
+    reconnectRecordingCatalog_();
+    applyLoadedSessions_(++sessionsLoadGeneration_, loadSessions_());
+    emit recordingCatalogChanged();
+}
+
 QVariantList BacktestViewModel::loadSessions_() const {
     QVariantList out;
-    const QString root = recordingsRoot();
-    const auto backtestCountsBySession = backtestLegCountsBySession(root);
-    const auto discovery = hftrec::recordings::discoverRecordings(root.toStdString());
-    for (const auto& group : discovery.groups) {
+    if (recordingCatalog_ == nullptr || !recordingCatalog_->hasSnapshot()) return out;
+    const auto& snapshot = recordingCatalog_->snapshot();
+    for (const auto& group : snapshot.discovery.groups) {
         QVariantList groupPaths;
         int groupFirstLegBacktests = 0;
         int groupSecondLegBacktests = 0;
@@ -162,7 +190,7 @@ QVariantList BacktestViewModel::loadSessions_() const {
         for (const auto& session : group.sessions) {
             const QString sessionId = QString::fromStdString(session.sessionId);
             groupPaths.push_back(QString::fromStdString(session.path.string()));
-            const BacktestLegCounts counts = backtestCountsBySession.value(sessionId);
+            const BacktestLegCounts counts = snapshot.backtestCountsBySession.value(sessionId);
             groupFirstLegBacktests += counts.firstLeg;
             groupSecondLegBacktests += counts.secondLeg;
             groupBacktests += counts.total > 0 ? counts.total : counts.firstLeg + counts.secondLeg;
@@ -191,8 +219,8 @@ QVariantList BacktestViewModel::loadSessions_() const {
         for (const auto& session : group.sessions) {
             const QString id = QString::fromStdString(session.sessionId);
             const QString path = QString::fromStdString(session.path.string());
-            const QDir backtestsDir(QDir(path).absoluteFilePath(QStringLiteral("backtests")));
-            const BacktestLegCounts backtestCounts = backtestCountsBySession.value(id);
+            const BacktestLegCounts backtestCounts = snapshot.backtestCountsBySession.value(id);
+            const int backtestCount = backtestCounts.total > 0 ? backtestCounts.total : backtestCounts.firstLeg + backtestCounts.secondLeg;
             QVariantMap row;
             row.insert(QStringLiteral("id"), id);
             row.insert(QStringLiteral("label"), QStringLiteral("%1/%2 %3")
@@ -201,52 +229,61 @@ QVariantList BacktestViewModel::loadSessions_() const {
                                                  QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front())));
             row.insert(QStringLiteral("path"), path);
             row.insert(QStringLiteral("sessionPaths"), QVariantList{path});
-            row.insert(QStringLiteral("hasManifest"), QFileInfo::exists(QDir(path).absoluteFilePath(QStringLiteral("manifest.json"))));
-            row.insert(QStringLiteral("hasBacktests"), backtestsDir.exists());
-            row.insert(QStringLiteral("backtestCount"), backtestCounts.total > 0 ? backtestCounts.total : backtestCounts.firstLeg + backtestCounts.secondLeg);
+            row.insert(QStringLiteral("hasManifest"), true);
+            row.insert(QStringLiteral("hasBacktests"), backtestCount > 0);
+            row.insert(QStringLiteral("backtestCount"), backtestCount);
             row.insert(QStringLiteral("firstLegBacktestCount"), backtestCounts.firstLeg);
             row.insert(QStringLiteral("secondLegBacktestCount"), backtestCounts.secondLeg);
             row.insert(QStringLiteral("isGroup"), false);
             row.insert(QStringLiteral("selectable"), true);
             row.insert(QStringLiteral("parentGroupId"), QString::fromStdString(group.id));
-            row.insert(QStringLiteral("rightText"), sessionSourceSummary(path, backtestCounts));
+            row.insert(QStringLiteral("rightText"), catalogSessionSummary(session, backtestCounts));
             out.push_back(row);
         }
     }
     return out;
 }
 
-void BacktestViewModel::reloadSessionsAsync_() {
-    const std::uint64_t generation = ++sessionsLoadGeneration_;
-    auto context = asyncLoadContext_;
-    BacktestViewModel* target = this;
-    asyncLoaders_.emplace_back([context, target, generation]() {
-        QVariantList loaded = target->loadSessions_();
-        if (!context || !context->alive.load(std::memory_order_acquire)) return;
-        QMetaObject::invokeMethod(target, [context, target, generation, loaded = std::move(loaded)]() mutable {
-            if (!context || !context->alive.load(std::memory_order_acquire)) return;
-            target->applyLoadedSessions_(generation, std::move(loaded));
-        }, Qt::QueuedConnection);
+void BacktestViewModel::reconnectRecordingCatalog_() {
+    if (catalogSnapshotConnection_) disconnect(catalogSnapshotConnection_);
+    if (recordingCatalog_ == nullptr) return;
+    catalogSnapshotConnection_ = connect(recordingCatalog_, &RecordingCatalog::snapshotChanged, this, [this]() {
+        applyLoadedSessions_(++sessionsLoadGeneration_, loadSessions_());
     });
+}
+
+void BacktestViewModel::reloadSessionsAsync_() {
+    applyLoadedSessions_(++sessionsLoadGeneration_, loadSessions_());
 }
 
 void BacktestViewModel::applyLoadedSessions_(std::uint64_t generation, QVariantList sessions) {
     if (generation != sessionsLoadGeneration_) return;
     sessions_ = std::move(sessions);
-    if (manualSessionPath_.trimmed().isEmpty()) {
+    const bool manualSessionActive = !manualSessionPath_.trimmed().isEmpty();
+    if (!manualSessionActive) {
         const QVariantMap selectedRow = sessionRowById(sessions_, selectedSessionId_);
         const bool selectedGroup = selectedRow.value(QStringLiteral("isGroup")).toBool();
         if (selectedSessionId_.trimmed().isEmpty() || selectedRow.isEmpty() || (!selectedGroup && !sessionRowSelectable(selectedRow))) {
             selectedSessionId_ = firstSelectableSessionId(sessions_);
         }
     }
+    loadLegSelectionForCurrentSession_();
+    const bool primaryChanged = normalizeSelectedPrimaryLeg_();
+    if (primaryChanged) savePersistentConfig_();
     const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit sessionsChanged();
     emit selectedSessionChanged();
     emit multiSessionChanged();
+    emit primaryLegChanged();
     if (!strategyChanged) emit selectedStrategyChanged();
     emit canRunChanged();
-    refresh();
+    emit legSelectionChanged();
+    if (!manualSessionActive) {
+        const std::uint64_t scheduledGeneration = generation;
+        QTimer::singleShot(1000, this, [this, scheduledGeneration]() {
+            if (scheduledGeneration == sessionsLoadGeneration_) scheduleRefresh_();
+        });
+    }
 }
 
 QString BacktestViewModel::selectedSessionPath() const {
@@ -258,6 +295,25 @@ QString BacktestViewModel::selectedSessionPath() const {
     return sessionPathFromToken(recordingsRoot(), selectedSessionId_);
 }
 
+QStringList BacktestViewModel::candidatePathsForSessionId_(const QString& sessionId) const {
+    QStringList out;
+    const auto appendPath = [&out](const QString& value) {
+        const QString path = normalizedPath_(value);
+        if (!path.isEmpty() && !out.contains(path)) out.push_back(path);
+    };
+
+    const QString id = sessionId.trimmed();
+    if (id.isEmpty()) return out;
+    const QStringList rowPaths = sessionPathsFromRow(sessionRowById(sessions_, id));
+    for (const QString& path : rowPaths) {
+        appendPath(path);
+    }
+    if (out.empty()) {
+        appendPath(sessionPathFromToken(recordingsRoot(), id));
+    }
+    return out;
+}
+
 QStringList BacktestViewModel::selectedSessionCandidatePaths_() const {
     QStringList out;
     const auto appendPath = [&out](const QString& value) {
@@ -265,10 +321,13 @@ QStringList BacktestViewModel::selectedSessionCandidatePaths_() const {
         if (!path.isEmpty() && !out.contains(path)) out.push_back(path);
     };
 
+    bool selectedSessionOwnsAllLegs = false;
     if (!manualSessionPath_.trimmed().isEmpty()) {
         appendPath(manualSessionPath_);
     } else {
-        const QStringList primaryPaths = sessionPathsFromRow(sessionRowById(sessions_, selectedSessionId_));
+        const QVariantMap selectedRow = sessionRowById(sessions_, selectedSessionId_);
+        const QStringList primaryPaths = sessionPathsFromRow(selectedRow);
+        selectedSessionOwnsAllLegs = selectedRow.value(QStringLiteral("isGroup")).toBool() || primaryPaths.size() > 1;
         for (const QString& path : primaryPaths) {
             appendPath(path);
         }
@@ -277,6 +336,7 @@ QStringList BacktestViewModel::selectedSessionCandidatePaths_() const {
             appendPath(primary);
         }
     }
+    if (selectedSessionOwnsAllLegs) return out;
     const QStringList tokens = extraSessionIds_.split(QRegularExpression(QStringLiteral("[,;\\n]+")), Qt::SkipEmptyParts);
     const QString root = recordingsRoot();
     for (const QString& token : tokens) {
@@ -287,6 +347,11 @@ QStringList BacktestViewModel::selectedSessionCandidatePaths_() const {
         }
     }
     return out;
+}
+
+QStringList BacktestViewModel::legSelectionCandidatePaths_() const {
+    const QString pendingSessionId = pendingLegSelectionSessionId_.trimmed();
+    return pendingSessionId.isEmpty() ? selectedSessionCandidatePaths_() : candidatePathsForSessionId_(pendingSessionId);
 }
 
 QStringList BacktestViewModel::selectedSessionPaths_() const {
@@ -321,18 +386,61 @@ QStringList BacktestViewModel::orderedSessionPathsForRun_() const {
     return QStringList{paths.at(spotIndex), paths.at(futuresIndex)};
 }
 
+int BacktestViewModel::normalizedSelectedPrimaryLegIndexForPaths_(const QStringList& paths, const QStringList& disabledPaths) const {
+    if (paths.empty()) return 0;
+    if (selectedPrimaryLegIndex_ >= 0 && selectedPrimaryLegIndex_ < paths.size() &&
+        !disabledPaths.contains(paths.at(selectedPrimaryLegIndex_))) {
+        return selectedPrimaryLegIndex_;
+    }
+    for (int i = 0; i < paths.size(); ++i) {
+        if (!disabledPaths.contains(paths.at(i))) return i;
+    }
+    return 0;
+}
+
+int BacktestViewModel::normalizedSelectedPrimaryLegIndex_() const {
+    return normalizedSelectedPrimaryLegIndexForPaths_(selectedSessionCandidatePaths_(), disabledSessionLegPaths_);
+}
+
+int BacktestViewModel::selectedPrimaryLegIndexForPaths_(const QStringList& paths) const {
+    if (paths.empty()) return 0;
+    const QStringList candidates = selectedSessionCandidatePaths_();
+    const int candidateIndex = normalizedSelectedPrimaryLegIndex_();
+    if (candidateIndex >= 0 && candidateIndex < candidates.size()) {
+        const int runIndex = paths.indexOf(candidates.at(candidateIndex));
+        if (runIndex >= 0) return runIndex;
+    }
+    return 0;
+}
+
+bool BacktestViewModel::normalizeSelectedPrimaryLeg_() {
+    const int normalized = normalizedSelectedPrimaryLegIndex_();
+    if (selectedPrimaryLegIndex_ == normalized) return false;
+    selectedPrimaryLegIndex_ = normalized;
+    return true;
+}
+
 QVariantList BacktestViewModel::selectedSessionLegs() const {
+    return sessionLegRowsForPaths_(selectedSessionCandidatePaths_(), disabledSessionLegPaths_);
+}
+
+QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths, const QStringList& disabledPaths) const {
     QVariantList out;
-    const QStringList paths = selectedSessionCandidatePaths_();
+    const int primaryIndex = normalizedSelectedPrimaryLegIndexForPaths_(paths, disabledPaths);
+    const bool primaryOnly = selectedTradeMode_ == QStringLiteral("primary");
     for (int i = 0; i < paths.size(); ++i) {
         QVariantMap row;
         const QString path = paths.at(i);
-        const bool enabled = !disabledSessionLegPaths_.contains(path);
+        const bool enabled = !disabledPaths.contains(path);
+        const bool primary = i == primaryIndex;
         const QString venueKey = venueExecutionKey(path);
         const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
         const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
         row.insert(QStringLiteral("index"), i);
         row.insert(QStringLiteral("enabled"), enabled);
+        row.insert(QStringLiteral("primary"), primary);
+        row.insert(QStringLiteral("tradable"), enabled && (!primaryOnly || primary));
+        row.insert(QStringLiteral("tradeMode"), selectedTradeMode_);
         row.insert(QStringLiteral("path"), path);
         row.insert(QStringLiteral("id"), sessionIdFromPath_(path));
         row.insert(QStringLiteral("symbol"), symbolForSessionPath(path));
@@ -363,6 +471,17 @@ QVariantList BacktestViewModel::selectedSessionLegs() const {
         out.push_back(row);
     }
     return out;
+}
+
+int BacktestViewModel::selectedPrimaryLegIndex() const {
+    return normalizedSelectedPrimaryLegIndex_();
+}
+
+QVariantList BacktestViewModel::tradeModeChoices() const {
+    return QVariantList{
+        tradeModeChoice(QStringLiteral("all"), QStringLiteral("All")),
+        tradeModeChoice(QStringLiteral("primary"), QStringLiteral("Primary")),
+    };
 }
 
 int BacktestViewModel::selectedSessionCount() const {
@@ -692,8 +811,10 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) rateLimitSchedules.push_back(std::move(rateLimit));
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
+    const int primaryLegIndex = selectedPrimaryLegIndexForPaths_(sessionPaths);
+    const QString tradeMode = selectedTradeMode_;
     configureWorkerThreadStack_();
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, rateLimitsEnabled, strictRateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, rateLimitsEnabled, strictRateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules)] {
         try {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPaths.front().toStdString();
@@ -711,6 +832,11 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.configPath = configPath.toStdString();
         request.strategy = strategy.toStdString();
         request.indicatorProfile = indicatorProfile.toStdString();
+        request.hasPrimaryLegIndex = true;
+        request.primaryLegIndex = static_cast<std::uint32_t>(primaryLegIndex);
+        request.tradeMode = tradeMode == QStringLiteral("primary")
+            ? hft_backtest::BacktestTradeMode::PrimaryOnly
+            : hft_backtest::BacktestTradeMode::AllLegs;
         request.runId = runId.toStdString();
         request.requestId = runId.toStdString();
         request.latencySeed = latencySeed;
@@ -887,9 +1013,11 @@ void BacktestViewModel::startSweep() {
         if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) rateLimitSchedules.push_back(std::move(rateLimit));
     }
     const QString indicatorProfile = selectedIndicatorProfile_;
+    const int primaryLegIndex = selectedPrimaryLegIndexForPaths_(sessionPaths);
+    const QString tradeMode = selectedTradeMode_;
 
     configureWorkerThreadStack_();
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, rateLimitsEnabled, strictRateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules), ranges = std::move(ranges)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, rateLimitsEnabled, strictRateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules), ranges = std::move(ranges)] {
         try {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPaths.front().toStdString();
@@ -907,6 +1035,11 @@ void BacktestViewModel::startSweep() {
         request.baseRun.configPath = configPath.toStdString();
         request.baseRun.strategy = strategy.toStdString();
         request.baseRun.indicatorProfile = indicatorProfile.toStdString();
+        request.baseRun.hasPrimaryLegIndex = true;
+        request.baseRun.primaryLegIndex = static_cast<std::uint32_t>(primaryLegIndex);
+        request.baseRun.tradeMode = tradeMode == QStringLiteral("primary")
+            ? hft_backtest::BacktestTradeMode::PrimaryOnly
+            : hft_backtest::BacktestTradeMode::AllLegs;
         request.baseRun.latencySeed = latencySeed;
         request.baseRun.marketDataLatency.baseUs = marketDataLatency;
         request.baseRun.marketDataLatency.jitterUs = marketDataJitter;

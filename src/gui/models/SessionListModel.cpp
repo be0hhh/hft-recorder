@@ -5,7 +5,7 @@
 #include <QFileInfo>
 
 #include "gui/backtests/BacktestSessionSummary.hpp"
-#include "core/recordings/RecordingDiscovery.hpp"
+#include "gui/models/RecordingCatalog.hpp"
 #include "core/recordings/RecordingRoot.hpp"
 
 namespace hftrec::gui {
@@ -41,36 +41,61 @@ QString sessionLabel(const hftrec::recordings::RecordedSessionInfo& session) {
 
 SessionListModel::SessionListModel(QObject* parent)
     : QAbstractListModel(parent) {
-    reload();
 }
 
 void SessionListModel::reload() {
+    if (recordingCatalog_ != nullptr) recordingCatalog_->refresh();
+    rebuildFromCatalog_();
+}
+
+QObject* SessionListModel::recordingCatalog() const {
+    return recordingCatalog_;
+}
+
+void SessionListModel::setRecordingCatalog(QObject* recordingCatalog) {
+    auto* typedCatalog = qobject_cast<RecordingCatalog*>(recordingCatalog);
+    if (typedCatalog == recordingCatalog_) return;
+    recordingCatalog_ = typedCatalog;
+    reconnectRecordingCatalog_();
+    rebuildFromCatalog_();
+    emit recordingCatalogChanged();
+}
+
+void SessionListModel::reconnectRecordingCatalog_() {
+    if (catalogSnapshotConnection_) disconnect(catalogSnapshotConnection_);
+    if (recordingCatalog_ == nullptr) return;
+    catalogSnapshotConnection_ =
+        connect(recordingCatalog_, &RecordingCatalog::snapshotChanged, this, &SessionListModel::rebuildFromCatalog_);
+}
+
+void SessionListModel::rebuildFromCatalog_() {
     beginResetModel();
     allSessions_.clear();
     sessions_.clear();
 
-    const auto backtestCounts = backtestLegCountsBySession(recordingsRoot());
-    const auto discovery = hftrec::recordings::discoverRecordings(recordingsRoot().toStdString());
-    for (const auto& group : discovery.groups) {
-        Entry groupEntry{};
-        groupEntry.sessionId = QStringLiteral("group:%1").arg(QString::fromStdString(group.id));
-        groupEntry.label = QString::fromStdString(group.title);
-        groupEntry.summary = groupSummary(group);
-        groupEntry.path = QString::fromStdString(group.path.string());
-        groupEntry.searchText = QString::fromStdString(group.searchText).toLower();
-        groupEntry.isGroup = true;
-        allSessions_.push_back(groupEntry);
+    if (recordingCatalog_ != nullptr && recordingCatalog_->hasSnapshot()) {
+        const auto& snapshot = recordingCatalog_->snapshot();
+        for (const auto& group : snapshot.discovery.groups) {
+            Entry groupEntry{};
+            groupEntry.sessionId = QStringLiteral("group:%1").arg(QString::fromStdString(group.id));
+            groupEntry.label = QString::fromStdString(group.title);
+            groupEntry.summary = groupSummary(group);
+            groupEntry.path = QString::fromStdString(group.path.string());
+            groupEntry.searchText = QString::fromStdString(group.searchText).toLower();
+            groupEntry.isGroup = true;
+            allSessions_.push_back(groupEntry);
 
-        for (const auto& session : group.sessions) {
-            Entry entry{};
-            entry.sessionId = QString::fromStdString(session.sessionId);
-            entry.label = sessionLabel(session);
-            entry.summary = sessionSummary(session, backtestCounts.value(entry.sessionId));
-            entry.path = QString::fromStdString(session.path.string());
-            entry.searchText = QString::fromStdString(session.searchText).toLower();
-            entry.isGroup = false;
-            entry.indent = 1;
-            allSessions_.push_back(std::move(entry));
+            for (const auto& session : group.sessions) {
+                Entry entry{};
+                entry.sessionId = QString::fromStdString(session.sessionId);
+                entry.label = sessionLabel(session);
+                entry.summary = sessionSummary(session, snapshot.backtestCountsBySession.value(entry.sessionId));
+                entry.path = QString::fromStdString(session.path.string());
+                entry.searchText = QString::fromStdString(session.searchText).toLower();
+                entry.isGroup = false;
+                entry.indent = 1;
+                allSessions_.push_back(std::move(entry));
+            }
         }
     }
 

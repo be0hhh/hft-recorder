@@ -1118,7 +1118,7 @@ Status CaptureCoordinator::startManagedMarketData_(const CaptureConfig& config, 
         return Status::Unknown;
     }
 
-    const auto sessionStatus = ensureSession(config);
+    const auto sessionStatus = ensureSession_(config, true);
     if (!isOk(sessionStatus)) return sessionStatus;
 
     configureCaptureWorkerThreadStack();

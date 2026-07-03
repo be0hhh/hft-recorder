@@ -108,6 +108,10 @@ CaptureCoordinator::~CaptureCoordinator() {
 }
 
 Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
+    return ensureSession_(config, false);
+}
+
+Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allowMultiSymbol) noexcept {
     internal::ensureCxetInitialized();
     CaptureConfig normalizedConfig = config;
     normalizedConfig.outputDir = recordings::normalizeExplicitRecordingsPath(config.outputDir);
@@ -116,7 +120,7 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
         return envStatus;
     }
 
-    if (const auto validateStatus = internal::validateSupportedConfig(normalizedConfig, lastError_); !isOk(validateStatus)) {
+    if (const auto validateStatus = internal::validateSupportedConfig(normalizedConfig, lastError_, allowMultiSymbol); !isOk(validateStatus)) {
         return validateStatus;
     }
     if (const auto authStatus = internal::refreshFinamAuthForConfig(

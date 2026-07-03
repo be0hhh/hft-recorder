@@ -253,6 +253,12 @@ std::string_view primaryRouteSymbolText(const CaptureConfig& config) noexcept {
     return primaryIdentitySymbolText(config);
 }
 
+std::string_view routeSymbolTextAt(const CaptureConfig& config, std::size_t index) noexcept {
+    if (index < config.routeSymbols.size() && !config.routeSymbols[index].empty()) return config.routeSymbols[index];
+    if (index < config.symbols.size()) return config.symbols[index];
+    return {};
+}
+
 #if HFTREC_WITH_CXET
 bool validateRequestedAliases(const std::vector<std::string>& aliasNames,
                               std::string& lastError) {
@@ -294,8 +300,9 @@ hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfi
     venue.userEnabled = false;
     venue.orderEnabled = false;
     venue.controlEnabled = false;
-    const std::string_view routeSymbolText = primaryRouteSymbolText(config);
-    if (!routeSymbolText.empty()) {
+    for (std::size_t i = 0; i < config.symbols.size(); ++i) {
+        const std::string_view routeSymbolText = routeSymbolTextAt(config, i);
+        if (routeSymbolText.empty()) continue;
         Symbol symbol = makeSymbol(routeSymbolText);
         if (symbol.data[0] != '\0') venue.symbols.push_back(symbol);
     }
@@ -304,22 +311,24 @@ hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfi
 }
 #endif
 
-Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError) {
+Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError, bool allowMultiSymbol) {
     if (config.symbols.empty()) {
-        lastError = "capture config must contain exactly one symbol";
+        lastError = "capture config must contain at least one symbol";
         return Status::InvalidArgument;
     }
-    if (config.symbols.size() != 1u) {
+    if (!allowMultiSymbol && config.symbols.size() != 1u) {
         lastError = "current capture path supports exactly one symbol per coordinator";
         return Status::InvalidArgument;
     }
-    if (config.routeSymbols.size() > 1u) {
-        lastError = "current capture path supports at most one route symbol per coordinator";
+    if (config.routeSymbols.size() > config.symbols.size()) {
+        lastError = "capture route symbol count must not exceed symbol count";
         return Status::InvalidArgument;
     }
-    if (!config.routeSymbols.empty() && config.routeSymbols.front().empty()) {
-        lastError = "capture route symbol must not be empty";
-        return Status::InvalidArgument;
+    for (const auto& routeSymbol : config.routeSymbols) {
+        if (routeSymbol.empty()) {
+            lastError = "capture route symbol must not be empty";
+            return Status::InvalidArgument;
+        }
     }
 #if HFTREC_WITH_CXET
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);

@@ -32,10 +32,21 @@
 #include "gui/backtests/BacktestSessionHelpers.hpp"
 #include "gui/backtests/BacktestStrategyConfigHelpers.hpp"
 #include "gui/backtests/BacktestSweepHelpers.hpp"
+#include "gui/models/RecordingCatalog.hpp"
 
 namespace hftrec::gui {
+namespace {
+
+QString normalizedTradeMode(const QString& mode) {
+    const QString normalized = mode.trimmed().toLower();
+    if (normalized == QStringLiteral("primary")) return QStringLiteral("primary");
+    return QStringLiteral("all");
+}
+
+}  // namespace
 
 void BacktestViewModel::reloadSessions() {
+    if (recordingCatalog_ != nullptr) recordingCatalog_->refresh();
     ++sessionsLoadGeneration_;
     sessions_ = loadSessions_();
     if (manualSessionPath_.trimmed().isEmpty()) {
@@ -45,20 +56,42 @@ void BacktestViewModel::reloadSessions() {
             selectedSessionId_ = firstSelectableSessionId(sessions_);
         }
     }
+    loadLegSelectionForCurrentSession_();
+    const bool primaryChanged = normalizeSelectedPrimaryLeg_();
+    if (primaryChanged) savePersistentConfig_();
     const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit sessionsChanged();
     emit selectedSessionChanged();
     emit multiSessionChanged();
+    emit legSelectionChanged();
+    emit primaryLegChanged();
     if (!strategyChanged) emit selectedStrategyChanged();
     emit canRunChanged();
 }
 
 void BacktestViewModel::setSelectedSessionId(const QString& sessionId) {
+    setSelectedSessionId_(sessionId, false);
+}
+
+void BacktestViewModel::setSelectedSessionIdForLegSelection(const QString& sessionId) {
     const QString next = sessionId.trimmed();
-    if (selectedSessionId_ == next && manualSessionPath_.isEmpty()) return;
+    if (next.isEmpty()) return;
+    pendingLegSelectionSessionId_ = next;
+    deferredLegSelectionRefresh_ = true;
+    loadLegSelectionForCurrentSession_();
+    emit multiSessionChanged();
+    emit legSelectionChanged();
+    emit primaryLegChanged();
+}
+
+void BacktestViewModel::setSelectedSessionId_(const QString& sessionId, bool deferRefresh) {
+    const QString next = sessionId.trimmed();
+    if (selectedSessionId_ == next && manualSessionPath_.isEmpty() && pendingLegSelectionSessionId_.trimmed().isEmpty()) return;
+    pendingLegSelectionSessionId_.clear();
     selectedSessionId_ = next;
     manualSessionPath_.clear();
-    disabledSessionLegPaths_.clear();
+    deferredLegSelectionRefresh_ = deferRefresh;
+    loadLegSelectionForCurrentSession_();
     symbolOverride_.clear();
     selectedRunId_.clear();
     ++detailsLoadGeneration_;
@@ -67,19 +100,25 @@ void BacktestViewModel::setSelectedSessionId(const QString& sessionId) {
     const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit selectedSessionChanged();
     emit multiSessionChanged();
+    emit legSelectionChanged();
+    emit primaryLegChanged();
     if (!strategyChanged) emit selectedStrategyChanged();
     emit symbolChanged();
     emit canRunChanged();
     emit detailsLoadingChanged();
-    scheduleRefresh_();
+    if (!deferRefresh) {
+        scheduleRefresh_();
+    }
 }
 
 void BacktestViewModel::setSessionPath(const QString& sessionPath) {
     const QString normalized = normalizedPath_(sessionPath);
     if (selectedSessionPath() == normalized) return;
+    pendingLegSelectionSessionId_.clear();
     manualSessionPath_ = normalized;
     selectedSessionId_ = sessionIdFromPath_(normalized);
-    disabledSessionLegPaths_.clear();
+    deferredLegSelectionRefresh_ = false;
+    loadLegSelectionForCurrentSession_();
     symbolOverride_.clear();
     selectedRunId_.clear();
     ++detailsLoadGeneration_;
@@ -88,6 +127,8 @@ void BacktestViewModel::setSessionPath(const QString& sessionPath) {
     const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit selectedSessionChanged();
     emit multiSessionChanged();
+    emit legSelectionChanged();
+    emit primaryLegChanged();
     if (!strategyChanged) emit selectedStrategyChanged();
     emit symbolChanged();
     emit canRunChanged();
@@ -98,15 +139,42 @@ void BacktestViewModel::setSessionPath(const QString& sessionPath) {
 void BacktestViewModel::setExtraSessionIds(const QString& sessionIds) {
     const QString next = sessionIds.trimmed();
     if (extraSessionIds_ == next) return;
+    pendingLegSelectionSessionId_.clear();
     extraSessionIds_ = next;
-    disabledSessionLegPaths_.clear();
+    deferredLegSelectionRefresh_ = false;
+    loadLegSelectionForCurrentSession_();
+    const bool primaryChanged = normalizeSelectedPrimaryLeg_();
     savePersistentConfig_();
     const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
     emit multiSessionChanged();
+    emit legSelectionChanged();
+    emit primaryLegChanged();
     if (!strategyChanged) emit selectedStrategyChanged();
     emit canRunChanged();
     refreshSessionGateStatus_();
     refresh();
+}
+
+void BacktestViewModel::setSelectedPrimaryLegIndex(int index) {
+    const QStringList paths = selectedSessionCandidatePaths_();
+    if (paths.empty()) index = 0;
+    if (index < 0 || index >= paths.size() || disabledSessionLegPaths_.contains(paths.at(index))) {
+        index = normalizedSelectedPrimaryLegIndex_();
+    }
+    if (selectedPrimaryLegIndex_ == index) return;
+    selectedPrimaryLegIndex_ = index;
+    savePersistentConfig_();
+    emit primaryLegChanged();
+    emit multiSessionChanged();
+}
+
+void BacktestViewModel::setSelectedTradeMode(const QString& mode) {
+    const QString next = normalizedTradeMode(mode);
+    if (selectedTradeMode_ == next) return;
+    selectedTradeMode_ = next;
+    savePersistentConfig_();
+    emit tradeModeChanged();
+    emit multiSessionChanged();
 }
 
 void BacktestViewModel::setSelectedSymbol(const QString& symbol) {
@@ -298,29 +366,6 @@ void BacktestViewModel::setUserDataJitterUs(const QString& value) {
     userDataJitterUs_ = next;
     savePersistentConfig_();
     emit latencyChanged();
-}
-
-void BacktestViewModel::setSessionLegEnabled(const QString& path, bool enabled) {
-    const QString normalized = normalizedPath_(path);
-    if (normalized.isEmpty()) return;
-    const QStringList candidates = selectedSessionCandidatePaths_();
-    if (!candidates.contains(normalized)) return;
-
-    const bool disabled = disabledSessionLegPaths_.contains(normalized);
-    if (enabled && disabled) {
-        disabledSessionLegPaths_.removeAll(normalized);
-    } else if (!enabled && !disabled) {
-        disabledSessionLegPaths_.push_back(normalized);
-    } else {
-        return;
-    }
-
-    const bool strategyChanged = ensureSelectedStrategySupportsSessionCount_();
-    emit multiSessionChanged();
-    if (!strategyChanged) emit selectedStrategyChanged();
-    emit canRunChanged();
-    refreshSessionGateStatus_();
-    refresh();
 }
 
 void BacktestViewModel::setVenueExecutionValue(int legIndex, const QString& field, const QString& value) {
@@ -549,6 +594,8 @@ void BacktestViewModel::saveProfile() {
     writeBacktestRateLimitConfig(out, rateLimitsEnabled_, strictRateLimitsEnabled_);
     out << "sweep_budget=" << sweepBudget_ << "\n";
     out << "sweep_seed=" << sweepSeed_ << "\n";
+    out << "primary_leg_index=" << selectedPrimaryLegIndex() << "\n";
+    out << "trade_mode=" << selectedTradeMode_ << "\n";
     out << "config_mode=" << configMode_ << "\n\n";
     QSet<QString> savedVenueKeys;
     for (const QString& sessionPath : selectedSessionPaths_()) {
@@ -631,6 +678,8 @@ void BacktestViewModel::loadProfile() {
     const QString strictRateLimits = iniValue(text, QStringLiteral("backtest"), QStringLiteral("strict_rate_limits"));
     const QString sweepBudget = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_budget"));
     const QString sweepSeed = iniValue(text, QStringLiteral("backtest"), QStringLiteral("sweep_seed"));
+    const QString primaryLegIndex = iniValue(text, QStringLiteral("backtest"), QStringLiteral("primary_leg_index"));
+    const QString tradeMode = iniValue(text, QStringLiteral("backtest"), QStringLiteral("trade_mode"));
     const QString mode = iniValue(text, QStringLiteral("backtest"), QStringLiteral("config_mode"));
     if (!orderLatency.isEmpty()) pingLatencyUs_ = orderLatency;
     if (!latencySeed.isEmpty()) latencySeed_ = latencySeed;
@@ -661,6 +710,13 @@ void BacktestViewModel::loadProfile() {
     if (!rateLimitsEnabled_) strictRateLimitsEnabled_ = false;
     if (!sweepBudget.isEmpty()) sweepBudget_ = sweepBudget;
     if (!sweepSeed.isEmpty()) sweepSeed_ = sweepSeed;
+    if (!primaryLegIndex.isEmpty()) {
+        bool ok = false;
+        const int index = primaryLegIndex.toInt(&ok);
+        if (ok) selectedPrimaryLegIndex_ = index;
+    }
+    if (!tradeMode.isEmpty()) selectedTradeMode_ = normalizedTradeMode(tradeMode);
+    (void)normalizeSelectedPrimaryLeg_();
     if (!mode.isEmpty()) configMode_ = normalizeConfigMode(mode);
     for (const QString& sessionPath : selectedSessionPaths_()) {
         const QString venueKey = venueExecutionKey(sessionPath);
@@ -702,6 +758,8 @@ void BacktestViewModel::loadProfile() {
     emit accountingChanged();
     emit rateLimitsChanged();
     emit multiSessionChanged();
+    emit primaryLegChanged();
+    emit tradeModeChanged();
     emit sweepConfigChanged();
     emit configChanged();
     emit strategyParametersChanged();
@@ -808,6 +866,8 @@ void BacktestViewModel::loadPersistentConfig_() {
         if (!fallback.isEmpty()) selectedStrategy_ = fallback;
     }
     extraSessionIds_ = settings_.value(QStringLiteral("backtests/extra_session_ids"), extraSessionIds_).toString().trimmed();
+    selectedPrimaryLegIndex_ = settings_.value(QStringLiteral("backtests/primary_leg_index"), selectedPrimaryLegIndex_).toInt();
+    selectedTradeMode_ = normalizedTradeMode(settings_.value(QStringLiteral("backtests/trade_mode"), selectedTradeMode_).toString());
     configMode_ = normalizeConfigMode(settings_.value(QStringLiteral("backtests/config_mode/%1").arg(selectedStrategy_), configMode_).toString());
     configMode_ = QStringLiteral("fixed");
     selectedIndicatorProfile_ = settings_.value(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), defaultIndicatorProfileForStrategy(selectedStrategy_)).toString().trimmed();
@@ -912,6 +972,8 @@ void BacktestViewModel::loadSavedParameterValues_() {
 void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/selected_strategy"), selectedStrategy_);
     settings_.setValue(QStringLiteral("backtests/extra_session_ids"), extraSessionIds_);
+    settings_.setValue(QStringLiteral("backtests/primary_leg_index"), selectedPrimaryLegIndex_);
+    settings_.setValue(QStringLiteral("backtests/trade_mode"), selectedTradeMode_);
     settings_.setValue(QStringLiteral("backtests/config_mode/%1").arg(selectedStrategy_), configMode_);
     settings_.setValue(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), selectedIndicatorProfile_);
     settings_.setValue(QStringLiteral("backtests/ping_latency_us"), pingLatencyUs_);
@@ -1125,6 +1187,8 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForSess
     if (legRefs.size() > 1) {
         out << "\n[portfolio.recorder]\n";
         out << "legs=" << legRefs.join(QLatin1Char(',')) << "\n";
+        out << "primary_leg_index=" << selectedPrimaryLegIndexForPaths_(sessionPaths) << "\n";
+        out << "trade_mode=" << selectedTradeMode_ << "\n";
     }
     out.flush();
     if (out.status() != QTextStream::Ok) {

@@ -7,6 +7,7 @@ qt_add_executable(hft-recorder-gui
     app/main.cpp
     ../app/metrics_bootstrap.cpp
     backtests/BacktestSessionSummary.cpp
+    models/RecordingCatalog.cpp
     models/SessionListModel.cpp
     models/ViewerSourceListModel.cpp
     viewmodels/AppViewModel.cpp
@@ -20,6 +21,8 @@ qt_add_executable(hft-recorder-gui
     backtests/BacktestViewModel.cpp
     backtests/BacktestViewModelBatch.cpp
     backtests/BacktestViewModelConfig.cpp
+    backtests/BacktestViewModelLegSelection.cpp
+    backtests/BacktestViewModelResultRefresh.cpp
     backtests/BacktestViewModelResults.cpp
     viewmodels/CaptureViewModel.cpp
     viewmodels/CaptureViewModelBasisChain.cpp
@@ -89,6 +92,10 @@ qt_add_qml_module(hft-recorder-gui
         qml/components/BacktestMetricCard.qml
         qml/components/BacktestStrategyParametersPanel.qml
         qml/components/BacktestLegExecutionTable.qml
+        qml/components/BacktestLegSelector.qml
+        qml/components/BacktestPrimaryTradeControls.qml
+        qml/components/QuantContextStrip.qml
+        qml/components/QuantResultsPanel.qml
         qml/components/RecorderComboBox.qml
         qml/components/SessionPickerCombo.qml
         qml/components/ViewerChromeButton.qml

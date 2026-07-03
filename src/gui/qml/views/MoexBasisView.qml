@@ -9,6 +9,7 @@ Pane {
     focus: true
     required property AppViewModel appVm
     required property var backtestVm
+    required property var recordingCatalog
     required property bool tabActive
 
     property color windowColor: "#161616"
@@ -42,6 +43,7 @@ Pane {
 
     MoexBasisController {
         id: basis
+        recordingCatalog: root.recordingCatalog
         Component.onCompleted: root.syncGroupPicker()
     }
     ViewerInteractionState { id: interaction }

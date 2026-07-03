@@ -32,35 +32,18 @@ Pane {
         return (negative ? "-" : "") + text
     }
 
+    function safeList(value) {
+        return value && value.length !== undefined ? value : []
+    }
+
     function matrixCell(rowExchange, columnExchange) {
-        var cells = backtestVm.batchPairMatrixCells
+        var cells = safeList(backtestVm.batchPairMatrixCells)
         var key = rowExchange + "|" + columnExchange
         for (var i = 0; i < cells.length; ++i) {
             if (cells[i].cellKey === key)
                 return cells[i]
         }
         return ({})
-    }
-
-    function rowPnl(row) {
-        return Number(row.totalPnlE8 || row.total_pnl_e8 || 0)
-    }
-
-    function rowDrawdown(row) {
-        return Number(row.maxDrawdownE8 || row.max_drawdown_e8 || 0)
-    }
-
-    function rowRisk(row) {
-        var flags = []
-        if (row.riskStopped || row.risk_stopped) flags.push("risk")
-        if (row.liquidated) flags.push("liq")
-        return flags.length > 0 ? flags.join(", ") : "clean"
-    }
-
-    function skippedTitle(row) {
-        var symbol = row.symbol || row.canonicalSymbol || ""
-        var venue = row.exchange || row.exchangePair || ""
-        return (venue.length > 0 ? venue + " " : "") + symbol
     }
 
     function syncControls() {
@@ -147,7 +130,7 @@ Pane {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 120
+            Layout.preferredHeight: 160
             color: root.chromeColor
             border.color: root.borderColor
             border.width: 1
@@ -215,6 +198,18 @@ Pane {
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
+                }
+
+                QuantContextStrip {
+                    Layout.fillWidth: true
+                    backtestVm: root.backtestVm
+                    panelColor: root.panelColor
+                    panelDeepColor: root.panelDeepColor
+                    borderColor: root.borderColor
+                    textColor: root.textColor
+                    mutedTextColor: root.mutedTextColor
+                    accentColor: root.accentColor
+                    goodColor: root.goodColor
                 }
             }
         }
@@ -466,99 +461,30 @@ Pane {
                 }
             }
 
-            Rectangle {
+            QuantResultsPanel {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.preferredWidth: 6
-                color: root.panelColor
-                border.color: root.borderColor
-                radius: 6
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 8
-
-                    Label { text: "Pair results"; color: root.textColor; font.pixelSize: 13; font.bold: true; Layout.fillWidth: true }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-                        Label { text: "#"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 30 }
-                        Label { text: "Symbol"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 92 }
-                        Label { text: "Pair"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 142 }
-                        Label { text: "Best params"; color: root.mutedTextColor; font.pixelSize: 11; Layout.fillWidth: true }
-                        Label { text: "PnL"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82; horizontalAlignment: Text.AlignRight }
-                        Label { text: "DD"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82; horizontalAlignment: Text.AlignRight }
-                        Label { text: "Fills"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 54; horizontalAlignment: Text.AlignRight }
-                        Label { text: "Risk"; color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 58 }
-                    }
-
-                    ListView {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        model: root.backtestVm.batchStableRows
-                        delegate: Rectangle {
-                            required property var modelData
-                            required property int index
-                            width: ListView.view.width
-                            height: 42
-                            radius: 4
-                            color: index % 2 === 0 ? root.panelDeepColor : "#181b21"
-                            border.color: root.borderColor
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: 8
-                                anchors.rightMargin: 8
-                                spacing: 10
-                                Label { text: String(index + 1); color: root.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 30 }
-                                Label { text: modelData.symbol || ""; color: root.textColor; font.bold: true; font.pixelSize: 12; elide: Text.ElideRight; Layout.preferredWidth: 92 }
-                                Label { text: modelData.exchangePair || ""; color: root.mutedTextColor; font.pixelSize: 11; elide: Text.ElideRight; Layout.preferredWidth: 142 }
-                                Label { text: modelData.paramsLabel || ""; color: root.mutedTextColor; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
-                                Label { text: root.e8Text(root.rowPnl(modelData)); color: root.rowPnl(modelData) < 0 ? root.badColor : root.goodColor; font.bold: true; font.pixelSize: 12; horizontalAlignment: Text.AlignRight; Layout.preferredWidth: 82 }
-                                Label { text: root.e8Text(root.rowDrawdown(modelData)); color: root.mutedTextColor; font.pixelSize: 11; horizontalAlignment: Text.AlignRight; Layout.preferredWidth: 82 }
-                                Label { text: String(modelData.fills || 0); color: root.mutedTextColor; font.pixelSize: 11; horizontalAlignment: Text.AlignRight; Layout.preferredWidth: 54 }
-                                Label { text: root.rowRisk(modelData); color: root.rowRisk(modelData) === "clean" ? root.goodColor : root.badColor; font.pixelSize: 11; elide: Text.ElideRight; Layout.preferredWidth: 58 }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.backtestVm.batchSkippedRows.length > 0 ? 90 : 34
-                        color: root.panelDeepColor
-                        border.color: root.borderColor
-                        radius: 5
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 4
-                            Label {
-                                text: root.backtestVm.batchSkippedRows.length > 0 ? "Skipped " + root.backtestVm.batchSkippedRows.length : "Skipped: none"
-                                color: root.mutedTextColor
-                                font.pixelSize: 11
-                                font.bold: true
-                            }
-                            ListView {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                visible: root.backtestVm.batchSkippedRows.length > 0
-                                clip: true
-                                model: root.backtestVm.batchSkippedRows
-                                delegate: Label {
-                                    required property var modelData
-                                    width: ListView.view.width
-                                    height: 18
-                                    text: root.skippedTitle(modelData) + " - " + (modelData.reason || modelData.status || "skipped")
-                                    color: root.mutedTextColor
-                                    font.pixelSize: 10
-                                    elide: Text.ElideRight
-                                }
-                            }
-                        }
-                    }
-                }
+                mode: root.backtestVm.batchRawTableMode
+                stableRows: root.backtestVm.batchStableRows
+                profitRows: root.backtestVm.batchProfitRows
+                symbolRows: root.backtestVm.batchSymbolRows
+                pairRows: root.backtestVm.batchPairRows
+                paramRows: root.backtestVm.batchParamRows
+                timeRows: root.backtestVm.batchTimeRows
+                plateauRows: root.backtestVm.batchPlateauRows
+                skippedRows: root.backtestVm.batchSkippedRows
+                statusText: root.backtestVm.batchSummaryText || root.backtestVm.statusText
+                panelColor: root.panelColor
+                panelDeepColor: root.panelDeepColor
+                panelAltColor: root.panelAltColor
+                borderColor: root.borderColor
+                textColor: root.textColor
+                mutedTextColor: root.mutedTextColor
+                accentColor: root.accentColor
+                goodColor: root.goodColor
+                badColor: root.badColor
+                onModeRequested: function(nextMode) { root.backtestVm.setBatchRawTableMode(nextMode) }
             }
         }
     }

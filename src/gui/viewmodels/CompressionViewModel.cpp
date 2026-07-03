@@ -29,18 +29,13 @@
 #include "hft_compressor/metrics_server.hpp"
 #include "core/recordings/RecordingRoot.hpp"
 #include "gui/backtests/BacktestSessionSummary.hpp"
+#include "gui/models/RecordingCatalog.hpp"
 
 namespace hftrec::gui {
 using namespace compression_vm;
 
 CompressionViewModel::CompressionViewModel(QObject* parent)
     : QObject(parent) {
-    const auto sessionRows = sessions();
-    if (!sessionRows.empty()) {
-        selectedSessionId_ = sessionRows.front().toMap().value(QStringLiteral("id")).toString();
-        const QString firstChannel = firstAvailableChannel_(selectedSessionPath());
-        if (!firstChannel.isEmpty()) selectedChannel_ = firstChannel;
-    }
     selectedPipelineId_ = firstAvailablePipelineId_();
     reloadStoredRunRows_();
     reloadStoredVerifyRows_();
@@ -55,21 +50,41 @@ QString CompressionViewModel::recordingsRoot() const {
     return resolveRecordingsRoot();
 }
 
+QObject* CompressionViewModel::recordingCatalog() const {
+    return recordingCatalog_;
+}
+
+void CompressionViewModel::setRecordingCatalog(QObject* recordingCatalog) {
+    auto* typedCatalog = qobject_cast<RecordingCatalog*>(recordingCatalog);
+    if (typedCatalog == recordingCatalog_) return;
+    recordingCatalog_ = typedCatalog;
+    reconnectRecordingCatalog_();
+    initializeSelectedSessionFromCatalog_();
+    emit recordingCatalogChanged();
+}
+
 QVariantList CompressionViewModel::sessions() const {
     QVariantList out;
-    const QString root = recordingsRoot();
-    QDir recordingsDir(root);
-    if (!recordingsDir.exists()) return out;
-
-    const auto backtestCountsBySession = backtestLegCountsBySession(root);
-    const auto entries = recordingsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Reversed);
-    for (const auto& entry : entries) {
-        const QString path = recordingsDir.absoluteFilePath(entry);
+    if (recordingCatalog_ == nullptr || !recordingCatalog_->hasSnapshot()) return out;
+    const auto& snapshot = recordingCatalog_->snapshot();
+    for (const auto& session : snapshot.discovery.sessions) {
+        const QString id = QString::fromStdString(session.sessionId);
+        const QString path = QString::fromStdString(session.path.string());
+        const BacktestLegCounts counts = snapshot.backtestCountsBySession.value(id);
+        QString summary = sessionBacktestSummaryText(static_cast<int>(session.bookTickerCount), counts, session.startedAtNs);
+        if (session.candleCount > 0) summary += QStringLiteral(" | C %1").arg(session.candleCount);
+        summary = appendSessionHealthSummary(summary,
+                                             QString::fromStdString(session.sessionHealth),
+                                             QString::fromStdString(session.warningSummary));
         QVariantMap row;
-        row.insert(QStringLiteral("id"), entry);
-        row.insert(QStringLiteral("label"), entry);
+        row.insert(QStringLiteral("id"), id);
+        row.insert(QStringLiteral("label"), QStringLiteral("%1 | %2/%3 %4")
+                                            .arg(QString::fromStdString(session.groupTitle),
+                                                 QString::fromStdString(session.exchange),
+                                                 QString::fromStdString(session.market),
+                                                 QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front())));
         row.insert(QStringLiteral("path"), path);
-        row.insert(QStringLiteral("rightText"), sessionSourceSummary(backtestCountsBySession.value(entry), path));
+        row.insert(QStringLiteral("rightText"), summary);
         row.insert(QStringLiteral("hasTrades"), !existingChannelPath_(path, QStringLiteral("trades")).isEmpty());
         row.insert(QStringLiteral("hasBookTicker"), !existingChannelPath_(path, QStringLiteral("bookticker")).isEmpty());
         row.insert(QStringLiteral("hasDepth"), !existingChannelPath_(path, QStringLiteral("depth")).isEmpty());
@@ -84,7 +99,46 @@ bool CompressionViewModel::hasSessions() const {
 
 QString CompressionViewModel::selectedSessionPath() const {
     if (selectedSessionId_.trimmed().isEmpty()) return {};
+    const auto rows = sessions();
+    for (const auto& rowValue : rows) {
+        const QVariantMap row = rowValue.toMap();
+        if (row.value(QStringLiteral("id")).toString() == selectedSessionId_) {
+            return row.value(QStringLiteral("path")).toString();
+        }
+    }
     return QDir(recordingsRoot()).absoluteFilePath(selectedSessionId_);
+}
+
+void CompressionViewModel::reconnectRecordingCatalog_() {
+    if (catalogSnapshotConnection_) disconnect(catalogSnapshotConnection_);
+    if (recordingCatalog_ == nullptr) return;
+    catalogSnapshotConnection_ =
+        connect(recordingCatalog_, &RecordingCatalog::snapshotChanged, this, &CompressionViewModel::initializeSelectedSessionFromCatalog_);
+}
+
+void CompressionViewModel::initializeSelectedSessionFromCatalog_() {
+    const auto rows = sessions();
+    bool selectedStillExists = false;
+    for (const auto& rowValue : rows) {
+        if (rowValue.toMap().value(QStringLiteral("id")).toString() == selectedSessionId_) {
+            selectedStillExists = true;
+            break;
+        }
+    }
+    const bool sessionChanged = !selectedStillExists && (!rows.empty() || !selectedSessionId_.isEmpty());
+    if (sessionChanged) {
+        selectedSessionId_ = rows.empty() ? QString{} : rows.front().toMap().value(QStringLiteral("id")).toString();
+        const QString firstChannel = firstAvailableChannel_(selectedSessionPath());
+        selectedChannel_ = firstChannel.isEmpty() ? QStringLiteral("trades") : firstChannel;
+        emit selectedSessionChanged();
+        emit selectedChannelChanged();
+    }
+    reloadStoredRunRows_();
+    reloadStoredVerifyRows_();
+    emit sessionsChanged();
+    emit channelChoicesChanged();
+    emit channelStatsChanged();
+    emitSelectionChanged_();
 }
 
 QVariantList CompressionViewModel::channelChoices() const {
@@ -398,6 +452,7 @@ bool CompressionViewModel::canDecodeVerify() const {
 }
 
 void CompressionViewModel::reloadSessions() {
+    if (recordingCatalog_ != nullptr) recordingCatalog_->refresh();
     const auto rows = sessions();
     bool selectedStillExists = false;
     for (const auto& rowValue : rows) {

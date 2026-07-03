@@ -134,9 +134,13 @@ QString sessionIdFromSessionPathText(const QString& sessionPath) {
 }
 
 QHash<QString, BacktestLegCounts> backtestLegCountsBySession(const QString& recordingsRoot) {
-    QHash<QString, BacktestLegCounts> counts;
     const auto discovery = hftrec::recordings::discoverRecordings(recordingsRoot.toStdString());
-    for (const auto& session : discovery.sessions) {
+    return backtestLegCountsBySession(discovery.sessions);
+}
+
+QHash<QString, BacktestLegCounts> backtestLegCountsBySession(const std::vector<hftrec::recordings::RecordedSessionInfo>& sessions) {
+    QHash<QString, BacktestLegCounts> counts;
+    for (const auto& session : sessions) {
         scanSessionBacktests(QString::fromStdString(session.path.string()), counts);
     }
     return counts;

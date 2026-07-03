@@ -108,6 +108,44 @@ Pane {
         return ""
     }
 
+    function sessionRowForId(sessionId) {
+        var target = String(sessionId || "").trim()
+        if (target.length === 0)
+            return ({})
+        var sessions = root.backtestVm.sessions || []
+        for (var i = 0; i < sessions.length; ++i) {
+            var row = sessions[i]
+            if (row && String(row.id || "") === target)
+                return row
+        }
+        return ({})
+    }
+
+    function sessionHasMultipleLegs(sessionId) {
+        var row = root.sessionRowForId(sessionId)
+        if (!row)
+            return false
+        if (row.isGroup === true)
+            return true
+        return row.sessionPaths !== undefined && row.sessionPaths !== null && row.sessionPaths.length > 1
+    }
+
+    function primarySessionIsGrouped() {
+        return root.sessionHasMultipleLegs(root.backtestVm.selectedSessionId)
+    }
+
+    function pickPrimarySession(id) {
+        var openLegSelector = root.sessionHasMultipleLegs(id)
+        if (!openLegSelector && root.firstExtraSessionId() === id)
+            root.backtestVm.setExtraSessionIds("")
+        if (openLegSelector)
+            root.backtestVm.setSelectedSessionIdForLegSelection(id)
+        else
+            root.backtestVm.setSelectedSessionId(id)
+        if (openLegSelector)
+            Qt.callLater(function() { legSelector.openLegPopup() })
+    }
+
     function rebuildSecondarySessionRows() {
         var rows = [{ "id": "", "label": "No extra legs", "rightText": "" }]
         var sessions = root.backtestVm.sessions || []
@@ -188,11 +226,7 @@ Pane {
                         emptyLabel: "Select session"
                         popupWidth: 720
                         allowGroupSelection: true
-                        onPicked: function(id) {
-                            if (root.firstExtraSessionId() === id)
-                                root.backtestVm.setExtraSessionIds("")
-                            root.backtestVm.setSelectedSessionId(id)
-                        }
+                        onPicked: function(id) { root.pickPrimarySession(id) }
                         Component.onCompleted: root.syncSelections()
                     }
                     BacktestCompactField {
@@ -254,8 +288,9 @@ Pane {
                     }
                     SessionPickerCombo {
                         id: secondarySessionBox
+                        visible: !root.primarySessionIsGrouped()
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 260
+                        Layout.preferredWidth: visible ? 260 : 0
                         caption: "Extra legs"
                         rows: root.secondarySessionRows
                         emptyLabel: "No extra legs"
@@ -263,7 +298,7 @@ Pane {
                         allowGroupSelection: true
                         preferredOpenGroupId: root.sessionGroupId(root.backtestVm.selectedSessionId)
                         scrollToPreferredGroupOnOpen: true
-                        enabled: root.secondarySessionRows.length > 1 || root.firstExtraSessionId().length > 0
+                        enabled: visible && (root.secondarySessionRows.length > 1 || root.firstExtraSessionId().length > 0)
                         opacity: enabled ? 1.0 : 0.55
                         onPicked: function(id) { root.backtestVm.setExtraSessionIds(id) }
                         Component.onCompleted: root.syncSelections()
@@ -280,13 +315,17 @@ Pane {
                         text: root.backtestVm.sweepSeed
                         onEdited: function(value) { root.backtestVm.sweepSeed = value }
                     }
-                    BacktestActionButton { text: "Refresh"; onClicked: { root.backtestVm.reloadSessions(); root.backtestVm.refreshResults() } }
+                    BacktestActionButton {
+                        text: root.backtestVm.resultsLoading ? "Queue refresh" : "Refresh"
+                        onClicked: { root.backtestVm.reloadSessions(); root.backtestVm.refreshResults() }
+                    }
                     BacktestActionButton { text: root.backtestVm.running ? "Running" : "Start"; enabledValue: root.backtestVm.canRun; accent: root.goodColor; onClicked: root.backtestVm.startBacktest() }
                     BacktestActionButton { text: "Start sweep"; enabledValue: root.backtestVm.canRun; accent: root.accentColor; onClicked: root.backtestVm.startSweep() }
                     BacktestActionButton { visible: root.backtestVm.running; text: "Cancel"; enabledValue: root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.cancelBacktest() }
                 }
 
-                BacktestLegExecutionTable {
+                BacktestLegSelector {
+                    id: legSelector
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
                     Layout.maximumHeight: implicitHeight
@@ -295,6 +334,8 @@ Pane {
                     borderColor: root.borderColor
                     textColor: root.textColor
                     mutedTextColor: root.mutedTextColor
+                    accentColor: root.accentColor
+                    goodColor: root.goodColor
                 }
 
                 RowLayout {
@@ -303,7 +344,13 @@ Pane {
                     ProgressBar { Layout.preferredWidth: 220; from: 0; to: 100; value: root.backtestVm.progressPercent }
                     Label { text: root.backtestVm.progressPercent + "%"; color: root.textColor; font.bold: true; font.pixelSize: 12; Layout.preferredWidth: 42 }
                     Label { text: root.backtestVm.progressText; color: root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; Layout.preferredWidth: 260 }
-                    Label { text: root.backtestVm.statusText; color: root.mutedTextColor; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
+                    Label {
+                        text: root.backtestVm.resultsLoading ? root.backtestVm.resultsLoadingText : root.backtestVm.statusText
+                        color: root.backtestVm.resultsLoading ? root.accentColor : root.mutedTextColor
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
                 }
             }
         }

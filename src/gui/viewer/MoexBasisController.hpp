@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QMetaObject>
 #include <QString>
 #include <QVariantList>
 
@@ -11,10 +12,15 @@
 #include "gui/viewer/MoexBasisSeries.hpp"
 #include "gui/viewer/StrategyOverlay.hpp"
 
+namespace hftrec::gui {
+class RecordingCatalog;
+}
+
 namespace hftrec::gui::viewer {
 
 class MoexBasisController : public QObject {
     Q_OBJECT
+    Q_PROPERTY(QObject* recordingCatalog READ recordingCatalog WRITE setRecordingCatalog NOTIFY recordingCatalogChanged)
     Q_PROPERTY(QVariantList groupRows READ groupRows NOTIFY groupsChanged)
     Q_PROPERTY(QVariantList legRows READ legRows NOTIFY dataChanged)
     Q_PROPERTY(QString groupPath READ groupPath NOTIFY dataChanged)
@@ -39,6 +45,8 @@ class MoexBasisController : public QObject {
   public:
     explicit MoexBasisController(QObject* parent = nullptr);
 
+    QObject* recordingCatalog() const;
+    void setRecordingCatalog(QObject* recordingCatalog);
     QVariantList groupRows() const { return groupRows_; }
     QVariantList legRows() const;
     QString groupPath() const { return groupPath_; }
@@ -108,8 +116,10 @@ class MoexBasisController : public QObject {
     void viewportChanged();
     void statusChanged();
     void strategyResultsChanged();
+    void recordingCatalogChanged();
 
   private:
+    void reconnectRecordingCatalog_();
     void setStatus_(const QString& statusText);
     void rebuildGroupRows_();
     void rebuildBasis_();
@@ -122,6 +132,8 @@ class MoexBasisController : public QObject {
     void updateFullRange_() noexcept;
     void resetValueScale_() noexcept;
 
+    hftrec::gui::RecordingCatalog* recordingCatalog_{nullptr};
+    QMetaObject::Connection catalogSnapshotConnection_{};
     QVariantList groupRows_{};
     QString groupPath_{};
     QString statusText_{QStringLiteral("Select a MOEX basis group")};

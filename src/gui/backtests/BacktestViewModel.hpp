@@ -2,6 +2,7 @@
 
 #include <QFileSystemWatcher>
 #include <QHash>
+#include <QMetaObject>
 #include <QObject>
 #include <QSettings>
 #include <QString>
@@ -18,15 +19,25 @@
 
 namespace hftrec::gui {
 
+class RecordingCatalog;
+
 class BacktestViewModel : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString recordingsRoot READ recordingsRoot CONSTANT)
     Q_PROPERTY(QVariantList sessions READ sessions NOTIFY sessionsChanged)
+    Q_PROPERTY(QObject* recordingCatalog READ recordingCatalog WRITE setRecordingCatalog NOTIFY recordingCatalogChanged)
     Q_PROPERTY(QString selectedSessionId READ selectedSessionId WRITE setSelectedSessionId NOTIFY selectedSessionChanged)
     Q_PROPERTY(QString selectedSessionPath READ selectedSessionPath NOTIFY selectedSessionChanged)
     Q_PROPERTY(QString sessionPath READ sessionPath WRITE setSessionPath NOTIFY selectedSessionChanged)
     Q_PROPERTY(QString extraSessionIds READ extraSessionIds WRITE setExtraSessionIds NOTIFY multiSessionChanged)
     Q_PROPERTY(QVariantList selectedSessionLegs READ selectedSessionLegs NOTIFY multiSessionChanged)
+    Q_PROPERTY(QVariantList legSelectionRows READ legSelectionRows NOTIFY legSelectionChanged)
+    Q_PROPERTY(int selectedLegCount READ selectedLegCount NOTIFY legSelectionChanged)
+    Q_PROPERTY(int candidateLegCount READ candidateLegCount NOTIFY legSelectionChanged)
+    Q_PROPERTY(QString selectedLegSummary READ selectedLegSummary NOTIFY legSelectionChanged)
+    Q_PROPERTY(int selectedPrimaryLegIndex READ selectedPrimaryLegIndex WRITE setSelectedPrimaryLegIndex NOTIFY primaryLegChanged)
+    Q_PROPERTY(QString selectedTradeMode READ selectedTradeMode WRITE setSelectedTradeMode NOTIFY tradeModeChanged)
+    Q_PROPERTY(QVariantList tradeModeChoices READ tradeModeChoices CONSTANT)
     Q_PROPERTY(int selectedSessionCount READ selectedSessionCount NOTIFY multiSessionChanged)
     Q_PROPERTY(QString selectedSymbol READ selectedSymbol WRITE setSelectedSymbol NOTIFY symbolChanged)
     Q_PROPERTY(QString backtestsDirectory READ backtestsDirectory NOTIFY selectedSessionChanged)
@@ -111,6 +122,8 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QVariantList selectedSweepRows READ selectedSweepRows NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedSweepCurves READ selectedSweepCurves NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedSweepDistributionBars READ selectedSweepDistributionBars NOTIFY selectionChanged)
+    Q_PROPERTY(bool resultsLoading READ resultsLoading NOTIFY resultsLoadingChanged)
+    Q_PROPERTY(QString resultsLoadingText READ resultsLoadingText NOTIFY resultsLoadingChanged)
     Q_PROPERTY(bool selectedIsSweep READ selectedIsSweep NOTIFY selectionChanged)
     Q_PROPERTY(bool hasEquityPoints READ hasEquityPoints NOTIFY selectionChanged)
     Q_PROPERTY(bool selectedPreviewLoading READ selectedPreviewLoading NOTIFY previewLoadingChanged)
@@ -138,6 +151,13 @@ class BacktestViewModel : public QObject {
     QString sessionPath() const { return selectedSessionPath(); }
     QString extraSessionIds() const { return extraSessionIds_; }
     QVariantList selectedSessionLegs() const;
+    QVariantList legSelectionRows() const;
+    int selectedLegCount() const;
+    int candidateLegCount() const;
+    QString selectedLegSummary() const;
+    int selectedPrimaryLegIndex() const;
+    QString selectedTradeMode() const { return selectedTradeMode_; }
+    QVariantList tradeModeChoices() const;
     int selectedSessionCount() const;
     QString selectedSymbol() const;
     QString backtestsDirectory() const;
@@ -222,6 +242,8 @@ class BacktestViewModel : public QObject {
     QVariantList selectedSweepRows() const;
     QVariantList selectedSweepCurves() const;
     QVariantList selectedSweepDistributionBars() const;
+    bool resultsLoading() const noexcept { return resultsLoading_; }
+    QString resultsLoadingText() const { return resultsLoadingText_; }
     bool selectedIsSweep() const;
     bool hasEquityPoints() const;
     bool selectedPreviewLoading() const;
@@ -239,9 +261,14 @@ class BacktestViewModel : public QObject {
     QString progressText() const { return progressText_; }
 
     Q_INVOKABLE void reloadSessions();
+    QObject* recordingCatalog() const;
+    void setRecordingCatalog(QObject* recordingCatalog);
     Q_INVOKABLE void setSelectedSessionId(const QString& sessionId);
+    Q_INVOKABLE void setSelectedSessionIdForLegSelection(const QString& sessionId);
     Q_INVOKABLE void setSessionPath(const QString& sessionPath);
     Q_INVOKABLE void setExtraSessionIds(const QString& sessionIds);
+    Q_INVOKABLE void setSelectedPrimaryLegIndex(int index);
+    Q_INVOKABLE void setSelectedTradeMode(const QString& mode);
     Q_INVOKABLE void setSelectedSymbol(const QString& symbol);
     Q_INVOKABLE void setSelectedStrategy(const QString& strategy);
     Q_INVOKABLE void setConfigMode(const QString& mode);
@@ -261,6 +288,13 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setCancelOrderJitterUs(const QString& value);
     Q_INVOKABLE void setUserDataLatencyUs(const QString& value);
     Q_INVOKABLE void setUserDataJitterUs(const QString& value);
+    Q_INVOKABLE void setSessionLegSelectionStaged(const QString& path, bool enabled);
+    Q_INVOKABLE void setLegSelectionRowsStaged(const QVariantList& rows);
+    Q_INVOKABLE void setAllSessionLegsSelectionStaged(bool enabled);
+    Q_INVOKABLE void setFuturesSessionLegsSelectionStaged();
+    Q_INVOKABLE void resetLegSelectionStaged();
+    Q_INVOKABLE void cancelLegSelection();
+    Q_INVOKABLE void applyLegSelection();
     Q_INVOKABLE void setSessionLegEnabled(const QString& path, bool enabled);
     Q_INVOKABLE void setVenueExecutionValue(int legIndex, const QString& field, const QString& value);
     Q_INVOKABLE void setInitialBalanceUsdt(const QString& value);
@@ -317,6 +351,10 @@ class BacktestViewModel : public QObject {
     void sessionsChanged();
     void selectedSessionChanged();
     void multiSessionChanged();
+    void legSelectionChanged();
+    void primaryLegChanged();
+    void tradeModeChanged();
+    void recordingCatalogChanged();
     void symbolChanged();
     void selectedStrategyChanged();
     void configChanged();
@@ -334,6 +372,7 @@ class BacktestViewModel : public QObject {
     void selectedResultMetricChanged();
     void selectedResultScopeChanged();
     void previewLoadingChanged();
+    void resultsLoadingChanged();
     void statusTextChanged();
     void runningChanged();
     void canRunChanged();
@@ -396,6 +435,19 @@ class BacktestViewModel : public QObject {
         bool detailsLoaded{false};
     };
 
+    struct ResultRefreshRequest {
+        QString dirPath{};
+        QString selectedStrategy{};
+        QStringList selectedSessionIds{};
+        QString selectionKey{};
+        std::vector<RunRecord> cachedRecords{};
+    };
+
+    struct ResultRefreshSnapshot {
+        std::vector<RunRecord> records{};
+        QStringList filesToWatch{};
+    };
+
     struct RunConfigWriteResult {
         QString path{};
         QString error{};
@@ -412,12 +464,16 @@ class BacktestViewModel : public QObject {
     static QString sessionIdFromPath_(const QString& path);
     static qint64 fileStampMs_(const QString& path, qint64* sizeOut = nullptr);
     static bool fileStampMatches_(const QString& path, qint64 modifiedMs, qint64 size);
+    friend class BacktestViewModelTestAccess;
 
     const RunRecord* selectedRecord_() const noexcept;
-    const RunRecord* recordForPath_(const QString& filePath) const noexcept;
     RunRecord* mutableRecordForRunId_(const QString& runId) noexcept;
     void scheduleRefresh_();
     void updateWatcher_();
+    void applyLoadedResults_(std::uint64_t generation, const QString& selectionKey, ResultRefreshSnapshot snapshot);
+    void setResultsLoading_(bool loading, const QString& text = QString{});
+    QString currentResultSelectionKey_() const;
+    static QString resultRefreshSelectionKey_(const QString& dirPath, const QStringList& selectedSessionIds, const QString& selectedStrategy);
     void setStatusText_(const QString& statusText);
     void refreshSessionGateStatus_();
     void setRunning_(bool running);
@@ -429,6 +485,7 @@ class BacktestViewModel : public QObject {
     void applyLoadedPreview_(std::uint64_t generation, const QString& runId, const RunRecord& loaded);
     void applyLoadedDetails_(std::uint64_t generation, const QString& runId, const RunRecord& loaded);
     void stopAsyncLoaders_() noexcept;
+    void reconnectRecordingCatalog_();
     QVariantList loadSessions_() const;
     void reloadSessionsAsync_();
     void applyLoadedSessions_(std::uint64_t generation, QVariantList sessions);
@@ -450,7 +507,19 @@ class BacktestViewModel : public QObject {
                                                         bool useSelectedSymbolOverride = true);
     QStringList selectedSessionCandidatePaths_() const;
     QStringList selectedSessionPaths_() const;
+    QStringList candidatePathsForSessionId_(const QString& sessionId) const;
+    QStringList legSelectionCandidatePaths_() const;
+    QVariantList sessionLegRowsForPaths_(const QStringList& paths, const QStringList& disabledPaths) const;
+    int normalizedSelectedPrimaryLegIndexForPaths_(const QStringList& paths, const QStringList& disabledPaths) const;
     QStringList orderedSessionPathsForRun_() const;
+    QString legSelectionSettingsKey_() const;
+    QStringList normalizedDisabledSessionLegPaths_(const QStringList& disabledPaths) const;
+    void loadLegSelectionForCurrentSession_();
+    void saveLegSelectionForCurrentSession_();
+    void syncStagedLegSelection_();
+    int normalizedSelectedPrimaryLegIndex_() const;
+    int selectedPrimaryLegIndexForPaths_(const QStringList& paths) const;
+    bool normalizeSelectedPrimaryLeg_();
     QStringList batchUniverseSessionPaths_() const;
     bool strategySupportsSelectedSessionCount_() const;
     bool ensureSelectedStrategySupportsSessionCount_();
@@ -462,20 +531,27 @@ class BacktestViewModel : public QObject {
     std::vector<QVariantMap> venueExecutionRowsForPaths_(const QStringList& paths) const;
     QString effectiveResultScopeId_(const RunRecord& record) const;
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
+    void setSelectedSessionId_(const QString& sessionId, bool deferRefresh);
 
     QFileSystemWatcher watcher_{};
     QTimer refreshTimer_{};
+    RecordingCatalog* recordingCatalog_{nullptr};
+    QMetaObject::Connection catalogSnapshotConnection_{};
     QSettings settings_{};
     QString selectedSessionId_{};
     QString manualSessionPath_{};
     QString extraSessionIds_{};
+    QString pendingLegSelectionSessionId_{};
     QStringList disabledSessionLegPaths_{};
+    QStringList stagedDisabledSessionLegPaths_{};
     QString symbolOverride_{};
     QString selectedRunId_{};
     QString activeRunId_{};
     QString selectedStrategy_{QStringLiteral("spread_maker1and2")};
     QString configMode_{QStringLiteral("fixed")};
     QString selectedIndicatorProfile_{};
+    int selectedPrimaryLegIndex_{0};
+    QString selectedTradeMode_{QStringLiteral("all")};
     QString profileName_{QStringLiteral("default")};
     QString pingLatencyUs_{QStringLiteral("1000")};
     QString latencySeed_{QStringLiteral("0")};
@@ -518,17 +594,22 @@ class BacktestViewModel : public QObject {
     QString selectedResultMetricRatioKey_{};
     QString statusText_{QStringLiteral("Select a session and strategy")};
     QString progressText_{QStringLiteral("Idle")};
+    QString resultsLoadingText_{};
     QString selectedDetailsErrorText_{};
     QString previewLoadingRunId_{};
     QString detailsLoadingRunId_{};
     QString pendingDetailsRunId_{};
     std::uint64_t sessionsLoadGeneration_{0};
+    std::uint64_t resultsLoadGeneration_{0};
     std::uint64_t previewLoadGeneration_{0};
     std::uint64_t detailsLoadGeneration_{0};
     int progressPercent_{0};
     bool running_{false};
+    bool resultsLoading_{false};
+    bool pendingResultsRefresh_{false};
     bool previewLoading_{false};
     bool detailsLoading_{false};
+    bool deferredLegSelectionRefresh_{false};
     std::atomic<bool> cancelRequested_{false};
     std::thread worker_{};
     std::shared_ptr<AsyncLoadContext> asyncLoadContext_{std::make_shared<AsyncLoadContext>()};

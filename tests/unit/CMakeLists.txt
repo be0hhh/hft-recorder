@@ -48,6 +48,7 @@ if(Qt6_FOUND)
             test_moex_basis_series.cpp
             backtests/test_backtest_batch_analysis_helpers.cpp
             backtests/test_backtest_batch_sweep_helpers.cpp
+            backtests/test_backtest_leg_selection.cpp
             backtests/test_backtest_viewmodel.cpp
             backtests/test_backtest_viewmodel_helpers.cpp
             test_recorded_render_once.cpp
@@ -83,6 +84,8 @@ if(Qt6_FOUND)
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModel.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelBatch.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelConfig.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelLegSelection.cpp
+            ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelResultRefresh.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelResults.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestSessionSummary.cpp
     )

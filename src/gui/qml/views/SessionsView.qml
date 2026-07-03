@@ -5,6 +5,7 @@ import HftRecorder 1.0
 
 Pane {
     id: root
+    property var recordingCatalog: null
     property color windowColor: "#161616"
     property color panelColor: "#2c2c2f"
     property color panelAltColor: "#3c3c3c"
@@ -31,7 +32,7 @@ Pane {
         }
     }
 
-    SessionListModel { id: sessionsModel }
+    SessionListModel { id: sessionsModel; recordingCatalog: root.recordingCatalog }
 
     ColumnLayout {
         anchors.fill: parent

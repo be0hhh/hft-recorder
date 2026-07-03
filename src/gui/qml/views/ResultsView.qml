@@ -296,7 +296,10 @@ Pane {
                     onActivated: root.backtestVm.selectRun(currentValue)
                     Component.onCompleted: root.syncSelections()
                 }
-                ActionButton { text: "Refresh"; onClicked: root.backtestVm.refreshResults() }
+                ActionButton {
+                    text: root.backtestVm.resultsLoading ? "Queue refresh" : "Refresh"
+                    onClicked: root.backtestVm.refreshResults()
+                }
                 ActionButton {
                     text: root.backtestVm.selectedDetailsLoading ? "Loading" : (root.hasDrawableSeries() ? "Visual loaded" : (root.backtestVm.selectedDetailsLoaded ? "Reload visual" : "Load visual"))
                     visible: root.backtestVm.hasSelection

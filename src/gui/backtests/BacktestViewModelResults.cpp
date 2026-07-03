@@ -328,159 +328,6 @@ qint64 BacktestViewModel::selectedPnlMaxE8() const {
     return record->scopedPnlMaxE8.value(scope, record->pnlMaxE8);
 }
 
-void BacktestViewModel::refresh() {
-    refreshTimer_.stop();
-    ++previewLoadGeneration_;
-    setPreviewLoading_(false);
-    if (!pendingDetailsRunId_.isEmpty()) {
-        pendingDetailsRunId_.clear();
-        setDetailsLoading_(false);
-    }
-    updateWatcher_();
-    std::vector<RunRecord> next;
-    const QString dirPath = backtestsDirectory();
-    QStringList filesToWatch;
-    if (!dirPath.isEmpty()) {
-        const QStringList selectedPaths = selectedSessionPaths_();
-        QStringList selectedSessionIds;
-        for (const QString& path : selectedPaths) selectedSessionIds.push_back(sessionIdFromPath_(path));
-        auto addRunDir = [&](const QFileInfo& runDir) {
-            const QDir candidateDir(runDir.absoluteFilePath());
-            const QString manifestPath = candidateDir.absoluteFilePath(QStringLiteral("manifest.json"));
-            if (!QFileInfo::exists(manifestPath)) return;
-            if (!backtestManifestMatchesLegs(manifestPath, selectedSessionIds)) return;
-            const RunRecord* cached = recordForPath_(runDir.absoluteFilePath());
-            RunRecord record = loadRecord_(runDir.absoluteFilePath(), RecordLoadMode::MetadataOnly);
-            if (!record.strategy.isEmpty() && record.strategy != selectedStrategy_) return;
-            const bool metadataMatches = cached != nullptr
-                && cached->manifestPath == manifestPath
-                && fileStampMatches_(manifestPath, cached->manifestModifiedMs, cached->manifestSize);
-            const bool equityMatches = metadataMatches
-                && record.equityPath == cached->equityPath
-                && fileStampMatches_(cached->equityPath, cached->equityModifiedMs, cached->equitySize);
-            if (equityMatches) {
-                record.equityPoints = cached->equityPoints;
-                record.resultScopes = cached->resultScopes;
-                record.scopedEquityPoints = cached->scopedEquityPoints;
-                record.scopedResultMetrics = cached->scopedResultMetrics;
-                record.scopedInitialBalanceE8 = cached->scopedInitialBalanceE8;
-                record.scopedPnlMinE8 = cached->scopedPnlMinE8;
-                record.scopedPnlMaxE8 = cached->scopedPnlMaxE8;
-                record.pnlMinE8 = cached->pnlMinE8;
-                record.pnlMaxE8 = cached->pnlMaxE8;
-            }
-            const bool sweepMatches = metadataMatches
-                && cached->detailsLoaded
-                && record.sweepRowsPath == cached->sweepRowsPath
-                && record.sweepCurvesPath == cached->sweepCurvesPath
-                && fileStampMatches_(cached->sweepRowsPath, cached->sweepRowsModifiedMs, cached->sweepRowsSize)
-                && fileStampMatches_(cached->sweepCurvesPath, cached->sweepCurvesModifiedMs, cached->sweepCurvesSize);
-            if (cached != nullptr && cached->detailsLoaded && ((!record.sweep && equityMatches) || (record.sweep && sweepMatches))) {
-                record.sweepRows = cached->sweepRows;
-                record.sweepCurves = cached->sweepCurves;
-                record.sweepParamKeys = cached->sweepParamKeys;
-                record.detailsErrorText = cached->detailsErrorText;
-                record.warningText = cached->warningText;
-                record.warningCount = cached->warningCount;
-                if (!cached->sweepRows.empty() || !cached->sweepCurves.empty()) {
-                    record.initialBalanceE8 = cached->initialBalanceE8;
-                    record.totalPnlE8 = cached->totalPnlE8;
-                    record.pnlText = cached->pnlText;
-                }
-                record.detailsLoaded = true;
-            }
-            if (!record.manifestPath.isEmpty()) filesToWatch.push_back(record.manifestPath);
-            next.push_back(std::move(record));
-        };
-        QDir dir(dirPath);
-        const QFileInfoList dirs = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Name);
-        const QDir sweepsDir(dir.absoluteFilePath(QStringLiteral("sweeps")));
-        const QFileInfoList sweepDirs = sweepsDir.exists() ? sweepsDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time | QDir::Name) : QFileInfoList{};
-        next.reserve(static_cast<std::size_t>(dirs.size() + sweepDirs.size()));
-        for (const QFileInfo& runDir : dirs) {
-            if (runDir.fileName() == QStringLiteral("sweeps")) continue;
-            addRunDir(runDir);
-        }
-        for (const QFileInfo& sweepDir : sweepDirs) addRunDir(sweepDir);
-    }
-
-    std::sort(next.begin(), next.end(), [](const RunRecord& lhs, const RunRecord& rhs) {
-        if (lhs.modifiedMs != rhs.modifiedMs) return lhs.modifiedMs > rhs.modifiedMs;
-        return lhs.fileName < rhs.fileName;
-    });
-    records_ = std::move(next);
-
-    if (!selectedRunId_.isEmpty() && selectedRecord_() == nullptr) selectedRunId_.clear();
-    if (selectedRunId_.isEmpty() && !records_.empty()) selectedRunId_ = records_.front().runId;
-    if (running_ && !activeRunId_.isEmpty()) {
-        const auto active = std::find_if(records_.begin(), records_.end(), [this](const RunRecord& record) {
-            return record.runId == activeRunId_;
-        });
-        if (active != records_.end()) {
-            const QString terminalStatus = active->status.trimmed().toLower();
-            if (terminalStatus == QStringLiteral("complete") ||
-                terminalStatus == QStringLiteral("error") ||
-                terminalStatus == QStringLiteral("failed") ||
-                terminalStatus == QStringLiteral("cancelled") ||
-                terminalStatus == QStringLiteral("canceled")) {
-                const QString status = active->sweep
-                    ? (terminalStatus == QStringLiteral("complete") ? QStringLiteral("Sweep complete") : QStringLiteral("Sweep ") + terminalStatus)
-                    : (terminalStatus == QStringLiteral("complete") ? QStringLiteral("Backtest complete") : QStringLiteral("Backtest ") + terminalStatus);
-                const QString statusWithWarnings = terminalStatus == QStringLiteral("complete") && active->warningCount > 0
-                    ? status + QStringLiteral(": %1 warning%2").arg(active->warningCount).arg(active->warningCount == 1 ? QString{} : QStringLiteral("s"))
-                    : status;
-                activeRunId_.clear();
-                setRunning_(false);
-                setProgress_(100, statusWithWarnings);
-                setStatusText_(statusWithWarnings);
-            }
-        }
-    }
-    if (const RunRecord* selected = selectedRecord_()) {
-        if (!selected->equityPath.isEmpty()) filesToWatch.push_back(selected->equityPath);
-        if (selected->detailsLoaded) {
-            if (!selected->sweepRowsPath.isEmpty()) filesToWatch.push_back(selected->sweepRowsPath);
-            if (!selected->sweepCurvesPath.isEmpty()) filesToWatch.push_back(selected->sweepCurvesPath);
-        }
-    }
-
-    if (!running_) {
-        if (selectedSessionPath().isEmpty()) {
-            setStatusText_(QStringLiteral("Select a session and strategy"));
-        } else if (selectedSessionPaths_().empty()) {
-            setStatusText_(QStringLiteral("Select at least one leg"));
-        } else if (!strategySupportsSelectedSessionCount_()) {
-            const QString gateText = strategySessionGateText(selectedStrategy_, selectedSessionCount());
-            setStatusText_(gateText.isEmpty() ? QStringLiteral("Selected strategy does not support selected sessions") : gateText);
-        } else {
-            setStatusText_(QStringLiteral("Watching %1 result%2")
-                               .arg(static_cast<qulonglong>(records_.size()))
-                               .arg(records_.size() == 1u ? QString{} : QStringLiteral("s")));
-        }
-    }
-    const QStringList watchedFiles = watcher_.files();
-    if (!watchedFiles.empty()) {
-        QStringList filesToRemove;
-        for (const QString& file : watchedFiles) {
-            if (!filesToWatch.contains(file)) filesToRemove.push_back(file);
-        }
-        if (!filesToRemove.empty()) (void)watcher_.removePaths(filesToRemove);
-    }
-    if (!filesToWatch.empty()) {
-        const QStringList currentFiles = watcher_.files();
-        QStringList filesToAdd;
-        for (const QString& file : filesToWatch) {
-            if (!QFileInfo::exists(file) || currentFiles.contains(file)) continue;
-            filesToAdd.push_back(file);
-        }
-        if (!filesToAdd.empty()) (void)watcher_.addPaths(filesToAdd);
-    }
-    emit runsChanged();
-    emit selectionChanged();
-    emit selectedResultMetricChanged();
-    ensureSelectedPreviewLoaded_();
-}
-
 void BacktestViewModel::selectRun(const QString& runId) {
     if (selectedRunId_ == runId) return;
     if (RunRecord* oldRecord = mutableRecordForRunId_(selectedRunId_)) clearRecordDetails_(*oldRecord);
@@ -792,14 +639,6 @@ const BacktestViewModel::RunRecord* BacktestViewModel::selectedRecord_() const n
     return it == records_.end() ? nullptr : &(*it);
 }
 
-const BacktestViewModel::RunRecord* BacktestViewModel::recordForPath_(const QString& filePath) const noexcept {
-    const QString target = QFileInfo(filePath).absoluteFilePath();
-    const auto it = std::find_if(records_.begin(), records_.end(), [&target](const RunRecord& record) {
-        return record.filePath == target;
-    });
-    return it == records_.end() ? nullptr : &(*it);
-}
-
 BacktestViewModel::RunRecord* BacktestViewModel::mutableRecordForRunId_(const QString& runId) noexcept {
     const auto it = std::find_if(records_.begin(), records_.end(), [&runId](const RunRecord& record) {
         return record.runId == runId;
@@ -842,7 +681,6 @@ void BacktestViewModel::updateWatcher_() {
         const QStringList selectedPaths = selectedSessionPaths_();
         QDir sessionDir(selectedPaths.empty() ? selectedSessionPath() : selectedPaths.front());
         if (sessionDir.exists()) {
-            sessionDir.mkpath(QStringLiteral("backtests"));
             if (QDir(dirPath).exists()) desiredDirs.push_back(dirPath);
         }
     }

@@ -26,15 +26,16 @@ ApplicationWindow {
     property bool tabPrewarmRunning: false
 
     AppViewModel { id: rootAppVm; objectName: "appVm" }
+    RecordingCatalog { id: rootRecordingCatalog; objectName: "recordingCatalog" }
     CaptureViewModel { id: rootCaptureVm; objectName: "captureVm" }
-    BacktestViewModel { id: rootBacktestVm; objectName: "backtestVm" }
+    BacktestViewModel { id: rootBacktestVm; objectName: "backtestVm"; recordingCatalog: rootRecordingCatalog }
     WorkspaceViewModel { id: rootWorkspaceVm; objectName: "workspaceVm" }
 
     Item { id: inactiveTabStorage; visible: false; anchors.fill: parent }
-    Component { id: compressionVmComponent; CompressionViewModel { objectName: "compressionVm" } }
+    Component { id: compressionVmComponent; CompressionViewModel { objectName: "compressionVm"; recordingCatalog: rootRecordingCatalog } }
     Component { id: captureComponent; CaptureView { captureVm: rootCaptureVm; tabActive: false } }
-    Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; backtestVm: rootBacktestVm; tabActive: false } }
-    Component { id: moexBasisComponent; MoexBasisView { appVm: rootAppVm; backtestVm: rootBacktestVm; tabActive: false } }
+    Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; backtestVm: rootBacktestVm; recordingCatalog: rootRecordingCatalog; tabActive: false } }
+    Component { id: moexBasisComponent; MoexBasisView { appVm: rootAppVm; backtestVm: rootBacktestVm; recordingCatalog: rootRecordingCatalog; tabActive: false } }
     Component { id: compressComponent; CompressView { compressionVm: root.ensureCompressionVm(); tabActive: false } }
     Component { id: backtestsComponent; BacktestResultsView { backtestVm: rootBacktestVm; captureVm: rootCaptureVm; tabActive: false } }
     Component { id: quantComponent; QuantView { backtestVm: rootBacktestVm; tabActive: false } }

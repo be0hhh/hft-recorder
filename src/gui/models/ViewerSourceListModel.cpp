@@ -10,8 +10,8 @@
 #include <QVariantMap>
 
 #include "gui/backtests/BacktestSessionSummary.hpp"
+#include "gui/models/RecordingCatalog.hpp"
 #include "gui/viewmodels/CaptureViewModel.hpp"
-#include "core/recordings/RecordingDiscovery.hpp"
 #include "core/recordings/RecordingRoot.hpp"
 
 namespace hftrec::gui {
@@ -152,7 +152,11 @@ ViewerSourceListModel::ViewerSourceListModel(QObject* parent)
 }
 
 void ViewerSourceListModel::reload() {
-    rebuildEntries_();
+    if (recordingCatalog_ != nullptr) {
+        recordingCatalog_->refresh();
+    } else {
+        rebuildEntries_();
+    }
 }
 
 QString ViewerSourceListModel::sessionPath(const QString& sourceId) const {
@@ -335,6 +339,19 @@ void ViewerSourceListModel::setCaptureViewModel(QObject* captureViewModel) {
     emit captureViewModelChanged();
 }
 
+QObject* ViewerSourceListModel::recordingCatalog() const {
+    return recordingCatalog_;
+}
+
+void ViewerSourceListModel::setRecordingCatalog(QObject* recordingCatalog) {
+    auto* typedCatalog = qobject_cast<RecordingCatalog*>(recordingCatalog);
+    if (typedCatalog == recordingCatalog_) return;
+    recordingCatalog_ = typedCatalog;
+    reconnectRecordingCatalog_();
+    rebuildEntries_();
+    emit recordingCatalogChanged();
+}
+
 int ViewerSourceListModel::rowCount(const QModelIndex& parent) const {
     return parent.isValid() ? 0 : static_cast<int>(entries_.size());
 }
@@ -386,6 +403,13 @@ void ViewerSourceListModel::reconnectCaptureVm_() {
         connect(captureVm_, &CaptureViewModel::activeLiveSourcesChanged, this, &ViewerSourceListModel::rebuildEntries_);
 }
 
+void ViewerSourceListModel::reconnectRecordingCatalog_() {
+    if (catalogSnapshotConnection_) disconnect(catalogSnapshotConnection_);
+    if (recordingCatalog_ == nullptr) return;
+    catalogSnapshotConnection_ =
+        connect(recordingCatalog_, &RecordingCatalog::snapshotChanged, this, &ViewerSourceListModel::rebuildEntries_);
+}
+
 QVariantList ViewerSourceListModel::currentLiveSources_() const {
     return captureVm_ != nullptr ? captureVm_->activeLiveSources() : QVariantList{};
 }
@@ -414,11 +438,10 @@ void ViewerSourceListModel::rebuildEntries_() {
         if (!entry.id.isEmpty()) nextEntries.push_back(std::move(entry));
     }
 
-    QDir recordingsDir(recordingsRoot());
-    if (recordingsDir.exists()) {
-        const auto backtestCountsBySession = backtestLegCountsBySession(recordingsRoot());
-        const auto discovery = hftrec::recordings::discoverRecordings(recordingsRoot().toStdString());
-        for (const auto& recorded : discovery.sessions) {
+    if (recordingCatalog_ != nullptr && recordingCatalog_->hasSnapshot()) {
+        const auto& snapshot = recordingCatalog_->snapshot();
+        nextEntries.reserve(nextEntries.size() + static_cast<qsizetype>(snapshot.discovery.sessions.size()));
+        for (const auto& recorded : snapshot.discovery.sessions) {
             const QString recordedId = QString::fromStdString(recorded.sessionId);
             Entry entry{};
             entry.id = QStringLiteral("recorded:%1").arg(recordedId);
@@ -431,7 +454,7 @@ void ViewerSourceListModel::rebuildEntries_() {
             entry.groupTitle = QString::fromStdString(recorded.groupTitle);
             entry.sourceKind = QStringLiteral("recorded");
             entry.sessionPath = QString::fromStdString(recorded.path.string());
-            const BacktestLegCounts backtestCounts = backtestCountsBySession.value(recordedId);
+            const BacktestLegCounts backtestCounts = snapshot.backtestCountsBySession.value(recordedId);
             entry.backtestCount = backtestCounts.firstLeg;
             entry.exchange = QString::fromStdString(recorded.exchange);
             entry.market = QString::fromStdString(recorded.market);

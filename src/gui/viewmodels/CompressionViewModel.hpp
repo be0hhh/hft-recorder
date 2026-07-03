@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QMetaObject>
 #include <QString>
 #include <QUrl>
 #include <QVariantList>
@@ -18,9 +19,12 @@ class MetricsServer;
 
 namespace hftrec::gui {
 
+class RecordingCatalog;
+
 class CompressionViewModel : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString recordingsRoot READ recordingsRoot CONSTANT)
+    Q_PROPERTY(QObject* recordingCatalog READ recordingCatalog WRITE setRecordingCatalog NOTIFY recordingCatalogChanged)
     Q_PROPERTY(QVariantList sessions READ sessions NOTIFY sessionsChanged)
     Q_PROPERTY(QString selectedSessionId READ selectedSessionId WRITE setSelectedSessionId NOTIFY selectedSessionChanged)
     Q_PROPERTY(QString selectedSessionPath READ selectedSessionPath NOTIFY selectedSessionChanged)
@@ -74,6 +78,8 @@ class CompressionViewModel : public QObject {
     ~CompressionViewModel() override;
 
     QString recordingsRoot() const;
+    QObject* recordingCatalog() const;
+    void setRecordingCatalog(QObject* recordingCatalog);
     QVariantList sessions() const;
     QString selectedSessionId() const { return selectedSessionId_; }
     QString selectedSessionPath() const;
@@ -143,6 +149,7 @@ class CompressionViewModel : public QObject {
 
   signals:
     void sessionsChanged();
+    void recordingCatalogChanged();
     void selectedSessionChanged();
     void selectedChannelChanged();
     void channelChoicesChanged();
@@ -172,6 +179,8 @@ class CompressionViewModel : public QObject {
     void reloadStoredVerifyRows_();
     void appendResultRow_(const QVariantMap& row);
     void appendVerifyRow_(const QVariantMap& row);
+    void reconnectRecordingCatalog_();
+    void initializeSelectedSessionFromCatalog_();
     void applyResult_(const hft_compressor::CompressionResult& result);
     void applyResults_(const std::vector<hft_compressor::CompressionResult>& results);
     void applyPythonResult_(const QVariantMap& result);
@@ -191,6 +200,8 @@ class CompressionViewModel : public QObject {
     QString verifyFilePreviewFor_(const QString& channel) const;
 
     QString selectedSessionId_{};
+    RecordingCatalog* recordingCatalog_{nullptr};
+    QMetaObject::Connection catalogSnapshotConnection_{};
     QString selectedChannel_{"trades"};
     QString selectedPipelineId_{};
     QString manualInputFile_{};

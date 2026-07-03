@@ -21,6 +21,7 @@
 #include <mutex>
 #include <new>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -739,7 +740,9 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         }
         if (event.status != cxet::api::market::PublicMarketDataStatus::Parsed) continue;
         const bool captureMetrics = cxet::metrics::shouldCaptureLatency();
-        const auto meta = streamMetaFromTraderEvent(event, internal::primaryIdentitySymbolText(config));
+        const std::string_view fixedIdentitySymbol =
+            config.symbols.size() == 1u ? internal::primaryIdentitySymbolText(config) : std::string_view{};
+        const auto meta = streamMetaFromTraderEvent(event, fixedIdentitySymbol);
         if (event.stream == cxet::api::market::PublicMarketDataStream::Trades) {
                 const auto sequenceIds = nextEventSequenceIds(tradesCaptureSeq_, ingestSeq_);
                 TscTick bridgeStartTsc{};

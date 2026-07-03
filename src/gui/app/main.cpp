@@ -8,6 +8,7 @@
 
 #include "app/metrics_bootstrap.hpp"
 #include "gui/api/ChartApiServer.hpp"
+#include "gui/models/RecordingCatalog.hpp"
 #include "gui/models/SessionListModel.hpp"
 #include "gui/models/ViewerSourceListModel.hpp"
 #include "gui/viewer/BookTickerCompareController.hpp"
@@ -70,6 +71,7 @@ int main(int argc, char* argv[]) {
                                      : QSGRendererInterface::Software);
 
     qmlRegisterType<hftrec::gui::SessionListModel>("HftRecorder", 1, 0, "SessionListModel");
+    qmlRegisterType<hftrec::gui::RecordingCatalog>("HftRecorder", 1, 0, "RecordingCatalog");
     qmlRegisterType<hftrec::gui::ViewerSourceListModel>("HftRecorder", 1, 0, "ViewerSourceListModel");
     qmlRegisterType<hftrec::gui::AppViewModel>("HftRecorder", 1, 0, "AppViewModel");
     qmlRegisterType<hftrec::gui::BacktestViewModel>("HftRecorder", 1, 0, "BacktestViewModel");

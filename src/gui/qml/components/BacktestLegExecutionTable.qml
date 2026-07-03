@@ -11,7 +11,7 @@ Item {
     property color textColor: "#f1f4f8"
     property color mutedTextColor: "#a8afbd"
 
-    implicitHeight: Math.min(320, Math.max(104, 44 + backtestVm.selectedSessionLegs.length * 74))
+    implicitHeight: Math.min(360, Math.max(148, 92 + backtestVm.selectedSessionLegs.length * 74))
 
     component SeedField: Item {
         property string caption: ""
@@ -58,6 +58,18 @@ Item {
                 width: Math.max(executionFlick.width, executionFlick.tableWidth)
                 spacing: 4
 
+                BacktestPrimaryTradeControls {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 42
+                    width: executionContent.width
+                    backtestVm: table.backtestVm
+                    panelColor: table.panelDeepColor
+                    panelDeepColor: table.panelDeepColor
+                    borderColor: table.borderColor
+                    textColor: table.textColor
+                    mutedTextColor: table.mutedTextColor
+                }
+
                 RowLayout {
                     width: executionContent.width
                     spacing: 8
@@ -100,7 +112,7 @@ Item {
                                 onToggled: table.backtestVm.setSessionLegEnabled(modelData.path, checked)
                             }
                             Label {
-                                text: modelData.label
+                                text: (modelData.primary === true ? "Primary | " : "") + modelData.label
                                 color: modelData.enabled === false ? table.mutedTextColor : table.textColor
                                 font.pixelSize: 12
                                 elide: Text.ElideRight
@@ -209,7 +221,7 @@ Item {
                         }
 
                         Label {
-                            text: modelData.executionPresetSummary
+                            text: (modelData.tradable === true ? "Trades | " : "Observe | ") + modelData.executionPresetSummary
                             color: table.mutedTextColor
                             font.pixelSize: 11
                             wrapMode: Text.Wrap
