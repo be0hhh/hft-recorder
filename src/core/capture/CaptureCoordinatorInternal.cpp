@@ -18,7 +18,6 @@
 #include "canon/MarketMapping.hpp"
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
-#include "composite/level_0/SubscribeObject.hpp"
 #include "cxet.hpp"
 #include "hft_trader/runtime/prep/SymbolMetadataRuntime.hpp"
 #include "hft_trader/runtime/config/RuntimeConfig.hpp"
@@ -46,16 +45,6 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
 #if HFTREC_WITH_CXET
 namespace {
 
-bool symbolTextIsAll(std::string_view symbolText) noexcept {
-    if (symbolText.size() != 3u) return false;
-    char a = symbolText[0];
-    char l0 = symbolText[1];
-    char l1 = symbolText[2];
-    if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
-    if (l0 >= 'A' && l0 <= 'Z') l0 = static_cast<char>(l0 + ('a' - 'A'));
-    if (l1 >= 'A' && l1 <= 'Z') l1 = static_cast<char>(l1 + ('a' - 'A'));
-    return a == 'a' && l0 == 'l' && l1 == 'l';
-}
 Symbol makeSymbol(std::string_view symbolText) noexcept {
     Symbol symbol{};
     char text[rawdata::SymbolMaxBytes]{};
@@ -105,18 +94,6 @@ canon::MarketType marketTypeFromConfig(ExchangeId exchange, std::string_view mar
         textEqualsAscii(market, "forts") ||
         textEqualsAscii(market, "futures_usd")) return canon::kMarketTypeFutures;
     return canon::kMarketTypeUnknown;
-}
-
-cxet::UnifiedRequestBuilder makeSubscribeBuilder(const CaptureConfig& config,
-                                                 cxet::composite::out::SubscribeObject object) noexcept {
-    auto symbol = makeSymbol(primaryRouteSymbolText(config));
-    const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
-    return cxet::subscribe()
-        .object(object)
-        .exchange(exchange)
-        .market(marketTypeFromConfig(exchange, config.market))
-        .api(normalizedApiSlot(config))
-        .symbol(symbol);
 }
 
 }  // namespace
@@ -277,35 +254,10 @@ std::string_view primaryRouteSymbolText(const CaptureConfig& config) noexcept {
 }
 
 #if HFTREC_WITH_CXET
-cxet::UnifiedRequestBuilder makeTradesBuilder(const CaptureConfig& config) noexcept {
-    return makeSubscribeBuilder(config, cxet::composite::out::SubscribeObject::Trades);
-}
-
-cxet::UnifiedRequestBuilder makeBookTickerBuilder(const CaptureConfig& config) noexcept {
-    return makeSubscribeBuilder(config, cxet::composite::out::SubscribeObject::BookTicker);
-}
-
-cxet::UnifiedRequestBuilder makeLiquidationBuilder(const CaptureConfig& config) noexcept {
-    const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
-    auto builder = cxet::subscribe()
-        .object(cxet::composite::out::SubscribeObject::Liquidation)
-        .exchange(exchange)
-        .market(marketTypeFromConfig(exchange, config.market))
-        .api(normalizedApiSlot(config));
-    const std::string_view symbolText = primaryRouteSymbolText(config);
-    if (symbolTextIsAll(symbolText)) return builder.symbol(canon::SlotScope::All);
-    auto symbol = makeSymbol(symbolText);
-    return builder.symbol(symbol);
-}
-
-cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const CaptureConfig& config) noexcept {
-    return makeSubscribeBuilder(config, cxet::composite::out::SubscribeObject::Orderbook);
-}
-
-bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
-                           cxet::UnifiedRequestBuilder& builder,
-                           std::string& lastError) {
+bool validateRequestedAliases(const std::vector<std::string>& aliasNames,
+                              std::string& lastError) {
     if (aliasNames.empty()) {
+        lastError.clear();
         return true;
     }
 
@@ -327,7 +279,7 @@ bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
         return false;
     }
 
-    builder.aliases(Span<const canon::FieldId>(fieldIds, parsedCount));
+    lastError.clear();
     return true;
 }
 

@@ -1,9 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/capture/CaptureChannelSupport.hpp"
+#if HFTREC_WITH_CXET
+#include "core/capture/CaptureCoordinatorRuntimeHelpers.hpp"
+#endif
 
 namespace {
 
@@ -97,7 +101,35 @@ TEST(CaptureChannelSupport, MarksPlanAsEmptyWhenNoChannelsRemain) {
     EXPECT_NE(plan.skippedSummary().find("not wired"), std::string::npos);
 }
 
+TEST(CaptureChannelSupport, SkippedSummaryCarriesPreflightTransportReason) {
+    hftrec::capture::CaptureLaunchPlan plan{};
+    CaptureChannelDecision decision{};
+    decision.channel = CaptureChannel::Trades;
+    decision.requested = true;
+    decision.skipped = true;
+    decision.reason = CaptureChannelSkipReason::ConnectFailed;
+    decision.detail = "trades: route status=connect_failed connect_stage=tcp_connect";
+    plan.decisions.push_back(std::move(decision));
+
+    const std::string summary = plan.skippedSummary();
+    EXPECT_NE(summary.find("trades:connect_failed"), std::string::npos);
+    EXPECT_NE(summary.find("tcp_connect"), std::string::npos);
+}
+
 #if HFTREC_WITH_CXET
+TEST(CaptureChannelSupport, ClassifiesOnlyTerminalStartupStatusesAsFailFast) {
+    using cxet::api::market::PublicMarketDataStatus;
+
+    EXPECT_TRUE(hftrec::capture::runtime::marketDataStatusIsTerminalStartupFailure(PublicMarketDataStatus::ConnectFailed));
+    EXPECT_TRUE(hftrec::capture::runtime::marketDataStatusIsTerminalStartupFailure(PublicMarketDataStatus::BadConfig));
+    EXPECT_TRUE(hftrec::capture::runtime::marketDataStatusIsTerminalStartupFailure(PublicMarketDataStatus::UnsupportedRoute));
+    EXPECT_TRUE(hftrec::capture::runtime::marketDataStatusIsTerminalStartupFailure(PublicMarketDataStatus::SubscribeFailed));
+
+    EXPECT_FALSE(hftrec::capture::runtime::marketDataStatusIsTerminalStartupFailure(PublicMarketDataStatus::NoFrame));
+    EXPECT_FALSE(hftrec::capture::runtime::marketDataStatusIsTerminalStartupFailure(PublicMarketDataStatus::Disconnected));
+    EXPECT_FALSE(hftrec::capture::runtime::marketDataStatusIsTerminalStartupFailure(PublicMarketDataStatus::Parsed));
+}
+
 TEST(CaptureChannelSupport, HyperliquidFuturesMarketDataChannelsAreRuntimeReady) {
     CaptureConfig config{};
     config.exchange = "hyperliquid";

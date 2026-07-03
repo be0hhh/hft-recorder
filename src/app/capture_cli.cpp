@@ -2,7 +2,6 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
-#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -12,6 +11,7 @@
 
 #include "core/capture/CaptureCoordinator.hpp"
 #include "core/recordings/RecordingRoot.hpp"
+#include "core/tui/RecorderTuiSymbols.hpp"
 
 namespace hftrec::app {
 
@@ -60,22 +60,9 @@ capture::CaptureConfig makeDefaultConfig() {
     return config;
 }
 
-struct VenueDefault {
-    const char* exchange;
-    const char* market;
-    const char* symbol;
-};
-
-constexpr VenueDefault kBookTickerVenueDefaults[] = {
-    {"binance", "futures", "BTCUSDT"},
-    {"bybit", "futures", "BTCUSDT"},
-    {"kucoin", "futures", "BTCUSDTM"},
-    {"gate", "futures", "BTC_USDT"},
-    {"bitget", "futures", "BTCUSDT"},
-    {"aster", "futures", "BTCUSDT"},
-    {"aster", "spot", "ASTERUSDT"},
-    {"okx", "futures", "BTC-USDT-SWAP"},
-};
+std::vector<tui::RecorderTuiJob> bookTickerAllJobs() {
+    return tui::generateJobsForSymbols({"BTCUSDT"}, tui::allCryptoVenueSpecs(), 0u);
+}
 
 bool isMarkPriceChannel(std::string_view channel) noexcept {
     return channel == "mark_price" || channel == "mark-price" || channel == "markprice" || channel == "mark";
@@ -373,13 +360,17 @@ int runCapture(int argc, char** argv) {
 
     if (allBookTickers) {
         std::vector<std::unique_ptr<capture::CaptureCoordinator>> coordinators;
-        coordinators.reserve(std::size(kBookTickerVenueDefaults));
+        const auto jobs = bookTickerAllJobs();
+        coordinators.reserve(jobs.size());
 
-        for (const auto& venue : kBookTickerVenueDefaults) {
+        for (const auto& job : jobs) {
             auto venueConfig = config;
-            venueConfig.exchange = venue.exchange;
-            venueConfig.market = venue.market;
-            venueConfig.symbols = {venue.symbol};
+            venueConfig.exchange = job.exchange;
+            venueConfig.market = job.market;
+            venueConfig.symbols = {job.symbol};
+            venueConfig.routeSymbols.clear();
+            const std::string routeSymbol = tui::routeSymbolForJob(job);
+            if (!routeSymbol.empty() && routeSymbol != job.symbol) venueConfig.routeSymbols = {routeSymbol};
 
             auto coordinator = std::make_unique<capture::CaptureCoordinator>();
             const auto startStatus = coordinator->startBookTicker(venueConfig);
@@ -387,17 +378,17 @@ int runCapture(int argc, char** argv) {
                 const auto error = coordinator->lastError();
                 std::fprintf(stderr,
                              "capture start failed: exchange=%s market=%s symbol=%s %s\n",
-                             venue.exchange,
-                             venue.market,
-                             venue.symbol,
+                             job.exchange.c_str(),
+                             job.market.c_str(),
+                             job.symbol.c_str(),
                              !error.empty() ? error.c_str() : statusToString(startStatus).data());
                 for (auto& running : coordinators) (void)running->finalizeSession();
                 return 1;
             }
             std::printf("capture started: channel=bookticker exchange=%s market=%s symbol=%s duration=%llds dir=%s env=%s api_slot=%u\n",
-                        venue.exchange,
-                        venue.market,
-                        venue.symbol,
+                        job.exchange.c_str(),
+                        job.market.c_str(),
+                        job.symbol.c_str(),
                         static_cast<long long>(venueConfig.durationSec),
                         venueConfig.outputDir.string().c_str(),
                         venueConfig.envPath.string().c_str(),

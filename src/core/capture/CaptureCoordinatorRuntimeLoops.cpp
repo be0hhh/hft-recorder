@@ -58,6 +58,7 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
 
     std::int64_t nextManifestFlushNs = internal::nowNs() + kRecordingManifestFlushIntervalNs;
     std::int64_t nextLifecyclePollNs = internal::nowNs() + kMarketDataLifecyclePollIntervalNs;
+    const std::int64_t startupFailureDeadlineNs = internal::nowNs() + kMarketDataStartupFailureGraceNs;
     while (!liquidationsStop_.load(std::memory_order_acquire)) {
         (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
         std::string routeDiagnostic;
@@ -65,6 +66,15 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
         if (!routeDiagnostic.empty()) {
             std::lock_guard<std::mutex> lock(stateMutex_);
             lastError_ = routeDiagnostic;
+        }
+        if (internal::nowNs() >= startupFailureDeadlineNs &&
+            liquidationsCount_.load(std::memory_order_acquire) == 0u) {
+            std::string terminalDiagnostic;
+            if (marketDataRuntimeTerminalStartupFailure(*traderMarket, "liquidations", &terminalDiagnostic)) {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                lastError_ = terminalDiagnostic;
+                break;
+            }
         }
         hft_trader::runtime::MarketDataRuntimeEvent event{};
         if (traderMarket->pollAvailableOne(event)) {
@@ -284,6 +294,7 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
     };
 
     std::int64_t nextLifecyclePollNs = internal::nowNs() + kMarketDataLifecyclePollIntervalNs;
+    const std::int64_t startupFailureDeadlineNs = internal::nowNs() + kMarketDataStartupFailureGraceNs;
     while (!referenceDataStop_.load(std::memory_order_acquire)) {
         const std::uint8_t mask = desiredMask();
         if (mask == 0u) break;
@@ -296,6 +307,19 @@ void CaptureCoordinator::referenceDataManagerLoop_(CaptureConfig config) noexcep
         if (!routeDiagnostic.empty()) {
             std::lock_guard<std::mutex> lock(stateMutex_);
             lastError_ = routeDiagnostic;
+        }
+        const std::uint64_t referenceRows =
+            markPriceCount_.load(std::memory_order_acquire) +
+            indexPriceCount_.load(std::memory_order_acquire) +
+            fundingCount_.load(std::memory_order_acquire) +
+            priceLimitCount_.load(std::memory_order_acquire);
+        if (internal::nowNs() >= startupFailureDeadlineNs && referenceRows == 0u) {
+            std::string terminalDiagnostic;
+            if (marketDataRuntimeTerminalStartupFailure(*traderMarket, "reference", &terminalDiagnostic)) {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                lastError_ = terminalDiagnostic;
+                break;
+            }
         }
 
         hft_trader::runtime::MarketDataRuntimeEvent event{};
@@ -677,6 +701,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
 
     std::int64_t nextManifestFlushNs = internal::nowNs() + kRecordingManifestFlushIntervalNs;
     std::int64_t nextLifecyclePollNs = internal::nowNs() + kMarketDataLifecyclePollIntervalNs;
+    const std::int64_t startupFailureDeadlineNs = internal::nowNs() + kMarketDataStartupFailureGraceNs;
     while (!marketDataStop_.load(std::memory_order_acquire)) {
         (void)flushRecordingManifestIfDue_(nextManifestFlushNs);
         const std::uint8_t mask = desiredMask();
@@ -691,6 +716,18 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
         if (!routeDiagnostic.empty()) {
             std::lock_guard<std::mutex> lock(stateMutex_);
             lastError_ = routeDiagnostic;
+        }
+        const std::uint64_t marketRows =
+            tradesCount_.load(std::memory_order_acquire) +
+            bookTickerCount_.load(std::memory_order_acquire) +
+            depthCount_.load(std::memory_order_acquire);
+        if (internal::nowNs() >= startupFailureDeadlineNs && marketRows == 0u) {
+            std::string terminalDiagnostic;
+            if (marketDataRuntimeTerminalStartupFailure(*traderMarket, "market-data", &terminalDiagnostic)) {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                lastError_ = terminalDiagnostic;
+                break;
+            }
         }
         if (!drainTradesWarmupPages()) break;
         if (!flushTradesWarmupIfReady()) break;

@@ -337,6 +337,38 @@ capture::CaptureChannel captureChannelForLaunch(tui::LaunchChannel channel) noex
     return capture::CaptureChannel::BookTicker;
 }
 
+tui::LaunchChannel launchChannelForCapture(capture::CaptureChannel channel) noexcept {
+    switch (channel) {
+        case capture::CaptureChannel::Trades: return tui::LaunchChannel::Trades;
+        case capture::CaptureChannel::Liquidations: return tui::LaunchChannel::Liquidations;
+        case capture::CaptureChannel::BookTicker: return tui::LaunchChannel::BookTicker;
+        case capture::CaptureChannel::Orderbook: return tui::LaunchChannel::Orderbook;
+        case capture::CaptureChannel::MarkPrice: return tui::LaunchChannel::MarkPrice;
+        case capture::CaptureChannel::IndexPrice: return tui::LaunchChannel::IndexPrice;
+        case capture::CaptureChannel::Funding: return tui::LaunchChannel::Funding;
+        case capture::CaptureChannel::PriceLimit: return tui::LaunchChannel::PriceLimit;
+    }
+    return tui::LaunchChannel::BookTicker;
+}
+
+std::vector<capture::CaptureChannel> selectedCaptureChannels(const tui::ChannelSelection& channels) {
+    std::vector<capture::CaptureChannel> selected;
+    selected.reserve(8u);
+    for (const auto channel : {
+             tui::LaunchChannel::Trades,
+             tui::LaunchChannel::Liquidations,
+             tui::LaunchChannel::BookTicker,
+             tui::LaunchChannel::Orderbook,
+             tui::LaunchChannel::MarkPrice,
+             tui::LaunchChannel::IndexPrice,
+             tui::LaunchChannel::Funding,
+             tui::LaunchChannel::PriceLimit,
+         }) {
+        if (tui::launchChannelSelected(channels, channel)) selected.push_back(captureChannelForLaunch(channel));
+    }
+    return selected;
+}
+
 struct TuiChannelAvailabilityCacheEntry {
     std::string exchange;
     std::string market;
@@ -475,7 +507,7 @@ void renderMainMenu(const tui::RecorderTuiPreset& preset, std::size_t selected, 
         }
     }
     std::putchar('\n');
-    printLine("[a] add  [g] gen symbols  [Enter] edit  [c] copy  [d] delete  [w] save  [s] save as  [l] load  [r] start  [q] quit",
+    printLine("[a] add  [g] gen symbols  [Enter] edit  [c] copy  [d] delete  [w] save  [s] save as  [l] load  [r] start  [R] direct  [q] quit",
               viewport);
     if (!message.empty()) printLine(message, viewport);
     std::fflush(stdout);
@@ -578,6 +610,23 @@ std::string skippedChannelsNote(const tui::ChannelSelection& channels) {
     return "skipped channels: " + tui::renderChannelSelection(channels);
 }
 
+void mergeChannelSelection(tui::ChannelSelection& target, const tui::ChannelSelection& source) noexcept {
+    target.trades = target.trades || source.trades;
+    target.liquidations = target.liquidations || source.liquidations;
+    target.bookTicker = target.bookTicker || source.bookTicker;
+    target.orderbook = target.orderbook || source.orderbook;
+    target.markPrice = target.markPrice || source.markPrice;
+    target.indexPrice = target.indexPrice || source.indexPrice;
+    target.funding = target.funding || source.funding;
+    target.priceLimit = target.priceLimit || source.priceLimit;
+}
+
+void appendPlanNote(std::string& target, const std::string& note) {
+    if (note.empty()) return;
+    if (!target.empty()) target += " | ";
+    target += note;
+}
+
 std::string launchPlanMessage(const tui::RecorderTuiLaunchPlan& plan) {
     std::ostringstream out;
     out << "planned " << plan.runnableJobs << " job(s)";
@@ -624,6 +673,44 @@ void appendStartError(RunningJob& job, std::string_view channel, Status status) 
 
 void tryStartChannel(RunningJob& job, std::string_view name, Status status) {
     if (!isOk(status)) appendStartError(job, name, status);
+}
+
+void appendJobError(RunningJob& job, std::string message) {
+    if (message.empty()) return;
+    if (!job.error.empty()) job.error += " | ";
+    job.error += std::move(message);
+}
+
+void applyPreflightPlan(RunningJob& job, const capture::CaptureLaunchPlan& plan) {
+    for (const auto& decision : plan.decisions) {
+        if (!decision.skipped) continue;
+        tui::setLaunchChannel(job.job.channels, launchChannelForCapture(decision.channel), false);
+        tui::setLaunchChannel(job.skippedChannels, launchChannelForCapture(decision.channel), true);
+    }
+    if (const std::string summary = plan.skippedSummary(); !summary.empty()) {
+        appendJobError(job, "preflight: " + summary);
+    }
+}
+
+bool preflightJobBeforeSession(RunningJob& job) {
+    const auto requested = selectedCaptureChannels(job.job.channels);
+    if (requested.empty()) {
+        job.status = "preflight_failed";
+        job.error = "preflight: no selected market-data channels";
+        job.running = false;
+        job.finalized = true;
+        return false;
+    }
+
+    const capture::CaptureLaunchPlan plan = capture::preflightCaptureLaunchPlan(job.config, requested);
+    applyPreflightPlan(job, plan);
+    if (plan.anyEnabled()) return true;
+
+    job.status = "preflight_failed";
+    if (job.error.empty()) job.error = "preflight: no market-data channels passed startup";
+    job.running = false;
+    job.finalized = true;
+    return false;
 }
 
 bool anyRunningChannel(const capture::CaptureCoordinator& coordinator) noexcept {
@@ -683,20 +770,24 @@ RunningJob startJobFromConfig(const tui::RecorderTuiJob& source, capture::Captur
     RunningJob job{};
     job.job = source;
     job.config = std::move(config);
-    job.coordinator = std::make_unique<capture::CaptureCoordinator>();
     job.started = Clock::now();
     job.scheduledStart = job.started;
     job.launched = true;
+    job.status = "preflighting";
+
+    if (!preflightJobBeforeSession(job)) return job;
+
+    job.coordinator = std::make_unique<capture::CaptureCoordinator>();
     job.status = "starting";
 
-    if (source.channels.trades) tryStartChannel(job, "trades", job.coordinator->startTrades(job.config));
-    if (source.channels.liquidations) tryStartChannel(job, "liquidations", job.coordinator->startLiquidations(job.config));
-    if (source.channels.bookTicker) tryStartChannel(job, "bookticker", job.coordinator->startBookTicker(job.config));
-    if (source.channels.orderbook) tryStartChannel(job, "orderbook", job.coordinator->startOrderbook(job.config));
-    if (source.channels.markPrice) tryStartChannel(job, "mark_price", job.coordinator->startMarkPrice(job.config));
-    if (source.channels.indexPrice) tryStartChannel(job, "index_price", job.coordinator->startIndexPrice(job.config));
-    if (source.channels.funding) tryStartChannel(job, "funding", job.coordinator->startFunding(job.config));
-    if (source.channels.priceLimit) tryStartChannel(job, "price_limit", job.coordinator->startPriceLimit(job.config));
+    if (job.job.channels.trades) tryStartChannel(job, "trades", job.coordinator->startTrades(job.config));
+    if (job.job.channels.liquidations) tryStartChannel(job, "liquidations", job.coordinator->startLiquidations(job.config));
+    if (job.job.channels.bookTicker) tryStartChannel(job, "bookticker", job.coordinator->startBookTicker(job.config));
+    if (job.job.channels.orderbook) tryStartChannel(job, "orderbook", job.coordinator->startOrderbook(job.config));
+    if (job.job.channels.markPrice) tryStartChannel(job, "mark_price", job.coordinator->startMarkPrice(job.config));
+    if (job.job.channels.indexPrice) tryStartChannel(job, "index_price", job.coordinator->startIndexPrice(job.config));
+    if (job.job.channels.funding) tryStartChannel(job, "funding", job.coordinator->startFunding(job.config));
+    if (job.job.channels.priceLimit) tryStartChannel(job, "price_limit", job.coordinator->startPriceLimit(job.config));
 
     job.running = anyRunningChannel(*job.coordinator);
     job.status = job.running ? "running" : "error";
@@ -735,8 +826,10 @@ std::shared_ptr<RunningJob> prepareAndStartJobWorker(tui::RecorderTuiJob source,
 
     RunningJob started = startJobFromConfig(job.job, std::move(job.config));
     started.scheduledStart = scheduledStart;
-    started.skippedChannels = job.skippedChannels;
-    started.planNote = job.planNote;
+    mergeChannelSelection(started.skippedChannels, job.skippedChannels);
+    std::string planNote = job.planNote;
+    appendPlanNote(planNote, started.planNote);
+    started.planNote = std::move(planNote);
     return std::make_shared<RunningJob>(std::move(started));
 }
 
@@ -935,30 +1028,13 @@ std::string deadSessionSweepMessage(const DeadSessionSweepResult& result) {
 }
 
 void writeRunGroupManifests(const std::filesystem::path& recordingsRoot, const RunOutputGroups& outputGroups) {
-    std::vector<std::filesystem::path> targetGroups;
-    targetGroups.reserve(outputGroups.bySymbol.size());
     for (const auto& [_, groupPath] : outputGroups.bySymbol) {
-        std::error_code ec;
-        const auto canonical = std::filesystem::weakly_canonical(groupPath, ec);
-        if (ec || canonical.empty()) continue;
-        if (!std::filesystem::exists(canonical, ec)) continue;
-        if (!ec && std::filesystem::is_empty(canonical, ec)) {
-            std::filesystem::remove(canonical, ec);
-            continue;
-        }
-        if (std::find(targetGroups.begin(), targetGroups.end(), canonical) == targetGroups.end()) {
-            targetGroups.push_back(canonical);
-        }
-    }
-    if (targetGroups.empty()) return;
-
-    const auto discovery = recordings::discoverRecordings(recordingsRoot);
-    for (const auto& group : discovery.groups) {
-        if (std::find(targetGroups.begin(), targetGroups.end(), group.path) == targetGroups.end()) continue;
         std::string error;
-        (void)recordings::writeGroupManifest(group, &error);
+        (void)recordings::writeGroupManifestForPath(recordingsRoot, groupPath, &error);
     }
 }
+
+std::uint64_t totalRows(const capture::CaptureCoordinator& coordinator) noexcept;
 
 void finalizeJob(RunningJob& job) {
     if (job.finalized) return;
@@ -975,6 +1051,14 @@ void finalizeJob(RunningJob& job) {
         const auto error = job.coordinator->lastError();
         job.error = error.empty() ? std::string(statusToString(status)) : error;
         job.status = "error";
+    } else if (totalRows(*job.coordinator) == 0u) {
+        const auto error = job.coordinator->lastError();
+        if (!error.empty()) {
+            job.error = error;
+        } else if (job.error.empty()) {
+            job.error = "no canonical rows captured";
+        }
+        job.status = "failed_empty";
     } else if (!job.error.empty()) {
         job.status = "done_warn";
     } else {
@@ -1006,6 +1090,19 @@ bool cullDeadZeroRowJob(RunningJob& job, Clock::time_point now) {
     return true;
 }
 
+bool allJobsFinalized(const std::vector<RunningJob>& jobs) noexcept {
+    return std::all_of(jobs.begin(), jobs.end(), [](const RunningJob& job) { return job.finalized; });
+}
+
+bool jobStatusIsIssue(std::string_view status) noexcept {
+    return status == "error"
+        || status == "done_warn"
+        || status == "dead"
+        || status == "failed_empty"
+        || status == "preflight_failed"
+        || status == "stopped_starting";
+}
+
 void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, std::string_view message) {
     const auto viewport = currentViewport();
     const auto now = Clock::now();
@@ -1024,7 +1121,7 @@ void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, st
         if (startStalled(job, now)) ++stalledCount;
         if (!job.launched && !job.finalized && !job.startInProgress) ++pendingCount;
         if (job.status == "skipped") ++skippedCount;
-        if (job.status == "error") ++errorCount;
+        if (jobStatusIsIssue(job.status)) ++errorCount;
     }
     printLine("hft-recorder TUI / running  jobs=" + std::to_string(jobs.size()) +
                   " running=" + std::to_string(runningCount) +
@@ -1107,9 +1204,11 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
     auto nextProgress = Clock::now() + std::chrono::seconds(std::max(1, preset.progressSec));
     auto nextDeadSessionSweep = Clock::now() + kDeadZeroRowSweepInterval;
     bool dirty = false;
+    bool stopRequestedByUser = false;
     std::string lastIdleMessage;
     while (true) {
         if (gInterrupted) {
+            stopRequestedByUser = true;
             for (auto& job : jobs) requestStopJob(job);
             renderRunning(jobs, selected, "interrupt received; stop requested for all jobs");
             break;
@@ -1210,6 +1309,7 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
             for (auto& job : jobs) requestStopJob(job);
             dirty = true;
         } else if (key.kind == KeyKind::Character && (key.ch == 'q' || key.ch == 'Q')) {
+            stopRequestedByUser = !allJobsFinalized(jobs);
             for (auto& job : jobs) requestStopJob(job);
             renderRunning(jobs, selected, "stop requested; finalizing sessions");
             break;
@@ -1249,7 +1349,7 @@ void runJobs(TerminalGuard& terminal, const tui::RecorderTuiPreset& preset) {
     for (auto& job : jobs) waitForStartJob(job);
     for (auto& job : jobs) finalizeJob(job);
 
-    writeRunGroupManifests(runPreset.outputDir, outputGroups);
+    if (!stopRequestedByUser) writeRunGroupManifests(runPreset.outputDir, outputGroups);
 }
 
 void printUsage() {
@@ -1406,8 +1506,13 @@ int runTui(int argc, char** argv) {
             if (preset.jobs.empty()) {
                 message = "add at least one job";
                 dirty = true;
-            } else if (preset.jobs.size() > static_cast<std::size_t>(std::max(1, preset.maxActiveJobs))) {
+            } else {
                 (void)runShardPresetInteractive(preset, presetPath);
+                dirty = true;
+            }
+        } else if (key.kind == KeyKind::Character && key.ch == 'R') {
+            if (preset.jobs.empty()) {
+                message = "add at least one job";
                 dirty = true;
             } else {
                 runJobs(terminal, preset);

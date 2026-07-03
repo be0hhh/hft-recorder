@@ -60,6 +60,8 @@ constexpr VenueSpec kVenues[] = {
     {"mexc_futures", "MEXC Futures", "mexc", "futures"},
     {"xt_futures", "XT Futures", "xt", "futures"},
     {"xt_spot", "XT Spot", "xt", "spot"},
+    {"poloniex_futures", "Poloniex Futures", "poloniex", "futures"},
+    {"poloniex_spot", "Poloniex Spot", "poloniex", "spot"},
     {"bingx_futures", "BingX Futures", "bingx", "futures"},
     {"bingx_spot", "BingX Spot", "bingx", "spot"},
     {"bitmart_futures", "Bitmart Futures", "bitmart", "futures"},
@@ -178,6 +180,7 @@ QString normalizeDetailedCandlesEndMode(QString mode) {
 bool supportsDetailedCandlesVenue(const VenueSpec& venue) noexcept {
     const std::string_view exchange{venue.exchange};
     if (exchange == "hyperliquid") return false;
+    if (exchange == "poloniex") return false;
     if (exchange == "mexc") {
         return venue.market[0] == 's' && venue.market[1] == 'p' && venue.market[2] == 'o' && venue.market[3] == 't';
     }
@@ -375,6 +378,10 @@ QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol)
     }
     if (exchange == QStringLiteral("xt")) {
         return base.toLower() + QLatin1Char('_') + quote.toLower();
+    }
+    if (exchange == QStringLiteral("poloniex")) {
+        const QString result = base + QLatin1Char('_') + quote;
+        return market == QStringLiteral("futures") ? result + QStringLiteral("_PERP") : result;
     }
     if (exchange == QStringLiteral("bingx")) {
         return base + QLatin1Char('-') + quote;

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <cstdlib>
 
@@ -64,7 +65,10 @@ TEST(RecordingDiscovery, NormalizesDerivativeSymbolVariantsForStorage) {
     EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTW_USDT"), "BTWUSDT");
     EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTW-USDT-SWAP"), "BTWUSDT");
     EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTWUSDTSWAP"), "BTWUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTW_USDT_PERP"), "BTWUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTWUSDTPERP"), "BTWUSDT");
     EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTC-USD-SWAP"), "BTCUSD");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTC-USD-PERP"), "BTCUSD");
 }
 
 TEST(RecordingRoot, DefaultsAndRedirectsLegacyRecordingRootsToDDrive) {
@@ -167,6 +171,36 @@ TEST(RecordingDiscovery, ExposesSessionHealthAndCaptureWarning) {
     EXPECT_EQ(result.sessions.front().sessionHealth, "degraded");
     EXPECT_EQ(result.sessions.front().warningSummary,
               "reference: route status=disconnected stream=mark_price symbol=AGLDUSDT");
+}
+
+TEST(RecordingDiscovery, WritesGroupManifestForTargetPathWithoutScanningSiblingGroups) {
+    const auto root = makeTempRoot();
+    const auto targetGroup = root / "2026-07-03_09-04-06_TLMUSDT";
+    writeSession(targetGroup / "binance",
+                 "binance",
+                 "binance",
+                 "futures",
+                 "TLMUSDT",
+                 1783058649564013789LL,
+                 1783058759873849337LL);
+    writeSession(root / "other_group" / "bybit",
+                 "bybit",
+                 "bybit",
+                 "futures",
+                 "BTCUSDT",
+                 1783058649564013789LL,
+                 1783058759873849337LL);
+
+    std::string error;
+    ASSERT_TRUE(hftrec::recordings::writeGroupManifestForPath(root, targetGroup, &error)) << error;
+
+    const auto targetManifest = targetGroup / "group_manifest.json";
+    ASSERT_TRUE(std::filesystem::exists(targetManifest));
+    std::ifstream in(targetManifest);
+    std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_NE(json.find("\"session_id\": \"binance\""), std::string::npos);
+    EXPECT_EQ(json.find("\"session_id\": \"bybit\""), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(root / "other_group" / "group_manifest.json"));
 }
 
 TEST(RecordingDiscovery, GroupsLegacySessionsWithinFiveMinutesByNormalizedSymbol) {

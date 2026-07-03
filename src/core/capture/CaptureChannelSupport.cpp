@@ -1,8 +1,11 @@
 #include "core/capture/CaptureChannelSupport.hpp"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstddef>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 #if HFTREC_WITH_CXET
@@ -11,6 +14,8 @@
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
 #include "core/capture/CaptureCoordinatorInternal.hpp"
+#include "core/capture/CaptureCoordinatorRuntimeHelpers.hpp"
+#include "hft_trader/runtime/market/MarketDataRuntime.hpp"
 #endif
 
 namespace hftrec::capture {
@@ -93,6 +98,147 @@ bool defaultAvailability(const CaptureConfig& config,
                          void*) {
     return captureChannelRuntimeReady(config, channel, detail);
 }
+
+CaptureChannelSkipReason skipReasonForUnavailableDetail(std::string_view detail) noexcept {
+    return detail == "missing symbol" || detail == "unknown exchange" || detail == "unknown market"
+        ? CaptureChannelSkipReason::InvalidConfig
+        : CaptureChannelSkipReason::UnsupportedRoute;
+}
+
+CaptureChannelDecision enabledDecision(CaptureChannel channel) {
+    CaptureChannelDecision decision{};
+    decision.channel = channel;
+    decision.requested = true;
+    decision.enabled = true;
+    return decision;
+}
+
+CaptureChannelDecision skippedDecision(CaptureChannel channel,
+                                       CaptureChannelSkipReason reason,
+                                       std::string detail) {
+    CaptureChannelDecision decision{};
+    decision.channel = channel;
+    decision.requested = true;
+    decision.skipped = true;
+    decision.reason = reason;
+    decision.detail = std::move(detail);
+    return decision;
+}
+
+#if HFTREC_WITH_CXET
+CaptureLaunchPlan envPreflightFailedPlan(const std::vector<CaptureChannel>& requested,
+                                         std::string detail) {
+    CaptureLaunchPlan plan{};
+    plan.decisions.reserve(requested.size());
+    if (detail.empty()) detail = "capture env preflight failed";
+    for (CaptureChannel channel : requested) {
+        plan.decisions.push_back(
+            skippedDecision(channel, CaptureChannelSkipReason::ApplyFailed, detail));
+    }
+    return plan;
+}
+
+CaptureChannelSkipReason skipReasonForMarketDataStatus(cxet::api::market::PublicMarketDataStatus status) noexcept {
+    switch (status) {
+        case cxet::api::market::PublicMarketDataStatus::BadConfig:
+            return CaptureChannelSkipReason::InvalidConfig;
+        case cxet::api::market::PublicMarketDataStatus::UnsupportedRoute:
+            return CaptureChannelSkipReason::UnsupportedRoute;
+        case cxet::api::market::PublicMarketDataStatus::SubscribeFailed:
+            return CaptureChannelSkipReason::SubscribeSendFailed;
+        case cxet::api::market::PublicMarketDataStatus::ParseFailed:
+            return CaptureChannelSkipReason::ParseFailed;
+        case cxet::api::market::PublicMarketDataStatus::ConnectFailed:
+        case cxet::api::market::PublicMarketDataStatus::Disconnected:
+        default:
+            return CaptureChannelSkipReason::ConnectFailed;
+    }
+}
+
+CaptureChannelSkipReason terminalRuntimeReason(const hft_trader::runtime::MarketDataRuntime& market) {
+    std::array<cxet::api::market::PublicMarketDataRouteDiagnostic, 8> diagnostics{};
+    const std::size_t routeCount = market.manager().routeDiagnostics(diagnostics.data(), diagnostics.size());
+    const std::size_t count = std::min(routeCount, diagnostics.size());
+    for (std::size_t i = 0u; i < count; ++i) {
+        const auto reason = skipReasonForMarketDataStatus(diagnostics[i].lastStatus);
+        if (reason != CaptureChannelSkipReason::ConnectFailed) return reason;
+    }
+    return CaptureChannelSkipReason::ConnectFailed;
+}
+
+bool startupPreflightAllowsChannel(const CaptureConfig& config,
+                                   CaptureChannel channel,
+                                   CaptureChannelSkipReason& reason,
+                                   std::string& detail) {
+    reason = CaptureChannelSkipReason::None;
+    detail.clear();
+
+    std::string err;
+    if (!runtime::linkedTraderMarketDataRuntimeAbiMatches(err)) {
+        reason = CaptureChannelSkipReason::ApplyFailed;
+        detail = std::move(err);
+        return false;
+    }
+
+    hft_trader::runtime::MarketDataRuntime market{};
+    const auto stream = streamForCaptureChannel(channel);
+    if (!runtime::applyTraderMarketDataConfig(
+            market,
+            config,
+            Span<const cxet::api::market::PublicMarketDataStream>(&stream, 1u),
+            err)) {
+        market.closeAll();
+        reason = CaptureChannelSkipReason::ApplyFailed;
+        detail = std::move(err);
+        return false;
+    }
+
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::nanoseconds(runtime::kMarketDataStartupFailureGraceNs);
+    std::int64_t nextLifecyclePollNs = 0;
+    std::string routeDiagnostic;
+    const std::string_view scope{captureChannelName(channel)};
+    while (std::chrono::steady_clock::now() < deadline) {
+        runtime::pollMarketDataLifecycleIfDue(market, nextLifecyclePollNs, &routeDiagnostic, scope);
+
+        std::string terminalDiagnostic;
+        if (runtime::marketDataRuntimeTerminalStartupFailure(market, scope, &terminalDiagnostic)) {
+            reason = terminalRuntimeReason(market);
+            detail = std::move(terminalDiagnostic);
+            market.closeAll();
+            return false;
+        }
+
+        hft_trader::runtime::MarketDataRuntimeEvent event{};
+        if (market.pollAvailableOne(event)) {
+            if (event.status == cxet::api::market::PublicMarketDataStatus::Parsed) {
+                market.closeAll();
+                return true;
+            }
+            if (runtime::marketDataStatusIsTerminalStartupFailure(event.status)) {
+                market.closeAll();
+                reason = skipReasonForMarketDataStatus(event.status);
+                detail = std::string{scope} + ": route status=" + runtime::publicMarketDataStatusName(event.status);
+                return false;
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    std::string terminalDiagnostic;
+    if (runtime::marketDataRuntimeTerminalStartupFailure(market, scope, &terminalDiagnostic)) {
+        reason = terminalRuntimeReason(market);
+        detail = std::move(terminalDiagnostic);
+        market.closeAll();
+        return false;
+    }
+
+    market.closeAll();
+    detail = std::move(routeDiagnostic);
+    return true;
+}
+#endif
 
 }  // namespace
 
@@ -215,15 +361,45 @@ CaptureLaunchPlan buildCaptureLaunchPlan(const CaptureConfig& config,
         decision.requested = true;
         std::string detail;
         if (availability(config, channel, detail, userData)) {
-            decision.enabled = true;
+            decision = enabledDecision(channel);
         } else {
-            decision.skipped = true;
-            decision.reason = detail == "missing symbol" || detail == "unknown exchange" || detail == "unknown market"
-                ? CaptureChannelSkipReason::InvalidConfig
-                : CaptureChannelSkipReason::UnsupportedRoute;
-            decision.detail = std::move(detail);
+            decision = skippedDecision(channel, skipReasonForUnavailableDetail(detail), std::move(detail));
         }
         plan.decisions.push_back(std::move(decision));
+    }
+    return plan;
+}
+
+CaptureLaunchPlan preflightCaptureLaunchPlan(const CaptureConfig& config,
+                                             const std::vector<CaptureChannel>& requested) {
+    CaptureLaunchPlan plan{};
+    plan.decisions.reserve(requested.size());
+#if HFTREC_WITH_CXET
+    std::string envError;
+    if (const Status envStatus = internal::loadCaptureEnv(config, envError); !isOk(envStatus)) {
+        std::string detail = envError;
+        if (detail.empty()) {
+            detail = "capture env preflight failed: ";
+            detail += std::string{statusToString(envStatus)};
+        }
+        return envPreflightFailedPlan(requested, std::move(detail));
+    }
+#endif
+    for (CaptureChannel channel : requested) {
+        std::string detail;
+        if (!captureChannelRuntimeReady(config, channel, detail)) {
+            plan.decisions.push_back(
+                skippedDecision(channel, skipReasonForUnavailableDetail(detail), std::move(detail)));
+            continue;
+        }
+#if HFTREC_WITH_CXET
+        CaptureChannelSkipReason reason = CaptureChannelSkipReason::None;
+        if (!startupPreflightAllowsChannel(config, channel, reason, detail)) {
+            plan.decisions.push_back(skippedDecision(channel, reason, std::move(detail)));
+            continue;
+        }
+#endif
+        plan.decisions.push_back(enabledDecision(channel));
     }
     return plan;
 }

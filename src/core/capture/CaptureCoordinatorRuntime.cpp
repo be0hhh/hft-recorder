@@ -4,11 +4,16 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#if defined(__linux__)
+#include <pthread.h>
+#endif
 
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
@@ -367,6 +372,13 @@ bool marketDataStatusNeedsOperatorDetail(cxet::api::market::PublicMarketDataStat
            status == cxet::api::market::PublicMarketDataStatus::SubscribeFailed;
 }
 
+bool marketDataStatusIsTerminalStartupFailure(cxet::api::market::PublicMarketDataStatus status) noexcept {
+    return status == cxet::api::market::PublicMarketDataStatus::ConnectFailed ||
+           status == cxet::api::market::PublicMarketDataStatus::BadConfig ||
+           status == cxet::api::market::PublicMarketDataStatus::UnsupportedRoute ||
+           status == cxet::api::market::PublicMarketDataStatus::SubscribeFailed;
+}
+
 std::string marketDataRuntimeDiagnosticText(const hft_trader::runtime::MarketDataRuntime& runtime,
                                             std::string_view scope) {
     std::array<cxet::api::market::PublicMarketDataRouteDiagnostic, 8> diagnostics{};
@@ -422,6 +434,29 @@ std::string marketDataRuntimeDiagnosticText(const hft_trader::runtime::MarketDat
         }
     }
     return out;
+}
+
+bool marketDataRuntimeTerminalStartupFailure(const hft_trader::runtime::MarketDataRuntime& runtime,
+                                             std::string_view scope,
+                                             std::string* diagnosticOut) {
+    std::array<cxet::api::market::PublicMarketDataRouteDiagnostic, 8> diagnostics{};
+    const std::size_t routeCount = runtime.manager().routeDiagnostics(diagnostics.data(), diagnostics.size());
+    const std::size_t count = std::min(routeCount, diagnostics.size());
+    if (count == 0u || routeCount > diagnostics.size()) return false;
+
+    for (std::size_t i = 0u; i < count; ++i) {
+        const auto& diagnostic = diagnostics[i];
+        if (diagnostic.frames != 0u || diagnostic.parsedFrames != 0u) return false;
+        if (!marketDataStatusIsTerminalStartupFailure(diagnostic.lastStatus)) return false;
+    }
+
+    if (diagnosticOut != nullptr) {
+        *diagnosticOut = marketDataRuntimeDiagnosticText(runtime, scope);
+        if (diagnosticOut->empty()) {
+            *diagnosticOut = std::string{scope} + ": terminal startup failure with zero frames";
+        }
+    }
+    return true;
 }
 
 void pollMarketDataLifecycleIfDue(hft_trader::runtime::MarketDataRuntime& runtime,
@@ -695,6 +730,30 @@ std::string candleHistoryStatusText(const cxet::composite::TieredCandleHistory& 
 }  // namespace runtime
 
 using namespace runtime;
+
+namespace {
+
+void configureCaptureWorkerThreadStack() noexcept {
+#if defined(__linux__)
+    static std::once_flag once;
+    std::call_once(once, [] {
+        constexpr std::size_t kCaptureWorkerStackBytes = 16u * 1024u * 1024u;
+        pthread_attr_t attr{};
+        if (pthread_getattr_default_np(&attr) != 0) return;
+
+        std::size_t stackSize = 0u;
+        const bool shouldGrow =
+            pthread_attr_getstacksize(&attr, &stackSize) == 0 &&
+            stackSize < kCaptureWorkerStackBytes;
+        if (shouldGrow && pthread_attr_setstacksize(&attr, kCaptureWorkerStackBytes) == 0) {
+            (void)pthread_setattr_default_np(&attr);
+        }
+        (void)pthread_attr_destroy(&attr);
+    });
+#endif
+}
+
+}  // namespace
 
 
 Status CaptureCoordinator::captureCandlesOnce(const CaptureConfig& config) noexcept {
@@ -1062,11 +1121,12 @@ Status CaptureCoordinator::startManagedMarketData_(const CaptureConfig& config, 
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
 
+    configureCaptureWorkerThreadStack();
+
     CaptureConfig normalizedConfig = config;
     switch (stream) {
         case ManagedStreamKind::Trades: {
-            auto subscribeBuilder = internal::makeTradesBuilder(normalizedConfig);
-            if (!internal::applyRequestedAliases(normalizedConfig.tradesAliases, subscribeBuilder, lastError_)) {
+            if (!internal::validateRequestedAliases(normalizedConfig.tradesAliases, lastError_)) {
                 return Status::InvalidArgument;
             }
             {
@@ -1092,8 +1152,7 @@ Status CaptureCoordinator::startManagedMarketData_(const CaptureConfig& config, 
                     normalizedConfig.bookTickerAliases.push_back(requiredAlias);
                 }
             }
-            auto subscribeBuilder = internal::makeBookTickerBuilder(normalizedConfig);
-            if (!internal::applyRequestedAliases(normalizedConfig.bookTickerAliases, subscribeBuilder, lastError_)) {
+            if (!internal::validateRequestedAliases(normalizedConfig.bookTickerAliases, lastError_)) {
                 return Status::InvalidArgument;
             }
             {
@@ -1122,8 +1181,7 @@ Status CaptureCoordinator::startManagedMarketData_(const CaptureConfig& config, 
                     normalizedConfig.orderbookAliases.push_back(requiredAlias);
                 }
             }
-            auto subscribeBuilder = internal::makeOrderbookSubscribeBuilder(normalizedConfig);
-            if (!internal::applyRequestedAliases(normalizedConfig.orderbookAliases, subscribeBuilder, lastError_)) {
+            if (!internal::validateRequestedAliases(normalizedConfig.orderbookAliases, lastError_)) {
                 return Status::InvalidArgument;
             }
             {
@@ -1273,8 +1331,9 @@ Status CaptureCoordinator::startLiquidations(const CaptureConfig& config) noexce
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
 
-    auto subscribeBuilder = internal::makeLiquidationBuilder(config);
-    if (!internal::applyRequestedAliases(config.liquidationAliases, subscribeBuilder, lastError_)) {
+    configureCaptureWorkerThreadStack();
+
+    if (!internal::validateRequestedAliases(config.liquidationAliases, lastError_)) {
         return Status::InvalidArgument;
     }
     {

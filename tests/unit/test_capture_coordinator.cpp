@@ -81,6 +81,20 @@ TEST(CaptureCoordinatorRuntimeAbi, RejectsMismatchedTraderMarketDataRuntimeFinge
     EXPECT_NE(error.find("linked=5678"), std::string::npos);
 }
 
+TEST(CaptureCoordinatorAliases, ValidatesKnownRequestedAliasesWithoutRequestBuilder) {
+    std::string error = "stale";
+
+    EXPECT_TRUE(hftrec::capture::internal::validateRequestedAliases({"bidQty", "askQty"}, error));
+    EXPECT_TRUE(error.empty());
+}
+
+TEST(CaptureCoordinatorAliases, RejectsUnknownRequestedAliasesWithoutRequestBuilder) {
+    std::string error;
+
+    EXPECT_FALSE(hftrec::capture::internal::validateRequestedAliases({"not_a_cxet_alias"}, error));
+    EXPECT_NE(error.find("selected aliases did not resolve to CXET fields"), std::string::npos);
+}
+
 TEST(CaptureCoordinator, RejectsUnsupportedExchange) {
     CaptureCoordinator coordinator{};
     auto config = makeValidConfig();

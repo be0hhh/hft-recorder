@@ -23,6 +23,7 @@ set(HFTREC_UNIT_TEST_SOURCES
     test_tui_launch.cpp
     test_tui_preset.cpp
     test_tui_shard.cpp
+    test_tui_shard_status.cpp
     test_tui_symbols.cpp
     test_tui_terminal_render.cpp
 )

@@ -184,16 +184,19 @@ Status CaptureCoordinator::ensureSession(const CaptureConfig& config) noexcept {
 
     if (const auto metadataStatus = writeInstrumentMetadataFile(); !isOk(metadataStatus)) {
         lastError_ = "failed to write instrument metadata sidecar";
+        (void)writeStartupFailureManifest_(lastError_);
         return metadataStatus;
     }
     if (const auto manifestStatus = writeManifestFile_(); !isOk(manifestStatus)) {
         lastError_ = "failed to write initial manifest.json";
+        (void)writeStartupFailureManifest_(lastError_);
         return manifestStatus;
     }
     liveCacheEnabled_.store(config.liveCacheMode == LiveCacheMode::Full, std::memory_order_release);
     liveStore_.clear();
     if (const auto storageStatus = jsonSink_.open(sessionDir_); !isOk(storageStatus)) {
         lastError_ = "failed to open JSON session storage";
+        (void)writeStartupFailureManifest_(lastError_);
         return storageStatus;
     }
     eventSink_.clearSinks();
@@ -479,6 +482,33 @@ Status CaptureCoordinator::writeManifestFile_() noexcept {
     const std::string document = renderManifestJson(manifest_);
     if (const auto writeStatus = writeFileFully(tempPath, document); !isOk(writeStatus)) return writeStatus;
     return replaceFilePreservingPrevious(tempPath, manifestPath);
+}
+
+Status CaptureCoordinator::writeStartupFailureManifest_(std::string_view reason) noexcept {
+    if (sessionDir_.empty()) return Status::InvalidArgument;
+
+    manifest_.endedAtNs = internal::nowNs();
+    if (manifest_.startedAtNs > 0 && manifest_.endedAtNs >= manifest_.startedAtNs) {
+        manifest_.actualDurationSec = (manifest_.endedAtNs - manifest_.startedAtNs) / 1000000000LL;
+    }
+    manifest_.sessionStatus = "failed_startup";
+    manifest_.sessionHealth = SessionHealth::Degraded;
+    manifest_.exactReplayEligible = false;
+    manifest_.warningSummary = reason.empty()
+        ? std::string{"startup failed before recorder manifest finalized"}
+        : std::string{reason};
+    manifest_.structurallyLoadable = false;
+    manifest_.structuralBlockers.clear();
+    manifest_.structuralBlockers.push_back(manifest_.warningSummary);
+    manifest_.canonicalArtifacts.clear();
+    manifest_.canonicalArtifacts.push_back("manifest.json");
+    if (!manifest_.instrumentMetadataPath.empty()) {
+        std::error_code ec;
+        if (std::filesystem::exists(sessionDir_ / manifest_.instrumentMetadataPath, ec) && !ec) {
+            manifest_.canonicalArtifacts.push_back(manifest_.instrumentMetadataPath);
+        }
+    }
+    return writeManifestFile_();
 }
 
 Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {

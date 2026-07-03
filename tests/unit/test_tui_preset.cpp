@@ -103,6 +103,7 @@ channels=trades,bookticker,orderbook
     EXPECT_EQ(preset.launchWaveSize, 4);
     EXPECT_EQ(preset.launchStaggerMs, 250);
     EXPECT_EQ(preset.sameExchangeCooldownMs, 1500);
+    EXPECT_EQ(preset.maxActiveJobs, 31);
     EXPECT_EQ(preset.jobs[0].name, "binance_btc");
     EXPECT_EQ(preset.jobs[0].exchange, "binance");
     EXPECT_EQ(preset.jobs[0].symbol, "BTCUSDT");

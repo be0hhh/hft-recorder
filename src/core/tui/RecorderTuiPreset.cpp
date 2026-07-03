@@ -335,7 +335,7 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
     if (preset.launchWaveSize < 1) preset.launchWaveSize = 4;
     if (preset.launchStaggerMs < 0) preset.launchStaggerMs = 250;
     if (preset.sameExchangeCooldownMs < 0) preset.sameExchangeCooldownMs = 1500;
-    if (preset.maxActiveJobs < 1) preset.maxActiveJobs = 24;
+    if (preset.maxActiveJobs < 1) preset.maxActiveJobs = 31;
     if (preset.outputDir.empty()) preset.outputDir = recordings::defaultRecordingsRoot();
     for (const RecorderTuiJob& job : preset.jobs) {
         if (!validateJob(job, error)) return false;

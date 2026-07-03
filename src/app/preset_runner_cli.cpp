@@ -3,6 +3,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cctype>
+#include <exception>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -83,11 +84,17 @@ std::filesystem::path uniquePath(const std::filesystem::path& parent, const std:
 struct RunOutputGroups {
     std::filesystem::path root;
     std::int64_t timestampNs{0};
+    bool rootIsGroup{false};
     std::map<std::string, std::filesystem::path> bySymbol;
 };
 
-RunOutputGroups makeRunOutputGroups(const tui::RecorderTuiPreset& preset) {
-    return RunOutputGroups{.root = preset.outputDir, .timestampNs = wallNowNs(), .bySymbol = {}};
+RunOutputGroups makeRunOutputGroups(const tui::RecorderTuiPreset& preset, bool outputDirIsGroup) {
+    return RunOutputGroups{
+        .root = preset.outputDir,
+        .timestampNs = wallNowNs(),
+        .rootIsGroup = outputDirIsGroup,
+        .bySymbol = {},
+    };
 }
 
 std::filesystem::path outputDirForRunJob(RunOutputGroups& groups, const tui::RecorderTuiJob& job) {
@@ -95,8 +102,12 @@ std::filesystem::path outputDirForRunJob(RunOutputGroups& groups, const tui::Rec
     if (normalizedSymbol.empty()) normalizedSymbol = "UNKNOWN";
     const auto [it, inserted] = groups.bySymbol.emplace(normalizedSymbol, std::filesystem::path{});
     if (inserted) {
-        const std::string groupName = recordings::recordingGroupFolderName(groups.timestampNs, normalizedSymbol);
-        it->second = uniquePath(groups.root, groupName);
+        if (groups.rootIsGroup) {
+            it->second = groups.root;
+        } else {
+            const std::string groupName = recordings::recordingGroupFolderName(groups.timestampNs, normalizedSymbol);
+            it->second = uniquePath(groups.root, groupName);
+        }
     }
     return it->second;
 }
@@ -150,26 +161,102 @@ void tryStartChannel(RunningJob& job, std::string_view name, Status status) {
     if (!isOk(status)) appendStartError(job, name, status);
 }
 
+capture::CaptureChannel captureChannelForRunner(tui::LaunchChannel channel) noexcept;
+
+tui::LaunchChannel launchChannelForCapture(capture::CaptureChannel channel) noexcept {
+    switch (channel) {
+        case capture::CaptureChannel::Trades: return tui::LaunchChannel::Trades;
+        case capture::CaptureChannel::Liquidations: return tui::LaunchChannel::Liquidations;
+        case capture::CaptureChannel::BookTicker: return tui::LaunchChannel::BookTicker;
+        case capture::CaptureChannel::Orderbook: return tui::LaunchChannel::Orderbook;
+        case capture::CaptureChannel::MarkPrice: return tui::LaunchChannel::MarkPrice;
+        case capture::CaptureChannel::IndexPrice: return tui::LaunchChannel::IndexPrice;
+        case capture::CaptureChannel::Funding: return tui::LaunchChannel::Funding;
+        case capture::CaptureChannel::PriceLimit: return tui::LaunchChannel::PriceLimit;
+    }
+    return tui::LaunchChannel::BookTicker;
+}
+
+std::vector<capture::CaptureChannel> selectedCaptureChannels(const tui::ChannelSelection& channels) {
+    std::vector<capture::CaptureChannel> selected;
+    selected.reserve(8u);
+    for (const auto channel : {
+             tui::LaunchChannel::Trades,
+             tui::LaunchChannel::Liquidations,
+             tui::LaunchChannel::BookTicker,
+             tui::LaunchChannel::Orderbook,
+             tui::LaunchChannel::MarkPrice,
+             tui::LaunchChannel::IndexPrice,
+             tui::LaunchChannel::Funding,
+             tui::LaunchChannel::PriceLimit,
+         }) {
+        if (tui::launchChannelSelected(channels, channel)) selected.push_back(captureChannelForRunner(channel));
+    }
+    return selected;
+}
+
+void appendJobError(RunningJob& job, std::string message) {
+    if (message.empty()) return;
+    if (!job.error.empty()) job.error += " | ";
+    job.error += std::move(message);
+}
+
+void applyPreflightPlan(RunningJob& job, const capture::CaptureLaunchPlan& plan) {
+    for (const auto& decision : plan.decisions) {
+        if (!decision.skipped) continue;
+        tui::setLaunchChannel(job.job.channels, launchChannelForCapture(decision.channel), false);
+    }
+    if (const std::string summary = plan.skippedSummary(); !summary.empty()) {
+        appendJobError(job, "preflight: " + summary);
+    }
+}
+
+bool preflightJobBeforeSession(RunningJob& job) {
+    const auto requested = selectedCaptureChannels(job.job.channels);
+    if (requested.empty()) {
+        job.status = "preflight_failed";
+        job.error = "preflight: no selected market-data channels";
+        job.running = false;
+        job.finalized = true;
+        return false;
+    }
+
+    const capture::CaptureLaunchPlan plan = capture::preflightCaptureLaunchPlan(job.config, requested);
+    applyPreflightPlan(job, plan);
+    if (plan.anyEnabled()) return true;
+
+    job.status = "preflight_failed";
+    if (job.error.empty()) job.error = "preflight: no market-data channels passed startup";
+    job.running = false;
+    job.finalized = true;
+    return false;
+}
+
 RunningJob startJobFromConfig(const tui::RecorderTuiJob& source, capture::CaptureConfig config) {
     RunningJob job{};
     job.job = source;
     job.config = std::move(config);
-    job.coordinator = std::make_unique<capture::CaptureCoordinator>();
     job.started = Clock::now();
     job.scheduledStart = job.started;
     job.launched = true;
+    job.status = "preflighting";
+
+    if (!preflightJobBeforeSession(job)) return job;
+
+    job.coordinator = std::make_unique<capture::CaptureCoordinator>();
     job.status = "starting";
 
-    if (source.channels.trades) tryStartChannel(job, "trades", job.coordinator->startTrades(job.config));
-    if (source.channels.liquidations) tryStartChannel(job, "liquidations", job.coordinator->startLiquidations(job.config));
-    if (source.channels.bookTicker) tryStartChannel(job, "bookticker", job.coordinator->startBookTicker(job.config));
-    if (source.channels.orderbook) tryStartChannel(job, "orderbook", job.coordinator->startOrderbook(job.config));
-    if (source.channels.markPrice) tryStartChannel(job, "mark_price", job.coordinator->startMarkPrice(job.config));
-    if (source.channels.indexPrice) tryStartChannel(job, "index_price", job.coordinator->startIndexPrice(job.config));
-    if (source.channels.funding) tryStartChannel(job, "funding", job.coordinator->startFunding(job.config));
-    if (source.channels.priceLimit) tryStartChannel(job, "price_limit", job.coordinator->startPriceLimit(job.config));
+    if (job.job.channels.trades) tryStartChannel(job, "trades", job.coordinator->startTrades(job.config));
+    if (job.job.channels.liquidations) tryStartChannel(job, "liquidations", job.coordinator->startLiquidations(job.config));
+    if (job.job.channels.bookTicker) tryStartChannel(job, "bookticker", job.coordinator->startBookTicker(job.config));
+    if (job.job.channels.orderbook) tryStartChannel(job, "orderbook", job.coordinator->startOrderbook(job.config));
+    if (job.job.channels.markPrice) tryStartChannel(job, "mark_price", job.coordinator->startMarkPrice(job.config));
+    if (job.job.channels.indexPrice) tryStartChannel(job, "index_price", job.coordinator->startIndexPrice(job.config));
+    if (job.job.channels.funding) tryStartChannel(job, "funding", job.coordinator->startFunding(job.config));
+    if (job.job.channels.priceLimit) tryStartChannel(job, "price_limit", job.coordinator->startPriceLimit(job.config));
 
     job.running = anyRunningChannel(*job.coordinator);
+    if (!job.running && job.error.empty()) job.error = "no channels started";
     job.status = job.running ? "running" : "error";
     return job;
 }
@@ -215,6 +302,14 @@ void finalizeJob(RunningJob& job) {
         const auto error = job.coordinator->lastError();
         job.error = error.empty() ? std::string(statusToString(status)) : error;
         job.status = "error";
+    } else if (totalRows(*job.coordinator) == 0u) {
+        const auto error = job.coordinator->lastError();
+        if (!error.empty()) {
+            job.error = error;
+        } else if (job.error.empty()) {
+            job.error = "no canonical rows captured";
+        }
+        job.status = "failed_empty";
     } else if (!job.error.empty()) {
         job.status = "done_warn";
     } else {
@@ -244,15 +339,41 @@ std::shared_ptr<RunningJob> startJobWorker(tui::RecorderTuiJob source, capture::
     return std::make_shared<RunningJob>(startJobFromConfig(source, std::move(config)));
 }
 
+void markStartJobException(RunningJob& job, std::string error) {
+    job.startInProgress = false;
+    job.running = false;
+    job.finalized = true;
+    job.status = "error";
+    if (job.error.empty()) {
+        job.error = "startup exception: " + error;
+    } else {
+        job.error += " | startup exception: " + error;
+    }
+}
+
+void applyCompletedStartJob(RunningJob& job, std::shared_ptr<RunningJob> result, bool stopRequested) {
+    RunningJob completed{};
+    if (result) completed = std::move(*result);
+    completed.stopRequested = false;
+    if (stopRequested) requestStopJob(completed);
+    job = std::move(completed);
+}
+
 void startJobAsync(RunningJob& job) {
     tui::RecorderTuiJob source = job.job;
     capture::CaptureConfig config = job.config;
     job.started = Clock::now();
     job.startInProgress = true;
     job.status = "starting";
-    job.startFuture = std::async(std::launch::async, [source = std::move(source), config = std::move(config)]() mutable {
-        return startJobWorker(std::move(source), std::move(config));
-    });
+    try {
+        job.startFuture = std::async(std::launch::async, [source = std::move(source), config = std::move(config)]() mutable {
+            return startJobWorker(std::move(source), std::move(config));
+        });
+    } catch (const std::exception& ex) {
+        markStartJobException(job, ex.what());
+    } catch (...) {
+        markStartJobException(job, "unknown exception");
+    }
 }
 
 bool completeStartJobIfReady(RunningJob& job) {
@@ -260,24 +381,26 @@ bool completeStartJobIfReady(RunningJob& job) {
     if (job.startFuture.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) return false;
 
     const bool stopRequested = job.stopRequested;
-    std::shared_ptr<RunningJob> result = job.startFuture.get();
-    RunningJob completed{};
-    if (result) completed = std::move(*result);
-    completed.stopRequested = false;
-    if (stopRequested) requestStopJob(completed);
-    job = std::move(completed);
+    try {
+        applyCompletedStartJob(job, job.startFuture.get(), stopRequested);
+    } catch (const std::exception& ex) {
+        markStartJobException(job, ex.what());
+    } catch (...) {
+        markStartJobException(job, "unknown exception");
+    }
     return true;
 }
 
 void waitForStartJob(RunningJob& job) {
     if (!job.startInProgress || !job.startFuture.valid()) return;
     const bool stopRequested = job.stopRequested;
-    std::shared_ptr<RunningJob> result = job.startFuture.get();
-    RunningJob completed{};
-    if (result) completed = std::move(*result);
-    completed.stopRequested = false;
-    if (stopRequested) requestStopJob(completed);
-    job = std::move(completed);
+    try {
+        applyCompletedStartJob(job, job.startFuture.get(), stopRequested);
+    } catch (const std::exception& ex) {
+        markStartJobException(job, ex.what());
+    } catch (...) {
+        markStartJobException(job, "unknown exception");
+    }
 }
 
 int activeJobSlots(const std::vector<RunningJob>& jobs) noexcept {
@@ -342,6 +465,65 @@ std::uint64_t totalRows(const std::vector<RunningJob>& jobs) noexcept {
     return rows;
 }
 
+struct PresetStatusSummary {
+    int running{0};
+    int starting{0};
+    int stalled{0};
+    int pending{0};
+    int errors{0};
+    int finalized{0};
+    int skipped{0};
+    std::string firstError{};
+    std::string lastError{};
+};
+
+bool jobStatusIsError(std::string_view status) noexcept {
+    return status == "error"
+        || status == "done_warn"
+        || status == "dead"
+        || status == "failed_empty"
+        || status == "preflight_failed"
+        || status == "stopped_starting";
+}
+
+PresetStatusSummary summarizePresetStatus(const std::vector<RunningJob>& jobs, Clock::time_point now) {
+    PresetStatusSummary summary{};
+    for (const auto& job : jobs) {
+        if (job.running) ++summary.running;
+        if (job.startInProgress) ++summary.starting;
+        if (startStalled(job, now)) ++summary.stalled;
+        if (!job.launched && !job.finalized) ++summary.pending;
+        if (jobStatusIsError(job.status)) ++summary.errors;
+        if (job.finalized) ++summary.finalized;
+        if (job.status == "skipped") ++summary.skipped;
+        if (!job.error.empty()) {
+            if (summary.firstError.empty()) summary.firstError = job.error;
+            summary.lastError = job.error;
+        }
+    }
+    return summary;
+}
+
+bool allJobsSkipped(const std::vector<RunningJob>& jobs, const PresetStatusSummary& summary) noexcept {
+    return !jobs.empty()
+        && summary.finalized == static_cast<int>(jobs.size())
+        && summary.skipped == static_cast<int>(jobs.size());
+}
+
+std::string finalErrorMessage(const PresetStatusSummary& summary) {
+    if (summary.firstError.empty()) return "completed with errors";
+    if (summary.errors <= 1) return summary.firstError;
+    return "completed with errors: " + summary.firstError;
+}
+
+std::string statusLineValue(std::string_view value) {
+    std::string out{value};
+    for (char& ch : out) {
+        if (ch == '\n' || ch == '\r') ch = ' ';
+    }
+    return out;
+}
+
 void writeStatusFile(const std::filesystem::path& path,
                      const std::vector<RunningJob>& jobs,
                      Clock::time_point now,
@@ -352,33 +534,23 @@ void writeStatusFile(const std::filesystem::path& path,
     if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path(), ec);
     const std::filesystem::path tempPath = path.string() + ".tmp";
 
-    int running = 0;
-    int starting = 0;
-    int stalled = 0;
-    int pending = 0;
-    int errors = 0;
-    int finalized = 0;
-    for (const auto& job : jobs) {
-        if (job.running) ++running;
-        if (job.startInProgress) ++starting;
-        if (startStalled(job, now)) ++stalled;
-        if (!job.launched && !job.finalized) ++pending;
-        if (job.status == "error" || job.status == "done_warn") ++errors;
-        if (job.finalized) ++finalized;
-    }
+    const PresetStatusSummary summary = summarizePresetStatus(jobs, now);
 
     {
         std::ofstream out(tempPath, std::ios::out | std::ios::trunc);
         out << "state=" << state << '\n';
-        out << "message=" << message << '\n';
+        out << "message=" << statusLineValue(message) << '\n';
         out << "jobs=" << jobs.size() << '\n';
-        out << "running=" << running << '\n';
-        out << "starting=" << starting << '\n';
-        out << "stalled=" << stalled << '\n';
-        out << "pending=" << pending << '\n';
-        out << "finalized=" << finalized << '\n';
-        out << "errors=" << errors << '\n';
+        out << "running=" << summary.running << '\n';
+        out << "starting=" << summary.starting << '\n';
+        out << "stalled=" << summary.stalled << '\n';
+        out << "pending=" << summary.pending << '\n';
+        out << "finalized=" << summary.finalized << '\n';
+        out << "errors=" << summary.errors << '\n';
+        out << "skipped=" << summary.skipped << '\n';
         out << "rows=" << totalRows(jobs) << '\n';
+        out << "first_error=" << statusLineValue(summary.firstError) << '\n';
+        out << "last_error=" << statusLineValue(summary.lastError) << '\n';
     }
     std::filesystem::rename(tempPath, path, ec);
     if (ec) {
@@ -478,37 +650,21 @@ std::vector<RunningJob> makeJobs(const tui::RecorderTuiPreset& preset, RunOutput
 }
 
 void writeRunGroupManifests(const std::filesystem::path& recordingsRoot, const RunOutputGroups& outputGroups) {
-    std::vector<std::filesystem::path> targetGroups;
-    targetGroups.reserve(outputGroups.bySymbol.size());
     for (const auto& [_, groupPath] : outputGroups.bySymbol) {
-        std::error_code ec;
-        const auto canonical = std::filesystem::weakly_canonical(groupPath, ec);
-        if (ec || canonical.empty()) continue;
-        if (!std::filesystem::exists(canonical, ec)) continue;
-        if (!ec && std::filesystem::is_empty(canonical, ec)) {
-            std::filesystem::remove(canonical, ec);
-            continue;
-        }
-        if (std::find(targetGroups.begin(), targetGroups.end(), canonical) == targetGroups.end()) {
-            targetGroups.push_back(canonical);
-        }
-    }
-    if (targetGroups.empty()) return;
-
-    const auto discovery = recordings::discoverRecordings(recordingsRoot);
-    for (const auto& group : discovery.groups) {
-        if (std::find(targetGroups.begin(), targetGroups.end(), group.path) == targetGroups.end()) continue;
         std::string error;
-        (void)recordings::writeGroupManifest(group, &error);
+        (void)recordings::writeGroupManifestForPath(recordingsRoot, groupPath, &error);
     }
 }
 
-int runPresetFile(const tui::RecorderTuiPreset& preset, const std::filesystem::path& statusPath) {
+int runPresetFile(const tui::RecorderTuiPreset& preset,
+                  const std::filesystem::path& statusPath,
+                  bool outputDirIsGroup) {
     std::signal(SIGINT, handlePresetRunnerSignal);
     std::signal(SIGTERM, handlePresetRunnerSignal);
 
-    RunOutputGroups outputGroups = makeRunOutputGroups(preset);
+    RunOutputGroups outputGroups = makeRunOutputGroups(preset, outputDirIsGroup);
     std::vector<RunningJob> jobs = makeJobs(preset, outputGroups);
+    writeStatusFile(statusPath, jobs, Clock::now(), "starting", "plan built");
     auto nextStatus = Clock::now();
     std::string message = "started";
 
@@ -568,14 +724,28 @@ int runPresetFile(const tui::RecorderTuiPreset& preset, const std::filesystem::p
         markStartJobsStopped(jobs);
     }
     finalizeNonStartingJobs(jobs);
-    if (blockedStarts == 0) writeRunGroupManifests(preset.outputDir, outputGroups);
+    const PresetStatusSummary finalSummary = summarizePresetStatus(jobs, Clock::now());
+    const bool skippedOnly = allJobsSkipped(jobs, finalSummary);
+    const std::string finalState = gPresetRunnerStop
+        ? std::string{"stopped"}
+        : (skippedOnly ? std::string{"skipped"}
+                       : (finalSummary.errors != 0 ? std::string{"error"} : std::string{"done"}));
+    const std::string finalMessage = blockedStarts > 0
+        ? std::string{"stop requested while startup was still in progress"}
+        : (gPresetRunnerStop
+               ? std::string{"stop requested"}
+               : (skippedOnly ? std::string{"all jobs skipped: no supported channels"}
+                              : (finalSummary.errors != 0 ? finalErrorMessage(finalSummary) : std::string{"done"})));
     writeStatusFile(statusPath,
                     jobs,
                     Clock::now(),
-                    gPresetRunnerStop ? "stopped" : "done",
-                    blockedStarts > 0
-                        ? "stop requested while startup was still in progress"
-                        : (gPresetRunnerStop ? "stop requested" : "done"));
+                    finalState,
+                    finalMessage);
+    if (blockedStarts == 0 && !gPresetRunnerStop) {
+        const std::filesystem::path discoveryRoot =
+            outputDirIsGroup && !preset.outputDir.parent_path().empty() ? preset.outputDir.parent_path() : preset.outputDir;
+        writeRunGroupManifests(discoveryRoot, outputGroups);
+    }
     if (blockedStarts > 0) {
         // std::future from std::async blocks in its destructor; leave after status is on disk.
         std::_Exit(0);
@@ -585,7 +755,7 @@ int runPresetFile(const tui::RecorderTuiPreset& preset, const std::filesystem::p
 
 void printRunPresetUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder run-preset --preset path [--status path]");
+    std::puts("  hft-recorder run-preset --preset path [--status path] [--output-is-group]");
 }
 
 }  // namespace
@@ -593,6 +763,7 @@ void printRunPresetUsage() {
 int runPresetRunner(int argc, char** argv) {
     std::filesystem::path presetPath;
     std::filesystem::path statusPath;
+    bool outputDirIsGroup = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--help" || arg == "-h") {
@@ -615,6 +786,10 @@ int runPresetRunner(int argc, char** argv) {
             statusPath = argv[++i];
             continue;
         }
+        if (arg == "--output-is-group") {
+            outputDirIsGroup = true;
+            continue;
+        }
         std::fprintf(stderr, "run-preset: unknown option '%.*s'\n", static_cast<int>(arg.size()), arg.data());
         printRunPresetUsage();
         return 2;
@@ -634,7 +809,7 @@ int runPresetRunner(int argc, char** argv) {
         std::fputs("run-preset: preset has no jobs\n", stderr);
         return 2;
     }
-    return runPresetFile(preset, statusPath);
+    return runPresetFile(preset, statusPath, outputDirIsGroup);
 }
 
 }  // namespace hftrec::app

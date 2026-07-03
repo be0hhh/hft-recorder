@@ -61,6 +61,10 @@ TEST(CaptureViewModelRequests, AppliesNativeVenueSymbolsFromGlobalInput) {
               QStringLiteral("BTCUSDT"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bitmart_futures"), QStringLiteral("BTCUSDT")),
               QStringLiteral("BTCUSDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("poloniex_futures"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("BTC_USDT_PERP"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("poloniex_spot"), QStringLiteral("BTCUSDT")),
+              QStringLiteral("BTC_USDT"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("hyperliquid_futures"), QStringLiteral("BTCUSDT")),
               QStringLiteral("BTC"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("hyperliquid_futures"), QStringLiteral("BTCUSDC")),
@@ -79,6 +83,8 @@ TEST(CaptureViewModelRequests, VenuePlaceholdersShowNativeFormat) {
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("htx_futures")), QStringLiteral("Example: BTC-USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("phemex_futures")), QStringLiteral("Example: BTCUSDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("bitmart_futures")), QStringLiteral("Example: BTCUSDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("poloniex_futures")), QStringLiteral("Example: BTC_USDT_PERP"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("poloniex_spot")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("hyperliquid_futures")), QStringLiteral("Example: BTC"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("finam_spot")), QStringLiteral("Example: SBER@MISX"));
 }
@@ -308,10 +314,14 @@ TEST(CaptureViewModelRequests, DetailedCandlesVenueChoicesExcludeUnsupportedKlin
     const auto candleKeys = choiceKeys(detailedCandlesVenueChoices());
     EXPECT_TRUE(liveKeys.contains(QStringLiteral("mexc_spot")));
     EXPECT_TRUE(liveKeys.contains(QStringLiteral("bitmart_futures")));
+    EXPECT_TRUE(liveKeys.contains(QStringLiteral("poloniex_futures")));
+    EXPECT_TRUE(liveKeys.contains(QStringLiteral("poloniex_spot")));
     EXPECT_TRUE(liveKeys.contains(QStringLiteral("hyperliquid_futures")));
     EXPECT_FALSE(liveKeys.contains(QStringLiteral("moex_futures")));
     EXPECT_FALSE(liveKeys.contains(QStringLiteral("moex_spot")));
     EXPECT_TRUE(candleKeys.contains(QStringLiteral("mexc_spot")));
+    EXPECT_FALSE(candleKeys.contains(QStringLiteral("poloniex_futures")));
+    EXPECT_FALSE(candleKeys.contains(QStringLiteral("poloniex_spot")));
     EXPECT_FALSE(candleKeys.contains(QStringLiteral("hyperliquid_futures")));
     EXPECT_FALSE(candleKeys.contains(QStringLiteral("moex_futures")));
     EXPECT_TRUE(candleKeys.contains(QStringLiteral("finam_spot")));

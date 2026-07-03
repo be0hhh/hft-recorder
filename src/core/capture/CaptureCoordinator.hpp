@@ -156,6 +156,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status flushRecordingManifestIfDue_(std::int64_t& nextFlushNs) noexcept;
     void syncManifestIntegrityFromReplay_() noexcept;
     Status writeManifestFile_() noexcept;
+    Status writeStartupFailureManifest_(std::string_view reason) noexcept;
     Status writeInstrumentMetadataFile() noexcept;
     Status refreshInstrumentMetadataFromExchangeInfo() noexcept;
     Status writeSupportArtifacts() noexcept;

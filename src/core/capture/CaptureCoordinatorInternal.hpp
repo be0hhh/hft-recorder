@@ -30,14 +30,8 @@ std::string_view primaryIdentitySymbolText(const CaptureConfig& config) noexcept
 std::string_view primaryRouteSymbolText(const CaptureConfig& config) noexcept;
 
 #if HFTREC_WITH_CXET
-cxet::UnifiedRequestBuilder makeTradesBuilder(const CaptureConfig& config) noexcept;
-cxet::UnifiedRequestBuilder makeBookTickerBuilder(const CaptureConfig& config) noexcept;
-cxet::UnifiedRequestBuilder makeLiquidationBuilder(const CaptureConfig& config) noexcept;
-cxet::UnifiedRequestBuilder makeOrderbookSubscribeBuilder(const CaptureConfig& config) noexcept;
-
-bool applyRequestedAliases(const std::vector<std::string>& aliasNames,
-                           cxet::UnifiedRequestBuilder& builder,
-                           std::string& lastError);
+bool validateRequestedAliases(const std::vector<std::string>& aliasNames,
+                              std::string& lastError);
 
 hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfig& config) noexcept;
 

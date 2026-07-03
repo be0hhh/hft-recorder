@@ -123,6 +123,10 @@ std::string formattedVenueSymbol(const RecorderTuiVenueSpec& venue, const Parsed
     if (exchange == "xt") {
         return lower(base) + '_' + lower(quote);
     }
+    if (exchange == "poloniex") {
+        const std::string result = base + '_' + quote;
+        return market == "futures" ? result + "_PERP" : result;
+    }
     if (exchange == "bingx") {
         return base + '-' + quote;
     }
@@ -202,6 +206,17 @@ std::string canonicalGlobalSymbol(std::string_view raw) {
     return parsed.base + parsed.quote;
 }
 
+ChannelSelection generatedMarketDataChannels() noexcept {
+    ChannelSelection channels{};
+    channels.trades = true;
+    channels.bookTicker = true;
+    channels.orderbook = true;
+    channels.markPrice = true;
+    channels.funding = true;
+    channels.priceLimit = true;
+    return channels;
+}
+
 }  // namespace
 
 const std::vector<RecorderTuiVenueSpec>& allCryptoVenueSpecs() {
@@ -224,6 +239,8 @@ const std::vector<RecorderTuiVenueSpec>& allCryptoVenueSpecs() {
         {"mexc_futures", "MEXC Futures", "mexc", "futures"},
         {"xt_futures", "XT Futures", "xt", "futures"},
         {"xt_spot", "XT Spot", "xt", "spot"},
+        {"poloniex_futures", "Poloniex Futures", "poloniex", "futures"},
+        {"poloniex_spot", "Poloniex Spot", "poloniex", "spot"},
         {"bingx_futures", "BingX Futures", "bingx", "futures"},
         {"bingx_spot", "BingX Spot", "bingx", "spot"},
         {"bitmart_futures", "Bitmart Futures", "bitmart", "futures"},
@@ -340,7 +357,7 @@ std::vector<RecorderTuiJob> generateJobsForSymbols(const std::vector<std::string
                 job.symbol = routeSymbol;
             }
             job.durationMin = 0;
-            job.channels = allLiveChannels();
+            job.channels = generatedMarketDataChannels();
             jobs.push_back(std::move(job));
             ++ordinal;
         }

@@ -37,7 +37,7 @@ struct RecorderTuiPreset {
     int launchWaveSize{4};
     int launchStaggerMs{250};
     int sameExchangeCooldownMs{1500};
-    int maxActiveJobs{24};
+    int maxActiveJobs{31};
     std::vector<RecorderTuiJob> jobs{};
 };
 

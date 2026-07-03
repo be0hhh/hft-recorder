@@ -47,6 +47,7 @@ set(HFTREC_CORE_SOURCES
     tui/RecorderTuiPreset.cpp
     tui/RecorderTuiShard.cpp
     tui/RecorderTuiSymbols.cpp
+    tui/status/RecorderTuiShardStatus.cpp
     tui/TerminalRender.cpp
     validation/ValidationRunner.cpp
 )

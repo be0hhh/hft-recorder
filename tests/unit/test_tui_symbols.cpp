@@ -34,6 +34,8 @@ TEST(RecorderTuiSymbols, FormatsGlobalSymbolForNativeCryptoVenues) {
     EXPECT_EQ(venueSymbolsFromGlobalInput("mexc_futures", "BTCUSDT"), "BTC_USDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("bitmart_futures", "BTCUSDT"), "BTCUSDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("bitmart_spot", "BTCUSDT"), "BTCUSDT");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("poloniex_futures", "BTCUSDT"), "BTC_USDT_PERP");
+    EXPECT_EQ(venueSymbolsFromGlobalInput("poloniex_spot", "BTCUSDT"), "BTC_USDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("hyperliquid_futures", "BTCUSDT"), "BTC");
     EXPECT_EQ(venueSymbolsFromGlobalInput("hyperliquid_futures", "BTCUSDC"), "BTC");
 }
@@ -86,20 +88,31 @@ TEST(RecorderTuiSymbols, RendersSymbolListWithoutGeneratedJobs) {
     EXPECT_EQ(renderSymbolListText({"allo", "lab", "4USDT"}), "allo\nlab\n4USDT\n");
 }
 
-TEST(RecorderTuiSymbols, GeneratesLiveJobsForAllCryptoVenues) {
+TEST(RecorderTuiSymbols, GeneratesRequiredMarketDataJobsForAllCryptoVenues) {
     const auto jobs = generateJobsForSymbols({"lab"}, allCryptoVenueSpecs(), 0);
 
+    ASSERT_EQ(allCryptoVenueSpecs().size(), 31u);
     ASSERT_EQ(jobs.size(), allCryptoVenueSpecs().size());
     EXPECT_EQ(jobs.front().exchange, "binance");
     EXPECT_EQ(jobs.front().market, "futures");
     EXPECT_EQ(jobs.front().symbol, "LABUSDT");
-    EXPECT_TRUE(jobs.front().channels.trades);
-    EXPECT_TRUE(jobs.front().channels.priceLimit);
+    for (const auto& job : jobs) {
+        EXPECT_TRUE(job.channels.trades);
+        EXPECT_TRUE(job.channels.bookTicker);
+        EXPECT_TRUE(job.channels.orderbook);
+        EXPECT_TRUE(job.channels.markPrice);
+        EXPECT_TRUE(job.channels.funding);
+        EXPECT_TRUE(job.channels.priceLimit);
+        EXPECT_FALSE(job.channels.liquidations);
+        EXPECT_FALSE(job.channels.indexPrice);
+    }
 
     bool foundKucoinFutures = false;
     bool foundOkxFutures = false;
     bool foundMexcFutures = false;
     bool foundBitmartFutures = false;
+    bool foundPoloniexFutures = false;
+    bool foundPoloniexSpot = false;
     bool foundHyperliquidFutures = false;
     for (const auto& job : jobs) {
         if (job.exchange == "kucoin" && job.market == "futures" && job.symbol == "LABUSDTM") {
@@ -114,6 +127,12 @@ TEST(RecorderTuiSymbols, GeneratesLiveJobsForAllCryptoVenues) {
         if (job.exchange == "bitmart" && job.market == "futures" && job.symbol == "LABUSDT") {
             foundBitmartFutures = true;
         }
+        if (job.exchange == "poloniex" && job.market == "futures" && job.symbol == "LAB_USDT_PERP") {
+            foundPoloniexFutures = true;
+        }
+        if (job.exchange == "poloniex" && job.market == "spot" && job.symbol == "LAB_USDT") {
+            foundPoloniexSpot = true;
+        }
         if (job.exchange == "hyperliquid" && job.market == "futures" &&
             job.symbol == "LABUSDT" && job.routeSymbol == "LAB") {
             foundHyperliquidFutures = true;
@@ -124,6 +143,8 @@ TEST(RecorderTuiSymbols, GeneratesLiveJobsForAllCryptoVenues) {
     EXPECT_TRUE(foundOkxFutures);
     EXPECT_TRUE(foundMexcFutures);
     EXPECT_TRUE(foundBitmartFutures);
+    EXPECT_TRUE(foundPoloniexFutures);
+    EXPECT_TRUE(foundPoloniexSpot);
     EXPECT_TRUE(foundHyperliquidFutures);
 }
 

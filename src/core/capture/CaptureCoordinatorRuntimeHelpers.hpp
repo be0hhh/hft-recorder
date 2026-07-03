@@ -25,6 +25,7 @@ namespace hftrec::capture::runtime {
 
 inline constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
 inline constexpr std::int64_t kMarketDataLifecyclePollIntervalNs = 250'000'000LL;
+inline constexpr std::int64_t kMarketDataStartupFailureGraceNs = 3'000'000'000LL;
 inline constexpr std::int64_t kTradesHistoryWarmupMaxSec = 86400;
 inline constexpr std::size_t kTradesHistoryWarmupTargetRows = 0u;
 inline constexpr std::uint32_t kTradesHistoryWarmupPageLimit = 1000u;
@@ -107,8 +108,12 @@ replay::SnapshotDocument makeSnapshotDocument(const cxet_bridge::CapturedOrderBo
 bool sleepCaptureStopAware(const std::atomic<bool>* stopRequested, unsigned delayMs) noexcept;
 
 const char* publicMarketDataStatusName(cxet::api::market::PublicMarketDataStatus status) noexcept;
+bool marketDataStatusIsTerminalStartupFailure(cxet::api::market::PublicMarketDataStatus status) noexcept;
 std::string marketDataRuntimeDiagnosticText(const hft_trader::runtime::MarketDataRuntime& runtime,
                                             std::string_view scope);
+bool marketDataRuntimeTerminalStartupFailure(const hft_trader::runtime::MarketDataRuntime& runtime,
+                                             std::string_view scope,
+                                             std::string* diagnosticOut = nullptr);
 void pollMarketDataLifecycleIfDue(hft_trader::runtime::MarketDataRuntime& runtime,
                                   std::int64_t& nextPollNs,
                                   std::string* diagnosticOut = nullptr,

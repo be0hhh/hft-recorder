@@ -1,6 +1,7 @@
 #include "core/tui/RecorderTuiShard.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <utility>
 
@@ -10,9 +11,15 @@ namespace hftrec::tui {
 
 std::vector<RecorderTuiPreset> splitPresetIntoShards(const RecorderTuiPreset& preset,
                                                      int shardCount,
-                                                     int maxActiveJobsPerShard) {
+                                                     int maxActiveJobsPerShard,
+                                                     RecorderTuiShardGrouping grouping) {
     std::vector<std::pair<std::string, std::vector<RecorderTuiJob>>> groups;
     for (const auto& job : preset.jobs) {
+        if (grouping == RecorderTuiShardGrouping::ByJob) {
+            groups.push_back({job.name, {job}});
+            continue;
+        }
+
         std::string symbol = recordings::normalizeRecordingSymbol(job.symbol);
         if (symbol.empty()) symbol = job.symbol;
         auto it = std::find_if(groups.begin(), groups.end(), [&](const auto& item) { return item.first == symbol; });
@@ -39,6 +46,50 @@ std::vector<RecorderTuiPreset> splitPresetIntoShards(const RecorderTuiPreset& pr
         shardJobs.insert(shardJobs.end(), groups[i].second.begin(), groups[i].second.end());
     }
     return shards;
+}
+
+int clampRecorderTuiMaxActiveShards(int requested, int shardCount) noexcept {
+    const int count = std::max(1, shardCount);
+    return std::max(1, std::min(std::max(1, requested), count));
+}
+
+int defaultRecorderTuiMaxActiveShards(const RecorderTuiPreset& preset,
+                                      RecorderTuiShardGrouping grouping,
+                                      int shardCount) noexcept {
+    const int activeJobs = std::max(1, preset.maxActiveJobs);
+    const int requested = grouping == RecorderTuiShardGrouping::ByJob
+        ? activeJobs
+        : std::max(1, shardCount);
+    return clampRecorderTuiMaxActiveShards(requested, shardCount);
+}
+
+RecorderTuiShardLaunchDecision chooseQueuedShardLaunches(const std::vector<RecorderTuiShardLaunchState>& states,
+                                                         int maxActiveShards) {
+    RecorderTuiShardLaunchDecision decision{};
+    const int limit = clampRecorderTuiMaxActiveShards(maxActiveShards, static_cast<int>(states.size()));
+    for (const auto& state : states) {
+        if (state.launchStarted && !state.exited) ++decision.active;
+        if (!state.launchStarted && !state.exited && !state.stopRequested) ++decision.queued;
+    }
+
+    int slots = std::max(0, limit - decision.active);
+    if (slots == 0) return decision;
+    decision.indices.reserve(static_cast<std::size_t>(slots));
+    for (std::size_t i = 0; i < states.size() && slots > 0; ++i) {
+        const auto& state = states[i];
+        if (state.launchStarted || state.exited || state.stopRequested) continue;
+        decision.indices.push_back(i);
+        --slots;
+    }
+    return decision;
+}
+
+void markQueuedShardLaunchesStopped(std::vector<RecorderTuiShardLaunchState>& states) noexcept {
+    for (auto& state : states) {
+        if (state.launchStarted || state.exited) continue;
+        state.stopRequested = true;
+        state.exited = true;
+    }
 }
 
 }  // namespace hftrec::tui

@@ -67,5 +67,7 @@ CaptureLaunchPlan buildCaptureLaunchPlan(const CaptureConfig& config,
                                           CaptureChannelAvailabilityFn availability = nullptr,
                                           void* userData = nullptr);
 
-}  // namespace hftrec::capture
+CaptureLaunchPlan preflightCaptureLaunchPlan(const CaptureConfig& config,
+                                             const std::vector<CaptureChannel>& requested);
 
+}  // namespace hftrec::capture

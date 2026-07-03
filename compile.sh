@@ -281,6 +281,20 @@ _require_backtest_tree() {
     fi
 }
 
+_valid_shared_lib_file() {
+    local file="$1"
+    [ -s "$file" ] || return 1
+    if command -v readelf >/dev/null 2>&1; then
+        readelf -h "$file" >/dev/null 2>&1
+        return $?
+    fi
+    if command -v file >/dev/null 2>&1; then
+        file -b "$file" 2>/dev/null | grep -q 'ELF'
+        return $?
+    fi
+    return 0
+}
+
 _build_trader() {
     _require_trader_tree
     _reset_build_dir_for_explicit_compiler "$TRADER/build" "hft-trader"
@@ -315,7 +329,7 @@ _resolve_compressor_lib() {
         "$COMPRESSOR/build/lib/libhft_compressor_core.so" \
         "$INSTALL_DIR/lib/libhft_compressor_core.so"
     do
-        if [ -f "$candidate" ]; then
+        if _valid_shared_lib_file "$candidate"; then
             printf '%s\n' "$candidate"
             return 0
         fi
@@ -331,7 +345,7 @@ _resolve_trader_lib() {
         "$TRADER/build/lib/libhft_trader_runtime.so" \
         "$INSTALL_DIR/lib/libhft_trader_runtime.so"
     do
-        if [ -f "$candidate" ]; then
+        if _valid_shared_lib_file "$candidate"; then
             printf '%s\n' "$candidate"
             return 0
         fi
@@ -346,7 +360,7 @@ _resolve_backtest_lib() {
         "$BACKTEST/build/lib/libhft_backtest_core.so" \
         "$INSTALL_DIR/lib/libhft_backtest_core.so"
     do
-        if [ -f "$candidate" ]; then
+        if _valid_shared_lib_file "$candidate"; then
             printf '%s\n' "$candidate"
             return 0
         fi
@@ -397,12 +411,12 @@ _install_cxet_force() {
 _resolve_cxet_paths() {
     CXET_INCLUDE="$INSTALL_DIR/include/cxet"
     CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so"
-    if [ ! -f "$CXET_LIB" ] && [ -f "$INSTALL_DIR/lib/libcxet_lib.so.1" ]; then
+    if ! _valid_shared_lib_file "$CXET_LIB" && _valid_shared_lib_file "$INSTALL_DIR/lib/libcxet_lib.so.1"; then
         CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so.1"
     fi
     # Replay-core is intentionally disabled for the recorder build. The app has an offline SessionReplay fallback.
     CXET_REPLAY_LIB=""
-    if [ ! -d "$CXET_INCLUDE" ] || [ ! -f "$CXET_LIB" ]; then
+    if [ ! -d "$CXET_INCLUDE" ] || ! _valid_shared_lib_file "$CXET_LIB"; then
         echo "ERROR: CXETCPP install incomplete at $INSTALL_DIR" >&2
         exit 2
     fi
@@ -434,18 +448,52 @@ set -euo pipefail
 APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
 INSTALL_DIR="\${HOME}/.local/cxet"
 COMPRESSOR_LIB_DIR="$compressor_lib_dir"
-BACKTEST_LIB_DIR="\$APP_DIR/../hft-backtest/build"
-TRADER_LIB_DIR="\$APP_DIR/../hft-trader/build"
-TRADER_CXET_LIB_DIR="\$APP_DIR/../hft-trader/build/cxetcpp/lib"
-if [ ! -f "\$BACKTEST_LIB_DIR/libhft_backtest_core.so" ]; then
-    BACKTEST_LIB_DIR="$backtest_lib_dir"
-fi
-if [ ! -f "\$TRADER_LIB_DIR/libhft_trader_runtime.so" ]; then
-    TRADER_LIB_DIR="$trader_lib_dir"
-fi
-if [ ! -f "\$TRADER_CXET_LIB_DIR/libcxet_lib.so" ]; then
-    TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir"
-fi
+
+valid_shared_lib_file() {
+    local file="\$1"
+    [ -s "\$file" ] || return 1
+    if command -v readelf >/dev/null 2>&1; then
+        readelf -h "\$file" >/dev/null 2>&1
+        return \$?
+    fi
+    if command -v file >/dev/null 2>&1; then
+        file -b "\$file" 2>/dev/null | grep -q 'ELF'
+        return \$?
+    fi
+    return 0
+}
+
+resolve_shared_lib_dir() {
+    local preferred_dir="\$1"
+    local fallback_dir="\$2"
+    local label="\$3"
+    shift 3
+    local lib fallback invalid_preferred=0
+    for lib in "\$@"; do
+        if valid_shared_lib_file "\$preferred_dir/\$lib"; then
+            printf '%s\n' "\$preferred_dir"
+            return 0
+        fi
+        [ -e "\$preferred_dir/\$lib" ] && invalid_preferred=1
+    done
+    for fallback in "\$fallback_dir" "\$INSTALL_DIR/lib"; do
+        for lib in "\$@"; do
+            if valid_shared_lib_file "\$fallback/\$lib"; then
+                if [ "\$invalid_preferred" = "1" ]; then
+                    echo ">>> warning: ignoring invalid \$label library under \$preferred_dir; using \$fallback" >&2
+                fi
+                printf '%s\n' "\$fallback"
+                return 0
+            fi
+        done
+    done
+    echo "ERROR: \$label shared library is missing or invalid. preferred=\$preferred_dir fallback=\$fallback_dir libs=\$*" >&2
+    exit 2
+}
+
+BACKTEST_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-backtest/build" "$backtest_lib_dir" "hft-backtest" libhft_backtest_core.so)"
+TRADER_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build" "$trader_lib_dir" "hft-trader" libhft_trader_runtime.so)"
+TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.1)"
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 export HFTREC_METRICS_PORT="\${HFTREC_METRICS_PORT:-8080}"
 export HFTREC_METRICS_MODE="\${HFTREC_METRICS_MODE:-$default_metrics_mode}"
@@ -612,18 +660,52 @@ set -euo pipefail
 APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
 INSTALL_DIR="\${HOME}/.local/cxet"
 COMPRESSOR_LIB_DIR="$compressor_lib_dir"
-BACKTEST_LIB_DIR="\$APP_DIR/../hft-backtest/build"
-TRADER_LIB_DIR="\$APP_DIR/../hft-trader/build"
-TRADER_CXET_LIB_DIR="\$APP_DIR/../hft-trader/build/cxetcpp/lib"
-if [ ! -f "\$BACKTEST_LIB_DIR/libhft_backtest_core.so" ]; then
-    BACKTEST_LIB_DIR="$backtest_lib_dir"
-fi
-if [ ! -f "\$TRADER_LIB_DIR/libhft_trader_runtime.so" ]; then
-    TRADER_LIB_DIR="$trader_lib_dir"
-fi
-if [ ! -f "\$TRADER_CXET_LIB_DIR/libcxet_lib.so" ]; then
-    TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir"
-fi
+
+valid_shared_lib_file() {
+    local file="\$1"
+    [ -s "\$file" ] || return 1
+    if command -v readelf >/dev/null 2>&1; then
+        readelf -h "\$file" >/dev/null 2>&1
+        return \$?
+    fi
+    if command -v file >/dev/null 2>&1; then
+        file -b "\$file" 2>/dev/null | grep -q 'ELF'
+        return \$?
+    fi
+    return 0
+}
+
+resolve_shared_lib_dir() {
+    local preferred_dir="\$1"
+    local fallback_dir="\$2"
+    local label="\$3"
+    shift 3
+    local lib fallback invalid_preferred=0
+    for lib in "\$@"; do
+        if valid_shared_lib_file "\$preferred_dir/\$lib"; then
+            printf '%s\n' "\$preferred_dir"
+            return 0
+        fi
+        [ -e "\$preferred_dir/\$lib" ] && invalid_preferred=1
+    done
+    for fallback in "\$fallback_dir" "\$INSTALL_DIR/lib"; do
+        for lib in "\$@"; do
+            if valid_shared_lib_file "\$fallback/\$lib"; then
+                if [ "\$invalid_preferred" = "1" ]; then
+                    echo ">>> warning: ignoring invalid \$label library under \$preferred_dir; using \$fallback" >&2
+                fi
+                printf '%s\n' "\$fallback"
+                return 0
+            fi
+        done
+    done
+    echo "ERROR: \$label shared library is missing or invalid. preferred=\$preferred_dir fallback=\$fallback_dir libs=\$*" >&2
+    exit 2
+}
+
+BACKTEST_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-backtest/build" "$backtest_lib_dir" "hft-backtest" libhft_backtest_core.so)"
+TRADER_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build" "$trader_lib_dir" "hft-trader" libhft_trader_runtime.so)"
+TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.1)"
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 
 warn_if_another_tui_running() {
@@ -659,18 +741,52 @@ set -euo pipefail
 APP_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
 INSTALL_DIR="\${HOME}/.local/cxet"
 COMPRESSOR_LIB_DIR="$compressor_lib_dir"
-BACKTEST_LIB_DIR="\$APP_DIR/../hft-backtest/build"
-TRADER_LIB_DIR="\$APP_DIR/../hft-trader/build"
-TRADER_CXET_LIB_DIR="\$APP_DIR/../hft-trader/build/cxetcpp/lib"
-if [ ! -f "\$BACKTEST_LIB_DIR/libhft_backtest_core.so" ]; then
-    BACKTEST_LIB_DIR="$backtest_lib_dir"
-fi
-if [ ! -f "\$TRADER_LIB_DIR/libhft_trader_runtime.so" ]; then
-    TRADER_LIB_DIR="$trader_lib_dir"
-fi
-if [ ! -f "\$TRADER_CXET_LIB_DIR/libcxet_lib.so" ]; then
-    TRADER_CXET_LIB_DIR="$trader_cxet_lib_dir"
-fi
+
+valid_shared_lib_file() {
+    local file="\$1"
+    [ -s "\$file" ] || return 1
+    if command -v readelf >/dev/null 2>&1; then
+        readelf -h "\$file" >/dev/null 2>&1
+        return \$?
+    fi
+    if command -v file >/dev/null 2>&1; then
+        file -b "\$file" 2>/dev/null | grep -q 'ELF'
+        return \$?
+    fi
+    return 0
+}
+
+resolve_shared_lib_dir() {
+    local preferred_dir="\$1"
+    local fallback_dir="\$2"
+    local label="\$3"
+    shift 3
+    local lib fallback invalid_preferred=0
+    for lib in "\$@"; do
+        if valid_shared_lib_file "\$preferred_dir/\$lib"; then
+            printf '%s\n' "\$preferred_dir"
+            return 0
+        fi
+        [ -e "\$preferred_dir/\$lib" ] && invalid_preferred=1
+    done
+    for fallback in "\$fallback_dir" "\$INSTALL_DIR/lib"; do
+        for lib in "\$@"; do
+            if valid_shared_lib_file "\$fallback/\$lib"; then
+                if [ "\$invalid_preferred" = "1" ]; then
+                    echo ">>> warning: ignoring invalid \$label library under \$preferred_dir; using \$fallback" >&2
+                fi
+                printf '%s\n' "\$fallback"
+                return 0
+            fi
+        done
+    done
+    echo "ERROR: \$label shared library is missing or invalid. preferred=\$preferred_dir fallback=\$fallback_dir libs=\$*" >&2
+    exit 2
+}
+
+BACKTEST_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-backtest/build" "$backtest_lib_dir" "hft-backtest" libhft_backtest_core.so)"
+TRADER_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build" "$trader_lib_dir" "hft-trader" libhft_trader_runtime.so)"
+TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.1)"
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 
 exec "\$APP_DIR/build/bin/history" "\$@"
