@@ -155,6 +155,7 @@ BacktestViewModel::~BacktestViewModel() {
     stopAsyncLoaders_();
     cancelBacktest();
     stopWorker_();
+    settings_.sync();
 }
 
 QString BacktestViewModel::recordingsRoot() const {
@@ -219,16 +220,22 @@ QVariantList BacktestViewModel::loadSessions_() const {
         for (const auto& session : group.sessions) {
             const QString id = QString::fromStdString(session.sessionId);
             const QString path = QString::fromStdString(session.path.string());
+            const QString exchange = QString::fromStdString(session.exchange).trimmed().toLower();
+            const QString rawMarket = QString::fromStdString(session.market).trimmed().toLower();
+            const QString market = normalizedFeeMarket(rawMarket);
+            const QString symbol = QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front()).trimmed().toUpper();
             const BacktestLegCounts backtestCounts = snapshot.backtestCountsBySession.value(id);
             const int backtestCount = backtestCounts.total > 0 ? backtestCounts.total : backtestCounts.firstLeg + backtestCounts.secondLeg;
             QVariantMap row;
             row.insert(QStringLiteral("id"), id);
             row.insert(QStringLiteral("label"), QStringLiteral("%1/%2 %3")
-                                            .arg(QString::fromStdString(session.exchange),
-                                                 QString::fromStdString(session.market),
-                                                 QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front())));
+                                            .arg(exchange, rawMarket, symbol));
             row.insert(QStringLiteral("path"), path);
             row.insert(QStringLiteral("sessionPaths"), QVariantList{path});
+            row.insert(QStringLiteral("exchange"), exchange);
+            row.insert(QStringLiteral("market"), market);
+            row.insert(QStringLiteral("symbol"), symbol);
+            row.insert(QStringLiteral("venue"), venueSectionFor(exchange, market));
             row.insert(QStringLiteral("hasManifest"), true);
             row.insert(QStringLiteral("hasBacktests"), backtestCount > 0);
             row.insert(QStringLiteral("backtestCount"), backtestCount);
@@ -424,6 +431,48 @@ QVariantList BacktestViewModel::selectedSessionLegs() const {
     return sessionLegRowsForPaths_(selectedSessionCandidatePaths_(), disabledSessionLegPaths_);
 }
 
+QVariantMap BacktestViewModel::sessionCatalogRowForPath_(const QString& path) const {
+    const QString normalized = normalizedPath_(path);
+    if (normalized.isEmpty()) return {};
+    for (const QVariant& value : sessions_) {
+        const QVariantMap row = value.toMap();
+        if (row.value(QStringLiteral("isGroup")).toBool()) continue;
+        if (normalizedPath_(row.value(QStringLiteral("path")).toString()) == normalized) return row;
+    }
+    return {};
+}
+
+QString BacktestViewModel::sessionExchangeForPath_(const QString& path) const {
+    const QVariantMap row = sessionCatalogRowForPath_(path);
+    const QString exchange = row.value(QStringLiteral("exchange")).toString().trimmed().toLower();
+    return exchange.isEmpty() ? manifestValue(path, QStringLiteral("exchange")).trimmed().toLower() : exchange;
+}
+
+QString BacktestViewModel::sessionMarketForPath_(const QString& path) const {
+    const QVariantMap row = sessionCatalogRowForPath_(path);
+    const QString market = row.value(QStringLiteral("market")).toString().trimmed().toLower();
+    return market.isEmpty() ? normalizedFeeMarket(manifestValue(path, QStringLiteral("market"))) : market;
+}
+
+QString BacktestViewModel::sessionSymbolForPath_(const QString& path) const {
+    const QVariantMap row = sessionCatalogRowForPath_(path);
+    const QString symbol = row.value(QStringLiteral("symbol")).toString().trimmed().toUpper();
+    return symbol.isEmpty() ? symbolForSessionPath(path) : symbol;
+}
+
+QString BacktestViewModel::sessionVenueSectionForPath_(const QString& path) const {
+    const QVariantMap row = sessionCatalogRowForPath_(path);
+    const QString venue = row.value(QStringLiteral("venue")).toString().trimmed();
+    return venue.isEmpty() ? venueSectionFor(sessionExchangeForPath_(path), sessionMarketForPath_(path)) : venue;
+}
+
+QString BacktestViewModel::venueExecutionKeyForPath_(const QString& path) const {
+    const QString exchange = sessionExchangeForPath_(path);
+    const QString market = sessionMarketForPath_(path);
+    if (exchange.isEmpty() || market.isEmpty()) return {};
+    return exchange + QLatin1Char('|') + normalizedFeeMarket(market);
+}
+
 QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths, const QStringList& disabledPaths) const {
     QVariantList out;
     const int primaryIndex = normalizedSelectedPrimaryLegIndexForPaths_(paths, disabledPaths);
@@ -433,7 +482,11 @@ QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths
         const QString path = paths.at(i);
         const bool enabled = !disabledPaths.contains(path);
         const bool primary = i == primaryIndex;
-        const QString venueKey = venueExecutionKey(path);
+        const QString exchange = sessionExchangeForPath_(path);
+        const QString market = sessionMarketForPath_(path);
+        const QString symbol = sessionSymbolForPath_(path);
+        const QString venue = sessionVenueSectionForPath_(path);
+        const QString venueKey = venueExecutionKeyForPath_(path);
         const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
         const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
         row.insert(QStringLiteral("index"), i);
@@ -443,17 +496,17 @@ QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths
         row.insert(QStringLiteral("tradeMode"), selectedTradeMode_);
         row.insert(QStringLiteral("path"), path);
         row.insert(QStringLiteral("id"), sessionIdFromPath_(path));
-        row.insert(QStringLiteral("symbol"), symbolForSessionPath(path));
-        row.insert(QStringLiteral("venue"), venueSectionForSession(path));
+        row.insert(QStringLiteral("symbol"), symbol);
+        row.insert(QStringLiteral("venue"), venue);
         row.insert(QStringLiteral("venueKey"), venueKey);
-        row.insert(QStringLiteral("exchange"), manifestValue(path, QStringLiteral("exchange")).trimmed().toLower());
-        row.insert(QStringLiteral("market"), normalizedFeeMarket(manifestValue(path, QStringLiteral("market"))));
+        row.insert(QStringLiteral("exchange"), exchange);
+        row.insert(QStringLiteral("market"), market);
         row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
         if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
         if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);
         row.insert(QStringLiteral("executionPresetSummary"),
-                   exchangeExecutionPresetSummary(row.value(QStringLiteral("exchange")).toString(),
-                                                  row.value(QStringLiteral("market")).toString(),
+                   exchangeExecutionPresetSummary(exchange,
+                                                  market,
                                                   rateLimitsEnabled_));
         row.insert(QStringLiteral("marketDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_));
         row.insert(QStringLiteral("marketDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_));
@@ -467,7 +520,7 @@ QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths
         row.insert(QStringLiteral("userDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_jitter_us"), userDataJitterUs_));
         row.insert(QStringLiteral("label"), QStringLiteral("%1: %2 %3")
             .arg(i + 1)
-            .arg(venueSectionForSession(path), symbolForSessionPath(path)));
+            .arg(venue, symbol));
         out.push_back(row);
     }
     return out;
@@ -516,14 +569,16 @@ std::vector<QVariantMap> BacktestViewModel::venueExecutionRowsForPaths_(const QS
     QSet<QString> emitted;
     out.reserve(static_cast<std::size_t>(paths.size()));
     for (const QString& path : paths) {
-        const QString venueKey = venueExecutionKey(path);
+        const QString venueKey = venueExecutionKeyForPath_(path);
         if (venueKey.isEmpty() || emitted.contains(venueKey)) continue;
         emitted.insert(venueKey);
+        const QString exchange = sessionExchangeForPath_(path);
+        const QString market = sessionMarketForPath_(path);
         const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
         const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
         QVariantMap row;
-        row.insert(QStringLiteral("exchange"), manifestValue(path, QStringLiteral("exchange")).trimmed().toLower());
-        row.insert(QStringLiteral("market"), normalizedFeeMarket(manifestValue(path, QStringLiteral("market"))));
+        row.insert(QStringLiteral("exchange"), exchange);
+        row.insert(QStringLiteral("market"), market);
         row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
         if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
         if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);

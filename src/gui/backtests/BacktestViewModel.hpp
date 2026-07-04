@@ -510,6 +510,12 @@ class BacktestViewModel : public QObject {
     QStringList candidatePathsForSessionId_(const QString& sessionId) const;
     QStringList legSelectionCandidatePaths_() const;
     QVariantList sessionLegRowsForPaths_(const QStringList& paths, const QStringList& disabledPaths) const;
+    QVariantMap sessionCatalogRowForPath_(const QString& path) const;
+    QString sessionExchangeForPath_(const QString& path) const;
+    QString sessionMarketForPath_(const QString& path) const;
+    QString sessionSymbolForPath_(const QString& path) const;
+    QString sessionVenueSectionForPath_(const QString& path) const;
+    QString venueExecutionKeyForPath_(const QString& path) const;
     int normalizedSelectedPrimaryLegIndexForPaths_(const QStringList& paths, const QStringList& disabledPaths) const;
     QStringList orderedSessionPathsForRun_() const;
     QString legSelectionSettingsKey_() const;

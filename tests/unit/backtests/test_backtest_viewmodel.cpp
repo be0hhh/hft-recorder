@@ -11,9 +11,11 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <memory>
 
 #include "core/capture/SessionManifest.hpp"
 #include "gui/backtests/BacktestViewModel.hpp"
+#include "gui/models/RecordingCatalog.hpp"
 
 namespace {
 
@@ -182,6 +184,16 @@ void waitForResultRefresh(hftrec::gui::BacktestViewModel& vm) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
     }
     ASSERT_FALSE(vm.resultsLoading());
+}
+
+void waitForCatalogLoad(hftrec::gui::RecordingCatalog& catalog) {
+    QElapsedTimer timer;
+    timer.start();
+    while (catalog.loading() && timer.elapsed() < 5000) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    }
+    ASSERT_FALSE(catalog.loading());
+    ASSERT_TRUE(catalog.hasSnapshot());
 }
 
 void setSessionPathAndWait(hftrec::gui::BacktestViewModel& vm, const QString& sessionPath) {
@@ -950,6 +962,45 @@ TEST(BacktestViewModel, SelectingGroupedSessionUsesAllFolderSessions) {
     QDir(groupDir).removeRecursively();
 }
 
+TEST(BacktestViewModel, UsesCatalogSnapshotForSelectedLegRowsAfterManifestDisappears) {
+    isolateSettings(QStringLiteral("catalog_snapshot_leg_rows"));
+
+    hftrec::gui::BacktestViewModel vm;
+    const QString unique = QStringLiteral("SNAPLEG%1").arg(std::rand());
+    const QString groupId = QStringLiteral("2026-06-22_18-25-31_%1").arg(unique);
+    const QString groupDir = QDir(vm.recordingsRoot()).absoluteFilePath(groupId);
+    const qint64 startNs = 1782141931000000000LL;
+    const QString binanceId = QStringLiteral("snapshot_binance_%1").arg(unique);
+    const QString okxId = QStringLiteral("snapshot_okx_%1").arg(unique);
+    const QString binancePath = QDir(groupDir).absoluteFilePath(binanceId);
+    const QString okxPath = QDir(groupDir).absoluteFilePath(okxId);
+
+    writeRecordingManifest(binancePath, binanceId, QStringLiteral("binance"), QStringLiteral("futures"), QStringLiteral("BTCUSDT"), startNs);
+    writeRecordingManifest(okxPath, okxId, QStringLiteral("okx"), QStringLiteral("futures"), QStringLiteral("ETHUSDT"), startNs + 1'000'000LL);
+
+    hftrec::gui::RecordingCatalog catalog;
+    catalog.refresh();
+    waitForCatalogLoad(catalog);
+    vm.setRecordingCatalog(&catalog);
+    vm.setSelectedSessionId(QStringLiteral("group:%1").arg(groupId));
+
+    QFile::remove(QDir(binancePath).absoluteFilePath(QStringLiteral("manifest.json")));
+    QFile::remove(QDir(okxPath).absoluteFilePath(QStringLiteral("manifest.json")));
+
+    const QVariantList legs = vm.selectedSessionLegs();
+    ASSERT_EQ(legs.size(), 2);
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("binance"));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("market")).toString(), QStringLiteral("futures"));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("binance_futures"));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("BTCUSDT"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("okx"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("market")).toString(), QStringLiteral("futures"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("okx_futures"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("ETHUSDT"));
+
+    QDir(groupDir).removeRecursively();
+}
+
 TEST(BacktestViewModel, StagesLegSelectionUntilApply) {
     isolateSettings(QStringLiteral("staged_leg_selection"));
 
@@ -1008,13 +1059,13 @@ TEST(BacktestViewModel, StagesLegSelectionUntilApply) {
 TEST(BacktestViewModel, PersistsLegSelectionPerSessionGroup) {
     isolateSettings(QStringLiteral("persist_group_leg_selection"));
 
-    hftrec::gui::BacktestViewModel vm;
+    auto vm = std::make_unique<hftrec::gui::BacktestViewModel>();
     const QString unique = QStringLiteral("PERSISTLEG%1").arg(std::rand());
     const qint64 startNs = 1782141931000000000LL;
     const QString groupOneId = QStringLiteral("2026-06-22_18-25-31_%1_a").arg(unique);
     const QString groupTwoId = QStringLiteral("2026-06-22_18-25-31_%1_b").arg(unique);
-    const QString groupOneDir = QDir(vm.recordingsRoot()).absoluteFilePath(groupOneId);
-    const QString groupTwoDir = QDir(vm.recordingsRoot()).absoluteFilePath(groupTwoId);
+    const QString groupOneDir = QDir(vm->recordingsRoot()).absoluteFilePath(groupOneId);
+    const QString groupTwoDir = QDir(vm->recordingsRoot()).absoluteFilePath(groupTwoId);
     const QString binanceId = QStringLiteral("persist_binance_%1").arg(unique);
     const QString okxId = QStringLiteral("persist_okx_%1").arg(unique);
     const QString asterId = QStringLiteral("persist_aster_%1").arg(unique);
@@ -1029,10 +1080,11 @@ TEST(BacktestViewModel, PersistsLegSelectionPerSessionGroup) {
     writeRecordingManifest(asterPath, asterId, QStringLiteral("aster"), QStringLiteral("futures"), unique, startNs + 2'000'000LL);
     writeRecordingManifest(bybitPath, bybitId, QStringLiteral("bybit"), QStringLiteral("futures"), unique, startNs + 3'000'000LL);
 
-    vm.reloadSessions();
-    vm.setSelectedSessionId(QStringLiteral("group:%1").arg(groupOneId));
-    vm.setSessionLegSelectionStaged(okxPath, false);
-    vm.applyLegSelection();
+    vm->reloadSessions();
+    vm->setSelectedSessionId(QStringLiteral("group:%1").arg(groupOneId));
+    vm->setSessionLegSelectionStaged(okxPath, false);
+    vm->applyLegSelection();
+    vm.reset();
 
     hftrec::gui::BacktestViewModel restored;
     restored.reloadSessions();
@@ -1280,15 +1332,15 @@ TEST(BacktestViewModel, MapsFinamSessionsToFinamVenues) {
 TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetSummary) {
     isolateSettings(QStringLiteral("venue_execution_values"));
 
-    hftrec::gui::BacktestViewModel vm;
+    auto vm = std::make_unique<hftrec::gui::BacktestViewModel>();
     const QString primaryId = QStringLiteral("hftrec_fee_primary_%1_%2")
                                   .arg(QCoreApplication::applicationPid())
                                   .arg(std::rand());
     const QString secondaryId = QStringLiteral("hftrec_fee_secondary_%1_%2")
                                     .arg(QCoreApplication::applicationPid())
                                     .arg(std::rand());
-    const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(primaryId);
-    const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(secondaryId);
+    const QString primary = QDir(vm->recordingsRoot()).absoluteFilePath(primaryId);
+    const QString secondary = QDir(vm->recordingsRoot()).absoluteFilePath(secondaryId);
     QDir().mkpath(primary);
     QDir().mkpath(secondary);
     writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
@@ -1296,12 +1348,12 @@ TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetS
     writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
               QByteArrayLiteral("{\"exchange\":\"bybit\",\"market\":\"futures\",\"symbols\":\"ETHUSDT\"}"));
 
-    setSessionPathAndWait(vm, primary);
-    vm.setExtraSessionIds(secondary);
-    vm.setVenueExecutionValue(0, QStringLiteral("market_data_latency_us"), QStringLiteral("111"));
-    vm.setVenueExecutionValue(1, QStringLiteral("market_data_latency_us"), QStringLiteral("333"));
+    setSessionPathAndWait(*vm, primary);
+    vm->setExtraSessionIds(secondary);
+    vm->setVenueExecutionValue(0, QStringLiteral("market_data_latency_us"), QStringLiteral("111"));
+    vm->setVenueExecutionValue(1, QStringLiteral("market_data_latency_us"), QStringLiteral("333"));
 
-    QVariantList rows = vm.selectedSessionLegs();
+    QVariantList rows = vm->selectedSessionLegs();
     ASSERT_EQ(rows.size(), 2);
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("okx"));
     EXPECT_FALSE(rows.at(0).toMap().contains(QStringLiteral("makerFeeBps")));
@@ -1314,13 +1366,14 @@ TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetS
     EXPECT_TRUE(rows.at(1).toMap().value(QStringLiteral("executionPresetSummary")).toString().contains(QStringLiteral("RL")));
     EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
 
-    vm.setVenueExecutionValue(0, QStringLiteral("maker_fee_bps"), QStringLiteral("0.7"));
-    vm.setVenueExecutionValue(0, QStringLiteral("taker_fee_bps"), QStringLiteral("1.1"));
-    rows = vm.selectedSessionLegs();
+    vm->setVenueExecutionValue(0, QStringLiteral("maker_fee_bps"), QStringLiteral("0.7"));
+    vm->setVenueExecutionValue(0, QStringLiteral("taker_fee_bps"), QStringLiteral("1.1"));
+    rows = vm->selectedSessionLegs();
     ASSERT_EQ(rows.size(), 2);
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.7"));
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("takerFeeBps")).toString(), QStringLiteral("1.1"));
     EXPECT_FALSE(rows.at(1).toMap().contains(QStringLiteral("makerFeeBps")));
+    vm.reset();
 
     hftrec::gui::BacktestViewModel restored;
     setSessionPathAndWait(restored, primary);

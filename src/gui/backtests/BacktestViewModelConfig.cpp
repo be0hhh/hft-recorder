@@ -373,7 +373,7 @@ void BacktestViewModel::setVenueExecutionValue(int legIndex, const QString& fiel
     if (!isVenueExecutionField(normalizedField)) return;
     const QStringList paths = selectedSessionCandidatePaths_();
     if (legIndex < 0 || legIndex >= paths.size()) return;
-    const QString venueKey = venueExecutionKey(paths.at(legIndex));
+    const QString venueKey = venueExecutionKeyForPath_(paths.at(legIndex));
     if (venueKey.isEmpty()) return;
     const QString next = value.trimmed();
     const QString mapKey = venueExecutionMapKey(venueKey, normalizedField);
@@ -382,7 +382,6 @@ void BacktestViewModel::setVenueExecutionValue(int legIndex, const QString& fiel
     settings_.setValue(QStringLiteral("backtests/venue_execution/%1/%2")
                            .arg(venueExecutionSettingKey(venueKey), normalizedField),
                        next);
-    settings_.sync();
     emit multiSessionChanged();
     if (normalizedField == QStringLiteral("initial_balance_usdt") ||
         normalizedField == QStringLiteral("maker_fee_bps") ||

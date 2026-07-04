@@ -129,6 +129,21 @@ TEST(RecorderTuiShard, KeepsEachGeneratedSymbolAsOneFullVenueSurfaceShard) {
     }
 }
 
+TEST(RecorderTuiShard, KeepsGeneratedSymbolsStartingWithSInOneFullVenueSurfaceShard) {
+    hftrec::tui::RecorderTuiPreset preset{};
+    preset.jobs = hftrec::tui::generateJobsForSymbols({"syn", "slx"},
+                                                      hftrec::tui::allCryptoVenueSpecs(),
+                                                      0);
+
+    const auto shards = hftrec::tui::splitPresetIntoShards(preset, 7, 31);
+
+    ASSERT_EQ(shards.size(), 2u);
+    for (const auto& shard : shards) {
+        EXPECT_EQ(shard.jobs.size(), hftrec::tui::allCryptoVenueSpecs().size());
+        EXPECT_EQ(shard.jobs.size(), 31u);
+    }
+}
+
 TEST(RecorderTuiShard, CanIsolateEachGeneratedVenueJobIntoOwnShard) {
     hftrec::tui::RecorderTuiPreset preset{};
     preset.jobs = hftrec::tui::generateJobsForSymbols({"lab"}, hftrec::tui::allCryptoVenueSpecs(), 0);

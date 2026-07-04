@@ -69,6 +69,9 @@ TEST(RecordingDiscovery, NormalizesDerivativeSymbolVariantsForStorage) {
     EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTWUSDTPERP"), "BTWUSDT");
     EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTC-USD-SWAP"), "BTCUSD");
     EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("BTC-USD-PERP"), "BTCUSD");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("sSYNUSDT"), "SYNUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("slx_usdt"), "SLXUSDT");
+    EXPECT_EQ(hftrec::recordings::normalizeRecordingSymbol("synusdt"), "SYNUSDT");
 }
 
 TEST(RecordingRoot, DefaultsAndRedirectsLegacyRecordingRootsToDDrive) {

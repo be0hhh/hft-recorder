@@ -133,7 +133,7 @@ void BacktestViewModel::setFuturesSessionLegsSelectionStaged() {
     QStringList disabled;
     const QStringList candidates = legSelectionCandidatePaths_();
     for (const QString& path : candidates) {
-        if (!isFuturesLikeMarket(manifestValue(path, QStringLiteral("market")))) disabled.push_back(path);
+        if (!isFuturesLikeMarket(sessionMarketForPath_(path))) disabled.push_back(path);
     }
     stagedDisabledSessionLegPaths_ = normalizedDisabledSessionLegPaths_(disabled);
 }
@@ -170,7 +170,7 @@ void BacktestViewModel::applyLegSelection() {
         emit legSelectionChanged();
         if (deferredRefresh) {
             refreshSessionGateStatus_();
-            refresh();
+            scheduleRefresh_();
         }
         return;
     }
@@ -213,7 +213,7 @@ void BacktestViewModel::applyLegSelection() {
     }
     emit canRunChanged();
     refreshSessionGateStatus_();
-    refresh();
+    scheduleRefresh_();
 }
 
 void BacktestViewModel::setSessionLegEnabled(const QString& path, bool enabled) {
@@ -266,7 +266,6 @@ void BacktestViewModel::saveLegSelectionForCurrentSession_() {
     const QString key = legSelectionSettingsKey_();
     if (key.isEmpty()) return;
     settings_.setValue(key, disabledSessionLegPaths_);
-    settings_.sync();
 }
 
 void BacktestViewModel::syncStagedLegSelection_() {
