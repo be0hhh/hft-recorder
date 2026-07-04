@@ -71,6 +71,8 @@ void writeRecordingManifest(const QString& sessionDir,
     manifest.sessionStatus = "complete";
     manifest.startedAtNs = startedAtNs;
     manifest.endedAtNs = startedAtNs + 60'000'000'000LL;
+    manifest.tradesEnabled = true;
+    manifest.tradesCount = 7;
     manifest.bookTickerEnabled = true;
     manifest.bookTickerCount = 12;
     writeFile(QDir(sessionDir).absoluteFilePath(QStringLiteral("manifest.json")),
@@ -993,10 +995,16 @@ TEST(BacktestViewModel, UsesCatalogSnapshotForSelectedLegRowsAfterManifestDisapp
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("market")).toString(), QStringLiteral("futures"));
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("binance_futures"));
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("BTCUSDT"));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("bookTickerCount")).toULongLong(), static_cast<qulonglong>(12));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("tradeCount")).toULongLong(), static_cast<qulonglong>(7));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("dataSummary")).toString(), QStringLiteral("BTK 12 | TRD 7"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("okx"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("market")).toString(), QStringLiteral("futures"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("okx_futures"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("ETHUSDT"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("bookTickerCount")).toULongLong(), static_cast<qulonglong>(12));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("tradeCount")).toULongLong(), static_cast<qulonglong>(7));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("dataSummary")).toString(), QStringLiteral("BTK 12 | TRD 7"));
 
     QDir(groupDir).removeRecursively();
 }

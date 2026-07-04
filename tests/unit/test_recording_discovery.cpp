@@ -48,6 +48,8 @@ void writeSession(const std::filesystem::path& dir,
     manifest.sessionStatus = endedAtNs > 0 ? "complete" : "recording";
     manifest.startedAtNs = startedAtNs;
     manifest.endedAtNs = endedAtNs;
+    manifest.tradesEnabled = true;
+    manifest.tradesCount = 45;
     manifest.bookTickerEnabled = true;
     manifest.bookTickerCount = 123;
     manifest.sessionHealth = sessionHealth;
@@ -114,6 +116,8 @@ TEST(RecordingDiscovery, DiscoversFlatAndGroupedSessions) {
     ASSERT_EQ(result.groups.size(), 2u);
     EXPECT_TRUE(result.sessions[0].searchText.find("BTWUSDT") != std::string::npos);
     EXPECT_TRUE(result.sessions[0].searchText.find("22.06.2026") != std::string::npos);
+    EXPECT_EQ(result.sessions[0].tradesCount, 45u);
+    EXPECT_EQ(result.sessions[0].bookTickerCount, 123u);
 }
 
 TEST(RecordingDiscovery, UsesProgressiveTempManifestWhenPrimaryIsEmpty) {

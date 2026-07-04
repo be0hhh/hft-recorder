@@ -21,7 +21,7 @@
 namespace hftrec::gui {
 namespace {
 
-constexpr int kCacheSchemaVersion = 1;
+constexpr int kCacheSchemaVersion = 2;
 
 QString cleanPathText(const std::filesystem::path& path) {
     return QDir::cleanPath(QString::fromStdString(path.string()));
@@ -62,6 +62,7 @@ QJsonObject sessionToJson(const hftrec::recordings::RecordedSessionInfo& session
     out.insert(QStringLiteral("search_text"), QString::fromStdString(session.searchText));
     out.insert(QStringLiteral("started_at_ns"), static_cast<qint64>(session.startedAtNs));
     out.insert(QStringLiteral("ended_at_ns"), static_cast<qint64>(session.endedAtNs));
+    out.insert(QStringLiteral("trade_count"), static_cast<qint64>(session.tradesCount));
     out.insert(QStringLiteral("bookticker_count"), static_cast<qint64>(session.bookTickerCount));
     out.insert(QStringLiteral("candle_count"), static_cast<qint64>(session.candleCount));
     out.insert(QStringLiteral("total_rows"), static_cast<qint64>(session.totalRows));
@@ -88,6 +89,7 @@ hftrec::recordings::RecordedSessionInfo sessionFromJson(const QJsonObject& objec
     out.searchText = object.value(QStringLiteral("search_text")).toString().toStdString();
     out.startedAtNs = object.value(QStringLiteral("started_at_ns")).toInteger();
     out.endedAtNs = object.value(QStringLiteral("ended_at_ns")).toInteger();
+    out.tradesCount = static_cast<std::uint64_t>(object.value(QStringLiteral("trade_count")).toInteger());
     out.bookTickerCount = static_cast<std::uint64_t>(object.value(QStringLiteral("bookticker_count")).toInteger());
     out.candleCount = static_cast<std::uint64_t>(object.value(QStringLiteral("candle_count")).toInteger());
     out.totalRows = static_cast<std::uint64_t>(object.value(QStringLiteral("total_rows")).toInteger());
@@ -155,7 +157,7 @@ BacktestLegCounts countsFromJson(const QJsonObject& object) {
 
 QJsonDocument snapshotToJson(const RecordingCatalogSnapshot& snapshot) {
     QJsonObject root;
-    root.insert(QStringLiteral("schema"), QStringLiteral("hftrec.recording_catalog.v1"));
+    root.insert(QStringLiteral("schema"), QStringLiteral("hftrec.recording_catalog.v2"));
     root.insert(QStringLiteral("schema_version"), kCacheSchemaVersion);
     root.insert(QStringLiteral("recordings_root"), snapshot.recordingsRoot);
     root.insert(QStringLiteral("status_text"), snapshot.statusText);
@@ -248,7 +250,7 @@ QString defaultRecordingCatalogCachePath() {
     }
     QDir dir(base);
     (void)dir.mkpath(QStringLiteral("."));
-    return dir.absoluteFilePath(QStringLiteral("recording_catalog_v1.json"));
+    return dir.absoluteFilePath(QStringLiteral("recording_catalog_v2.json"));
 }
 
 bool writeRecordingCatalogCache(const QString& path, const RecordingCatalogSnapshot& snapshot, QString* errorText) {

@@ -31,7 +31,8 @@ Item {
             rowValue(row, "exchange"),
             rowValue(row, "market"),
             rowValue(row, "symbol"),
-            rowValue(row, "venue")
+            rowValue(row, "venue"),
+            rowValue(row, "dataSummary")
         ].join(" ").toLowerCase()
         return text.indexOf(q) >= 0
     }
@@ -395,7 +396,7 @@ Item {
                             color: selector.mutedTextColor
                             font.pixelSize: 11
                             elide: Text.ElideRight
-                            Layout.preferredWidth: 150
+                            Layout.preferredWidth: 128
                         }
 
                         Label {
@@ -403,7 +404,16 @@ Item {
                             color: selector.mutedTextColor
                             font.pixelSize: 11
                             elide: Text.ElideRight
-                            Layout.preferredWidth: 110
+                            Layout.preferredWidth: 94
+                        }
+
+                        Label {
+                            text: modelData.dataSummary || "BTK 0 | TRD 0"
+                            color: selector.mutedTextColor
+                            font.pixelSize: 11
+                            horizontalAlignment: Text.AlignRight
+                            elide: Text.ElideRight
+                            Layout.preferredWidth: 150
                         }
                     }
                 }
