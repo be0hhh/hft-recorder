@@ -51,7 +51,7 @@ void writeManifest(const fs::path& dir,
     manifest.sessionId = "test_session";
     manifest.exchange = "binance";
     manifest.market = "futures_usd";
-    manifest.symbols = {"BTCUSDT"};
+    manifest.symbols = {"BTC_USDT"};
     manifest.tradesEnabled = tradesEnabled;
     manifest.bookTickerEnabled = bookTickerEnabled;
     manifest.orderbookEnabled = orderbookEnabled;
@@ -204,12 +204,12 @@ TEST(SessionReplay, AcceptsLegacyExtendedTradeRows) {
     writeManifest(dir, true, false, false, 1u, 0u, 0u);
 
     writeFile(dir / "trades.jsonl",
-              "[30050,1,1,2500,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]\n");
+              "[30050,1,1,2500,0,0,0,0,0,\"BTC_USDT\",\"binance\",\"futures_usd\",1,1]\n");
 
     SessionReplay replay{};
     EXPECT_EQ(replay.open(dir), Status::Ok);
     ASSERT_EQ(replay.trades().size(), 1u);
-    EXPECT_EQ(replay.trades().front().symbol, "BTCUSDT");
+    EXPECT_EQ(replay.trades().front().symbol, "BTC_USDT");
     EXPECT_EQ(replay.trades().front().exchange, "binance");
     EXPECT_EQ(replay.integritySummary().trades.state, hftrec::ChannelHealthState::Clean);
 
@@ -279,7 +279,7 @@ TEST(SessionReplay, OpenLoadsReferenceChannelsFromSessionCorpus) {
     manifest.sessionId = "reference_session";
     manifest.exchange = "binance";
     manifest.market = "futures_usd";
-    manifest.symbols = {"BTCUSDT"};
+    manifest.symbols = {"BTC_USDT"};
     manifest.tradesEnabled = false;
     manifest.liquidationsEnabled = false;
     manifest.bookTickerEnabled = false;
@@ -381,7 +381,7 @@ TEST(SessionReplay, NormalizesBitgetFixedDepthSnapshotsOnLoad) {
     manifest.sessionId = "bitget_session";
     manifest.exchange = "bitget";
     manifest.market = "futures_usd";
-    manifest.symbols = {"BSBUSDT"};
+    manifest.symbols = {"BSB_USDT"};
     manifest.tradesEnabled = false;
     manifest.bookTickerEnabled = false;
     manifest.orderbookEnabled = true;

@@ -21,7 +21,7 @@ using hftrec::replay::TradeRow;
 
 TEST(CaptureSerializers, TradeLineContainsKeyFields) {
     TradeRow ev{};
-    ev.symbol = "BTCUSDT";
+    ev.symbol = "BTC_USDT";
     ev.exchange = "binance";
     ev.market = "futures_usd";
     ev.priceE8 = 3'000'100'000'000LL;
@@ -37,7 +37,7 @@ TEST(CaptureSerializers, TradeLineContainsKeyFields) {
 
 TEST(CaptureSerializers, BookTickerLineContainsKeyFields) {
     BookTickerRow ev{};
-    ev.symbol = "ETHUSDT";
+    ev.symbol = "ETH_USDT";
     ev.exchange = "binance";
     ev.market = "futures_usd";
     ev.bidPriceE8 = 200'000'000'000LL;

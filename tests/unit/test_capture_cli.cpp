@@ -19,23 +19,23 @@ TEST(CaptureCli, BookTickerAllUsesFullCryptoVenueSurface) {
 
     bool foundPoloniexFutures = false;
     bool foundPoloniexSpot = false;
-    bool foundHyperliquidRouteSymbol = false;
+    bool foundHyperliquidLocalSymbol = false;
     for (const auto& job : jobs) {
-        if (job.exchange == "poloniex" && job.market == "futures" && job.symbol == "BTC_USDT_PERP") {
+        if (job.exchange == "poloniex" && job.market == "futures" && job.symbol == "BTC_USDT") {
             foundPoloniexFutures = true;
         }
         if (job.exchange == "poloniex" && job.market == "spot" && job.symbol == "BTC_USDT") {
             foundPoloniexSpot = true;
         }
-        if (job.exchange == "hyperliquid" && job.market == "futures" && job.symbol == "BTCUSDT" &&
-            job.routeSymbol == "BTC") {
-            foundHyperliquidRouteSymbol = true;
+        if (job.exchange == "hyperliquid" && job.market == "futures" && job.symbol == "BTC_USDT" &&
+            job.routeSymbol.empty()) {
+            foundHyperliquidLocalSymbol = true;
         }
     }
 
     EXPECT_TRUE(foundPoloniexFutures);
     EXPECT_TRUE(foundPoloniexSpot);
-    EXPECT_TRUE(foundHyperliquidRouteSymbol);
+    EXPECT_TRUE(foundHyperliquidLocalSymbol);
 }
 
 }  // namespace

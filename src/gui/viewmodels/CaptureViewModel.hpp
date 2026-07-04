@@ -276,12 +276,12 @@ class CaptureViewModel : public QObject {
         QStringLiteral("bitget_futures"),
     };
     QStringList venueSymbolsTexts_{};
-    QString symbolsText_{"ETHUSDT"};
+    QString symbolsText_{"ETH_USDT"};
     int tradesHistoryWarmupSec_{300};
     QString detailedCandlesVenueKey_{"binance_futures"};
     QString detailedCandlesExchange_{"binance"};
     QString detailedCandlesMarket_{"futures"};
-    QString detailedCandlesSymbolsText_{"BTCUSDT"};
+    QString detailedCandlesSymbolsText_{"BTC_USDT"};
     QString detailedCandlesLeg2VenueKey_{"binance_spot"};
     QString detailedCandlesLeg2SymbolsText_{};
     QString detailedCandlesTimeframe_{"1m"};

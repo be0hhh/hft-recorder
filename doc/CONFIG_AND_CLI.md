@@ -17,7 +17,7 @@ The app reads a local `.env` file for defaults.
 Expected keys:
 - `EXCHANGE=binance`
 - `MARKET=futures_usd`
-- `SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT`
+- `SYMBOLS=BTC_USDT,ETH_USDT,SOL_USDT`
 - `DURATION_SEC=1800`
 - `OUTPUT_DIR=/mnt/d/recordings`
 - `SNAPSHOT_INTERVAL_SEC=60`

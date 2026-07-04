@@ -140,7 +140,7 @@ std::filesystem::path uniquePath(const std::filesystem::path& parent, const std:
 }
 
 std::string normalizedRecordingSymbolForJob(const tui::RecorderTuiJob& job) {
-    std::string symbol = recordings::normalizeRecordingSymbol(job.symbol);
+    std::string symbol = recordings::recordingFolderSymbol(job.exchange, job.market, job.symbol);
     return symbol.empty() ? std::string{"UNKNOWN"} : symbol;
 }
 

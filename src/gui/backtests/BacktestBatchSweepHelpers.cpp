@@ -133,18 +133,46 @@ bool isBatchFuturesMarket(const QString& market) {
 }
 
 QString batchCanonicalSymbol(const QString& symbol) {
-    QString out;
     const QString upper = symbol.trimmed().toUpper();
+    const auto cleanToken = [](QString token) {
+        QString out;
+        out.reserve(token.size());
+        for (const QChar ch : token) {
+            if (ch.isLetterOrNumber()) out.push_back(ch);
+        }
+        return out;
+    };
+
+    const int colon = upper.indexOf(QChar(':'));
+    if (colon > 0 && colon + 1 < upper.size()) {
+        const QString base = cleanToken(upper.left(colon));
+        const QString quote = cleanToken(upper.mid(colon + 1));
+        if (!base.isEmpty() && !quote.isEmpty()) return base + QChar(':') + quote;
+    }
+
+    QStringList parts;
+    QString token;
+    for (const QChar ch : upper) {
+        if (ch == QChar('-') || ch == QChar('_')) {
+            const QString clean = cleanToken(token);
+            if (!clean.isEmpty()) parts.push_back(clean);
+            token.clear();
+            continue;
+        }
+        token.push_back(ch);
+    }
+    const QString clean = cleanToken(token);
+    if (!clean.isEmpty()) parts.push_back(clean);
+    parts.removeAll(QStringLiteral("SWAP"));
+    parts.removeAll(QStringLiteral("PERP"));
+    if (parts.size() >= 2 && !parts[0].isEmpty() && !parts[1].isEmpty()) {
+        return parts[0] + QChar(':') + parts[1];
+    }
+
+    QString out;
     out.reserve(upper.size());
     for (const QChar ch : upper) {
         if (ch.isLetterOrNumber()) out.push_back(ch);
-    }
-    const QStringList suffixes{QStringLiteral("SWAP"), QStringLiteral("PERP")};
-    for (const QString& suffix : suffixes) {
-        if (out.size() > suffix.size() && out.endsWith(suffix)) {
-            out.chop(suffix.size());
-            break;
-        }
     }
     return out;
 }

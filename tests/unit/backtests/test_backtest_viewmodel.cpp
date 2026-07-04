@@ -372,11 +372,11 @@ TEST(BacktestViewModel, FallsBackToFileNameWhenRunIdMissing) {
 TEST(BacktestViewModel, UsesConfigMetadataForRunListLabels) {
     isolateSettings(QStringLiteral("config_metadata"));
     const QString session = makeTempSessionDir();
-    const QString runId = QStringLiteral("spread_maker1and2-BTCUSDT-fixed-20260524-183012");
+    const QString runId = QStringLiteral("spread_maker1and2-BTC_USDT-fixed-20260524-183012");
     QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId)));
     const QString configPath = QDir(session).absoluteFilePath(QStringLiteral("backtests/%1/config.ini").arg(runId));
     writeFile(configPath, R"ini(# recorder backtest metadata
-# display_name=spread_maker1and2 BTCUSDT fixed
+# display_name=spread_maker1and2 BTC_USDT fixed
 # config_summary=fixed: distance_bps=20, trigger_bps=2, refresh_ms=1000
 
 [strategy]
@@ -384,7 +384,7 @@ type=spread_maker1and2
 )ini");
     const QByteArray json = QByteArrayLiteral(R"json({
       "type":"run.result.v2",
-      "run_id":"spread_maker1and2-BTCUSDT-fixed-20260524-183012",
+      "run_id":"spread_maker1and2-BTC_USDT-fixed-20260524-183012",
       "status":"complete",
       "strategy":"spread_maker1and2",
       "config_path":")json")
@@ -400,7 +400,7 @@ type=spread_maker1and2
 
     ASSERT_EQ(vm.runCount(), 1);
     const QVariantMap row = vm.runs().front().toMap();
-    EXPECT_EQ(row.value(QStringLiteral("label")).toString(), QStringLiteral("spread_maker1and2 BTCUSDT fixed"));
+    EXPECT_EQ(row.value(QStringLiteral("label")).toString(), QStringLiteral("spread_maker1and2 BTC_USDT fixed"));
     EXPECT_EQ(row.value(QStringLiteral("configText")).toString(), QStringLiteral("fixed: distance_bps=20, trigger_bps=2, refresh_ms=1000"));
 }
 
@@ -496,8 +496,8 @@ TEST(BacktestViewModel, ExposesPortfolioAndLegResultScopes) {
       "streams":{"equity":{"rows":2}},
       "summary":{"orders":4,"fills":4,"initial_balance_e8":30000000000,"gross_realized_pnl_e8":90000000,"fees_paid_e8":30000000,"net_realized_pnl_e8":60000000,"total_pnl_e8":70000000,"realized_pnl_e8":60000000,"unrealized_pnl_e8":10000000,"wallet_balance_e8":30060000000},
       "legs":[
-        {"leg_index":0,"exchange":"binance","market":"futures","symbol":"BTCUSDT","initial_balance_e8":10000000000,"wallet_balance_e8":10025000000,"gross_realized_pnl_e8":40000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":25000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":30000000,"orders":2,"fills":2,"equity":{"path":"legs/0/equity.jsonl","rows":2}},
-        {"leg_index":1,"exchange":"okx","market":"futures","symbol":"ETHUSDT","initial_balance_e8":20000000000,"wallet_balance_e8":20035000000,"gross_realized_pnl_e8":50000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":35000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":40000000,"orders":2,"fills":2,"equity":{"path":"legs/1/equity.jsonl","rows":2}}
+        {"leg_index":0,"exchange":"binance","market":"futures","symbol":"BTC_USDT","initial_balance_e8":10000000000,"wallet_balance_e8":10025000000,"gross_realized_pnl_e8":40000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":25000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":30000000,"orders":2,"fills":2,"equity":{"path":"legs/0/equity.jsonl","rows":2}},
+        {"leg_index":1,"exchange":"okx","market":"futures","symbol":"ETH_USDT","initial_balance_e8":20000000000,"wallet_balance_e8":20035000000,"gross_realized_pnl_e8":50000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":35000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":40000000,"orders":2,"fills":2,"equity":{"path":"legs/1/equity.jsonl","rows":2}}
       ],
       "errors":[]
     })json", QByteArrayLiteral(
@@ -547,8 +547,8 @@ TEST(BacktestViewModel, SynthesizesPortfolioEquityFromLegStreamsWhenAggregateHas
       "streams":{"equity":{"rows":1}},
       "summary":{"fills":4,"initial_balance_e8":30000000000,"gross_realized_pnl_e8":90000000,"fees_paid_e8":30000000,"net_realized_pnl_e8":60000000,"total_pnl_e8":70000000,"realized_pnl_e8":60000000,"unrealized_pnl_e8":10000000,"wallet_balance_e8":30060000000},
       "legs":[
-        {"leg_index":0,"exchange":"binance","market":"futures","symbol":"BTCUSDT","initial_balance_e8":10000000000,"wallet_balance_e8":10025000000,"gross_realized_pnl_e8":40000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":25000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":30000000,"fills":2,"equity":{"path":"legs/0/equity.jsonl","rows":2}},
-        {"leg_index":1,"exchange":"okx","market":"futures","symbol":"ETHUSDT","initial_balance_e8":20000000000,"wallet_balance_e8":20035000000,"gross_realized_pnl_e8":50000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":35000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":40000000,"fills":2,"equity":{"path":"legs/1/equity.jsonl","rows":2}}
+        {"leg_index":0,"exchange":"binance","market":"futures","symbol":"BTC_USDT","initial_balance_e8":10000000000,"wallet_balance_e8":10025000000,"gross_realized_pnl_e8":40000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":25000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":30000000,"fills":2,"equity":{"path":"legs/0/equity.jsonl","rows":2}},
+        {"leg_index":1,"exchange":"okx","market":"futures","symbol":"ETH_USDT","initial_balance_e8":20000000000,"wallet_balance_e8":20035000000,"gross_realized_pnl_e8":50000000,"fees_paid_e8":15000000,"net_realized_pnl_e8":35000000,"unrealized_pnl_e8":5000000,"total_pnl_e8":40000000,"fills":2,"equity":{"path":"legs/1/equity.jsonl","rows":2}}
       ],
       "errors":[]
     })json", QByteArrayLiteral(
@@ -617,15 +617,15 @@ TEST(BacktestViewModel, ReadsSymbolFromNestedManifestAndAllowsOverride) {
     isolateSettings(QStringLiteral("symbol"));
     const QString session = makeTempSessionDir();
     writeFile(QDir(session).absoluteFilePath(QStringLiteral("manifest.json")), R"json({
-      "identity":{"exchange":"binance","market":"futures_usd","symbols":["AGTUSDT"]}
+      "identity":{"exchange":"binance","market":"futures_usd","symbols":["AGT_USDT"]}
     })json");
 
     hftrec::gui::BacktestViewModel vm;
     setSessionPathAndWait(vm, session);
 
-    EXPECT_EQ(vm.selectedSymbol(), QStringLiteral("AGTUSDT"));
+    EXPECT_EQ(vm.selectedSymbol(), QStringLiteral("AGT_USDT"));
     vm.setSelectedSymbol(QStringLiteral("btcusdt"));
-    EXPECT_EQ(vm.selectedSymbol(), QStringLiteral("BTCUSDT"));
+    EXPECT_EQ(vm.selectedSymbol(), QStringLiteral("BTC_USDT"));
 }
 
 TEST(BacktestViewModel, ExplainsBacktestConfigDirectoryWriteFailure) {
@@ -635,7 +635,7 @@ TEST(BacktestViewModel, ExplainsBacktestConfigDirectoryWriteFailure) {
                            QStringLiteral("session-config-write-failure"),
                            QStringLiteral("binance"),
                            QStringLiteral("futures"),
-                           QStringLiteral("BTCUSDT"),
+                           QStringLiteral("BTC_USDT"),
                            1'700'000'000'000'000'000LL);
     QDir(QDir(session).absoluteFilePath(QStringLiteral("backtests"))).removeRecursively();
     writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests")), QByteArrayLiteral("not a directory"));
@@ -768,9 +768,9 @@ TEST(BacktestViewModel, ExposesStatArbBandLadderForTwoSessions) {
     QDir().mkpath(primary);
     QDir().mkpath(secondary);
     writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTC_USDT\"}"));
     writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTC_USDT\"}"));
 
     setSessionPathAndWait(vm, primary);
     vm.setExtraSessionIds(secondary);
@@ -835,7 +835,7 @@ TEST(BacktestViewModel, SessionRowsAreCachedUntilExplicitReload) {
                            sessionId,
                            QStringLiteral("binance"),
                            QStringLiteral("futures"),
-                           QStringLiteral("BTCUSDT"),
+                           QStringLiteral("BTC_USDT"),
                            1782141931000000000LL);
     QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-a")));
     QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-without-manifest")));
@@ -977,8 +977,8 @@ TEST(BacktestViewModel, UsesCatalogSnapshotForSelectedLegRowsAfterManifestDisapp
     const QString binancePath = QDir(groupDir).absoluteFilePath(binanceId);
     const QString okxPath = QDir(groupDir).absoluteFilePath(okxId);
 
-    writeRecordingManifest(binancePath, binanceId, QStringLiteral("binance"), QStringLiteral("futures"), QStringLiteral("BTCUSDT"), startNs);
-    writeRecordingManifest(okxPath, okxId, QStringLiteral("okx"), QStringLiteral("futures"), QStringLiteral("ETHUSDT"), startNs + 1'000'000LL);
+    writeRecordingManifest(binancePath, binanceId, QStringLiteral("binance"), QStringLiteral("futures"), QStringLiteral("BTC_USDT"), startNs);
+    writeRecordingManifest(okxPath, okxId, QStringLiteral("okx"), QStringLiteral("futures"), QStringLiteral("ETH_USDT"), startNs + 1'000'000LL);
 
     hftrec::gui::RecordingCatalog catalog;
     catalog.refresh();
@@ -994,14 +994,14 @@ TEST(BacktestViewModel, UsesCatalogSnapshotForSelectedLegRowsAfterManifestDisapp
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("binance"));
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("market")).toString(), QStringLiteral("futures"));
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("binance_futures"));
-    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("BTCUSDT"));
+    EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("BTC_USDT"));
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("bookTickerCount")).toULongLong(), static_cast<qulonglong>(12));
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("tradeCount")).toULongLong(), static_cast<qulonglong>(7));
     EXPECT_EQ(legs.at(0).toMap().value(QStringLiteral("dataSummary")).toString(), QStringLiteral("BTK 12 | TRD 7"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("okx"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("market")).toString(), QStringLiteral("futures"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("venue")).toString(), QStringLiteral("okx_futures"));
-    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("ETHUSDT"));
+    EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("symbol")).toString(), QStringLiteral("ETH_USDT"));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("bookTickerCount")).toULongLong(), static_cast<qulonglong>(12));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("tradeCount")).toULongLong(), static_cast<qulonglong>(7));
     EXPECT_EQ(legs.at(1).toMap().value(QStringLiteral("dataSummary")).toString(), QStringLiteral("BTK 12 | TRD 7"));
@@ -1129,9 +1129,9 @@ TEST(BacktestViewModel, ExplainsWhenSelectedStrategyDoesNotSupportExtraSessions)
     QDir().mkpath(primary);
     QDir().mkpath(secondary);
     writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTC_USDT\"}"));
     writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTC_USDT\"}"));
 
     setSessionPathAndWait(vm, primary);
     vm.setExtraSessionIds(secondary);
@@ -1163,9 +1163,9 @@ TEST(BacktestViewModel, AllowsStatArbBandLadderOnlyForTwoSessions) {
     QDir().mkpath(primary);
     QDir().mkpath(secondary);
     writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTC_USDT\"}"));
     writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"ETHUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"ETH_USDT\"}"));
 
     setSessionPathAndWait(vm, primary);
 
@@ -1209,9 +1209,9 @@ TEST(BacktestViewModel, MarksPrimaryAndTradableSessionLegs) {
     QDir().mkpath(primary);
     QDir().mkpath(secondary);
     writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTC_USDT\"}"));
     writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"ETHUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"ETH_USDT\"}"));
 
     setSessionPathAndWait(vm, primary);
     vm.setExtraSessionIds(secondary);
@@ -1275,13 +1275,13 @@ TEST(BacktestViewModel, WritesPortfolioRecorderPrimaryLegAndTradeMode) {
                            QStringLiteral("primary-trade-config-a"),
                            QStringLiteral("binance"),
                            QStringLiteral("futures"),
-                           QStringLiteral("BTCUSDT"),
+                           QStringLiteral("BTC_USDT"),
                            1'700'000'000'000'000'000LL);
     writeRecordingManifest(secondary,
                            QStringLiteral("primary-trade-config-b"),
                            QStringLiteral("okx"),
                            QStringLiteral("futures"),
-                           QStringLiteral("ETHUSDT"),
+                           QStringLiteral("ETH_USDT"),
                            1'700'000'000'100'000'000LL);
 
     setSessionPathAndWait(vm, primary);
@@ -1296,7 +1296,7 @@ TEST(BacktestViewModel, WritesPortfolioRecorderPrimaryLegAndTradeMode) {
     const QString configText = readFileText(configPath);
 
     EXPECT_TRUE(configText.contains(QStringLiteral("\n[portfolio.recorder]\n")));
-    EXPECT_TRUE(configText.contains(QStringLiteral("legs=binance_futures:BTCUSDT,okx_futures:ETHUSDT\n")));
+    EXPECT_TRUE(configText.contains(QStringLiteral("legs=binance_futures:BTC_USDT,okx_futures:ETH_USDT\n")));
     EXPECT_TRUE(configText.contains(QStringLiteral("primary_leg_index=1\n")));
     EXPECT_TRUE(configText.contains(QStringLiteral("trade_mode=primary\n")));
 
@@ -1352,9 +1352,9 @@ TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetS
     QDir().mkpath(primary);
     QDir().mkpath(secondary);
     writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTCUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"BTC_USDT\"}"));
     writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"bybit\",\"market\":\"futures\",\"symbols\":\"ETHUSDT\"}"));
+              QByteArrayLiteral("{\"exchange\":\"bybit\",\"market\":\"futures\",\"symbols\":\"ETH_USDT\"}"));
 
     setSessionPathAndWait(*vm, primary);
     vm->setExtraSessionIds(secondary);
@@ -1417,13 +1417,13 @@ TEST(BacktestViewModel, ExposesSweepDistributionBarsGroupedBySelectedParameter) 
       "errors":[]
     })json");
     writeFile(QDir(sweepDir).absoluteFilePath(QStringLiteral("sweep_results.jsonl")), QByteArrayLiteral(
-        "{\"point_id\":1,\"params\":{\"close_delay_us\":100,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":-100000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":50000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":-150000000}]}\n"
-        "{\"point_id\":2,\"params\":{\"close_delay_us\":100,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":300000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":100000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":200000000}]}\n"
-        "{\"point_id\":3,\"params\":{\"close_delay_us\":200,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":200000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":-200000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":400000000}]}\n"
-        "{\"point_id\":4,\"params\":{\"close_delay_us\":200,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":-50000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":0},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":-50000000}]}\n"));
+        "{\"point_id\":1,\"params\":{\"close_delay_us\":100,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":-100000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTC_USDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":50000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETH_USDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":-150000000}]}\n"
+        "{\"point_id\":2,\"params\":{\"close_delay_us\":100,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":300000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTC_USDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":100000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETH_USDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":200000000}]}\n"
+        "{\"point_id\":3,\"params\":{\"close_delay_us\":200,\"distance_bps\":10},\"status\":\"Ok\",\"total_pnl_e8\":200000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTC_USDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":-200000000},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETH_USDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":400000000}]}\n"
+        "{\"point_id\":4,\"params\":{\"close_delay_us\":200,\"distance_bps\":20},\"status\":\"Ok\",\"total_pnl_e8\":-50000000,\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTC_USDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":0},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETH_USDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":-50000000}]}\n"));
     writeFile(QDir(sweepDir).absoluteFilePath(QStringLiteral("sweep_curves.jsonl")), QByteArrayLiteral(
-        "{\"point_id\":2,\"params\":{\"close_delay_us\":100,\"distance_bps\":20},\"status\":\"Ok\",\"initial_balance_e8\":30000000000,\"total_pnl_e8\":300000000,\"curve_e8\":[0,300000000],\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":100000000,\"curve_e8\":[0,100000000]},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":200000000,\"curve_e8\":[0,200000000]}]}\n"
-        "{\"point_id\":3,\"params\":{\"close_delay_us\":200,\"distance_bps\":10},\"status\":\"Ok\",\"initial_balance_e8\":30000000000,\"total_pnl_e8\":200000000,\"curve_e8\":[0,200000000],\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTCUSDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":-200000000,\"curve_e8\":[0,-200000000]},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETHUSDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":400000000,\"curve_e8\":[0,400000000]}]}\n"));
+        "{\"point_id\":2,\"params\":{\"close_delay_us\":100,\"distance_bps\":20},\"status\":\"Ok\",\"initial_balance_e8\":30000000000,\"total_pnl_e8\":300000000,\"curve_e8\":[0,300000000],\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTC_USDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":100000000,\"curve_e8\":[0,100000000]},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETH_USDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":200000000,\"curve_e8\":[0,200000000]}]}\n"
+        "{\"point_id\":3,\"params\":{\"close_delay_us\":200,\"distance_bps\":10},\"status\":\"Ok\",\"initial_balance_e8\":30000000000,\"total_pnl_e8\":200000000,\"curve_e8\":[0,200000000],\"legs\":[{\"leg_index\":0,\"exchange\":\"binance\",\"symbol\":\"BTC_USDT\",\"initial_balance_e8\":10000000000,\"total_pnl_e8\":-200000000,\"curve_e8\":[0,-200000000]},{\"leg_index\":1,\"exchange\":\"okx\",\"symbol\":\"ETH_USDT\",\"initial_balance_e8\":20000000000,\"total_pnl_e8\":400000000,\"curve_e8\":[0,400000000]}]}\n"));
 
     hftrec::gui::BacktestViewModel vm;
     setSessionPathAndWait(vm, session);

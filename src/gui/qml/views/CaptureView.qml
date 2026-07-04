@@ -77,7 +77,7 @@ Pane {
                             TextField {
                                 Layout.fillWidth: true
                                 text: root.captureVm.symbolsText
-                                placeholderText: "Global symbols, for example BTCUSDT ETHUSDT"
+                                placeholderText: "Global symbols, for example BTC_USDT ETH_USDT"
                                 selectByMouse: true
                                 color: root.textColor
                                 placeholderTextColor: root.mutedTextColor

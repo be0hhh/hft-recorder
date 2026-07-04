@@ -17,8 +17,6 @@
 #include <string>
 #include <string_view>
 
-#include "core/tui/RecorderTuiSymbols.hpp"
-
 namespace hftrec::gui::detail {
 
 namespace {
@@ -30,6 +28,37 @@ constexpr std::uint32_t kFinamDetailedCandlesAttempts = 10u;
 
 QString normalizeToken(QString token) {
     return token.trimmed();
+}
+
+bool localCryptoSymbolPartCharIsCanonical(QChar ch) noexcept {
+    const ushort code = ch.unicode();
+    return (code >= 'A' && code <= 'Z') || (code >= '0' && code <= '9') || code >= 0x80u;
+}
+
+bool isLocalCryptoSymbolText(const QString& symbol) {
+    const QString value = symbol.trimmed();
+    const int first = value.indexOf(QLatin1Char('_'));
+    if (first <= 0 || first + 1 >= value.size()) return false;
+    const int second = value.indexOf(QLatin1Char('_'), first + 1);
+    if (second >= 0 && (second == first + 1 || second + 1 >= value.size())) return false;
+    if (second >= 0 && value.indexOf(QLatin1Char('_'), second + 1) >= 0) return false;
+    for (const QChar ch : value) {
+        if (ch == QLatin1Char('_')) continue;
+        if (!localCryptoSymbolPartCharIsCanonical(ch)) return false;
+    }
+    if (second >= 0) {
+        bool nonZeroMultiplier = false;
+        bool greaterThanOne = false;
+        for (int i = 0; i < first; ++i) {
+            const ushort code = value.at(i).unicode();
+            if (code < '0' || code > '9') return false;
+            nonZeroMultiplier = nonZeroMultiplier || code != '0';
+            greaterThanOne = greaterThanOne || code > '1' || (code == '1' && i + 1 < first);
+        }
+        if (!nonZeroMultiplier) return false;
+        if (!greaterThanOne) return false;
+    }
+    return true;
 }
 
 struct VenueSpec {
@@ -294,53 +323,6 @@ QString detailedCandlesTimeframeForVenue(const VenueSpec& venue, const QString& 
     return normalizeDetailedTimeframe(requestedTimeframe);
 }
 
-struct ParsedSymbol {
-    QString base;
-    QString quote;
-};
-
-ParsedSymbol parseGlobalSymbol(QString symbol) {
-    symbol = symbol.trimmed().toUpper();
-    const QString swapMarker = QStringLiteral("-SWAP-");
-    const auto swapMarkerIndex = symbol.indexOf(swapMarker);
-    if (swapMarkerIndex >= 0) {
-        const QString base = symbol.left(swapMarkerIndex);
-        const QString quote = symbol.mid(swapMarkerIndex + swapMarker.size());
-        if (!base.isEmpty() && !quote.isEmpty()) {
-            return {base, quote};
-        }
-    }
-    const QString suffix = QStringLiteral("-SWAP");
-    if (symbol.endsWith(suffix) && symbol.size() > suffix.size() + 1u) {
-        const auto sepPos = symbol.lastIndexOf(QLatin1Char('-'));
-        if (sepPos > 0u && sepPos < (symbol.size() - suffix.size())) {
-            const QString base = symbol.left(sepPos);
-            const QString quote = symbol.mid(sepPos + 1u, symbol.size() - sepPos - suffix.size() - 1u);
-            if (!base.isEmpty() && !quote.isEmpty()) {
-                return {base, quote};
-            }
-        }
-    }
-    symbol.remove(QLatin1Char('-'));
-    symbol.remove(QLatin1Char('_'));
-    if (symbol.endsWith(QStringLiteral("SWAP"))) symbol.chop(4);
-
-    static const QStringList quotes{
-        QStringLiteral("USDT"),
-        QStringLiteral("USDC"),
-        QStringLiteral("USD"),
-    };
-    for (const auto& quote : quotes) {
-        if (symbol.size() > quote.size() && symbol.endsWith(quote)) {
-            symbol.chop(quote.size());
-            return {symbol, quote};
-        }
-    }
-    return {symbol, QStringLiteral("USDT")};
-}
-
-QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol);
-
 QString marketDsl(const VenueSpec& venue) {
     const QString market = QString::fromLatin1(venue.market);
     if (market == QStringLiteral("spot")) return QStringLiteral("spot");
@@ -354,63 +336,7 @@ QString toDslSymbol(const VenueSpec& venue, const std::string& symbol) {
     const QString value = QString::fromStdString(symbol).trimmed();
     if (value.isEmpty()) return value;
     if (isFinamVenue(venue)) return value;
-    return formattedVenueSymbol(venue, parseGlobalSymbol(value));
-}
-
-QString formattedVenueSymbol(const VenueSpec& venue, const ParsedSymbol& symbol) {
-    const QString exchange = QString::fromLatin1(venue.exchange);
-    const QString market = QString::fromLatin1(venue.market);
-    QString base = symbol.base;
-    QString quote = symbol.quote;
-
-    if (exchange == QStringLiteral("kucoin") && market == QStringLiteral("futures")
-        && base == QStringLiteral("BTC")) {
-        base = QStringLiteral("XBT");
-    }
-    if (market == QStringLiteral("inverse")) quote = QStringLiteral("USD");
-    if (exchange == QStringLiteral("bitget") && market == QStringLiteral("swap")) {
-        quote = QStringLiteral("USDC");
-    }
-
-    if (exchange == QStringLiteral("kucoin")) {
-        if (market == QStringLiteral("futures")) return base + quote + QStringLiteral("M");
-        return base + QLatin1Char('-') + quote;
-    }
-    if (exchange == QStringLiteral("xt")) {
-        return base.toLower() + QLatin1Char('_') + quote.toLower();
-    }
-    if (exchange == QStringLiteral("poloniex")) {
-        const QString result = base + QLatin1Char('_') + quote;
-        return market == QStringLiteral("futures") ? result + QStringLiteral("_PERP") : result;
-    }
-    if (exchange == QStringLiteral("bingx")) {
-        return base + QLatin1Char('-') + quote;
-    }
-    if (exchange == QStringLiteral("gate")) return base + QLatin1Char('_') + quote;
-    if (exchange == QStringLiteral("toobit")) {
-        if (market == QStringLiteral("futures") || market == QStringLiteral("swap")) return base + QLatin1Char('-') + QStringLiteral("SWAP-") + quote;
-        return base + quote;
-    }
-    if (exchange == QStringLiteral("htx")) {
-        if (market == QStringLiteral("futures") || market == QStringLiteral("swap")) return base + QLatin1Char('-') + quote;
-        return base.toLower() + quote.toLower();
-    }
-    if (exchange == QStringLiteral("phemex")) {
-        if (market == QStringLiteral("futures") || market == QStringLiteral("swap")) return base + quote;
-        return QStringLiteral("s") + base + quote;
-    }
-    if (exchange == QStringLiteral("hyperliquid")) return base;
-    if (exchange == QStringLiteral("okx")) {
-        const QString result = base + QLatin1Char('-') + quote;
-        return market == QStringLiteral("futures") ? result + QStringLiteral("-SWAP") : result;
-    }
-    if (exchange == QStringLiteral("mexc") && market == QStringLiteral("futures")) {
-        return base + QLatin1Char('_') + quote;
-    }
-    if (exchange == QStringLiteral("binance") && market == QStringLiteral("inverse")) {
-        return base + quote + QStringLiteral("_PERP");
-    }
-    return base + quote;
+    return value;
 }
 
 bool containsAlias(const QStringList& aliases, const QString& alias) {
@@ -734,26 +660,22 @@ QString venueSymbolsFromGlobalInput(const QString& venueKey, const QString& symb
     const qsizetype idx = venueIndex(venueKey);
     if (idx < 0) return {};
 
-    if (isFinamVenue(kVenues[idx])) {
-        QStringList formatted;
-        const auto symbols = normalizedSymbols(symbolsText);
-        formatted.reserve(static_cast<qsizetype>(symbols.size()));
-        for (const auto& symbol : symbols) {
-            const QString value = QString::fromStdString(symbol).trimmed();
-            if (!value.isEmpty()) formatted.push_back(value);
-        }
-        return formatted.join(QLatin1Char('\n'));
+    QStringList formatted;
+    const auto symbols = normalizedSymbols(symbolsText);
+    formatted.reserve(static_cast<qsizetype>(symbols.size()));
+    for (const auto& symbol : symbols) {
+        const QString value = QString::fromStdString(symbol).trimmed();
+        if (value.isEmpty()) continue;
+        if (isFinamVenue(kVenues[idx]) || isLocalCryptoSymbolText(value)) formatted.push_back(value);
     }
-    return QString::fromStdString(
-        hftrec::tui::venueSymbolsFromGlobalInput(venueKey.toStdString(), symbolsText.toStdString()));
+    return formatted.join(QLatin1Char('\n'));
 }
 
 QString venueSymbolPlaceholder(const QString& venueKey) {
     const qsizetype idx = venueIndex(venueKey);
-    if (idx < 0) return QStringLiteral("Example: BTCUSDT");
+    if (idx < 0) return QStringLiteral("Example: BTC_USDT");
     if (isFinamVenue(kVenues[idx])) return QStringLiteral("Example: SBER@MISX");
-    return QStringLiteral("Example: %1")
-        .arg(QString::fromStdString(hftrec::tui::venueSymbolsFromGlobalInput(venueKey.toStdString(), "BTCUSDT")));
+    return QStringLiteral("Example: BTC_USDT");
 }
 
 QVariantList detailedCandlesEndModeChoices() {
@@ -865,7 +787,7 @@ std::vector<std::int64_t> detailedCandlesEndCandidatesNs(const QString& mode,
 
 QString venueSymbolExample(const VenueSpec& venue) {
     if (isFinamVenue(venue)) return QStringLiteral("SBER@MISX");
-    return QString::fromStdString(hftrec::tui::venueSymbolsFromGlobalInput(venue.key, "BTCUSDT"));
+    return QStringLiteral("BTC_USDT");
 }
 
 QString missingVenueSymbolsText(const QStringList& venueKeys, const QStringList& venueSymbolsTexts) {

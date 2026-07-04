@@ -90,8 +90,8 @@ TEST(BacktestLegSelection, StagedChangesDoNotPublishCommittedSelection) {
 
     const QString primary = makeTempSessionDir(QStringLiteral("primary"));
     const QString secondary = makeTempSessionDir(QStringLiteral("secondary"));
-    writeManifest(primary, QStringLiteral("binance"), QStringLiteral("futures"), QStringLiteral("BTCUSDT"));
-    writeManifest(secondary, QStringLiteral("okx"), QStringLiteral("futures"), QStringLiteral("ETHUSDT"));
+    writeManifest(primary, QStringLiteral("binance"), QStringLiteral("futures"), QStringLiteral("BTC_USDT"));
+    writeManifest(secondary, QStringLiteral("okx"), QStringLiteral("futures"), QStringLiteral("ETH_USDT"));
 
     hftrec::gui::BacktestViewModel vm;
     vm.reloadSessions();
@@ -132,8 +132,8 @@ TEST(BacktestLegSelection, PopupRowsApplyAsExactStagedSelection) {
     const QString primary = makeTempSessionDir(QStringLiteral("primary"));
     const QString secondary = makeTempSessionDir(QStringLiteral("secondary"));
     const QString mexc = makeTempSessionDir(QStringLiteral("mexc"));
-    writeManifest(primary, QStringLiteral("binance"), QStringLiteral("futures"), QStringLiteral("BTCUSDT"));
-    writeManifest(secondary, QStringLiteral("okx"), QStringLiteral("futures"), QStringLiteral("BTCUSDT"));
+    writeManifest(primary, QStringLiteral("binance"), QStringLiteral("futures"), QStringLiteral("BTC_USDT"));
+    writeManifest(secondary, QStringLiteral("okx"), QStringLiteral("futures"), QStringLiteral("BTC_USDT"));
     writeManifest(mexc, QStringLiteral("mexc"), QStringLiteral("futures"), QStringLiteral("BTC_USDT"));
 
     hftrec::gui::BacktestViewModel vm;

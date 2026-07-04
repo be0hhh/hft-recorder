@@ -30,63 +30,94 @@ QStringList choiceKeys(const QVariantList& choices) {
     return out;
 }
 
-TEST(CaptureViewModelRequests, AppliesNativeVenueSymbolsFromGlobalInput) {
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("kucoin_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("XBTUSDTM"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("gate_futures"), QStringLiteral("BTCUSDT")),
+TEST(CaptureViewModelRequests, AppliesLocalVenueSymbolsFromGlobalInput) {
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("kucoin_futures"), QStringLiteral("BTC_USDT")),
               QStringLiteral("BTC_USDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("xt_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("btc_usdt"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bingx_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTC-USDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("toobit_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTC-SWAP-USDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("htx_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTC-USDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("phemex_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTCUSDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("toobit_spot"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTCUSDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bingx_spot"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTC-USDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("htx_spot"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("btcusdt"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("phemex_spot"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("sBTCUSDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("okx_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTC-USDT-SWAP"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("okx_spot"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTC-USDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bitget_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTCUSDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bitmart_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTCUSDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("poloniex_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTC_USDT_PERP"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("poloniex_spot"), QStringLiteral("BTCUSDT")),
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("gate_futures"), QStringLiteral("BTC_USDT")),
               QStringLiteral("BTC_USDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("hyperliquid_futures"), QStringLiteral("BTCUSDT")),
-              QStringLiteral("BTC"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("xt_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bingx_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("toobit_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("htx_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("phemex_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("toobit_spot"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bingx_spot"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("htx_spot"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("phemex_spot"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("okx_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("okx_spot"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bitget_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bitmart_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("poloniex_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("poloniex_spot"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("hyperliquid_futures"), QStringLiteral("BTC_USDT")),
+              QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("hyperliquid_futures"), QStringLiteral("1000_PEPE_USDT")),
+              QStringLiteral("1000_PEPE_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("binance_futures"), QStringLiteral("龙虾_USDT")),
+              QStringLiteral("龙虾_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("binance_futures"), QStringLiteral("币安人生_USDT 我踏马来了_USDT")),
+              QStringLiteral("币安人生_USDT\n我踏马来了_USDT"));
+    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("binance_futures"), QStringLiteral("龙虾:usdt")),
+              QStringLiteral(""));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("hyperliquid_futures"), QStringLiteral("BTCUSDC")),
-              QStringLiteral("BTC"));
+              QStringLiteral(""));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("finam_spot"), QStringLiteral("SBER@MISX")),
               QStringLiteral("SBER@MISX"));
 }
 
-TEST(CaptureViewModelRequests, VenuePlaceholdersShowNativeFormat) {
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("kucoin_futures")), QStringLiteral("Example: XBTUSDTM"));
+TEST(CaptureViewModelRequests, VenuePlaceholdersShowLocalFormat) {
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("kucoin_futures")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("gate_futures")), QStringLiteral("Example: BTC_USDT"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("okx_futures")), QStringLiteral("Example: BTC-USDT-SWAP"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("xt_futures")), QStringLiteral("Example: btc_usdt"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("bingx_futures")), QStringLiteral("Example: BTC-USDT"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("toobit_futures")), QStringLiteral("Example: BTC-SWAP-USDT"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("htx_futures")), QStringLiteral("Example: BTC-USDT"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("phemex_futures")), QStringLiteral("Example: BTCUSDT"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("bitmart_futures")), QStringLiteral("Example: BTCUSDT"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("poloniex_futures")), QStringLiteral("Example: BTC_USDT_PERP"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("okx_futures")), QStringLiteral("Example: BTC_USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("xt_futures")), QStringLiteral("Example: BTC_USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("bingx_futures")), QStringLiteral("Example: BTC_USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("toobit_futures")), QStringLiteral("Example: BTC_USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("htx_futures")), QStringLiteral("Example: BTC_USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("phemex_futures")), QStringLiteral("Example: BTC_USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("bitmart_futures")), QStringLiteral("Example: BTC_USDT"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("poloniex_futures")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("poloniex_spot")), QStringLiteral("Example: BTC_USDT"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("hyperliquid_futures")), QStringLiteral("Example: BTC"));
+    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("hyperliquid_futures")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("finam_spot")), QStringLiteral("Example: SBER@MISX"));
+}
+
+TEST(CaptureViewModelRequests, BuildsConfigForUtf8LocalCryptoSymbol) {
+    const auto configs = makeConfigs(QStringLiteral("/tmp/hftrec-utf8-symbol"),
+                                     QStringLiteral("/tmp/.env"),
+                                     1,
+                                     QStringList{QStringLiteral("binance_futures")},
+                                     QStringList{},
+                                     QStringLiteral("龙虾_USDT"),
+                                     QStringList{},
+                                     QStringList{},
+                                     QStringList{},
+                                     QStringList{},
+                                     QStringList{},
+                                     QStringList{},
+                                     QStringList{},
+                                     QStringList{},
+                                     300);
+    ASSERT_EQ(configs.size(), 1u);
+    EXPECT_EQ(configs.front().exchange, "binance");
+    EXPECT_EQ(configs.front().market, "futures");
+    ASSERT_EQ(configs.front().symbols.size(), 1u);
+    EXPECT_EQ(configs.front().symbols.front(), "龙虾_USDT");
 }
 
 TEST(CaptureViewModelRequests, EmptyPerVenueSymbolDoesNotFallBackToGlobalSymbol) {
@@ -94,11 +125,11 @@ TEST(CaptureViewModelRequests, EmptyPerVenueSymbolDoesNotFallBackToGlobalSymbol)
                                      QStringLiteral("/tmp/.env"),
                                      1,
                                      QStringList{QStringLiteral("okx_futures")},
-                                     QStringList{QStringLiteral("BTCUSDT"), QStringLiteral(""), QStringLiteral(""), QStringLiteral(""),
+                                     QStringList{QStringLiteral("BTC_USDT"), QStringLiteral(""), QStringLiteral(""), QStringLiteral(""),
                                                  QStringLiteral(""), QStringLiteral(""), QStringLiteral(""), QStringLiteral(""),
                                                  QStringLiteral(""), QStringLiteral(""), QStringLiteral(""), QStringLiteral(""),
                                                  QStringLiteral(""), QStringLiteral("")},
-                                     QStringLiteral("BTCUSDT"),
+                                     QStringLiteral("BTC_USDT"),
                                      QStringList{},
                                      QStringList{},
                                      QStringList{},
@@ -269,7 +300,7 @@ TEST(CaptureViewModelRequests, CryptoSymbolSuggestionUsesNativeVenueFormat) {
     const auto suggestions = detailedCandlesSymbolSuggestions(QStringLiteral("okx_spot"),
                                                               QString{},
                                                               QStringLiteral("binance_futures"),
-                                                              QStringLiteral("ETHUSDT"));
+                                                              QStringLiteral("ETH_USDT"));
     ASSERT_EQ(suggestions.size(), 1);
     const auto first = suggestions.front().toMap();
     EXPECT_EQ(first.value(QStringLiteral("symbol")).toString(), QStringLiteral("ETH-USDT"));
@@ -281,7 +312,7 @@ TEST(CaptureViewModelRequests, DetailedCandlesRejectsMultipleSymbols) {
                                                     QStringLiteral("/tmp/.env"),
                                                     1,
                                                     QStringLiteral("binance_futures"),
-                                                    QStringLiteral("BTCUSDT ETHUSDT"),
+                                                    QStringLiteral("BTC_USDT ETH_USDT"),
                                                     QStringLiteral("1m"),
                                                     5000,
                                                     &error);

@@ -563,8 +563,8 @@ class BacktestViewModel : public QObject {
     QString profileName_{QStringLiteral("default")};
     QString pingLatencyUs_{QStringLiteral("1000")};
     QString latencySeed_{QStringLiteral("0")};
-    QString marketDataLatencyUs_{QStringLiteral("250")};
-    QString marketDataJitterUs_{QStringLiteral("100")};
+    QString marketDataLatencyUs_{QStringLiteral("0")};
+    QString marketDataJitterUs_{QStringLiteral("0")};
     QString marketOrderLatencyUs_{QStringLiteral("2500")};
     QString marketOrderJitterUs_{QStringLiteral("1000")};
     QString limitOrderLatencyUs_{QStringLiteral("1800")};

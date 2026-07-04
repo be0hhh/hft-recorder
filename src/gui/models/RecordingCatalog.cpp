@@ -21,7 +21,7 @@
 namespace hftrec::gui {
 namespace {
 
-constexpr int kCacheSchemaVersion = 2;
+constexpr int kCacheSchemaVersion = 4;
 
 QString cleanPathText(const std::filesystem::path& path) {
     return QDir::cleanPath(QString::fromStdString(path.string()));
@@ -55,6 +55,8 @@ QJsonObject sessionToJson(const hftrec::recordings::RecordedSessionInfo& session
     out.insert(QStringLiteral("exchange"), QString::fromStdString(session.exchange));
     out.insert(QStringLiteral("market"), QString::fromStdString(session.market));
     out.insert(QStringLiteral("symbols"), stringVectorToJson(session.symbols));
+    out.insert(QStringLiteral("local_symbol"), QString::fromStdString(session.localSymbol));
+    out.insert(QStringLiteral("folder_symbol"), QString::fromStdString(session.folderSymbol));
     out.insert(QStringLiteral("normalized_symbol"), QString::fromStdString(session.normalizedSymbol));
     out.insert(QStringLiteral("session_health"), QString::fromStdString(session.sessionHealth));
     out.insert(QStringLiteral("warning_summary"), QString::fromStdString(session.warningSummary));
@@ -82,6 +84,8 @@ hftrec::recordings::RecordedSessionInfo sessionFromJson(const QJsonObject& objec
     out.exchange = object.value(QStringLiteral("exchange")).toString().toStdString();
     out.market = object.value(QStringLiteral("market")).toString().toStdString();
     out.symbols = stringVectorFromJson(object.value(QStringLiteral("symbols")).toArray());
+    out.localSymbol = object.value(QStringLiteral("local_symbol")).toString().toStdString();
+    out.folderSymbol = object.value(QStringLiteral("folder_symbol")).toString().toStdString();
     out.normalizedSymbol = object.value(QStringLiteral("normalized_symbol")).toString().toStdString();
     out.sessionHealth = object.value(QStringLiteral("session_health")).toString(QStringLiteral("clean")).toStdString();
     out.warningSummary = object.value(QStringLiteral("warning_summary")).toString().toStdString();
@@ -103,6 +107,8 @@ QJsonObject groupToJson(const hftrec::recordings::RecordingGroupInfo& group) {
     out.insert(QStringLiteral("path"), cleanPathText(group.path));
     out.insert(QStringLiteral("id"), QString::fromStdString(group.id));
     out.insert(QStringLiteral("title"), QString::fromStdString(group.title));
+    out.insert(QStringLiteral("local_symbol"), QString::fromStdString(group.localSymbol));
+    out.insert(QStringLiteral("folder_symbol"), QString::fromStdString(group.folderSymbol));
     out.insert(QStringLiteral("normalized_symbol"), QString::fromStdString(group.normalizedSymbol));
     out.insert(QStringLiteral("display_time"), QString::fromStdString(group.displayTime));
     out.insert(QStringLiteral("search_text"), QString::fromStdString(group.searchText));
@@ -123,6 +129,8 @@ hftrec::recordings::RecordingGroupInfo groupFromJson(
     out.path = pathFromJson(object, QStringLiteral("path"));
     out.id = object.value(QStringLiteral("id")).toString().toStdString();
     out.title = object.value(QStringLiteral("title")).toString().toStdString();
+    out.localSymbol = object.value(QStringLiteral("local_symbol")).toString().toStdString();
+    out.folderSymbol = object.value(QStringLiteral("folder_symbol")).toString().toStdString();
     out.normalizedSymbol = object.value(QStringLiteral("normalized_symbol")).toString().toStdString();
     out.displayTime = object.value(QStringLiteral("display_time")).toString().toStdString();
     out.searchText = object.value(QStringLiteral("search_text")).toString().toStdString();
@@ -157,7 +165,7 @@ BacktestLegCounts countsFromJson(const QJsonObject& object) {
 
 QJsonDocument snapshotToJson(const RecordingCatalogSnapshot& snapshot) {
     QJsonObject root;
-    root.insert(QStringLiteral("schema"), QStringLiteral("hftrec.recording_catalog.v2"));
+    root.insert(QStringLiteral("schema"), QStringLiteral("hftrec.recording_catalog.v4"));
     root.insert(QStringLiteral("schema_version"), kCacheSchemaVersion);
     root.insert(QStringLiteral("recordings_root"), snapshot.recordingsRoot);
     root.insert(QStringLiteral("status_text"), snapshot.statusText);

@@ -30,7 +30,7 @@ using hftrec::replay::parseTradeLine;
 
 TEST(JsonLineParser, TradeLineRoundTrip) {
     TradeRow ev{};
-    ev.symbol = "BTCUSDT";
+    ev.symbol = "BTC_USDT";
     ev.exchange = "binance";
     ev.market = "futures_usd";
     ev.priceE8 = 3'000'100'000'000LL;
@@ -51,7 +51,7 @@ TEST(JsonLineParser, TradeLineRoundTrip) {
 
 TEST(JsonLineParser, TradeLineSellSide) {
     TradeRow ev{};
-    ev.symbol = "ETHUSDT";
+    ev.symbol = "ETH_USDT";
     ev.exchange = "binance";
     ev.market = "spot";
     ev.tradeId = 42ULL;
@@ -67,7 +67,7 @@ TEST(JsonLineParser, TradeLineSellSide) {
 
 TEST(JsonLineParser, BookTickerLineRoundTrip) {
     BookTickerRow ev{};
-    ev.symbol = "ETHUSDT";
+    ev.symbol = "ETH_USDT";
     ev.exchange = "binance";
     ev.market = "futures_usd";
     ev.bidPriceE8 = 200'000'000'000LL;

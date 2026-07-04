@@ -56,7 +56,7 @@ TEST(CaptureChannelSupport, KeepsSupportedChannelsAndReportsSkippedOnes) {
     CaptureConfig config{};
     config.exchange = "gate";
     config.market = "futures";
-    config.symbols = {"BTCUSDT"};
+    config.symbols = {"BTC_USDT"};
 
     const auto plan = hftrec::capture::buildCaptureLaunchPlan(
         config,
@@ -87,7 +87,7 @@ TEST(CaptureChannelSupport, MarksPlanAsEmptyWhenNoChannelsRemain) {
     CaptureConfig config{};
     config.exchange = "toobit";
     config.market = "spot";
-    config.symbols = {"MUSDT"};
+    config.symbols = {"M_USDT"};
 
     const auto plan = hftrec::capture::buildCaptureLaunchPlan(
         config,
@@ -134,7 +134,7 @@ TEST(CaptureChannelSupport, HyperliquidFuturesMarketDataChannelsAreRuntimeReady)
     CaptureConfig config{};
     config.exchange = "hyperliquid";
     config.market = "futures";
-    config.symbols = {"BTC"};
+    config.symbols = {"BTC_USDT"};
 
     std::string detail;
     EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::Trades, detail)) << detail;

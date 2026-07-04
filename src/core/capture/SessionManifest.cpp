@@ -103,6 +103,10 @@ bool parseIdentityObject(JsonParser& parser, SessionManifest& manifest) noexcept
             if (!parser.parseString(manifest.market)) return false;
         } else if (key == "symbols") {
             if (!parseStringArray(parser, manifest.symbols)) return false;
+        } else if (key == "route_symbols") {
+            if (!parser.skipValue()) return false;
+        } else if (key == "storage_symbol") {
+            if (!parser.parseString(manifest.storageSymbol)) return false;
         } else {
             if (!parser.skipValue()) return false;
         }
@@ -662,7 +666,9 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "    \"market\": " << json::quote(manifest.market) << ",\n";
     out << "    \"symbols\": ";
     appendStringArray(out, manifest.symbols);
-    out << "\n  },\n";
+    out << ",\n";
+    out << "    \"storage_symbol\": " << json::quote(manifest.storageSymbol) << "\n";
+    out << "  },\n";
     out << "  \"capture\": {\n";
     out << "    \"selected_parent_dir\": " << json::quote(manifest.selectedParentDir) << ",\n";
     out << "    \"started_at_ns\": " << manifest.startedAtNs << ",\n";

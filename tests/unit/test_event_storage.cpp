@@ -268,24 +268,24 @@ TEST(EventStorage, InMemoryProviderReadsOnlySelectedLiveSource) {
 
     auto& registry = hftrec::gui::viewer::LiveDataRegistry::instance();
     registry.setSources({
-        {"live:binance:futures:ETHUSDT", "Binance", "Futures", "ETHUSDT", "s1", {}, &ethIngress},
-        {"live:binance:futures:BTCUSDT", "Binance", "Futures", "BTCUSDT", "s2", {}, &btcIngress},
+        {"live:binance:futures:ETH_USDT", "Binance", "Futures", "ETH_USDT", "s1", {}, &ethIngress},
+        {"live:binance:futures:BTC_USDT", "Binance", "Futures", "BTC_USDT", "s2", {}, &btcIngress},
     });
 
-    auto provider = registry.makeProvider("live:binance:futures:BTCUSDT");
+    auto provider = registry.makeProvider("live:binance:futures:BTC_USDT");
     ASSERT_NE(provider, nullptr);
-    provider->start(hftrec::gui::viewer::LiveDataProviderConfig{{}, {}, "live:binance:futures:BTCUSDT"});
+    provider->start(hftrec::gui::viewer::LiveDataProviderConfig{{}, {}, "live:binance:futures:BTC_USDT"});
 
     const auto hot = provider->pollHot(1u);
     ASSERT_TRUE(hot.appendedRows);
     ASSERT_EQ(hot.batch.trades.size(), 1u);
     EXPECT_EQ(hot.batch.trades[0].tsNs, 200);
 
-    const auto range = provider->materializeRange(hftrec::gui::viewer::LiveDataRangeRequest{"BTCUSDT", 150, 250}, 2u);
+    const auto range = provider->materializeRange(hftrec::gui::viewer::LiveDataRangeRequest{"BTC_USDT", 150, 250}, 2u);
     ASSERT_EQ(range.trades.size(), 1u);
     EXPECT_EQ(range.trades[0].tsNs, 200);
 
-    EXPECT_TRUE(registry.hasSource("live:binance:futures:ETHUSDT"));
+    EXPECT_TRUE(registry.hasSource("live:binance:futures:ETH_USDT"));
     EXPECT_EQ(registry.snapshotSources().size(), 2u);
     registry.clear();
 }

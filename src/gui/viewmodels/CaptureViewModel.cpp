@@ -71,7 +71,7 @@ QStringList defaultVenueSymbolsTexts() {
         if (key.startsWith(QStringLiteral("finam_"))) {
             symbols.push_back(QStringLiteral("SBER@MISX"));
         } else {
-            symbols.push_back(detail::venueSymbolsFromGlobalInput(key, QStringLiteral("BTCUSDT")));
+            symbols.push_back(detail::venueSymbolsFromGlobalInput(key, QStringLiteral("BTC_USDT")));
         }
     }
     return symbols;

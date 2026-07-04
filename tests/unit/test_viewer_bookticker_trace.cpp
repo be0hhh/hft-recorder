@@ -797,11 +797,11 @@ TEST(ViewerLiveSource, RegistrySelectionUsesInMemoryProviderForViewportCache) {
 
     auto& registry = LiveDataRegistry::instance();
     registry.setSources({
-        {"live:test:futures:BTCUSDT", "Test", "Futures", "BTCUSDT", "s1", {}, &ingress},
+        {"live:test:futures:BTC_USDT", "Test", "Futures", "BTC_USDT", "s1", {}, &ingress},
     });
 
     ChartController chart;
-    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:BTCUSDT"), QString{}));
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:BTC_USDT"), QString{}));
     chart.refreshLiveDataWindow(0, 200);
 
     ASSERT_EQ(chart.liveDataCache().stableRows.trades.size(), 1u);
@@ -819,11 +819,11 @@ TEST(ViewerLiveSource, MaterializesPriorDepthForOrderbookState) {
 
     auto& registry = LiveDataRegistry::instance();
     registry.setSources({
-        {"live:test:futures:BNBUSDT", "Test", "Futures", "BNBUSDT", "s3", {}, &ingress},
+        {"live:test:futures:BNB_USDT", "Test", "Futures", "BNB_USDT", "s3", {}, &ingress},
     });
 
     ChartController chart;
-    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:BNBUSDT"), QString{}));
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:BNB_USDT"), QString{}));
     chart.refreshLiveDataWindow(120, 200);
 
     ASSERT_EQ(chart.liveDataCache().stableRows.depths.size(), 2u);
@@ -840,15 +840,15 @@ TEST(ViewerLiveSource, RepeatedActivationKeepsManualViewport) {
 
     auto& registry = LiveDataRegistry::instance();
     registry.setSources({
-        {"live:test:futures:SOLUSDT", "Test", "Futures", "SOLUSDT", "s4", {}, &ingress},
+        {"live:test:futures:SOL_USDT", "Test", "Futures", "SOL_USDT", "s4", {}, &ingress},
     });
 
     ChartController chart;
-    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:SOLUSDT"), QString{}));
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:SOL_USDT"), QString{}));
     chart.refreshLiveDataWindow(0, 200);
     chart.setViewport(10, 110, e8(90), e8(120));
 
-    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:SOLUSDT"), QString{}));
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:SOL_USDT"), QString{}));
     EXPECT_EQ(chart.tsMin(), 10);
     EXPECT_EQ(chart.tsMax(), 110);
     EXPECT_EQ(chart.priceMinE8(), e8(90));
@@ -863,11 +863,11 @@ TEST(ViewerSelection, IncludesLiveStableRowsInRectangleSummary) {
 
     auto& registry = LiveDataRegistry::instance();
     registry.setSources({
-        {"live:test:futures:ETHUSDT", "Test", "Futures", "ETHUSDT", "s2", {}, &ingress},
+        {"live:test:futures:ETH_USDT", "Test", "Futures", "ETH_USDT", "s2", {}, &ingress},
     });
 
     ChartController chart;
-    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:ETHUSDT"), QString{}));
+    ASSERT_TRUE(chart.activateLiveSource(QStringLiteral("live:test:futures:ETH_USDT"), QString{}));
     chart.refreshLiveDataWindow(0, 200);
     chart.setViewport(0, 200, e8(90), e8(110));
 

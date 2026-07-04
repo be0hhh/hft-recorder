@@ -877,9 +877,9 @@ void BacktestViewModel::loadPersistentConfig_() {
     latencySeed_ = settings_.value(QStringLiteral("backtests/latency_seed"), latencySeed_).toString().trimmed();
     if (latencySeed_.isEmpty()) latencySeed_ = QStringLiteral("0");
     marketDataLatencyUs_ = settings_.value(QStringLiteral("backtests/market_data_latency_us"), marketDataLatencyUs_).toString().trimmed();
-    if (marketDataLatencyUs_.isEmpty()) marketDataLatencyUs_ = QStringLiteral("250");
+    if (marketDataLatencyUs_.isEmpty()) marketDataLatencyUs_ = QStringLiteral("0");
     marketDataJitterUs_ = settings_.value(QStringLiteral("backtests/market_data_jitter_us"), marketDataJitterUs_).toString().trimmed();
-    if (marketDataJitterUs_.isEmpty()) marketDataJitterUs_ = QStringLiteral("100");
+    if (marketDataJitterUs_.isEmpty()) marketDataJitterUs_ = QStringLiteral("0");
     if (settings_.contains(QStringLiteral("backtests/market_order_latency_us"))) marketOrderLatencyUs_ = settings_.value(QStringLiteral("backtests/market_order_latency_us"), marketOrderLatencyUs_).toString().trimmed();
     else if (hasLegacyPingLatency) marketOrderLatencyUs_ = pingLatencyUs_;
     if (marketOrderLatencyUs_.isEmpty()) marketOrderLatencyUs_ = QStringLiteral("2500");

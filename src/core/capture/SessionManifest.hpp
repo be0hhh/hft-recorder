@@ -18,6 +18,7 @@ struct SessionManifest {
     std::string exchange;
     std::string market;
     std::vector<std::string> symbols;
+    std::string storageSymbol;
     std::int32_t manifestSchemaVersion{kManifestSchemaVersionCurrent};
     std::int32_t corpusSchemaVersion{kCorpusSchemaVersionCurrent};
     std::string captureContractVersion{"hftrec.strict_canonical_rows_json.v2"};

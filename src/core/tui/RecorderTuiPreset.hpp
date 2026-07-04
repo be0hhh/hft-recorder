@@ -25,7 +25,7 @@ struct RecorderTuiJob {
     std::string name{"job"};
     std::string exchange{"binance"};
     std::string market{"futures"};
-    std::string symbol{"BTCUSDT"};
+    std::string symbol{"BTC_USDT"};
     std::string routeSymbol{};
     std::int64_t durationMin{0};
     ChannelSelection channels{};

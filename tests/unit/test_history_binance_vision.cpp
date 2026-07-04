@@ -140,7 +140,7 @@ TEST(BinanceVisionHistory, BuildsS3ListUrlWithStartAfter) {
 }
 
 TEST(BinanceVisionHistory, ConvertsAggTradeCsvToRecorderTradeRow) {
-    const ImportIdentity identity{.symbol = "AGLDUSDT"};
+    const ImportIdentity identity{.symbol = "AGLD_USDT"};
     replay::TradeRow row{};
     std::string error;
 
@@ -153,7 +153,7 @@ TEST(BinanceVisionHistory, ConvertsAggTradeCsvToRecorderTradeRow) {
     EXPECT_EQ(row.tradeId, 101421200u);
     EXPECT_EQ(row.firstTradeId, 241470566u);
     EXPECT_EQ(row.lastTradeId, 241470568u);
-    EXPECT_EQ(row.symbol, "AGLDUSDT");
+    EXPECT_EQ(row.symbol, "AGLD_USDT");
     EXPECT_EQ(row.exchange, "binance");
     EXPECT_EQ(row.market, "futures");
     EXPECT_EQ(row.tsNs, 1782432000038000000LL);
@@ -168,7 +168,7 @@ TEST(BinanceVisionHistory, ConvertsAggTradeCsvToRecorderTradeRow) {
 }
 
 TEST(BinanceVisionHistory, ConvertsAggTradeCsvFalseBoolToTakerBuy) {
-    const ImportIdentity identity{.symbol = "AGLDUSDT"};
+    const ImportIdentity identity{.symbol = "AGLD_USDT"};
     replay::TradeRow row{};
     std::string error;
 
@@ -184,7 +184,7 @@ TEST(BinanceVisionHistory, ConvertsAggTradeCsvFalseBoolToTakerBuy) {
 }
 
 TEST(BinanceVisionHistory, ConvertsObservedLabAggTradeCsvRow) {
-    const ImportIdentity identity{.symbol = "LABUSDT"};
+    const ImportIdentity identity{.symbol = "LAB_USDT"};
     replay::TradeRow row{};
     std::string error;
 
@@ -197,7 +197,7 @@ TEST(BinanceVisionHistory, ConvertsObservedLabAggTradeCsvRow) {
     EXPECT_EQ(row.tradeId, 291582192u);
     EXPECT_EQ(row.firstTradeId, 528129694u);
     EXPECT_EQ(row.lastTradeId, 528129695u);
-    EXPECT_EQ(row.symbol, "LABUSDT");
+    EXPECT_EQ(row.symbol, "LAB_USDT");
     EXPECT_EQ(row.tsNs, 1782259200338000000LL);
     EXPECT_EQ(row.priceE8, 1454400000LL);
     EXPECT_EQ(row.qtyE8, 1000000000LL);
@@ -208,7 +208,7 @@ TEST(BinanceVisionHistory, ConvertsObservedLabAggTradeCsvRow) {
 }
 
 TEST(BinanceVisionHistory, ConvertsBookTickerCsvToRecorderBookTickerRow) {
-    const ImportIdentity identity{.symbol = "AGLDUSDT"};
+    const ImportIdentity identity{.symbol = "AGLD_USDT"};
     replay::BookTickerRow row{};
     std::string error;
 
@@ -218,7 +218,7 @@ TEST(BinanceVisionHistory, ConvertsBookTickerCsvToRecorderBookTickerRow) {
                                        row,
                                        error));
 
-    EXPECT_EQ(row.symbol, "AGLDUSDT");
+    EXPECT_EQ(row.symbol, "AGLD_USDT");
     EXPECT_EQ(row.exchange, "binance");
     EXPECT_EQ(row.market, "futures");
     EXPECT_EQ(row.tsNs, 1690848000125000000LL);
@@ -231,7 +231,7 @@ TEST(BinanceVisionHistory, ConvertsBookTickerCsvToRecorderBookTickerRow) {
 }
 
 TEST(BinanceVisionHistory, RenderedRowsParseWithRecorderStrictParser) {
-    const ImportIdentity identity{.symbol = "AGLDUSDT"};
+    const ImportIdentity identity{.symbol = "AGLD_USDT"};
     replay::TradeRow trade{};
     replay::BookTickerRow book{};
     std::string error;

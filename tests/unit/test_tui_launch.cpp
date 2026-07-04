@@ -30,7 +30,7 @@ RecorderTuiJob job(std::string_view name, std::string_view exchange) {
     out.name = std::string{name};
     out.exchange = std::string{exchange};
     out.market = "futures";
-    out.symbol = "BTCUSDT";
+    out.symbol = "BTC_USDT";
     out.channels = hftrec::tui::allLiveChannels();
     return out;
 }

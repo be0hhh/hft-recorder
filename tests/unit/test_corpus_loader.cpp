@@ -36,7 +36,7 @@ TEST(CorpusLoader, CleanFixtureLoadsAndUsesSeekIndex) {
 }
 
 TEST(InstrumentMetadata, RoundTripsTraderBacktestGridFields) {
-    auto metadata = hftrec::corpus::makeInstrumentMetadata("binance", "futures", "BTCUSDT");
+    auto metadata = hftrec::corpus::makeInstrumentMetadata("binance", "futures", "BTC_USDT");
     metadata.tickSizeE8 = 10000000;
     metadata.lotSizeE8 = 100000;
     metadata.contractBaseQtyE8 = 100000;
@@ -130,7 +130,7 @@ TEST(CorpusLoader, RecordingManifestDoesNotRequireFinalSupportArtifacts) {
     manifest.sessionId = "hftrec_recording_manifest_loader_test";
     manifest.exchange = "binance";
     manifest.market = "futures";
-    manifest.symbols = {"ETHUSDT"};
+    manifest.symbols = {"ETH_USDT"};
     manifest.selectedParentDir = sessionDir.parent_path().string();
     manifest.startedAtNs = 1000;
     manifest.sessionStatus = "recording";

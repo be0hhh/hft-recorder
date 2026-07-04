@@ -9,6 +9,7 @@
 #include "core/capture/SessionId.hpp"
 #include "core/capture/SupportArtifacts.hpp"
 #include "core/corpus/InstrumentMetadata.hpp"
+#include "core/recordings/RecordingDiscovery.hpp"
 #include "core/recordings/RecordingRoot.hpp"
 #include "core/replay/SessionReplay.hpp"
 
@@ -31,6 +32,11 @@ bool hasCapturedRows(const SessionManifest& manifest) noexcept {
         || manifest.depthCount != 0u
         || manifest.candlesCount != 0u
         || manifest.candles2Count != 0u;
+}
+
+void normalizeCaptureRecordingIdentity(CaptureConfig& config) {
+    if (config.symbols.empty()) return;
+    config.routeSymbols.clear();
 }
 
 Status writeFileFully(const std::filesystem::path& path, const std::string& document) noexcept {
@@ -115,6 +121,10 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
     internal::ensureCxetInitialized();
     CaptureConfig normalizedConfig = config;
     normalizedConfig.outputDir = recordings::normalizeExplicitRecordingsPath(config.outputDir);
+    if (const auto identityStatus = internal::validateCryptoIdentitySymbols(normalizedConfig, lastError_); !isOk(identityStatus)) {
+        return identityStatus;
+    }
+    normalizeCaptureRecordingIdentity(normalizedConfig);
 
     if (const auto envStatus = internal::loadCaptureEnv(normalizedConfig, lastError_); !isOk(envStatus)) {
         return envStatus;
@@ -143,6 +153,10 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
 
     config_ = normalizedConfig;
     manifest_ = {};
+    manifest_.storageSymbol = recordings::recordingFolderSymbol(
+        normalizedConfig.exchange,
+        normalizedConfig.market,
+        normalizedConfig.symbols.front());
     manifest_.sessionId = makeSessionId(normalizedConfig.exchange, normalizedConfig.market, normalizedConfig.symbols.front(), internal::nowNs());
     manifest_.exchange = normalizedConfig.exchange;
     manifest_.market = normalizedConfig.market;

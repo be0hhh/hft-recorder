@@ -49,7 +49,7 @@ TEST(BacktestSessionSummary, AppendsCompactCaptureHealthWarning) {
     const QString degraded = hftrec::gui::appendSessionHealthSummary(
         QStringLiteral("L1 10 | BT 0"),
         QStringLiteral("clean"),
-        QStringLiteral("reference: route status=disconnected stream=mark_price symbol=AGLDUSDT"));
+        QStringLiteral("reference: route status=disconnected stream=mark_price symbol=AGLD_USDT"));
     EXPECT_EQ(degraded, QStringLiteral("L1 10 | BT 0 | degraded: mark_price disconnected"));
 
     EXPECT_EQ(hftrec::gui::sessionHealthSummaryLabel(QStringLiteral("corrupt"), QString{}),
@@ -216,7 +216,7 @@ TEST(BacktestExecutionConfigHelpers, GuiBacktestsUseInlineExecutionPipeline) {
 
 TEST(BacktestStrategyConfigHelpers, FiltersTemplateSectionsFromBaseConfig) {
     const QString base = QStringLiteral(
-        "symbol=BTCUSDT\n"
+        "symbol=BTC_USDT\n"
         "[sweep]\n"
         "edge_bps.min=1\n"
         "[indicators]\n"
@@ -224,7 +224,7 @@ TEST(BacktestStrategyConfigHelpers, FiltersTemplateSectionsFromBaseConfig) {
 
     const QString filtered = hftrec::gui::filteredBaseConfig(base);
 
-    EXPECT_TRUE(filtered.contains(QStringLiteral("symbol=BTCUSDT")));
+    EXPECT_TRUE(filtered.contains(QStringLiteral("symbol=BTC_USDT")));
     EXPECT_FALSE(filtered.contains(QStringLiteral("edge_bps")));
     EXPECT_FALSE(filtered.contains(QStringLiteral("profile=default")));
 }
@@ -234,7 +234,7 @@ TEST(BacktestSweepHelpers, ParsesRowsAndLegMetricCurves) {
     ASSERT_TRUE(dir.isValid());
     const QString rowsPath = QDir(dir.path()).absoluteFilePath(QStringLiteral("rows.jsonl"));
     writeTextFile(rowsPath,
-                  QByteArrayLiteral(R"json({"point_id":1,"params":{"edge_bps":2},"initial_balance_e8":1000000000,"total_pnl_e8":300000000,"curve_e8":[100000000,300000000],"legs":[{"leg_index":0,"exchange":"binance","symbol":"BTCUSDT","initial_balance_e8":500000000,"total_pnl_e8":100000000,"curve_e8":[0,100000000]}],"status":"ok"})json")
+                  QByteArrayLiteral(R"json({"point_id":1,"params":{"edge_bps":2},"initial_balance_e8":1000000000,"total_pnl_e8":300000000,"curve_e8":[100000000,300000000],"legs":[{"leg_index":0,"exchange":"binance","symbol":"BTC_USDT","initial_balance_e8":500000000,"total_pnl_e8":100000000,"curve_e8":[0,100000000]}],"status":"ok"})json")
                       + QByteArrayLiteral("\n"));
 
     const QVariantList rows = hftrec::gui::sweepRowsFromJsonl(rowsPath, QStringLiteral("leg_0_total_pnl_e8"));
@@ -242,7 +242,7 @@ TEST(BacktestSweepHelpers, ParsesRowsAndLegMetricCurves) {
     const QVariantMap row = rows.front().toMap();
     EXPECT_EQ(row.value(QStringLiteral("metricKey")).toString(), QStringLiteral("leg_0_total_pnl_e8"));
     EXPECT_EQ(row.value(QStringLiteral("metricRaw")).toLongLong(), 100000000);
-    EXPECT_EQ(row.value(QStringLiteral("metricLabel")).toString(), QStringLiteral("Leg 1 binance BTCUSDT"));
+    EXPECT_EQ(row.value(QStringLiteral("metricLabel")).toString(), QStringLiteral("Leg 1 binance BTC_USDT"));
 
     QStringList paramKeys;
     hftrec::gui::appendSweepParamKeysFromRows(rows, paramKeys);

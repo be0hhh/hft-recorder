@@ -27,22 +27,22 @@ void printUsage() {
     std::puts("");
     std::puts("Examples:");
     std::puts("  hft-recorder capture bookticker all 60 /mnt/d/recordings");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings binance BTCUSDT");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings bybit BTCUSDT futures");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings kucoin BTCUSDTM");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings binance BTC_USDT");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings bybit BTC_USDT futures");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings kucoin BTC_USDT futures");
     std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings gate BTC_USDT");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings aster ASTERUSDT spot");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings aster ASTER_USDT spot");
     std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings gate BTC_USDT margin");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings okx BTC-USDT-SWAP futures");
+    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings okx BTC_USDT futures");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 bookticker 30 /mnt/d/recordings finam SBER@MISX spot");
-    std::puts("  hft-recorder capture mark_price 30 /mnt/d/recordings binance BTCUSDT futures");
-    std::puts("  hft-recorder capture index_price 30 /mnt/d/recordings bybit BTCUSDT futures");
+    std::puts("  hft-recorder capture mark_price 30 /mnt/d/recordings binance BTC_USDT futures");
+    std::puts("  hft-recorder capture index_price 30 /mnt/d/recordings bybit BTC_USDT futures");
     std::puts("  hft-recorder capture funding 30 /mnt/d/recordings gate BTC_USDT futures");
-    std::puts("  hft-recorder capture price_limit 30 /mnt/d/recordings bitget BTCUSDT futures");
-    std::puts("  hft-recorder capture trades 30 /mnt/d/recordings binance ETHUSDT futures 300");
-    std::puts("  hft-recorder capture --history-sec 3600 trades_history 1 /mnt/d/recordings mexc BTCUSDT spot");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 /mnt/d/recordings binance ETHUSDT futures 300");
-    std::puts("  hft-recorder capture candles 1 /mnt/d/recordings binance BSBUSDT");
+    std::puts("  hft-recorder capture price_limit 30 /mnt/d/recordings bitget BTC_USDT futures");
+    std::puts("  hft-recorder capture trades 30 /mnt/d/recordings binance ETH_USDT futures 300");
+    std::puts("  hft-recorder capture --history-sec 3600 trades_history 1 /mnt/d/recordings mexc BTC_USDT spot");
+    std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 /mnt/d/recordings binance ETH_USDT futures 300");
+    std::puts("  hft-recorder capture candles 1 /mnt/d/recordings binance BSB_USDT");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 100000 candles2 1 /mnt/d/recordings finam SBER@MISX spot");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 1000000 candles2_bulk 1 /mnt/d/recordings finam GAZP@MISX spot");
 }
@@ -51,7 +51,7 @@ capture::CaptureConfig makeDefaultConfig() {
     capture::CaptureConfig config{};
     config.exchange = "binance";
     config.market = "futures";
-    config.symbols = {"ETHUSDT"};
+    config.symbols = {"ETH_USDT"};
     config.outputDir = recordings::defaultRecordingsRoot();
     config.durationSec = 10;
     config.snapshotIntervalSec = 60;
@@ -61,7 +61,11 @@ capture::CaptureConfig makeDefaultConfig() {
 }
 
 std::vector<tui::RecorderTuiJob> bookTickerAllJobs() {
-    return tui::generateJobsForSymbols({"BTCUSDT"}, tui::allCryptoVenueSpecs(), 0u);
+    return tui::generateJobsForSymbols({"BTC_USDT"}, tui::allCryptoVenueSpecs(), 0u);
+}
+
+void applyTransientRouteSymbol(capture::CaptureConfig& config) {
+    config.routeSymbols.clear();
 }
 
 bool isMarkPriceChannel(std::string_view channel) noexcept {
@@ -369,8 +373,6 @@ int runCapture(int argc, char** argv) {
             venueConfig.market = job.market;
             venueConfig.symbols = {job.symbol};
             venueConfig.routeSymbols.clear();
-            const std::string routeSymbol = tui::routeSymbolForJob(job);
-            if (!routeSymbol.empty() && routeSymbol != job.symbol) venueConfig.routeSymbols = {routeSymbol};
 
             auto coordinator = std::make_unique<capture::CaptureCoordinator>();
             const auto startStatus = coordinator->startBookTicker(venueConfig);
@@ -425,6 +427,7 @@ int runCapture(int argc, char** argv) {
     if (argc >= 4) {
         config.outputDir = recordings::normalizeExplicitRecordingsPath(argv[3]);
     }
+    applyTransientRouteSymbol(config);
     capture::CaptureCoordinator coordinator{};
     Status startStatus = startChannel(coordinator, channel, config);
     if (startStatus == Status::InvalidArgument && coordinator.lastError().empty()) {

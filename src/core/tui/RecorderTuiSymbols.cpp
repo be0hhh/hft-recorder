@@ -5,14 +5,13 @@
 #include <fstream>
 #include <sstream>
 
+#if HFTREC_WITH_CXET
+#include "api/resolve/LocalSymbolValidation.hpp"
+#endif
+
 namespace hftrec::tui {
 
 namespace {
-
-struct ParsedSymbol {
-    std::string base;
-    std::string quote;
-};
 
 std::string trim(std::string_view text) {
     std::size_t begin = 0;
@@ -26,13 +25,6 @@ std::string lower(std::string_view text) {
     std::string out;
     out.reserve(text.size());
     for (char ch : text) out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
-    return out;
-}
-
-std::string upper(std::string_view text) {
-    std::string out;
-    out.reserve(text.size());
-    for (char ch : text) out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
     return out;
 }
 
@@ -69,90 +61,6 @@ void appendUniqueSymbol(std::vector<std::string>& symbols, std::string_view raw)
     if (!exists) symbols.push_back(symbol);
 }
 
-ParsedSymbol parseGlobalSymbol(std::string_view raw) {
-    std::string symbol = upper(trim(raw));
-    constexpr std::string_view swapMarker = "-SWAP-";
-    const auto swapMarkerIndex = symbol.find(swapMarker);
-    if (swapMarkerIndex != std::string::npos) {
-        const std::string base = symbol.substr(0u, swapMarkerIndex);
-        const std::string quote = symbol.substr(swapMarkerIndex + swapMarker.size());
-        if (!base.empty() && !quote.empty()) {
-            return ParsedSymbol{base, quote};
-        }
-    }
-    constexpr std::string_view swapSuffix = "-SWAP";
-    if (symbol.size() > swapSuffix.size() + 1u && endsWithNoCase(symbol, swapSuffix)) {
-        const auto sepPos = symbol.rfind('-', symbol.size() - swapSuffix.size() - 1u);
-        if (sepPos != std::string::npos && sepPos > 0u &&
-            sepPos < (symbol.size() - swapSuffix.size())) {
-            const std::string base = symbol.substr(0u, sepPos);
-            const std::string quote = symbol.substr(sepPos + 1u, symbol.size() - sepPos - swapSuffix.size() - 1u);
-            if (!base.empty() && !quote.empty()) {
-                return ParsedSymbol{base, quote};
-            }
-        }
-    }
-    symbol.erase(std::remove(symbol.begin(), symbol.end(), '-'), symbol.end());
-    symbol.erase(std::remove(symbol.begin(), symbol.end(), '_'), symbol.end());
-    if (symbol.size() > 4u && symbol.ends_with("SWAP")) symbol.resize(symbol.size() - 4u);
-
-    constexpr std::string_view quotes[] = {"USDT", "USDC", "USD"};
-    for (std::string_view quote : quotes) {
-        if (symbol.size() > quote.size() && symbol.ends_with(quote)) {
-            symbol.resize(symbol.size() - quote.size());
-            return ParsedSymbol{symbol, std::string{quote}};
-        }
-    }
-    return ParsedSymbol{symbol, "USDT"};
-}
-
-std::string formattedVenueSymbol(const RecorderTuiVenueSpec& venue, const ParsedSymbol& symbol) {
-    const std::string exchange = venue.exchange;
-    const std::string market = venue.market;
-    std::string base = symbol.base;
-    std::string quote = symbol.quote;
-
-    if (exchange == "kucoin" && market == "futures" && base == "BTC") base = "XBT";
-    if (market == "inverse") quote = "USD";
-    if (exchange == "bitget" && market == "swap") quote = "USDC";
-
-    if (exchange == "kucoin") {
-        if (market == "futures") return base + quote + "M";
-        return base + '-' + quote;
-    }
-    if (exchange == "xt") {
-        return lower(base) + '_' + lower(quote);
-    }
-    if (exchange == "poloniex") {
-        const std::string result = base + '_' + quote;
-        return market == "futures" ? result + "_PERP" : result;
-    }
-    if (exchange == "bingx") {
-        return base + '-' + quote;
-    }
-    if (exchange == "toobit") {
-        if (market == "futures" || market == "swap") return base + "-SWAP-" + quote;
-        return base + quote;
-    }
-    if (exchange == "htx") {
-        if (market == "futures" || market == "swap") return base + '-' + quote;
-        return lower(base) + lower(quote);
-    }
-    if (exchange == "phemex") {
-        if (market == "futures" || market == "swap") return base + quote;
-        return std::string{"s"} + base + quote;
-    }
-    if (exchange == "hyperliquid") return base;
-    if (exchange == "gate") return base + '_' + quote;
-    if (exchange == "okx") {
-        const std::string result = base + '-' + quote;
-        return market == "futures" ? result + "-SWAP" : result;
-    }
-    if (exchange == "mexc" && market == "futures") return base + '_' + quote;
-    if (exchange == "binance" && market == "inverse") return base + quote + "_PERP";
-    return base + quote;
-}
-
 std::filesystem::path resolveSymbolListPath(std::string_view token, const std::filesystem::path& listDir) {
     std::filesystem::path path{trim(token)};
     const std::string value = path.string();
@@ -161,6 +69,47 @@ std::filesystem::path resolveSymbolListPath(std::string_view token, const std::f
     if (path.is_absolute() || explicitPath) return path;
     const std::filesystem::path root = listDir.empty() ? symbolListConfigDir() : listDir;
     return root / path;
+}
+
+bool localSymbolTextIsStrict(std::string_view raw) noexcept {
+    const std::string symbol = trim(raw);
+#if HFTREC_WITH_CXET
+    return cxet::api::isLocalCryptoSymbolText(symbol.c_str());
+#else
+    const std::size_t first = symbol.find('_');
+    if (first == std::string::npos || first == 0u || first + 1u >= symbol.size()) return false;
+    const std::size_t second = symbol.find('_', first + 1u);
+    if (second != std::string::npos && (second == first + 1u || second + 1u >= symbol.size())) return false;
+    if (second != std::string::npos && symbol.find('_', second + 1u) != std::string::npos) return false;
+    for (std::size_t i = 0u; i < symbol.size(); ++i) {
+        const char ch = symbol[i];
+        if (ch == '_') continue;
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) continue;
+        return false;
+    }
+    if (second != std::string::npos) {
+        bool nonZeroMultiplier = false;
+        bool greaterThanOne = false;
+        for (std::size_t i = 0u; i < first; ++i) {
+            if (symbol[i] < '0' || symbol[i] > '9') return false;
+            nonZeroMultiplier = nonZeroMultiplier || symbol[i] != '0';
+            greaterThanOne = greaterThanOne || symbol[i] > '1' || (symbol[i] == '1' && i + 1u < first);
+        }
+        if (!nonZeroMultiplier) return false;
+        if (!greaterThanOne) return false;
+    }
+    return true;
+#endif
+}
+
+bool appendCheckedLocalSymbol(std::vector<std::string>& symbols, std::string_view raw, std::string& error) {
+    const std::string symbol = trim(raw);
+    if (!localSymbolTextIsStrict(symbol)) {
+        error = "crypto symbol must use local format BASE_QUOTE or N_BASE_QUOTE";
+        return false;
+    }
+    appendUniqueSymbol(symbols, symbol);
+    return true;
 }
 
 bool appendSymbolsFromListFile(std::string_view token,
@@ -184,7 +133,7 @@ bool appendSymbolsFromListFile(std::string_view token,
         const std::size_t hash = line.find('#');
         if (hash != std::string::npos) line.resize(hash);
         for (const std::string& tokenInFile : splitSymbolTokens(line)) {
-            appendUniqueSymbol(out.symbols, tokenInFile);
+            if (!appendCheckedLocalSymbol(out.symbols, tokenInFile, error)) return false;
         }
     }
     out.loadedFiles.push_back(path);
@@ -200,10 +149,8 @@ std::string symbolSlug(std::string_view raw) {
     return out.empty() ? std::string{"symbol"} : out;
 }
 
-std::string canonicalGlobalSymbol(std::string_view raw) {
-    const ParsedSymbol parsed = parseGlobalSymbol(raw);
-    if (parsed.base.empty()) return upper(trim(raw));
-    return parsed.base + parsed.quote;
+std::string canonicalLocalSymbol(std::string_view raw) {
+    return trim(raw);
 }
 
 ChannelSelection generatedMarketDataChannels() noexcept {
@@ -269,13 +216,13 @@ std::filesystem::path symbolListConfigDir() {
 }
 
 std::string venueSymbolsFromGlobalInput(std::string_view venueKey, std::string_view symbolsText) {
-    const auto* venue = venueSpecByKey(venueKey);
-    if (venue == nullptr) return {};
+    if (venueSpecByKey(venueKey) == nullptr) return {};
 
     std::vector<std::string> formatted;
     for (const std::string& token : splitSymbolTokens(symbolsText)) {
-        const ParsedSymbol parsed = parseGlobalSymbol(token);
-        if (!parsed.base.empty()) formatted.push_back(formattedVenueSymbol(*venue, parsed));
+        const std::string localSymbol = trim(token);
+        if (!localSymbolTextIsStrict(localSymbol)) continue;
+        formatted.push_back(localSymbol);
     }
 
     std::string out;
@@ -323,7 +270,7 @@ bool loadSymbolBatchInput(std::string_view text,
             if (endsWithNoCase(token, ".ini")) {
                 if (!appendSymbolsFromListFile(token, listDir, out, error)) return false;
             } else {
-                appendUniqueSymbol(out.symbols, token);
+                if (!appendCheckedLocalSymbol(out.symbols, token, error)) return false;
             }
         }
     }
@@ -342,20 +289,15 @@ std::vector<RecorderTuiJob> generateJobsForSymbols(const std::vector<std::string
     jobs.reserve(symbols.size() * venues.size());
     std::size_t ordinal = startIndex;
     for (const std::string& symbol : symbols) {
+        if (!localSymbolTextIsStrict(symbol)) continue;
         for (const auto& venue : venues) {
             RecorderTuiJob job{};
-            const std::string canonicalSymbol = canonicalGlobalSymbol(symbol);
+            const std::string canonicalSymbol = canonicalLocalSymbol(symbol);
             job.name = symbolSlug(canonicalSymbol) + '_' + venue.exchange + '_' + venue.market;
             if (ordinal != 0u) job.name += '_' + std::to_string(ordinal + 1u);
             job.exchange = venue.exchange;
             job.market = venue.market;
-            const std::string routeSymbol = venueSymbolsFromGlobalInput(venue.key, symbol);
-            if (venue.exchange == std::string_view{"hyperliquid"} && !routeSymbol.empty() && routeSymbol != canonicalSymbol) {
-                job.symbol = canonicalSymbol;
-                job.routeSymbol = routeSymbol;
-            } else {
-                job.symbol = routeSymbol;
-            }
+            job.symbol = canonicalSymbol;
             job.durationMin = 0;
             job.channels = generatedMarketDataChannels();
             jobs.push_back(std::move(job));

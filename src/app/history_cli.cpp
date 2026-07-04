@@ -34,9 +34,14 @@ extern char** environ;
 #include "core/corpus/InstrumentMetadata.hpp"
 #include "core/history/BinanceVisionFormat.hpp"
 #include "core/history/ZipReader.hpp"
+#include "core/recordings/RecordingDiscovery.hpp"
 #include "core/recordings/RecordingRoot.hpp"
 #include "hftrec/status.hpp"
 #include "hftrec/version.hpp"
+
+#if HFTREC_WITH_CXET
+#include "api/resolve/LocalSymbolValidation.hpp"
+#endif
 
 namespace fs = std::filesystem;
 
@@ -66,6 +71,71 @@ std::string upperAscii(std::string_view text) {
     std::string out{text};
     for (char& ch : out) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
     return out;
+}
+
+bool fallbackValidLocalCryptoSymbolText(std::string_view symbol) noexcept {
+    const std::size_t first = symbol.find('_');
+    if (first == std::string_view::npos || first == 0u || first + 1u >= symbol.size()) return false;
+    const std::size_t second = symbol.find('_', first + 1u);
+    if (second != std::string_view::npos && (second == first + 1u || second + 1u >= symbol.size())) return false;
+    if (second != std::string_view::npos && symbol.find('_', second + 1u) != std::string_view::npos) return false;
+    for (char ch : symbol) {
+        if (ch == '_') continue;
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) continue;
+        return false;
+    }
+    if (second != std::string_view::npos) {
+        bool nonZeroMultiplier = false;
+        bool greaterThanOne = false;
+        for (std::size_t i = 0u; i < first; ++i) {
+            if (symbol[i] < '0' || symbol[i] > '9') return false;
+            nonZeroMultiplier = nonZeroMultiplier || symbol[i] != '0';
+            greaterThanOne = greaterThanOne || symbol[i] > '1' || (symbol[i] == '1' && i + 1u < first);
+        }
+        if (!nonZeroMultiplier) return false;
+        if (!greaterThanOne) return false;
+    }
+    return true;
+}
+
+bool validLocalCryptoSymbolText(std::string_view symbol) {
+#if HFTREC_WITH_CXET
+    const std::string text{symbol};
+    return cxet::api::isLocalCryptoSymbolText(text.c_str());
+#else
+    return fallbackValidLocalCryptoSymbolText(symbol);
+#endif
+}
+
+std::string normalizeHistoryLocalSymbol(std::string_view symbol) {
+    if (!validLocalCryptoSymbolText(symbol)) return {};
+    return recordings::recordingLocalSymbol("binance", "futures", symbol);
+}
+
+std::string visionSymbolFromLocalSymbol(std::string_view localSymbol) {
+    std::string out;
+    out.reserve(localSymbol.size());
+    for (char ch : localSymbol) {
+        if (ch == '_') continue;
+        out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+    }
+    return out;
+}
+
+bool assignHistorySymbol(std::string_view input, std::string& out, std::string& error) {
+    const std::string local = normalizeHistoryLocalSymbol(input);
+    if (local.empty()) {
+        error = "history --symbol must use local format BASE_QUOTE or N_BASE_QUOTE";
+        return false;
+    }
+    out = local;
+    return true;
+}
+
+std::string visionSearchNeedle(std::string_view query) {
+    if (query.find('_') == std::string_view::npos) return upperAscii(query);
+    const std::string local = normalizeHistoryLocalSymbol(query);
+    return local.empty() ? upperAscii(query) : visionSymbolFromLocalSymbol(local);
 }
 
 std::string lowerHex(const unsigned char* bytes, std::size_t size) {
@@ -357,15 +427,15 @@ bool remoteVisionKeyAvailable(const std::string& key, std::string& error) {
     return history::hasVisionZipAndChecksum(xml, key);
 }
 
-bool preflightRequiredVisionFiles(const history::ImportIdentity& identity,
+bool preflightRequiredVisionFiles(std::string_view visionSymbol,
                                   const std::vector<history::Date>& dates,
                                   std::vector<std::string>& missing,
                                   std::string& error) {
     missing.clear();
     error.clear();
     for (const auto date : dates) {
-        const std::string tradeKey = history::visionDailyKey(history::VisionChannel::AggTrades, identity.symbol, date);
-        const std::string bookKey = history::visionDailyKey(history::VisionChannel::BookTicker, identity.symbol, date);
+        const std::string tradeKey = history::visionDailyKey(history::VisionChannel::AggTrades, visionSymbol, date);
+        const std::string bookKey = history::visionDailyKey(history::VisionChannel::BookTicker, visionSymbol, date);
         if (!remoteVisionKeyAvailable(tradeKey, error)) {
             if (!error.empty()) return false;
             missing.push_back(tradeKey + " (+ .CHECKSUM)");
@@ -425,7 +495,8 @@ std::string sessionName(std::string_view symbol, const std::vector<history::Date
         text.erase(std::remove(text.begin(), text.end(), '-'), text.end());
         return text;
     };
-    return compact(from) + "_" + compact(to) + "_binance_futures_um_" + std::string{symbol} + "_vision";
+    return compact(from) + "_" + compact(to) + "_binance_futures_um_" +
+           recordings::recordingFolderSymbol("binance", "futures", symbol) + "_vision";
 }
 
 bool writeSessionArtifacts(const fs::path& sessionDir,
@@ -439,7 +510,9 @@ bool writeSessionArtifacts(const fs::path& sessionDir,
     manifest.sessionId = sessionId;
     manifest.exchange = identity.exchange;
     manifest.market = identity.market;
-    manifest.symbols = {identity.symbol};
+    const std::string localSymbol = recordings::recordingLocalSymbol(identity.exchange, identity.market, identity.symbol);
+    manifest.symbols = {localSymbol.empty() ? identity.symbol : localSymbol};
+    manifest.storageSymbol = recordings::recordingFolderSymbol(identity.exchange, identity.market, manifest.symbols.front());
     manifest.selectedParentDir = outRoot.string();
     manifest.startedAtNs = stats.firstTsNs;
     manifest.endedAtNs = stats.lastTsNs;
@@ -481,7 +554,7 @@ bool writeSessionArtifacts(const fs::path& sessionDir,
     manifest.exactReplayEligible = false;
 
     const std::int64_t generatedAt = stats.lastTsNs > 0 ? stats.lastTsNs : stats.firstTsNs;
-    auto metadata = corpus::makeInstrumentMetadata(identity.exchange, identity.market, identity.symbol);
+    auto metadata = corpus::makeInstrumentMetadata(identity.exchange, identity.market, manifest.symbols.front());
     metadata.metadataSource = "binance_vision_futures_um";
     metadata.metadataWarning = "offline import: aggTrades are aggregated; bookTicker is observational L1 BBO";
 
@@ -507,20 +580,26 @@ bool importHistory(const Options& options, const std::vector<history::Date>& dat
         return false;
     }
 
-    const history::ImportIdentity identity{.symbol = upperAscii(options.symbol)};
+    const std::string localSymbol = normalizeHistoryLocalSymbol(options.symbol);
+    if (localSymbol.empty()) {
+        error = "history --symbol must use local format BASE_QUOTE or N_BASE_QUOTE";
+        return false;
+    }
+    const std::string visionSymbol = visionSymbolFromLocalSymbol(localSymbol);
+    const history::ImportIdentity identity{.symbol = localSymbol};
     const std::string id = sessionName(identity.symbol, dates);
     const fs::path finalDir = options.outRoot / id;
     const fs::path tmpDir = options.outRoot / ("." + id + ".tmp");
     const fs::path downloadDir = tmpDir / "downloads";
 
     std::vector<std::string> missing;
-    if (!preflightRequiredVisionFiles(identity, dates, missing, error)) return false;
+    if (!preflightRequiredVisionFiles(visionSymbol, dates, missing, error)) return false;
     if (!missing.empty()) {
         std::ostringstream out;
         out << "Binance Vision is missing required files for exact import before download:";
         for (const auto& key : missing) out << "\n  " << key;
         out << "\nCannot create a recorder session with required aggTrades + bookTicker for "
-            << identity.symbol << ".";
+            << identity.symbol << " (source " << visionSymbol << ").";
         error = out.str();
         return false;
     }
@@ -547,8 +626,8 @@ bool importHistory(const Options& options, const std::vector<history::Date>& dat
     }
 
     for (const auto date : dates) {
-        const std::string tradeKey = history::visionDailyKey(history::VisionChannel::AggTrades, identity.symbol, date);
-        const std::string bookKey = history::visionDailyKey(history::VisionChannel::BookTicker, identity.symbol, date);
+        const std::string tradeKey = history::visionDailyKey(history::VisionChannel::AggTrades, visionSymbol, date);
+        const std::string bookKey = history::visionDailyKey(history::VisionChannel::BookTicker, visionSymbol, date);
         if (!importOneZip(tradeKey, downloadDir, identity, true, tradesOut, stats, error) ||
             !importOneZip(bookKey, downloadDir, identity, false, bookOut, stats, error)) {
             fs::remove_all(tmpDir, ec);
@@ -594,14 +673,15 @@ std::vector<std::string> searchSymbols(std::string_view query, std::string& erro
         std::string xml;
         if (!downloadText(history::visionListUrl(history::visionSymbolPrefix(channel), true), xml, error)) return {};
         const std::string base = history::visionSymbolPrefix(channel);
-        const std::string needle = upperAscii(query);
+        const std::string needle = visionSearchNeedle(query);
         std::vector<std::string> symbols;
         for (const auto& prefix : history::parseS3Prefixes(xml)) {
             if (prefix.size() <= base.size() || prefix.substr(0, base.size()) != base) continue;
             std::string symbol = prefix.substr(base.size());
             if (!symbol.empty() && symbol.back() == '/') symbol.pop_back();
             if (symbol.empty() || (!needle.empty() && symbol.find(needle) == std::string::npos)) continue;
-            symbols.push_back(symbol);
+            const std::string local = recordings::recordingLocalSymbol("binance", "futures", symbol);
+            symbols.push_back(local.empty() ? symbol : local);
         }
         std::sort(symbols.begin(), symbols.end());
         symbols.erase(std::unique(symbols.begin(), symbols.end()), symbols.end());
@@ -640,13 +720,19 @@ std::vector<history::Date> availableDatesForChannel(history::VisionChannel chann
 }
 
 std::vector<history::Date> resolveLatestAvailableDates(std::string_view symbol, int days, std::string& error) {
-    if (!channelHasAnyHistory(history::VisionChannel::AggTrades, symbol, error)) {
-        if (error.empty()) error = "Binance Vision has no daily aggTrades history for " + std::string{symbol};
+    const std::string localSymbol = normalizeHistoryLocalSymbol(symbol);
+    if (localSymbol.empty()) {
+        error = "history --symbol must use local format BASE_QUOTE or N_BASE_QUOTE";
         return {};
     }
-    if (!channelHasAnyHistory(history::VisionChannel::BookTicker, symbol, error)) {
+    const std::string visionSymbol = visionSymbolFromLocalSymbol(localSymbol);
+    if (!channelHasAnyHistory(history::VisionChannel::AggTrades, visionSymbol, error)) {
+        if (error.empty()) error = "Binance Vision has no daily aggTrades history for " + localSymbol + " (source " + visionSymbol + ")";
+        return {};
+    }
+    if (!channelHasAnyHistory(history::VisionChannel::BookTicker, visionSymbol, error)) {
         if (error.empty()) {
-            error = "Binance Vision has no daily bookTicker history for " + std::string{symbol} +
+            error = "Binance Vision has no daily bookTicker history for " + localSymbol + " (source " + visionSymbol + ")" +
                     "; exact recorder import requires both aggTrades and bookTicker";
         }
         return {};
@@ -658,9 +744,9 @@ std::vector<history::Date> resolveLatestAvailableDates(std::string_view symbol, 
     for (const int lookback : lookbacks) {
         if (lookback < days) continue;
         const history::Date start = history::addDays(last, 1 - lookback);
-        auto aggDates = availableDatesForChannel(history::VisionChannel::AggTrades, symbol, start, error);
+        auto aggDates = availableDatesForChannel(history::VisionChannel::AggTrades, visionSymbol, start, error);
         if (!error.empty()) return {};
-        auto bookDates = availableDatesForChannel(history::VisionChannel::BookTicker, symbol, start, error);
+        auto bookDates = availableDatesForChannel(history::VisionChannel::BookTicker, visionSymbol, start, error);
         if (!error.empty()) return {};
         best = history::latestCommonDates(std::move(aggDates), std::move(bookDates), last, static_cast<std::size_t>(days));
         if (best.size() == static_cast<std::size_t>(days)) return best;
@@ -668,7 +754,7 @@ std::vector<history::Date> resolveLatestAvailableDates(std::string_view symbol, 
 
     std::ostringstream out;
     out << "Binance Vision has only " << best.size() << " exact dates with aggTrades + bookTicker for "
-        << symbol << " in the recent lookup window";
+        << localSymbol << " (source " << visionSymbol << ") in the recent lookup window";
     if (!best.empty()) {
         out << " (latest range " << history::formatDate(best.front()) << ".." << history::formatDate(best.back()) << ")";
     }
@@ -681,8 +767,8 @@ void printHelp() {
     std::puts("");
     std::puts("Usage:");
     std::puts("  history");
-    std::puts("  history --symbol AGLDUSDT --days 5 [--out /mnt/d/recordings]");
-    std::puts("  history --symbol AGLDUSDT --from 2026-06-22 --to 2026-06-26 [--out /mnt/d/recordings]");
+    std::puts("  history --symbol AGLD_USDT --days 5 [--out /mnt/d/recordings]");
+    std::puts("  history --symbol AGLD_USDT --from 2026-06-22 --to 2026-06-26 [--out /mnt/d/recordings]");
     std::puts("  history --search AGLD");
     std::puts("");
     std::puts("Notes:");
@@ -709,7 +795,7 @@ bool parseOptions(int argc, char** argv, Options& out, std::string& error) {
         else if (arg == "--symbol") {
             const char* value = requireValue(arg);
             if (value == nullptr) return false;
-            out.symbol = upperAscii(value);
+            if (!assignHistorySymbol(value, out.symbol, error)) return false;
         } else if (arg == "--days") {
             const char* value = requireValue(arg);
             if (value == nullptr) return false;

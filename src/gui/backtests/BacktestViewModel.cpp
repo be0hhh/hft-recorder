@@ -860,8 +860,8 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     const QString configPath = config.path;
     const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
     const quint64 latencySeed = latencyValue_(latencySeed_, 0);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 250);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 100);
+    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
+    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
     const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
     const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
     const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
@@ -957,7 +957,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.executionPipeline = guiBacktestExecutionPipeline();
         request.rateLimitsEnabled = rateLimitsEnabled;
         request.strictRateLimitRejects = strictRateLimitsEnabled;
-        request.captureStrategySpread = true;
+        request.captureStrategySpread = false;
         request.outputPath = (QDir(outputSessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();
 
         const auto result = hft_backtest::runBacktest(request, progressCallback, this);
@@ -1064,8 +1064,8 @@ void BacktestViewModel::startSweep() {
     const quint64 latencySeed = latencyValue_(latencySeed_, 0);
     const quint64 searchSeed = latencyValue_(sweepSeed_, 0);
     const quint64 runBudget = latencyValue_(sweepBudget_, 64);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 250);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 100);
+    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
+    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
     const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
     const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
     const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);

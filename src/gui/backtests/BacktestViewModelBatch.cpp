@@ -577,8 +577,8 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
 
     const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
     const quint64 latencySeed = latencyValue_(latencySeed_, 0);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 250);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 100);
+    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
+    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
     const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
     const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
     const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
@@ -622,7 +622,10 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
         hft_backtest::BacktestSessionRequest leg;
         leg.path = pair.second.path.toStdString();
         leg.venue = pair.second.venue.toStdString();
-        leg.symbol = pair.second.symbol.toStdString();
+        const QString basisLegSymbol = pair.second.canonicalSymbol.isEmpty()
+            ? batchCanonicalSymbol(pair.second.symbol)
+            : pair.second.canonicalSymbol;
+        leg.symbol = basisLegSymbol.toStdString();
         item.request.sessions.push_back(std::move(leg));
         item.request.configPath = item.configPath.toStdString();
         item.request.outputPath = item.outputPath.toStdString();
@@ -674,7 +677,7 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
         item.request.strictRateLimitRejects = strictRateLimitsEnabled;
         item.request.executionPipeline = guiBacktestExecutionPipeline();
         item.request.writeArtifacts = true;
-        item.request.captureStrategySpread = true;
+        item.request.captureStrategySpread = false;
         prepared.push_back(std::move(item));
     }
 
@@ -906,8 +909,8 @@ void BacktestViewModel::startBatchSweep() {
     const quint64 latencySeed = latencyValue_(latencySeed_, 0);
     const quint64 searchSeed = latencyValue_(sweepSeed_, 0);
     const quint64 runBudget = latencyValue_(sweepBudget_, 64);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 250);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 100);
+    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
+    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
     const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
     const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
     const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
@@ -950,7 +953,10 @@ void BacktestViewModel::startBatchSweep() {
         hft_backtest::BacktestSessionRequest leg;
         leg.path = pair.second.path.toStdString();
         leg.venue = pair.second.venue.toStdString();
-        leg.symbol = pair.second.symbol.toStdString();
+        const QString sweepLegSymbol = pair.second.canonicalSymbol.isEmpty()
+            ? batchCanonicalSymbol(pair.second.symbol)
+            : pair.second.canonicalSymbol;
+        leg.symbol = sweepLegSymbol.toStdString();
         item.request.baseRun.sessions.push_back(std::move(leg));
         item.request.baseRun.configPath = item.configPath.toStdString();
         item.request.baseRun.strategy = strategy.toStdString();

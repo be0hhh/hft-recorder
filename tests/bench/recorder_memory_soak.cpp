@@ -69,7 +69,7 @@ Options parseOptions(int argc, char** argv) {
 
 hftrec::replay::TradeRow tradeRow(std::uint64_t i) {
     hftrec::replay::TradeRow row{};
-    row.symbol = "SOAKUSDT";
+    row.symbol = "SOAK_USDT";
     row.exchange = "bench";
     row.market = "synthetic";
     row.tsNs = static_cast<std::int64_t>(i + 1u);
@@ -84,7 +84,7 @@ hftrec::replay::TradeRow tradeRow(std::uint64_t i) {
 
 hftrec::replay::BookTickerRow bookTickerRow(std::uint64_t i) {
     hftrec::replay::BookTickerRow row{};
-    row.symbol = "SOAKUSDT";
+    row.symbol = "SOAK_USDT";
     row.exchange = "bench";
     row.market = "synthetic";
     row.tsNs = static_cast<std::int64_t>(i + 1u);

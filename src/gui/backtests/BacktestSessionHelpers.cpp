@@ -1,5 +1,6 @@
 #include "gui/backtests/BacktestSessionHelpers.hpp"
 
+#include "core/recordings/RecordingDiscovery.hpp"
 #include "core/recordings/RecordingRoot.hpp"
 #include "gui/backtests/BacktestResultHelpers.hpp"
 
@@ -79,9 +80,16 @@ QString venueSectionForSession(const QString& sessionPath) {
 }
 
 QString symbolForSessionPath(const QString& sessionPath) {
-    const QString fromManifest = manifestValue(sessionPath, QStringLiteral("symbols")).trimmed().toUpper();
-    if (!fromManifest.isEmpty()) return fromManifest;
-    return symbolFromSessionId(QFileInfo(sessionPath).fileName()).toUpper();
+    QString raw = manifestValue(sessionPath, QStringLiteral("symbols")).trimmed();
+    if (raw.isEmpty()) raw = symbolFromSessionId(QFileInfo(sessionPath).fileName()).trimmed();
+    if (raw.isEmpty()) return {};
+    const QString exchange = manifestValue(sessionPath, QStringLiteral("exchange")).trimmed();
+    const QString market = manifestValue(sessionPath, QStringLiteral("market")).trimmed();
+    const std::string local = recordings::recordingLocalSymbol(exchange.toStdString(),
+                                                               market.toStdString(),
+                                                               raw.toStdString());
+    if (!local.empty()) return QString::fromStdString(local).toUpper();
+    return raw.toUpper();
 }
 
 QString sessionPathFromToken(const QString& recordingsRoot, const QString& token) {

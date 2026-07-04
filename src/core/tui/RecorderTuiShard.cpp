@@ -20,7 +20,7 @@ std::vector<RecorderTuiPreset> splitPresetIntoShards(const RecorderTuiPreset& pr
             continue;
         }
 
-        std::string symbol = recordings::normalizeRecordingSymbol(job.symbol);
+        std::string symbol = recordings::recordingFolderSymbol(job.exchange, job.market, job.symbol);
         if (symbol.empty()) symbol = job.symbol;
         auto it = std::find_if(groups.begin(), groups.end(), [&](const auto& item) { return item.first == symbol; });
         if (it == groups.end()) {

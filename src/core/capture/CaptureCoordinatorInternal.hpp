@@ -39,6 +39,7 @@ hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfi
 
 bool enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
                                               corpus::InstrumentMetadata& metadata) noexcept;
+Status validateCryptoIdentitySymbols(const CaptureConfig& config, std::string& lastError) noexcept;
 Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError, bool allowMultiSymbol = false);
 bool sessionConfigMatches(const CaptureConfig& lhs, const CaptureConfig& rhs) noexcept;
 

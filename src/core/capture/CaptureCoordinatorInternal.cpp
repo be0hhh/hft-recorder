@@ -15,6 +15,7 @@
 #include "api/dispatch/BuildDispatch.hpp"
 #include "api/env/CxetEnv.hpp"
 #include "api/fields/RequestedFieldNames.hpp"
+#include "api/resolve/LocalSymbolValidation.hpp"
 #include "canon/MarketMapping.hpp"
 #include "canon/PositionAndExchange.hpp"
 #include "canon/Subtypes.hpp"
@@ -38,6 +39,59 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
         if (a != b) return false;
     }
     return true;
+}
+
+bool cryptoCaptureExchange(std::string_view exchange) noexcept {
+    return textEqualsAscii(exchange, "aster") ||
+           textEqualsAscii(exchange, "backpack") ||
+           textEqualsAscii(exchange, "binance") ||
+           textEqualsAscii(exchange, "bingx") ||
+           textEqualsAscii(exchange, "bitget") ||
+           textEqualsAscii(exchange, "bitmart") ||
+           textEqualsAscii(exchange, "bitunix") ||
+           textEqualsAscii(exchange, "bybit") ||
+           textEqualsAscii(exchange, "coinbase") ||
+           textEqualsAscii(exchange, "coinex") ||
+           textEqualsAscii(exchange, "gate") ||
+           textEqualsAscii(exchange, "htx") ||
+           textEqualsAscii(exchange, "hyperliquid") ||
+           textEqualsAscii(exchange, "kraken") ||
+           textEqualsAscii(exchange, "kucoin") ||
+           textEqualsAscii(exchange, "mexc") ||
+           textEqualsAscii(exchange, "okx") ||
+           textEqualsAscii(exchange, "phemex") ||
+           textEqualsAscii(exchange, "poloniex") ||
+           textEqualsAscii(exchange, "toobit") ||
+           textEqualsAscii(exchange, "xt");
+}
+
+bool validLocalCryptoSymbol(std::string_view symbol) noexcept {
+#if HFTREC_WITH_CXET
+    std::string text{symbol};
+    return cxet::api::isLocalCryptoSymbolText(text.c_str());
+#else
+    const std::size_t first = symbol.find('_');
+    if (first == std::string_view::npos || first == 0u || first + 1u >= symbol.size()) return false;
+    const std::size_t second = symbol.find('_', first + 1u);
+    if (second != std::string_view::npos && (second == first + 1u || second + 1u >= symbol.size())) return false;
+    if (second != std::string_view::npos && symbol.find('_', second + 1u) != std::string_view::npos) return false;
+    for (char ch : symbol) {
+        if (ch == '_') continue;
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) continue;
+        return false;
+    }
+    if (second != std::string_view::npos) {
+        bool nonZeroMultiplier = false;
+        bool greaterThanOne = false;
+        for (std::size_t i = 0u; i < first; ++i) {
+            if (symbol[i] < '0' || symbol[i] > '9') return false;
+            nonZeroMultiplier = nonZeroMultiplier || symbol[i] != '0';
+            greaterThanOne = greaterThanOne || symbol[i] > '1' || (symbol[i] == '1' && i + 1u < first);
+        }
+        if (!nonZeroMultiplier || !greaterThanOne) return false;
+    }
+    return true;
+#endif
 }
 
 }  // namespace
@@ -249,12 +303,10 @@ std::string_view primaryIdentitySymbolText(const CaptureConfig& config) noexcept
 }
 
 std::string_view primaryRouteSymbolText(const CaptureConfig& config) noexcept {
-    if (!config.routeSymbols.empty()) return config.routeSymbols.front();
     return primaryIdentitySymbolText(config);
 }
 
 std::string_view routeSymbolTextAt(const CaptureConfig& config, std::size_t index) noexcept {
-    if (index < config.routeSymbols.size() && !config.routeSymbols[index].empty()) return config.routeSymbols[index];
     if (index < config.symbols.size()) return config.symbols[index];
     return {};
 }
@@ -320,16 +372,11 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
         lastError = "current capture path supports exactly one symbol per coordinator";
         return Status::InvalidArgument;
     }
-    if (config.routeSymbols.size() > config.symbols.size()) {
-        lastError = "capture route symbol count must not exceed symbol count";
+    if (!config.routeSymbols.empty()) {
+        lastError = "capture routeSymbols are no longer supported; use local symbols only";
         return Status::InvalidArgument;
     }
-    for (const auto& routeSymbol : config.routeSymbols) {
-        if (routeSymbol.empty()) {
-            lastError = "capture route symbol must not be empty";
-            return Status::InvalidArgument;
-        }
-    }
+    if (const auto identityStatus = validateCryptoIdentitySymbols(config, lastError); !isOk(identityStatus)) return identityStatus;
 #if HFTREC_WITH_CXET
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     if (exchange.raw == canon::kExchangeIdUnknown.raw) {
@@ -353,11 +400,21 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
 #endif
 }
 
+Status validateCryptoIdentitySymbols(const CaptureConfig& config, std::string& lastError) noexcept {
+    if (!cryptoCaptureExchange(config.exchange)) return Status::Ok;
+    for (const auto& symbol : config.symbols) {
+        if (!validLocalCryptoSymbol(symbol)) {
+            lastError = "capture crypto symbol must use local format BASE_QUOTE or N_BASE_QUOTE";
+            return Status::InvalidArgument;
+        }
+    }
+    return Status::Ok;
+}
+
 bool sessionConfigMatches(const CaptureConfig& lhs, const CaptureConfig& rhs) noexcept {
     return lhs.exchange == rhs.exchange
         && lhs.market == rhs.market
         && lhs.symbols == rhs.symbols
-        && lhs.routeSymbols == rhs.routeSymbols
         && lhs.envPath == rhs.envPath
         && normalizedApiSlot(lhs) == normalizedApiSlot(rhs)
         && lhs.outputDir == rhs.outputDir

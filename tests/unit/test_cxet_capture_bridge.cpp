@@ -14,7 +14,7 @@ namespace {
 TEST(CxetCaptureBridge, RuntimeTradeMatchesCompatibilityTradeCapture) {
     cxet::composite::StreamMeta meta{};
     meta.exchangeId.raw = 1u;
-    meta.symbol.copyFrom("BTCUSDT");
+    meta.symbol.copyFrom("BTC_USDT");
 
     cxet::composite::TradeRuntimeV1 runtime{};
     runtime.ts.raw = 1'713'168'000'000'000'123ULL;
@@ -35,7 +35,7 @@ TEST(CxetCaptureBridge, RuntimeTradeMatchesCompatibilityTradeCapture) {
 TEST(CxetCaptureBridge, RuntimeBookTickerMatchesCompatibilityBookTickerCapture) {
     cxet::composite::StreamMeta meta{};
     meta.exchangeId.raw = 2u;
-    meta.symbol.copyFrom("ETHUSDT");
+    meta.symbol.copyFrom("ETH_USDT");
 
     cxet::composite::BookTickerRuntimeV1 runtime{};
     runtime.ts.raw = 1'713'168'000'500'000'456ULL;
@@ -60,7 +60,7 @@ TEST(CxetCaptureBridge, RuntimeBookTickerMatchesCompatibilityBookTickerCapture) 
 TEST(CxetCaptureBridge, RuntimeOrderBookRestoresRecorderLevelSemantics) {
     cxet::composite::StreamMeta meta{};
     meta.exchangeId.raw = 1u;
-    meta.symbol.copyFrom("BTCUSDT");
+    meta.symbol.copyFrom("BTC_USDT");
 
     cxet::composite::OrderBookTapeRuntimeV1 tape{};
     cxet::composite::OrderBookTapeSidesRuntimeV1 sides{};

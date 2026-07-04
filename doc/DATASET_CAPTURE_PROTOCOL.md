@@ -14,7 +14,7 @@ claim that the upstream feed is exact or high-quality.
 ## Primary symbol and market
 
 Default primary corpus:
-- symbol: `ETHUSDT`
+- symbol: `ETH_USDT`
 - market: Binance futures
 
 Use honest stream labels:

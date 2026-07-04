@@ -51,8 +51,6 @@ capture::CaptureConfig makeCaptureConfig(const tui::RecorderTuiJob& job,
     config.exchange = job.exchange;
     config.market = job.market;
     config.symbols = {job.symbol};
-    const std::string routeSymbol = tui::routeSymbolForJob(job);
-    if (!routeSymbol.empty() && routeSymbol != job.symbol) config.routeSymbols = {routeSymbol};
     config.outputDir = outputDir;
     config.durationSec = job.durationMin > 0 ? job.durationMin * 60 : 0;
     config.snapshotIntervalSec = 60;
@@ -98,7 +96,7 @@ RunOutputGroups makeRunOutputGroups(const tui::RecorderTuiPreset& preset, bool o
 }
 
 std::filesystem::path outputDirForRunJob(RunOutputGroups& groups, const tui::RecorderTuiJob& job) {
-    std::string normalizedSymbol = recordings::normalizeRecordingSymbol(job.symbol);
+    std::string normalizedSymbol = recordings::recordingFolderSymbol(job.exchange, job.market, job.symbol);
     if (normalizedSymbol.empty()) normalizedSymbol = "UNKNOWN";
     const auto [it, inserted] = groups.bySymbol.emplace(normalizedSymbol, std::filesystem::path{});
     if (inserted) {
@@ -593,8 +591,6 @@ bool runnerChannelAvailableUncached(const tui::RecorderTuiJob& job, tui::LaunchC
     config.exchange = job.exchange;
     config.market = job.market;
     config.symbols = {job.symbol};
-    const std::string routeSymbol = tui::routeSymbolForJob(job);
-    if (!routeSymbol.empty() && routeSymbol != job.symbol) config.routeSymbols = {routeSymbol};
     config.apiSlot = 1u;
     std::string detail;
     return capture::captureChannelRuntimeReady(config, captureChannelForRunner(channel), detail);

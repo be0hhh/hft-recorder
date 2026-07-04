@@ -59,22 +59,22 @@ TEST(BacktestBatchSweepHelpers, OnlyFuturesSkipsSpotSessions) {
     QVector<hftrec::gui::BatchSweepSessionInfo> sessions;
     hftrec::gui::BatchSweepSessionInfo binanceFutures;
     binanceFutures.path = QStringLiteral("/tmp/binance_futures");
-    binanceFutures.sessionId = QStringLiteral("1_binance_futures_AGLDUSDT");
+    binanceFutures.sessionId = QStringLiteral("1_binance_futures_AGLD_USDT");
     binanceFutures.exchange = QStringLiteral("binance");
     binanceFutures.market = QStringLiteral("futures");
-    binanceFutures.symbol = QStringLiteral("AGLDUSDT");
-    binanceFutures.canonicalSymbol = QStringLiteral("AGLD");
+    binanceFutures.symbol = QStringLiteral("AGLD_USDT");
+    binanceFutures.canonicalSymbol = QStringLiteral("AGLD_USDT");
     sessions.push_back(binanceFutures);
 
     hftrec::gui::BatchSweepSessionInfo bybitFutures = binanceFutures;
     bybitFutures.path = QStringLiteral("/tmp/bybit_futures");
-    bybitFutures.sessionId = QStringLiteral("2_bybit_futures_AGLDUSDT");
+    bybitFutures.sessionId = QStringLiteral("2_bybit_futures_AGLD_USDT");
     bybitFutures.exchange = QStringLiteral("bybit");
     sessions.push_back(bybitFutures);
 
     hftrec::gui::BatchSweepSessionInfo mexcSpot = binanceFutures;
     mexcSpot.path = QStringLiteral("/tmp/mexc_spot");
-    mexcSpot.sessionId = QStringLiteral("3_mexc_spot_AGLDUSDT");
+    mexcSpot.sessionId = QStringLiteral("3_mexc_spot_AGLD_USDT");
     mexcSpot.exchange = QStringLiteral("mexc");
     mexcSpot.market = QStringLiteral("spot");
     sessions.push_back(mexcSpot);
@@ -95,8 +95,8 @@ TEST(BacktestBatchSweepHelpers, OnlyFuturesSkipsSpotSessions) {
 
 TEST(BacktestBatchAnalysisHelpers, BuildsSummaryCards) {
     QVariantList rows;
-    rows.push_back(batchRow(QStringLiteral("BTCUSDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 200000000, 20000000, 4, params(10, 100)));
-    rows.push_back(batchRow(QStringLiteral("ETHUSDT"), QStringLiteral("aster/bybit"), QStringLiteral("aster"), QStringLiteral("bybit"), -50000000, 60000000, 0, params(20, 100), true));
+    rows.push_back(batchRow(QStringLiteral("BTC_USDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 200000000, 20000000, 4, params(10, 100)));
+    rows.push_back(batchRow(QStringLiteral("ETH_USDT"), QStringLiteral("aster/bybit"), QStringLiteral("aster"), QStringLiteral("bybit"), -50000000, 60000000, 0, params(20, 100), true));
     QVariantList skipped;
     skipped.push_back(QVariantMap{{QStringLiteral("reason"), QStringLiteral("not futures")}});
 
@@ -109,8 +109,8 @@ TEST(BacktestBatchAnalysisHelpers, BuildsSummaryCards) {
 
 TEST(BacktestBatchAnalysisHelpers, BuildsSymmetricPairMatrix) {
     QVariantList rows;
-    rows.push_back(batchRow(QStringLiteral("BTCUSDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 200000000, 10000000, 4, params(10, 100)));
-    rows.push_back(batchRow(QStringLiteral("ETHUSDT"), QStringLiteral("aster/bybit"), QStringLiteral("aster"), QStringLiteral("bybit"), 50000000, 5000000, 2, params(10, 100)));
+    rows.push_back(batchRow(QStringLiteral("BTC_USDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 200000000, 10000000, 4, params(10, 100)));
+    rows.push_back(batchRow(QStringLiteral("ETH_USDT"), QStringLiteral("aster/bybit"), QStringLiteral("aster"), QStringLiteral("bybit"), 50000000, 5000000, 2, params(10, 100)));
 
     const QVariantList columns = hftrec::gui::batchPairMatrixColumnsFromRows(rows);
     const QVariantList cells = hftrec::gui::batchPairMatrixCellsFromRows(rows);
@@ -130,7 +130,7 @@ TEST(BacktestBatchAnalysisHelpers, BuildsSymmetricPairMatrix) {
 
 TEST(BacktestBatchAnalysisHelpers, SplitsCurvesIntoProgressChunks) {
     QVariantList curves;
-    curves.push_back(curveRow(QStringLiteral("BTCUSDT"), QStringLiteral("binance/bybit"),
+    curves.push_back(curveRow(QStringLiteral("BTC_USDT"), QStringLiteral("binance/bybit"),
                               QVariantList{0, 100000000, 150000000, 120000000, 220000000},
                               params(10, 100)));
 
@@ -144,10 +144,10 @@ TEST(BacktestBatchAnalysisHelpers, SplitsCurvesIntoProgressChunks) {
 
 TEST(BacktestBatchAnalysisHelpers, ScoresParameterPlateausAboveIsolatedSpikes) {
     QVariantList rows;
-    rows.push_back(batchRow(QStringLiteral("BTCUSDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 100000000, 10000000, 4, params(10, 100)));
-    rows.push_back(batchRow(QStringLiteral("BTCUSDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 90000000, 10000000, 4, params(20, 100)));
-    rows.push_back(batchRow(QStringLiteral("BTCUSDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 80000000, 10000000, 4, params(10, 200)));
-    rows.push_back(batchRow(QStringLiteral("BTCUSDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 500000000, 400000000, 1, params(100, 1000)));
+    rows.push_back(batchRow(QStringLiteral("BTC_USDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 100000000, 10000000, 4, params(10, 100)));
+    rows.push_back(batchRow(QStringLiteral("BTC_USDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 90000000, 10000000, 4, params(20, 100)));
+    rows.push_back(batchRow(QStringLiteral("BTC_USDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 80000000, 10000000, 4, params(10, 200)));
+    rows.push_back(batchRow(QStringLiteral("BTC_USDT"), QStringLiteral("binance/bybit"), QStringLiteral("binance"), QStringLiteral("bybit"), 500000000, 400000000, 1, params(100, 1000)));
 
     const QVariantList plateauRows = hftrec::gui::batchPlateauRowsFromRows(rows);
 

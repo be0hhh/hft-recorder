@@ -58,7 +58,7 @@ CaptureConfig makeValidConfig() {
     CaptureConfig config{};
     config.exchange = "binance";
     config.market = "futures_usd";
-    config.symbols = {"ETHUSDT"};
+    config.symbols = {"ETH_USDT"};
     config.outputDir = fs::temp_directory_path()
         / ("hftrec_capture_coordinator_tests_" + std::to_string(std::rand()));
     return config;
@@ -108,10 +108,28 @@ TEST(CaptureCoordinator, RejectsUnsupportedExchange) {
 TEST(CaptureCoordinator, RejectsMultipleSymbolsPerCoordinator) {
     CaptureCoordinator coordinator{};
     auto config = makeValidConfig();
-    config.symbols = {"ETHUSDT", "BTCUSDT"};
+    config.symbols = {"ETH_USDT", "BTC_USDT"};
 
     EXPECT_EQ(coordinator.ensureSession(config), Status::InvalidArgument);
     EXPECT_NE(coordinator.lastError().find("exactly one symbol"), std::string::npos);
+}
+
+TEST(CaptureCoordinator, RejectsLegacyCryptoIdentitySymbol) {
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+    config.symbols = {"ETHUSDT"};
+
+    EXPECT_EQ(coordinator.ensureSession(config), Status::InvalidArgument);
+    EXPECT_NE(coordinator.lastError().find("local format BASE_QUOTE"), std::string::npos);
+}
+
+TEST(CaptureCoordinator, RejectsLegacyRouteSymbols) {
+    CaptureCoordinator coordinator{};
+    auto config = makeValidConfig();
+    config.routeSymbols = {"ETHUSDT"};
+
+    EXPECT_EQ(coordinator.ensureSession(config), Status::InvalidArgument);
+    EXPECT_NE(coordinator.lastError().find("routeSymbols are no longer supported"), std::string::npos);
 }
 
 TEST(CaptureCoordinator, RejectsConfigDriftWhileSessionIsOpen) {
@@ -121,7 +139,7 @@ TEST(CaptureCoordinator, RejectsConfigDriftWhileSessionIsOpen) {
     ASSERT_EQ(coordinator.ensureSession(config), Status::Ok);
 
     auto mismatchedConfig = config;
-    mismatchedConfig.symbols = {"BTCUSDT"};
+    mismatchedConfig.symbols = {"BTC_USDT"};
 
     EXPECT_EQ(coordinator.ensureSession(mismatchedConfig), Status::InvalidArgument);
     EXPECT_NE(coordinator.lastError().find("different exchange/market/symbol/env/api/output directory"), std::string::npos);
@@ -144,6 +162,10 @@ TEST(CaptureCoordinator, WritesManifestAsSoonAsSessionIsEnsured) {
     ASSERT_TRUE(manifestStream.is_open());
     const std::string manifest((std::istreambuf_iterator<char>(manifestStream)), std::istreambuf_iterator<char>());
     EXPECT_NE(manifest.find("\"session_status\": \"recording\""), std::string::npos);
+    EXPECT_NE(manifest.find("\"symbols\": [\"ETH_USDT\"]"), std::string::npos);
+    EXPECT_EQ(manifest.find("\"route_symbols\""), std::string::npos);
+    EXPECT_NE(manifest.find("\"storage_symbol\": \"ETH_USDT\""), std::string::npos);
+    EXPECT_NE(sessionDir.filename().string().find("ETH_USDT"), std::string::npos);
 
     std::error_code ec;
     coordinator.finalizeSession();

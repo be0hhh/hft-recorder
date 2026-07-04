@@ -8,6 +8,10 @@
 #include <sstream>
 #include <system_error>
 
+#if HFTREC_WITH_CXET
+#include "api/resolve/LocalSymbolValidation.hpp"
+#endif
+
 namespace hftrec::tui {
 
 namespace {
@@ -99,6 +103,34 @@ bool assignChannel(std::string_view raw, ChannelSelection& channels) {
     return false;
 }
 
+bool localSymbolTextIsStrict(std::string_view raw) noexcept {
+    const std::string symbol = trim(raw);
+#if HFTREC_WITH_CXET
+    return cxet::api::isLocalCryptoSymbolText(symbol.c_str());
+#else
+    const std::size_t first = symbol.find('_');
+    if (first == std::string::npos || first == 0u || first + 1u >= symbol.size()) return false;
+    const std::size_t second = symbol.find('_', first + 1u);
+    if (second != std::string::npos && (second == first + 1u || second + 1u >= symbol.size())) return false;
+    if (second != std::string::npos && symbol.find('_', second + 1u) != std::string::npos) return false;
+    for (char ch : symbol) {
+        if (ch == '_') continue;
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) continue;
+        return false;
+    }
+    if (second != std::string::npos) {
+        if (first == 0u) return false;
+        unsigned multiplier = 0u;
+        for (std::size_t i = 0u; i < first; ++i) {
+            if (symbol[i] < '0' || symbol[i] > '9') return false;
+            multiplier = multiplier * 10u + static_cast<unsigned>(symbol[i] - '0');
+        }
+        return multiplier > 1u;
+    }
+    return true;
+#endif
+}
+
 void appendLine(std::string& out, std::string_view key, std::string_view value) {
     out.append(key);
     out.push_back('=');
@@ -123,8 +155,12 @@ bool validateJob(const RecorderTuiJob& job, std::string& error) {
         error = "job " + job.name + ": symbol is required";
         return false;
     }
-    if (!job.routeSymbol.empty() && trim(job.routeSymbol).empty()) {
-        error = "job " + job.name + ": route_symbol is blank";
+    if (trim(job.symbol).find('@') == std::string::npos && !localSymbolTextIsStrict(job.symbol)) {
+        error = "job " + job.name + ": symbol must use local format BASE_QUOTE or N_BASE_QUOTE";
+        return false;
+    }
+    if (!job.routeSymbol.empty()) {
+        error = "job " + job.name + ": route_symbol is no longer supported; use symbol=BASE_QUOTE";
         return false;
     }
     if (job.durationMin < 0) {
@@ -220,8 +256,7 @@ std::string renderChannelSelection(const ChannelSelection& channels) {
 }
 
 std::string routeSymbolForJob(const RecorderTuiJob& job) {
-    const std::string route = trim(job.routeSymbol);
-    return route.empty() ? trim(job.symbol) : route;
+    return trim(job.symbol);
 }
 
 bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string& error) {
@@ -314,7 +349,10 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
         if (key == "exchange") currentJob->exchange = value;
         else if (key == "market") currentJob->market = value;
         else if (key == "symbol") currentJob->symbol = value;
-        else if (key == "route_symbol") currentJob->routeSymbol = value;
+        else if (key == "route_symbol") {
+            error = "line " + std::to_string(lineNo) + ": route_symbol is no longer supported; use symbol=BASE_QUOTE";
+            return false;
+        }
         else if (key == "duration_min") {
             if (!parseDurationMinutes(value, currentJob->durationMin, error)) {
                 error = "line " + std::to_string(lineNo) + ": " + error;
@@ -360,7 +398,6 @@ std::string renderPresetText(const RecorderTuiPreset& preset) {
         appendLine(out, "exchange", job.exchange);
         appendLine(out, "market", job.market);
         appendLine(out, "symbol", job.symbol);
-        if (!trim(job.routeSymbol).empty()) appendLine(out, "route_symbol", job.routeSymbol);
         appendLine(out, "duration_min", std::to_string(job.durationMin));
         appendLine(out, "channels", renderChannelSelection(job.channels));
     }

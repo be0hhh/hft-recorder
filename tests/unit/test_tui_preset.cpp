@@ -80,15 +80,14 @@ progress_sec=10
 [job binance_btc]
 exchange=binance
 market=futures
-symbol=BTCUSDT
-route_symbol=BTC
+symbol=BTC_USDT
 duration_min=0
 channels=all
 
 [job bybit_eth]
 exchange=bybit
 market=futures
-symbol=ETHUSDT
+symbol=ETH_USDT
 duration_min=30
 channels=trades,bookticker,orderbook
 )";
@@ -106,13 +105,46 @@ channels=trades,bookticker,orderbook
     EXPECT_EQ(preset.maxActiveJobs, 31);
     EXPECT_EQ(preset.jobs[0].name, "binance_btc");
     EXPECT_EQ(preset.jobs[0].exchange, "binance");
-    EXPECT_EQ(preset.jobs[0].symbol, "BTCUSDT");
-    EXPECT_EQ(preset.jobs[0].routeSymbol, "BTC");
+    EXPECT_EQ(preset.jobs[0].symbol, "BTC_USDT");
+    EXPECT_TRUE(preset.jobs[0].routeSymbol.empty());
     EXPECT_EQ(preset.jobs[0].durationMin, 0);
     EXPECT_TRUE(preset.jobs[0].channels.priceLimit);
     EXPECT_EQ(preset.jobs[1].name, "bybit_eth");
     EXPECT_EQ(preset.jobs[1].durationMin, 30);
     EXPECT_FALSE(preset.jobs[1].channels.funding);
+}
+
+TEST(RecorderTuiPreset, RejectsLegacyRouteSymbolKey) {
+    constexpr std::string_view text = R"(
+[job binance_btc]
+exchange=binance
+market=futures
+symbol=BTC_USDT
+route_symbol=BTCUSDT
+duration_min=0
+channels=all
+)";
+
+    RecorderTuiPreset preset{};
+    std::string error;
+    EXPECT_FALSE(parsePresetText(text, preset, error));
+    EXPECT_NE(error.find("route_symbol is no longer supported"), std::string::npos);
+}
+
+TEST(RecorderTuiPreset, RejectsNativeCryptoSymbolAtLoad) {
+    constexpr std::string_view text = R"(
+[job binance_btc]
+exchange=binance
+market=futures
+symbol=BTCUSDT
+duration_min=0
+channels=all
+)";
+
+    RecorderTuiPreset preset{};
+    std::string error;
+    EXPECT_FALSE(parsePresetText(text, preset, error));
+    EXPECT_NE(error.find("symbol must use local format BASE_QUOTE"), std::string::npos);
 }
 
 TEST(RecorderTuiPreset, DefaultsOutputDirToRecordingsRoot) {
@@ -128,7 +160,7 @@ output_dir=/mnt/c/Users/be0h/manual-recordings
 [job binance_btc]
 exchange=binance
 market=futures
-symbol=BTCUSDT
+symbol=BTC_USDT
 duration_min=1
 channels=bookticker
 )";
@@ -151,8 +183,7 @@ TEST(RecorderTuiPreset, RoundTripsPresetText) {
     job.name = "binance_btc";
     job.exchange = "binance";
     job.market = "futures";
-    job.symbol = "BTCUSDT";
-    job.routeSymbol = "BTC";
+    job.symbol = "BTC_USDT";
     job.durationMin = 15;
     job.channels.trades = true;
     job.channels.bookTicker = true;
@@ -191,7 +222,7 @@ channels=trades
     std::string error;
     ASSERT_TRUE(parsePresetText(text, preset, error));
     ASSERT_EQ(preset.jobs.size(), 1u);
-    EXPECT_EQ(preset.jobs.front().symbol, "BTCUSDT");
+    EXPECT_EQ(preset.jobs.front().symbol, "BTC_USDT");
 }
 
 TEST(RecorderTuiPreset, ParsesLaunchOptions) {
@@ -205,7 +236,7 @@ same_exchange_cooldown_ms=2000
 [job binance_btc]
 exchange=binance
 market=futures
-symbol=BTCUSDT
+symbol=BTC_USDT
 channels=trades
 )";
 

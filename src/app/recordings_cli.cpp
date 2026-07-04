@@ -13,9 +13,10 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder recordings organize [--root path] [--apply] [--window-sec n]");
+    std::puts("  hft-recorder recordings organize [--root path] [--apply] [--delete-empty] [--window-sec n]");
     std::puts("");
-    std::puts("Default mode is dry-run. Add --apply to move completed flat sessions.");
+    std::puts("Default mode is dry-run. Add --apply to normalize completed session folders and manifests.");
+    std::puts("--delete-empty quarantines inactive zero-row sessions under .deleted_empty.");
 }
 
 }  // namespace
@@ -34,6 +35,7 @@ int runRecordings(int argc, char** argv) {
 
     std::filesystem::path root{recordings::defaultRecordingsRoot()};
     bool apply = false;
+    bool deleteEmpty = false;
     std::int64_t windowSec = 300;
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg{argv[i]};
@@ -53,6 +55,10 @@ int runRecordings(int argc, char** argv) {
             apply = false;
             continue;
         }
+        if (arg == "--delete-empty") {
+            deleteEmpty = true;
+            continue;
+        }
         if (arg == "--window-sec") {
             if (i + 1 >= argc) {
                 std::fputs("recordings organize: --window-sec requires a value\n", stderr);
@@ -65,18 +71,31 @@ int runRecordings(int argc, char** argv) {
         return 2;
     }
 
-    const auto result = recordings::organizeRecordings(root, apply, windowSec);
-    std::printf("recordings organize / root=%s mode=%s window=%llds moves=%zu skipped_active=%zu errors=%zu\n",
+    const auto result = recordings::organizeRecordings(root, apply, windowSec, deleteEmpty);
+    std::printf("recordings organize / root=%s mode=%s window=%llds moves=%zu quarantined_empty=%zu skipped_active=%zu errors=%zu\n",
                 root.string().c_str(),
                 apply ? "apply" : "dry-run",
                 static_cast<long long>(windowSec),
                 result.moves.size(),
+                result.quarantinedEmpty.size(),
                 result.skippedActive.size(),
                 result.errors.size());
 
     for (const auto& move : result.moves) {
-        std::printf("%s %s -> %s\n",
-                    move.moved ? "moved" : "plan ",
+        const char* action = move.pathChanged
+            ? (move.moved ? "moved" : "plan ")
+            : (move.manifestUpdated ? (apply ? "updated" : "update") : "keep  ");
+        std::printf("%s %s -> %s%s\n",
+                    action,
+                    move.from.string().c_str(),
+                    move.to.string().c_str(),
+                    move.manifestUpdated ? " manifest" : "");
+        if (!move.error.empty()) std::printf("  error: %s\n", move.error.c_str());
+    }
+    for (const auto& move : result.quarantinedEmpty) {
+        const char* action = apply ? (move.moved ? "quarantined" : "quarantine_failed") : "quarantine";
+        std::printf("%s empty %s -> %s\n",
+                    action,
                     move.from.string().c_str(),
                     move.to.string().c_str());
         if (!move.error.empty()) std::printf("  error: %s\n", move.error.c_str());

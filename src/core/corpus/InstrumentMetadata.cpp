@@ -11,6 +11,14 @@ namespace hftrec::corpus {
 namespace {
 
 std::optional<std::string> inferQuoteAsset(std::string_view symbol) noexcept {
+    const auto localSep = symbol.rfind('_');
+    if (localSep != std::string_view::npos && localSep + 1u < symbol.size()) {
+        return std::string{symbol.substr(localSep + 1u)};
+    }
+    const auto legacySep = symbol.rfind(':');
+    if (legacySep != std::string_view::npos && legacySep + 1u < symbol.size()) {
+        return std::string{symbol.substr(legacySep + 1u)};
+    }
     constexpr std::array<std::string_view, 4> kQuotes{
         "USDT", "USDC", "BUSD", "USD"
     };
@@ -25,6 +33,18 @@ std::optional<std::string> inferQuoteAsset(std::string_view symbol) noexcept {
 
 std::optional<std::string> inferBaseAsset(std::string_view symbol,
                                           std::string_view quoteAsset) noexcept {
+    const auto lastSep = symbol.rfind('_');
+    if (lastSep != std::string_view::npos) {
+        const auto firstSep = symbol.find('_');
+        const std::size_t baseBegin = firstSep == lastSep ? 0u : firstSep + 1u;
+        if (baseBegin < lastSep) return std::string{symbol.substr(baseBegin, lastSep - baseBegin)};
+    }
+    const auto lastLegacySep = symbol.rfind(':');
+    if (lastLegacySep != std::string_view::npos) {
+        const auto firstLegacySep = symbol.find(':');
+        const std::size_t baseBegin = firstLegacySep == lastLegacySep ? 0u : firstLegacySep + 1u;
+        if (baseBegin < lastLegacySep) return std::string{symbol.substr(baseBegin, lastLegacySep - baseBegin)};
+    }
     if (symbol.size() <= quoteAsset.size()) return std::nullopt;
     return std::string{symbol.substr(0, symbol.size() - quoteAsset.size())};
 }

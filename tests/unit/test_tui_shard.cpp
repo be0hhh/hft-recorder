@@ -31,11 +31,11 @@ TEST(RecorderTuiShard, SplitsPresetIntoBoundedShardPresets) {
     preset.sameExchangeCooldownMs = 900;
     preset.maxActiveJobs = 99;
     preset.jobs = {
-        makeJob("btc_binance", "BTCUSDT"),
-        makeJob("eth_binance", "ETHUSDT"),
-        makeJob("btc_bybit", "BTCUSDT"),
-        makeJob("sol_binance", "SOLUSDT"),
-        makeJob("eth_bybit", "ETHUSDT"),
+        makeJob("btc_binance", "BTC_USDT"),
+        makeJob("eth_binance", "ETH_USDT"),
+        makeJob("btc_bybit", "BTC_USDT"),
+        makeJob("sol_binance", "SOL_USDT"),
+        makeJob("eth_bybit", "ETH_USDT"),
     };
 
     const auto shards = hftrec::tui::splitPresetIntoShards(preset, 3, 11);
@@ -96,16 +96,18 @@ TEST(RecorderTuiShard, KeepsGeneratedHyperliquidRouteSymbolInCanonicalSymbolShar
     bool foundPoloniexSpot = false;
     for (const auto& job : shards[0].jobs) {
         if (job.exchange == "hyperliquid" && job.market == "futures") {
-            EXPECT_EQ(job.symbol, "AGLDUSDT");
+            EXPECT_EQ(job.symbol, "AGLD_USDT");
             EXPECT_EQ(job.routeSymbol, "AGLD");
             foundHyperliquid = true;
         }
         if (job.exchange == "poloniex" && job.market == "futures") {
-            EXPECT_EQ(job.symbol, "AGLD_USDT_PERP");
+            EXPECT_EQ(job.symbol, "AGLD_USDT");
+            EXPECT_EQ(job.routeSymbol, "AGLD_USDT_PERP");
             foundPoloniexFutures = true;
         }
         if (job.exchange == "poloniex" && job.market == "spot") {
             EXPECT_EQ(job.symbol, "AGLD_USDT");
+            EXPECT_EQ(job.routeSymbol, "AGLD_USDT");
             foundPoloniexSpot = true;
         }
     }
