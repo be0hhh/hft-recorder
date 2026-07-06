@@ -41,6 +41,7 @@ add_executable(hftrec_unit_tests ${HFTREC_UNIT_TEST_SOURCES})
 if(Qt6_FOUND)
     target_sources(hftrec_unit_tests
         PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/gui/models/RecordingCatalog.cpp
             test_viewer_orderbook_depth_window.cpp
             test_viewer_bookticker_trace.cpp
             test_chart_markers.cpp

@@ -177,7 +177,7 @@ std::string exclusiveMarketDataSessionKey(const RecorderTuiJob& job) {
     const std::string market = lowerAscii(job.market);
     if (exchange == "binance" && market == "spot" &&
         (job.channels.trades || job.channels.bookTicker || job.channels.orderbook)) {
-        return "binance|spot|market_data_fix";
+        return "binance|spot|market_data_fix|" + lowerAscii(job.symbol);
     }
     return {};
 }

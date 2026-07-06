@@ -118,7 +118,11 @@ TEST(RecorderTuiLaunch, MarksBinanceSpotPublicFixMarketDataAsExclusive) {
     spot.channels.orderbook = true;
 
     EXPECT_TRUE(requiresExclusiveMarketDataSession(spot));
-    EXPECT_EQ(exclusiveMarketDataSessionKey(spot), "binance|spot|market_data_fix");
+    EXPECT_EQ(exclusiveMarketDataSessionKey(spot), "binance|spot|market_data_fix|btc_usdt");
+
+    RecorderTuiJob otherSymbol = spot;
+    otherSymbol.symbol = "ETHUSDT";
+    EXPECT_EQ(exclusiveMarketDataSessionKey(otherSymbol), "binance|spot|market_data_fix|ethusdt");
 }
 
 TEST(RecorderTuiLaunch, DoesNotMarkNonBinanceSpotJobsAsExclusive) {

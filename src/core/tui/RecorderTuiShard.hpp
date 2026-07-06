@@ -30,6 +30,8 @@ struct RecorderTuiShardLaunchDecision {
 };
 
 int clampRecorderTuiMaxActiveShards(int requested, int shardCount) noexcept;
+int defaultRecorderTuiMaxActiveJobsPerShard(const RecorderTuiPreset& preset,
+                                            RecorderTuiShardGrouping grouping) noexcept;
 int defaultRecorderTuiMaxActiveShards(const RecorderTuiPreset& preset,
                                       RecorderTuiShardGrouping grouping,
                                       int shardCount) noexcept;

@@ -229,3 +229,23 @@ TEST(RecorderTuiShard, DefaultMaxActiveShardsFollowsGroupingSemantics) {
     EXPECT_EQ(hftrec::tui::clampRecorderTuiMaxActiveShards(256, 93), 93);
     EXPECT_EQ(hftrec::tui::clampRecorderTuiMaxActiveShards(0, 93), 1);
 }
+
+TEST(RecorderTuiShard, DefaultMaxActiveJobsPerShardKeepsBySymbolBurstsSmall) {
+    hftrec::tui::RecorderTuiPreset preset{};
+    preset.maxActiveJobs = 31;
+
+    EXPECT_EQ(hftrec::tui::defaultRecorderTuiMaxActiveJobsPerShard(
+                  preset,
+                  hftrec::tui::RecorderTuiShardGrouping::BySymbol),
+              4);
+    EXPECT_EQ(hftrec::tui::defaultRecorderTuiMaxActiveJobsPerShard(
+                  preset,
+                  hftrec::tui::RecorderTuiShardGrouping::ByJob),
+              1);
+
+    preset.maxActiveJobs = 2;
+    EXPECT_EQ(hftrec::tui::defaultRecorderTuiMaxActiveJobsPerShard(
+                  preset,
+                  hftrec::tui::RecorderTuiShardGrouping::BySymbol),
+              2);
+}

@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "core/recordings/RecordingDiscovery.hpp"
+#include "core/tui/RecorderTuiLaunch.hpp"
 #include "core/tui/RecorderTuiPreset.hpp"
 #include "core/tui/RecorderTuiShard.hpp"
 #include "core/tui/status/RecorderTuiShardStatus.hpp"
@@ -48,6 +49,7 @@ struct ShardProcess {
     bool exited{false};
     int exitStatus{0};
     std::uint64_t rssKb{0};
+    std::vector<std::string> exclusiveMarketDataSessionKeys{};
     tui::RecorderTuiShardStatus status{};
 };
 
@@ -201,6 +203,33 @@ int configuredMaxActiveShards(const tui::RecorderTuiPreset& preset,
     return tui::defaultRecorderTuiMaxActiveShards(preset, grouping, shardCount);
 }
 
+std::vector<std::string> exclusiveMarketDataSessionKeysForPreset(const tui::RecorderTuiPreset& preset) {
+    std::vector<std::string> keys;
+    for (const auto& job : preset.jobs) {
+        std::string key = tui::exclusiveMarketDataSessionKey(job);
+        if (key.empty()) continue;
+        if (std::find(keys.begin(), keys.end(), key) != keys.end()) continue;
+        keys.push_back(std::move(key));
+    }
+    return keys;
+}
+
+bool exclusiveMarketDataSessionConflict(const ShardProcess& candidate,
+                                        const std::vector<ShardProcess>& shards) {
+    if (candidate.exclusiveMarketDataSessionKeys.empty()) return false;
+    for (const auto& shard : shards) {
+        if (!shard.launchStarted || shard.exited || shard.stopRequested) continue;
+        for (const auto& candidateKey : candidate.exclusiveMarketDataSessionKeys) {
+            if (std::find(shard.exclusiveMarketDataSessionKeys.begin(),
+                          shard.exclusiveMarketDataSessionKeys.end(),
+                          candidateKey) != shard.exclusiveMarketDataSessionKeys.end()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 std::filesystem::path shardRunRoot(const tui::RecorderTuiPreset& preset) {
     std::ostringstream name;
     name << wallNowNs();
@@ -245,6 +274,7 @@ bool writeShardPresets(const tui::RecorderTuiPreset& preset,
         shard.status.message = "queued";
         shard.status.jobs = static_cast<int>(shardPreset.jobs.size());
         shard.status.pending = static_cast<int>(shardPreset.jobs.size());
+        shard.exclusiveMarketDataSessionKeys = exclusiveMarketDataSessionKeysForPreset(shardPreset);
         if (grouping == tui::RecorderTuiShardGrouping::ByJob && shardPreset.jobs.size() == 1u) {
             const std::string normalizedSymbol = normalizedRecordingSymbolForJob(shardPreset.jobs.front());
             auto [it, inserted] = groupDirs.try_emplace(normalizedSymbol);
@@ -307,21 +337,6 @@ void persistShardStatus(ShardProcess& shard) {
         shard.status.statusTmpPresent = false;
         shard.status.statusTmpNonEmpty = false;
     }
-}
-
-tui::RecorderTuiShardLaunchState launchStateFor(const ShardProcess& shard) noexcept {
-    return tui::RecorderTuiShardLaunchState{
-        .launchStarted = shard.launchStarted,
-        .exited = shard.exited,
-        .stopRequested = shard.stopRequested,
-    };
-}
-
-std::vector<tui::RecorderTuiShardLaunchState> launchStatesFor(const std::vector<ShardProcess>& shards) {
-    std::vector<tui::RecorderTuiShardLaunchState> states;
-    states.reserve(shards.size());
-    for (const auto& shard : shards) states.push_back(launchStateFor(shard));
-    return states;
 }
 
 void refreshShardStatus(ShardProcess& shard) {
@@ -460,12 +475,16 @@ void stopAllShards(std::vector<ShardProcess>& shards) {
 int startQueuedShards(std::vector<ShardProcess>& shards,
                       const std::filesystem::path& exe,
                       int maxActiveShards) {
-    const auto decision = tui::chooseQueuedShardLaunches(launchStatesFor(shards), maxActiveShards);
+    int active = 0;
+    for (const auto& shard : shards) {
+        if (shard.launchStarted && !shard.exited) ++active;
+    }
+    int slots = std::max(0, maxActiveShards - active);
     int launched = 0;
-    for (const std::size_t index : decision.indices) {
-        if (index >= shards.size()) continue;
+    for (std::size_t index = 0; index < shards.size() && slots > 0; ++index) {
         auto& shard = shards[index];
         if (shard.launchStarted || shard.exited || shard.stopRequested) continue;
+        if (exclusiveMarketDataSessionConflict(shard, shards)) continue;
         shard.launchStarted = true;
         shard.status.state = "spawned";
         shard.status.message = "spawn requested";
@@ -483,6 +502,7 @@ int startQueuedShards(std::vector<ShardProcess>& shards,
             ++launched;
         }
         persistShardStatus(shard);
+        --slots;
     }
     return launched;
 }
@@ -749,7 +769,7 @@ void printShardRunUsage() {
 int runShardPresetInteractive(const tui::RecorderTuiPreset& preset, const std::filesystem::path&) {
     const auto grouping = tui::RecorderTuiShardGrouping::BySymbol;
     const int shardCount = defaultShardCount(preset, grouping);
-    const int maxActivePerShard = std::max(1, preset.maxActiveJobs);
+    const int maxActivePerShard = tui::defaultRecorderTuiMaxActiveJobsPerShard(preset, grouping);
     return runShardSupervisor(preset, shardRunRoot(preset), shardCount, maxActivePerShard, grouping, 0);
 }
 
@@ -835,9 +855,7 @@ int runShardRun(int argc, char** argv) {
         shardCount = std::max(shardCount, static_cast<int>(preset.jobs.size()));
     }
     if (maxActivePerShard <= 0) {
-        maxActivePerShard = grouping == tui::RecorderTuiShardGrouping::ByJob
-            ? 1
-            : std::max(1, preset.maxActiveJobs);
+        maxActivePerShard = tui::defaultRecorderTuiMaxActiveJobsPerShard(preset, grouping);
     }
     if (runRoot.empty()) runRoot = shardRunRoot(preset);
     return runShardSupervisor(preset, runRoot, shardCount, maxActivePerShard, grouping, maxActiveShards);

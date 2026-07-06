@@ -9,6 +9,12 @@
 
 namespace hftrec::tui {
 
+namespace {
+
+constexpr int kDefaultBySymbolMaxActiveJobsPerShard = 4;
+
+}  // namespace
+
 std::vector<RecorderTuiPreset> splitPresetIntoShards(const RecorderTuiPreset& preset,
                                                      int shardCount,
                                                      int maxActiveJobsPerShard,
@@ -53,13 +59,20 @@ int clampRecorderTuiMaxActiveShards(int requested, int shardCount) noexcept {
     return std::max(1, std::min(std::max(1, requested), count));
 }
 
+int defaultRecorderTuiMaxActiveJobsPerShard(const RecorderTuiPreset& preset,
+                                            RecorderTuiShardGrouping grouping) noexcept {
+    const int activeJobs = std::max(1, preset.maxActiveJobs);
+    if (grouping == RecorderTuiShardGrouping::ByJob) return 1;
+    return std::max(1, std::min(activeJobs, kDefaultBySymbolMaxActiveJobsPerShard));
+}
+
 int defaultRecorderTuiMaxActiveShards(const RecorderTuiPreset& preset,
                                       RecorderTuiShardGrouping grouping,
                                       int shardCount) noexcept {
     const int activeJobs = std::max(1, preset.maxActiveJobs);
     const int requested = grouping == RecorderTuiShardGrouping::ByJob
         ? activeJobs
-        : std::max(1, shardCount);
+        : shardCount;
     return clampRecorderTuiMaxActiveShards(requested, shardCount);
 }
 
