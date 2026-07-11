@@ -19,6 +19,8 @@ namespace {
 
 using hftrec::Status;
 using hftrec::capture::SessionManifest;
+using hftrec::capture::isSupportedManifestSchemaVersion;
+using hftrec::capture::parseManifestJson;
 using hftrec::capture::renderManifestJson;
 using hftrec::replay::SessionReplay;
 
@@ -33,6 +35,34 @@ fs::path makeTmpDir() {
     fs::remove_all(dir, ec);
     fs::create_directories(dir);
     return dir;
+}
+
+TEST(SessionManifest, SchemaV2RendersRuntimeHealthAndKeepsV1Readable) {
+    SessionManifest manifest{};
+    manifest.manifestSchemaVersion = hftrec::capture::kManifestSchemaVersionCurrent;
+    manifest.sessionId = "runtime_health";
+    manifest.exchange = "poloniex";
+    manifest.market = "futures";
+    manifest.symbols = {"BTC_USDT"};
+    manifest.tradesRuntime.state = "live";
+    manifest.tradesRuntime.required = true;
+    manifest.tradesRuntime.firstRowNs = 100;
+    manifest.tradesRuntime.lastRowNs = 200;
+
+    const std::string document = renderManifestJson(manifest);
+    EXPECT_NE(document.find("\"manifest_schema_version\": 2"), std::string::npos);
+    EXPECT_NE(document.find("\"runtime_health\""), std::string::npos);
+    EXPECT_NE(document.find("\"first_row_ns\": 100"), std::string::npos);
+    EXPECT_TRUE(isSupportedManifestSchemaVersion(1));
+    EXPECT_TRUE(isSupportedManifestSchemaVersion(2));
+
+    SessionManifest parsed{};
+    EXPECT_EQ(parseManifestJson(document, parsed), Status::Ok);
+    EXPECT_EQ(parsed.manifestSchemaVersion, 2);
+    EXPECT_EQ(parsed.tradesRuntime.state, "live");
+    EXPECT_TRUE(parsed.tradesRuntime.required);
+    EXPECT_EQ(parsed.tradesRuntime.firstRowNs, 100);
+    EXPECT_EQ(parsed.tradesRuntime.lastRowNs, 200);
 }
 
 void writeFile(const fs::path& p, const std::string& data) {

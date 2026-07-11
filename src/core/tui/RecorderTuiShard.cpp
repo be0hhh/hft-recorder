@@ -13,6 +13,10 @@ namespace {
 
 constexpr int kDefaultBySymbolMaxActiveJobsPerShard = 4;
 
+std::string venueGroupKey(const RecorderTuiJob& job) {
+    return job.exchange + "|" + job.market;
+}
+
 }  // namespace
 
 std::vector<RecorderTuiPreset> splitPresetIntoShards(const RecorderTuiPreset& preset,
@@ -26,11 +30,16 @@ std::vector<RecorderTuiPreset> splitPresetIntoShards(const RecorderTuiPreset& pr
             continue;
         }
 
-        std::string symbol = recordings::recordingFolderSymbol(job.exchange, job.market, job.symbol);
-        if (symbol.empty()) symbol = job.symbol;
-        auto it = std::find_if(groups.begin(), groups.end(), [&](const auto& item) { return item.first == symbol; });
+        std::string groupKey;
+        if (grouping == RecorderTuiShardGrouping::ByVenue) {
+            groupKey = venueGroupKey(job);
+        } else {
+            groupKey = recordings::recordingFolderSymbol(job.exchange, job.market, job.symbol);
+            if (groupKey.empty()) groupKey = job.symbol;
+        }
+        auto it = std::find_if(groups.begin(), groups.end(), [&](const auto& item) { return item.first == groupKey; });
         if (it == groups.end()) {
-            groups.push_back({std::move(symbol), {job}});
+            groups.push_back({std::move(groupKey), {job}});
         } else {
             it->second.push_back(job);
         }
@@ -62,7 +71,7 @@ int clampRecorderTuiMaxActiveShards(int requested, int shardCount) noexcept {
 int defaultRecorderTuiMaxActiveJobsPerShard(const RecorderTuiPreset& preset,
                                             RecorderTuiShardGrouping grouping) noexcept {
     const int activeJobs = std::max(1, preset.maxActiveJobs);
-    if (grouping == RecorderTuiShardGrouping::ByJob) return 1;
+    if (grouping == RecorderTuiShardGrouping::ByJob || grouping == RecorderTuiShardGrouping::ByVenue) return 1;
     return std::max(1, std::min(activeJobs, kDefaultBySymbolMaxActiveJobsPerShard));
 }
 
@@ -70,7 +79,7 @@ int defaultRecorderTuiMaxActiveShards(const RecorderTuiPreset& preset,
                                       RecorderTuiShardGrouping grouping,
                                       int shardCount) noexcept {
     const int activeJobs = std::max(1, preset.maxActiveJobs);
-    const int requested = grouping == RecorderTuiShardGrouping::ByJob
+    const int requested = grouping == RecorderTuiShardGrouping::ByJob || grouping == RecorderTuiShardGrouping::ByVenue
         ? activeJobs
         : shardCount;
     return clampRecorderTuiMaxActiveShards(requested, shardCount);

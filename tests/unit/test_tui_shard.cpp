@@ -164,6 +164,28 @@ TEST(RecorderTuiShard, CanIsolateEachGeneratedVenueJobIntoOwnShard) {
     }
 }
 
+TEST(RecorderTuiShard, GroupsAllSymbolsForEachVenueIntoOneMultiplexShard) {
+    hftrec::tui::RecorderTuiPreset preset{};
+    preset.executionMode = hftrec::tui::RecorderTuiExecutionMode::VenueMultiplex;
+    preset.jobs = hftrec::tui::generateJobsForSymbols(
+        {"LAB_USDT", "AGLD_USDT"}, hftrec::tui::allCryptoVenueSpecs(), 0);
+
+    const auto shards = hftrec::tui::splitPresetIntoShards(
+        preset,
+        31,
+        1,
+        hftrec::tui::RecorderTuiShardGrouping::ByVenue);
+
+    ASSERT_EQ(shards.size(), 31u);
+    for (const auto& shard : shards) {
+        ASSERT_EQ(shard.jobs.size(), 2u);
+        EXPECT_EQ(shard.jobs[0].exchange, shard.jobs[1].exchange);
+        EXPECT_EQ(shard.jobs[0].market, shard.jobs[1].market);
+        EXPECT_NE(shard.jobs[0].symbol, shard.jobs[1].symbol);
+        EXPECT_EQ(shard.maxActiveJobs, 1);
+    }
+}
+
 TEST(RecorderTuiShard, SchedulesOnlyMaxActiveQueuedShards) {
     std::vector<hftrec::tui::RecorderTuiShardLaunchState> states(93);
 
@@ -241,6 +263,10 @@ TEST(RecorderTuiShard, DefaultMaxActiveJobsPerShardKeepsBySymbolBurstsSmall) {
     EXPECT_EQ(hftrec::tui::defaultRecorderTuiMaxActiveJobsPerShard(
                   preset,
                   hftrec::tui::RecorderTuiShardGrouping::ByJob),
+              1);
+    EXPECT_EQ(hftrec::tui::defaultRecorderTuiMaxActiveJobsPerShard(
+                  preset,
+                  hftrec::tui::RecorderTuiShardGrouping::ByVenue),
               1);
 
     preset.maxActiveJobs = 2;

@@ -337,6 +337,61 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
     return parser.parseObjectEnd();
 }
 
+bool parseChannelRuntimeHealthObject(JsonParser& parser, ChannelRuntimeHealth& health) noexcept {
+    if (!parser.parseObjectStart()) return false;
+    if (parser.peek('}')) return parser.parseObjectEnd();
+    std::string key;
+    do {
+        if (!parser.parseKey(key)) return false;
+        if (key == "state") {
+            if (!parser.parseString(health.state)) return false;
+        } else if (key == "required") {
+            if (!parser.parseBool(health.required)) return false;
+        } else if (key == "first_row_ns") {
+            if (!parseInt64Field(parser, health.firstRowNs)) return false;
+        } else if (key == "last_row_ns") {
+            if (!parseInt64Field(parser, health.lastRowNs)) return false;
+        } else if (key == "reconnect_count") {
+            if (!parseUint64Field(parser, health.reconnectCount)) return false;
+        } else if (key == "dropped_event_count") {
+            if (!parseUint64Field(parser, health.droppedEventCount)) return false;
+        } else if (key == "unroutable_event_count") {
+            if (!parseUint64Field(parser, health.unroutableEventCount)) return false;
+        } else if (key == "last_error") {
+            if (!parser.parseString(health.lastError)) return false;
+        } else if (!parser.skipValue()) {
+            return false;
+        }
+        if (parser.peek('}')) break;
+    } while (parser.parseComma());
+    return parser.parseObjectEnd();
+}
+
+bool parseRuntimeHealthObject(JsonParser& parser, SessionManifest& manifest) noexcept {
+    if (!parser.parseObjectStart()) return false;
+    if (parser.peek('}')) return parser.parseObjectEnd();
+    std::string key;
+    do {
+        if (!parser.parseKey(key)) return false;
+        ChannelRuntimeHealth* health = nullptr;
+        if (key == "trades") health = &manifest.tradesRuntime;
+        else if (key == "liquidations") health = &manifest.liquidationsRuntime;
+        else if (key == "bookticker") health = &manifest.bookTickerRuntime;
+        else if (key == "depth") health = &manifest.depthRuntime;
+        else if (key == "mark_price") health = &manifest.markPriceRuntime;
+        else if (key == "index_price") health = &manifest.indexPriceRuntime;
+        else if (key == "funding") health = &manifest.fundingRuntime;
+        else if (key == "price_limit") health = &manifest.priceLimitRuntime;
+        if (health) {
+            if (!parseChannelRuntimeHealthObject(parser, *health)) return false;
+        } else if (!parser.skipValue()) {
+            return false;
+        }
+        if (parser.peek('}')) break;
+    } while (parser.parseComma());
+    return parser.parseObjectEnd();
+}
+
 
 bool parseArtifactsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
@@ -651,6 +706,22 @@ void appendChannelIntegrity(std::ostringstream& out,
     out << "    }" << (trailingComma ? "," : "") << "\n";
 }
 
+void appendChannelRuntimeHealth(std::ostringstream& out,
+                                std::string_view name,
+                                const ChannelRuntimeHealth& health,
+                                bool trailingComma) {
+    out << "    \"" << name << "\": {\n";
+    out << "      \"state\": " << json::quote(health.state) << ",\n";
+    out << "      \"required\": " << boolToString(health.required) << ",\n";
+    out << "      \"first_row_ns\": " << health.firstRowNs << ",\n";
+    out << "      \"last_row_ns\": " << health.lastRowNs << ",\n";
+    out << "      \"reconnect_count\": " << health.reconnectCount << ",\n";
+    out << "      \"dropped_event_count\": " << health.droppedEventCount << ",\n";
+    out << "      \"unroutable_event_count\": " << health.unroutableEventCount << ",\n";
+    out << "      \"last_error\": " << json::quote(health.lastError) << "\n";
+    out << "    }" << (trailingComma ? "," : "") << "\n";
+}
+
 }  // namespace
 
 std::string renderManifestJson(const SessionManifest& manifest) {
@@ -762,6 +833,18 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"declared_event_count\": " << manifest.priceLimitCount << "\n";
     out << "    }\n";
     out << "  },\n";
+    if (manifest.manifestSchemaVersion >= 2) {
+        out << "  \"runtime_health\": {\n";
+        appendChannelRuntimeHealth(out, "trades", manifest.tradesRuntime, true);
+        appendChannelRuntimeHealth(out, "liquidations", manifest.liquidationsRuntime, true);
+        appendChannelRuntimeHealth(out, "bookticker", manifest.bookTickerRuntime, true);
+        appendChannelRuntimeHealth(out, "depth", manifest.depthRuntime, true);
+        appendChannelRuntimeHealth(out, "mark_price", manifest.markPriceRuntime, true);
+        appendChannelRuntimeHealth(out, "index_price", manifest.indexPriceRuntime, true);
+        appendChannelRuntimeHealth(out, "funding", manifest.fundingRuntime, true);
+        appendChannelRuntimeHealth(out, "price_limit", manifest.priceLimitRuntime, false);
+        out << "  },\n";
+    }
     out << "  \"artifacts\": {\n";
     out << "    \"instrument_metadata_path\": " << json::quote(manifest.instrumentMetadataPath) << ",\n";
     out << "    \"session_audit_path\": " << json::quote(manifest.sessionAuditPath) << ",\n";
@@ -820,6 +903,8 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
                 if (!parseReplayObject(parser, parsed)) return Status::CorruptData;
             } else if (key == "channels") {
                 if (!parseChannelsObject(parser, parsed)) return Status::CorruptData;
+            } else if (key == "runtime_health") {
+                if (!parseRuntimeHealthObject(parser, parsed)) return Status::CorruptData;
             } else if (key == "snapshots") {
                 if (!parser.skipValue()) return Status::CorruptData;
             } else if (key == "artifacts") {
@@ -884,7 +969,7 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
 }
 
 bool isSupportedManifestSchemaVersion(std::int32_t version) noexcept {
-    return version == kManifestSchemaVersionCurrent;
+    return version == 1 || version == kManifestSchemaVersionCurrent;
 }
 
 bool isSupportedCorpusSchemaVersion(std::int32_t version) noexcept {

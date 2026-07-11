@@ -142,6 +142,23 @@ TEST(CaptureChannelSupport, HyperliquidFuturesMarketDataChannelsAreRuntimeReady)
     EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::Orderbook, detail)) << detail;
 }
 
+TEST(CaptureChannelSupport, PoloniexSpotAndFuturesCoreChannelsAreRuntimeReady) {
+    for (const std::string market : {"spot", "futures"}) {
+        CaptureConfig config{};
+        config.exchange = "poloniex";
+        config.market = market;
+        config.symbols = {"BTC_USDT"};
+
+        std::string detail;
+        EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::Trades, detail))
+            << market << ": " << detail;
+        EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::BookTicker, detail))
+            << market << ": " << detail;
+        EXPECT_TRUE(hftrec::capture::captureChannelRuntimeReady(config, CaptureChannel::Orderbook, detail))
+            << market << ": " << detail;
+    }
+}
+
 TEST(CaptureChannelSupport, FinamArenaUsesRecorderMarketDataRoutes) {
     CaptureConfig config{};
     config.exchange = "finam_arena";

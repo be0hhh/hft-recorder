@@ -10,6 +10,11 @@
 
 namespace hftrec::tui {
 
+enum class RecorderTuiExecutionMode : std::uint8_t {
+    Legacy,
+    VenueMultiplex,
+};
+
 struct ChannelSelection {
     bool trades{false};
     bool liquidations{false};
@@ -38,6 +43,8 @@ struct RecorderTuiPreset {
     int launchStaggerMs{250};
     int sameExchangeCooldownMs{1500};
     int maxActiveJobs{31};
+    int memoryLimitMiB{18 * 1024};
+    RecorderTuiExecutionMode executionMode{RecorderTuiExecutionMode::Legacy};
     std::vector<RecorderTuiJob> jobs{};
 };
 
@@ -47,6 +54,8 @@ bool anyChannelSelected(const ChannelSelection& channels) noexcept;
 bool parseDurationMinutes(std::string_view text, std::int64_t& out, std::string& error);
 bool parseChannelSelection(std::string_view text, ChannelSelection& out, std::string& error);
 std::string renderChannelSelection(const ChannelSelection& channels);
+const char* recorderTuiExecutionModeName(RecorderTuiExecutionMode mode) noexcept;
+bool parseRecorderTuiExecutionMode(std::string_view text, RecorderTuiExecutionMode& out) noexcept;
 std::string routeSymbolForJob(const RecorderTuiJob& job);
 
 bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string& error);

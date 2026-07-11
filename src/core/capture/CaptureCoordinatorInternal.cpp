@@ -126,6 +126,7 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "toobit")) return canon::kExchangeIdToobit;
     if (textEqualsAscii(exchange, "htx")) return canon::kExchangeIdHtx;
     if (textEqualsAscii(exchange, "phemex")) return canon::kExchangeIdPhemex;
+    if (textEqualsAscii(exchange, "poloniex")) return canon::kExchangeIdPoloniex;
     return canon::kExchangeIdUnknown;
 }
 
@@ -380,7 +381,7 @@ Status validateSupportedConfig(const CaptureConfig& config, std::string& lastErr
 #if HFTREC_WITH_CXET
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
     if (exchange.raw == canon::kExchangeIdUnknown.raw) {
-        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, hyperliquid, okx, finam, finam_arena, mexc, xt, bingx, bitmart, toobit, htx, phemex";
+        lastError = "capture exchange must be one of: binance, bybit, kucoin, gate, bitget, aster, hyperliquid, okx, finam, finam_arena, mexc, xt, bingx, bitmart, toobit, htx, phemex, poloniex";
         return Status::InvalidArgument;
     }
     if (marketTypeFromConfig(exchange, config.market).raw == canon::kMarketTypeUnknown.raw) {

@@ -9,6 +9,7 @@ namespace hftrec::tui {
 
 enum class RecorderTuiShardGrouping {
     BySymbol,
+    ByVenue,
     ByJob,
 };
 

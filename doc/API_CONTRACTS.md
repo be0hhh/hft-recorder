@@ -2,11 +2,6 @@
 
 ## Stable backend contracts to define early
 
-For the full `hftrecorder_local` venue direction, including replay fanout,
-private streams, balance, positions, fees, funding and local auth, use the
-canonical `LOCAL_EXCHANGE_*` documents. This file defines the broader backend
-seams and remains compatible with that direction.
-
 The following backend types are part of the new stable direction.
 
 ### `storage::IHotEventCache`
@@ -33,7 +28,7 @@ Responsibilities:
 ### `execution::IExecutionVenue`
 
 Responsibilities:
-- accept normalized order intents from the CXET local venue seam
+- accept normalized order intents from the selected execution runtime
 - publish recorder-owned execution events through an event sink
 - keep execution behavior separate from viewer/storage policy
 
@@ -122,25 +117,6 @@ The seam does not own:
 - transport internals
 - exchange-specific runtime behavior
 - replay ordering or integrity policy
-
-## Local CXET venue seam
-
-`hftrecorder_local` is a CXET exchange id used for local algorithm order intents.
-
-Current v1 contract:
-- algorithm uses existing `sendWs().object(order).exchange(hftrecorder_local)`
-- CXET sends a binary normalized order frame over Unix domain socket
-- hft-recorder owns the local socket server
-- hft-recorder returns `OrderAck` on the socket path
-- internal recorder modules may also consume recorder-owned normalized execution events
-- no matching, PnL, replay feed, or chart drawing is implied by the transport contract alone
-
-Socket path:
-- `CXET_HFTREC_SOCKET` when set
-- `/tmp/cxet-hftrecorder-local.sock` by default
-
-This path is intentionally local-only and must not be used as a real exchange
-transport replacement for production venues.
 
 ## Validation
 

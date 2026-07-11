@@ -83,6 +83,25 @@ Pane {
         return metricKey.endsWith("_e8") ? root.e8Text(value) : String(Math.round(Number(value) * 1000) / 1000)
     }
 
+    function executionPoints(entrySide) {
+        var source = root.backtestVm.selectedExecutionQualityPoints || []
+        var out = []
+        for (var i = 0; i < source.length; ++i) {
+            var phase = Number(source[i].phase)
+            if (entrySide ? (phase === 1 || phase === 2) : (phase === 3 || phase === 4)) out.push(source[i])
+        }
+        return out
+    }
+
+    function incompleteExecutionPoints() {
+        var source = root.backtestVm.selectedExecutionQualityPoints || []
+        var out = []
+        for (var i = 0; i < source.length && out.length < 8; ++i) {
+            if (Number(source[i].status) !== 2) out.push(source[i])
+        }
+        return out
+    }
+
     function firstExtraSessionId() {
         var text = String(root.backtestVm.extraSessionIds || "").trim()
         if (text.length === 0)
@@ -183,6 +202,91 @@ Pane {
     }
 
     background: Rectangle { color: root.windowColor }
+
+    component ExecutionEdgeChart: Rectangle {
+        required property bool entrySide
+        required property string chartTitle
+        color: root.windowColor
+        border.color: root.borderColor
+        radius: 5
+        clip: true
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 4
+            Label { text: chartTitle; color: root.textColor; font.pixelSize: 12; font.bold: true }
+            Canvas {
+                id: executionCanvas
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                property var points: root.executionPoints(entrySide)
+                onPointsChanged: requestPaint()
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                Connections { target: root.backtestVm; function onSelectionChanged() { executionCanvas.requestPaint() } }
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    var rows = root.executionPoints(entrySide)
+                    if (rows.length === 0) return
+                    var minValue = 0
+                    var maxValue = 0
+                    for (var i = 0; i < rows.length; ++i) {
+                        minValue = Math.min(minValue, Number(rows[i].decisionEdgeBpsE8), Number(rows[i].fillEdgeBpsE8), Number(rows[i].requiredEdgeBpsE8))
+                        maxValue = Math.max(maxValue, Number(rows[i].decisionEdgeBpsE8), Number(rows[i].fillEdgeBpsE8), Number(rows[i].requiredEdgeBpsE8))
+                    }
+                    var span = Math.max(1000000, maxValue - minValue)
+                    minValue -= span * 0.08
+                    maxValue += span * 0.08
+                    var left = 44
+                    var top = 5
+                    var plotW = Math.max(20, width - left - 8)
+                    var plotH = Math.max(20, height - top - 18)
+                    function y(value) { return top + plotH - ((Number(value) - minValue) / (maxValue - minValue)) * plotH }
+                    ctx.strokeStyle = "#343844"
+                    ctx.lineWidth = 1
+                    for (var grid = 0; grid <= 4; ++grid) {
+                        var gy = top + plotH * grid / 4
+                        ctx.beginPath(); ctx.moveTo(left, gy); ctx.lineTo(left + plotW, gy); ctx.stroke()
+                    }
+                    function drawSeries(field, color) {
+                        ctx.strokeStyle = color
+                        ctx.fillStyle = color
+                        ctx.lineWidth = 1.5
+                        ctx.beginPath()
+                        for (var p = 0; p < rows.length; ++p) {
+                            var x = left + (rows.length === 1 ? plotW / 2 : p * plotW / (rows.length - 1))
+                            var py = y(rows[p][field])
+                            if (p === 0) ctx.moveTo(x, py); else ctx.lineTo(x, py)
+                        }
+                        ctx.stroke()
+                        for (var q = 0; q < rows.length; ++q) {
+                            var qx = left + (rows.length === 1 ? plotW / 2 : q * plotW / (rows.length - 1))
+                            ctx.beginPath(); ctx.arc(qx, y(rows[q][field]), 2.5, 0, Math.PI * 2); ctx.fill()
+                        }
+                    }
+                    drawSeries("requiredEdgeBpsE8", "#f0b35a")
+                    drawSeries("decisionEdgeBpsE8", root.accentColor)
+                    drawSeries("fillEdgeBpsE8", root.goodColor)
+                    ctx.font = "10px sans-serif"
+                    ctx.fillStyle = root.mutedTextColor
+                    ctx.fillText("boundary", left, height - 2)
+                    ctx.fillStyle = root.accentColor
+                    ctx.fillText("decision", left + 58, height - 2)
+                    ctx.fillStyle = root.goodColor
+                    ctx.fillText("actual fill", left + 112, height - 2)
+                }
+                Label {
+                    anchors.centerIn: parent
+                    visible: root.executionPoints(entrySide).length === 0
+                    text: "No completed actions"
+                    color: root.mutedTextColor
+                    font.pixelSize: 11
+                }
+            }
+        }
+    }
 
     Connections {
         target: root.backtestVm
@@ -321,6 +425,7 @@ Pane {
                     }
                     BacktestActionButton { text: root.backtestVm.running ? "Running" : "Start"; enabledValue: root.backtestVm.canRun; accent: root.goodColor; onClicked: root.backtestVm.startBacktest() }
                     BacktestActionButton { text: "Start sweep"; enabledValue: root.backtestVm.canRun; accent: root.accentColor; onClicked: root.backtestVm.startSweep() }
+                    BacktestActionButton { text: "Execution latency sweep"; enabledValue: root.backtestVm.canRun; accent: root.goodColor; onClicked: root.backtestVm.startExecutionLatencySweep() }
                     BacktestActionButton { visible: root.backtestVm.running; text: "Cancel"; enabledValue: root.backtestVm.running; accent: root.badColor; onClicked: root.backtestVm.cancelBacktest() }
                 }
 
@@ -531,6 +636,52 @@ Pane {
                         panelColor: "#2a251b"
                         borderColor: "#8f6b2d"
                         titleColor: "#f0b35a"
+                    }
+
+                    ColumnLayout {
+                        visible: root.backtestVm.selectedPerformanceRows.length > 0
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Label {
+                            text: "Performance"
+                            color: root.textColor
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: childrenRect.height
+                            spacing: 8
+                            Repeater {
+                                model: root.backtestVm.selectedPerformanceRows
+                                delegate: BacktestMetricCard {
+                                    metric: ({ "group": "Stage", "label": modelData.label, "value": modelData.value })
+                                }
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        visible: root.backtestVm.selectedDepthExecutionRows.length > 0
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Label {
+                            text: "Execution data"
+                            color: root.textColor
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: childrenRect.height
+                            spacing: 8
+                            Repeater {
+                                model: root.backtestVm.selectedDepthExecutionRows
+                                delegate: BacktestMetricCard {
+                                    metric: ({ "group": "Depth / BBO", "label": modelData.label, "value": modelData.value })
+                                }
+                            }
+                        }
                     }
 
                     ColumnLayout {
@@ -771,6 +922,58 @@ Pane {
                                         text: "Для этой карточки есть только итоговое значение, без временного ряда."
                                         color: root.mutedTextColor
                                         font.pixelSize: 12
+                                    }
+                                }
+                            }
+                        }
+                        ColumnLayout {
+                            visible: root.backtestVm.selectedExecutionQualityPoints.length > 0
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 340
+                            spacing: 6
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label { text: "Execution edge: strategy action result"; color: root.textColor; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true }
+                                Label { text: "orange boundary  /  cyan at action  /  green actual VWAP"; color: root.mutedTextColor; font.pixelSize: 10 }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                spacing: 8
+                                ExecutionEdgeChart { entrySide: true; chartTitle: "Entry / Add"; Layout.fillWidth: true; Layout.fillHeight: true }
+                                ExecutionEdgeChart { entrySide: false; chartTitle: "Exit / Reduce"; Layout.fillWidth: true; Layout.fillHeight: true }
+                            }
+                            Rectangle {
+                                visible: root.incompleteExecutionPoints().length > 0
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 74
+                                color: root.panelDeepColor
+                                border.color: root.badColor
+                                radius: 5
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 6
+                                    spacing: 2
+                                    Label { text: "Incomplete / rejected actions"; color: root.badColor; font.pixelSize: 11; font.bold: true }
+                                    Flickable {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        contentWidth: incompleteRow.implicitWidth
+                                        contentHeight: incompleteRow.implicitHeight
+                                        clip: true
+                                        Row {
+                                            id: incompleteRow
+                                            spacing: 14
+                                            Repeater {
+                                                model: root.incompleteExecutionPoints()
+                                                delegate: Label {
+                                                    text: "#" + modelData.actionId + "  phase=" + modelData.phase + "  status=" + modelData.status + "  filled edge=" + root.e8Text(modelData.fillEdgeBpsE8)
+                                                    color: root.textColor
+                                                    font.family: "monospace"
+                                                    font.pixelSize: 10
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

@@ -42,11 +42,6 @@ Recorder пишет canonical corpus в `/mnt/d/recordings`.
 - `src/core/replay/BookState.*`
 - `src/core/replay/JsonLineParser.*`
 - `src/core/execution/ExecutionVenue.hpp`
-- `src/core/local_exchange/LocalOrderEngine.*`
-
-`LocalOrderEngine` можно смотреть как прототип local venue, но не надо считать
-его обязательным финальным ядром backtester-а.
-
 `ExecutionEvent` уже содержит нужные поля для GUI/backtester boundary:
 
 - `symbol`

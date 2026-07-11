@@ -675,7 +675,6 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
         }
         item.request.rateLimitsEnabled = rateLimitsEnabled;
         item.request.strictRateLimitRejects = strictRateLimitsEnabled;
-        item.request.executionPipeline = guiBacktestExecutionPipeline();
         item.request.writeArtifacts = true;
         item.request.captureStrategySpread = false;
         prepared.push_back(std::move(item));

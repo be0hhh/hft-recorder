@@ -157,9 +157,23 @@ std::vector<std::string> normalizedSymbolsForPreset(const tui::RecorderTuiPreset
     return symbols;
 }
 
+std::vector<std::string> normalizedVenuesForPreset(const tui::RecorderTuiPreset& preset) {
+    std::vector<std::string> venues;
+    venues.reserve(preset.jobs.size());
+    for (const auto& job : preset.jobs) {
+        const std::string key = job.exchange + "|" + job.market;
+        if (std::find(venues.begin(), venues.end(), key) == venues.end()) venues.push_back(key);
+    }
+    return venues;
+}
+
 std::string shardLabelForPreset(const tui::RecorderTuiPreset& preset,
                                 tui::RecorderTuiShardGrouping grouping) {
     if (preset.jobs.empty()) return "empty";
+    if (grouping == tui::RecorderTuiShardGrouping::ByVenue) {
+        const auto& job = preset.jobs.front();
+        return job.exchange + "/" + job.market + " " + std::to_string(normalizedSymbolsForPreset(preset).size()) + " symbols";
+    }
     if (grouping == tui::RecorderTuiShardGrouping::ByJob && preset.jobs.size() == 1u) {
         const auto& job = preset.jobs.front();
         if (!job.name.empty()) return job.name;
@@ -176,6 +190,9 @@ int defaultShardCount(const tui::RecorderTuiPreset& preset, tui::RecorderTuiShar
     if (preset.jobs.empty()) return 1;
     if (grouping == tui::RecorderTuiShardGrouping::ByJob) {
         return std::max(1, static_cast<int>(preset.jobs.size()));
+    }
+    if (grouping == tui::RecorderTuiShardGrouping::ByVenue) {
+        return std::max(1, static_cast<int>(normalizedVenuesForPreset(preset).size()));
     }
     const auto symbols = normalizedSymbolsForPreset(preset);
     return std::max(1, static_cast<int>(symbols.size()));
@@ -474,17 +491,31 @@ void stopAllShards(std::vector<ShardProcess>& shards) {
 
 int startQueuedShards(std::vector<ShardProcess>& shards,
                       const std::filesystem::path& exe,
-                      int maxActiveShards) {
+                      int maxActiveShards,
+                      std::uint64_t memoryLimitKb,
+                      bool gradualAdmission) {
     int active = 0;
+    std::uint64_t admittedRssKb = 0u;
     for (const auto& shard : shards) {
-        if (shard.launchStarted && !shard.exited) ++active;
+        if (shard.launchStarted && !shard.exited) {
+            ++active;
+            admittedRssKb += shard.rssKb != 0u ? shard.rssKb : 512u * 1024u;
+        }
     }
     int slots = std::max(0, maxActiveShards - active);
+    if (gradualAdmission) slots = std::min(slots, 1);
     int launched = 0;
     for (std::size_t index = 0; index < shards.size() && slots > 0; ++index) {
         auto& shard = shards[index];
         if (shard.launchStarted || shard.exited || shard.stopRequested) continue;
         if (exclusiveMarketDataSessionConflict(shard, shards)) continue;
+        constexpr std::uint64_t kVenueAdmissionReserveKb = 512u * 1024u;
+        if (memoryLimitKb != 0u && admittedRssKb + kVenueAdmissionReserveKb > memoryLimitKb) {
+            shard.status.state = "resource_queued";
+            shard.status.message = "waiting for recorder RSS budget";
+            persistShardStatus(shard);
+            break;
+        }
         shard.launchStarted = true;
         shard.status.state = "spawned";
         shard.status.message = "spawn requested";
@@ -500,6 +531,7 @@ int startQueuedShards(std::vector<ShardProcess>& shards,
         } else {
             shard.status.message = "spawned";
             ++launched;
+            admittedRssKb += kVenueAdmissionReserveKb;
         }
         persistShardStatus(shard);
         --slots;
@@ -699,7 +731,11 @@ int runShardSupervisor(const tui::RecorderTuiPreset& preset,
     for (auto& shard : shards) {
         persistShardStatus(shard);
     }
-    const int initialLaunched = startQueuedShards(shards, exe, maxActiveShards);
+    const bool venueMultiplex = grouping == tui::RecorderTuiShardGrouping::ByVenue;
+    const std::uint64_t memoryLimitKb = venueMultiplex
+        ? static_cast<std::uint64_t>(std::max(512, preset.memoryLimitMiB)) * 1024u
+        : 0u;
+    const int initialLaunched = startQueuedShards(shards, exe, maxActiveShards, memoryLimitKb, venueMultiplex);
 
     std::string message = "queued " + std::to_string(shards.size())
         + " shard(s), started " + std::to_string(initialLaunched)
@@ -710,7 +746,7 @@ int runShardSupervisor(const tui::RecorderTuiPreset& preset,
             reapShard(shard);
             refreshShardStatus(shard);
         }
-        const int launched = startQueuedShards(shards, exe, maxActiveShards);
+        const int launched = startQueuedShards(shards, exe, maxActiveShards, memoryLimitKb, venueMultiplex);
         if (launched > 0 && message.empty()) {
             message = "started " + std::to_string(launched) + " queued shard(s)";
         }
@@ -767,7 +803,9 @@ void printShardRunUsage() {
 }  // namespace
 
 int runShardPresetInteractive(const tui::RecorderTuiPreset& preset, const std::filesystem::path&) {
-    const auto grouping = tui::RecorderTuiShardGrouping::BySymbol;
+    const auto grouping = preset.executionMode == tui::RecorderTuiExecutionMode::VenueMultiplex
+        ? tui::RecorderTuiShardGrouping::ByVenue
+        : tui::RecorderTuiShardGrouping::BySymbol;
     const int shardCount = defaultShardCount(preset, grouping);
     const int maxActivePerShard = tui::defaultRecorderTuiMaxActiveJobsPerShard(preset, grouping);
     return runShardSupervisor(preset, shardRunRoot(preset), shardCount, maxActivePerShard, grouping, 0);
@@ -780,6 +818,7 @@ int runShardRun(int argc, char** argv) {
     int maxActivePerShard = 0;
     int maxActiveShards = 0;
     auto grouping = tui::RecorderTuiShardGrouping::BySymbol;
+    bool groupingExplicit = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
@@ -829,6 +868,7 @@ int runShardRun(int argc, char** argv) {
         }
         if (arg == "--isolate-jobs") {
             grouping = tui::RecorderTuiShardGrouping::ByJob;
+            groupingExplicit = true;
             continue;
         }
         std::fprintf(stderr, "shard-run: unknown option '%.*s'\n", static_cast<int>(arg.size()), arg.data());
@@ -849,6 +889,9 @@ int runShardRun(int argc, char** argv) {
     if (preset.jobs.empty()) {
         std::fputs("shard-run: preset has no jobs\n", stderr);
         return 2;
+    }
+    if (!groupingExplicit && preset.executionMode == tui::RecorderTuiExecutionMode::VenueMultiplex) {
+        grouping = tui::RecorderTuiShardGrouping::ByVenue;
     }
     if (shardCount <= 0) shardCount = defaultShardCount(preset, grouping);
     if (grouping == tui::RecorderTuiShardGrouping::ByJob) {

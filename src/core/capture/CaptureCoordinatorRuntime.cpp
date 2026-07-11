@@ -21,8 +21,6 @@
 #include "core/capture/CaptureCoordinatorRuntimeHelpers.hpp"
 #include "core/capture/JsonSerializers.hpp"
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
-#include "core/local_exchange/LocalMarketDataBus.hpp"
-#include "core/local_exchange/LocalOrderEngine.hpp"
 #include "core/metrics/Metrics.hpp"
 #include "hft_trader/runtime/config/RuntimeConfig.hpp"
 #include "hft_trader/runtime/history/candles/CandleHistoryLoader.hpp"

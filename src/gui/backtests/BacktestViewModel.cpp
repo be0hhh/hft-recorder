@@ -954,7 +954,6 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         request.feeSchedules = feeSchedules;
         request.latencySchedules = latencySchedules;
         request.rateLimitSchedules = rateLimitSchedules;
-        request.executionPipeline = guiBacktestExecutionPipeline();
         request.rateLimitsEnabled = rateLimitsEnabled;
         request.strictRateLimitRejects = strictRateLimitsEnabled;
         request.captureStrategySpread = false;
@@ -998,6 +997,14 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
 }
 
 void BacktestViewModel::startSweep() {
+    startSweep_(false);
+}
+
+void BacktestViewModel::startExecutionLatencySweep() {
+    startSweep_(true);
+}
+
+void BacktestViewModel::startSweep_(bool includeExecutionLatency) {
     if (!canRun()) return;
 
     std::vector<hft_backtest::BacktestSweepParamRange> ranges;
@@ -1024,8 +1031,27 @@ void BacktestViewModel::startSweep() {
         range.mode = hft_backtest::BacktestSweepParamMode::Grid;
         ranges.push_back(std::move(range));
     }
+    if (includeExecutionLatency) {
+        const auto appendLatencyRange = [&ranges](const char* key, quint64 configured) {
+            hft_backtest::BacktestSweepParamRange range{};
+            range.key = key;
+            range.minRaw = 0;
+            const quint64 signedMax = static_cast<quint64>(std::numeric_limits<std::int64_t>::max());
+            const quint64 doubled = configured == 0u
+                ? 2000u
+                : (configured > signedMax / 2u ? signedMax : configured * 2u);
+            range.maxRaw = static_cast<std::int64_t>(doubled);
+            range.stepRaw = std::max<std::int64_t>(1, range.maxRaw / 4);
+            range.mode = hft_backtest::BacktestSweepParamMode::Grid;
+            ranges.push_back(std::move(range));
+        };
+        const quint64 ping = latencyValue_(pingLatencyUs_, 1000);
+        appendLatencyRange("@market_order_latency_us", latencyValue_(marketOrderLatencyUs_, ping));
+        appendLatencyRange("@limit_order_latency_us", latencyValue_(limitOrderLatencyUs_, ping));
+        appendLatencyRange("@user_data_latency_us", latencyValue_(userDataLatencyUs_, 0));
+    }
     if (ranges.empty()) {
-        setStatusText_(QStringLiteral("Choose at least one Sweep parameter"));
+        setStatusText_(QStringLiteral("Choose at least one Sweep parameter or enable execution latency sweep"));
         return;
     }
 

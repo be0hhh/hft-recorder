@@ -3,8 +3,6 @@
 #include "core/capture/CaptureCoordinatorRuntimeHelpers.hpp"
 #include "core/capture/JsonSerializers.hpp"
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
-#include "core/local_exchange/LocalMarketDataBus.hpp"
-#include "core/local_exchange/LocalOrderEngine.hpp"
 #include "core/metrics/Metrics.hpp"
 #include "hft_trader/runtime/history/orderbook/OrderBookSnapshotLoader.hpp"
 #include "hft_trader/runtime/history/trades/TradeHistoryLoader.hpp"
@@ -90,7 +88,6 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
                 row.symbol = std::string{internal::primaryIdentitySymbolText(config)};
             }
             const auto jsonLine = renderLiquidationJsonLine(row, config.liquidationAliases);
-            local_exchange::globalLocalMarketDataBus().publish("liquidations", row.symbol, jsonLine);
             const auto fileStatus = jsonSink_.appendLiquidationLine(row, jsonLine);
             if (!isOk(fileStatus)) {
                 metrics::recordCaptureWriteError("liquidations");
@@ -573,7 +570,6 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
 
     auto appendTradeRowToLiveOnly = [&](const replay::TradeRow& row, const std::string& jsonLine) -> bool {
         static constexpr char kTradesText[] = {'t', 'r', 'a', 'd', 'e', 's', '\0'};
-        local_exchange::globalLocalMarketDataBus().publish(kTradesText, row.symbol, jsonLine);
         const auto liveStatus = appendLiveTrade(row);
         if (!isOk(liveStatus)) {
             metrics::recordCaptureWriteError(kTradesText);
@@ -866,10 +862,6 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 const auto capturedTrade = cxet_bridge::CxetCaptureBridge::captureTrade(event.trade, meta);
                 const auto row = makeTradeRow(capturedTrade, config.exchange, config.market, sequenceIds);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
-                TscTick localEngineStartTsc{};
-                if (captureMetrics) localEngineStartTsc = cxet::probes::captureTsc();
-                local_exchange::globalLocalOrderEngine().onTrade(capturedTrade);
-                recordCxetLatencyIfEnabled(cxet::metrics::recorderLocalEngine, localEngineStartTsc, captureMetrics);
                 TscTick jsonRenderStartTsc{};
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
                 const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
@@ -880,7 +872,6 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                     if (!appendTradeRowToLiveOnly(row, jsonLine)) break;
                     continue;
                 }
-                local_exchange::globalLocalMarketDataBus().publish("trades", row.symbol, jsonLine);
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
                 const auto fileStatus = jsonSink_.appendTradeLine(row, jsonLine);
@@ -906,10 +897,6 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 const auto capturedBookTicker = cxet_bridge::CxetCaptureBridge::captureBookTicker(event.bookTicker, meta);
                 const auto row = makeBookTickerRow(capturedBookTicker, config.exchange, config.market, sequenceIds);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
-                TscTick localEngineStartTsc{};
-                if (captureMetrics) localEngineStartTsc = cxet::probes::captureTsc();
-                local_exchange::globalLocalOrderEngine().onBookTicker(capturedBookTicker);
-                recordCxetLatencyIfEnabled(cxet::metrics::recorderLocalEngine, localEngineStartTsc, captureMetrics);
                 auto aliases = config.bookTickerAliases;
                 for (const auto* requiredAlias : {"bidQty", "askQty"}) {
                     if (std::find(aliases.begin(), aliases.end(), requiredAlias) == aliases.end()) aliases.push_back(requiredAlias);
@@ -918,7 +905,6 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
                 const auto jsonLine = renderBookTickerJsonLine(row, aliases);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
-                local_exchange::globalLocalMarketDataBus().publish("bookticker", row.symbol, jsonLine);
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
                 const auto fileStatus = jsonSink_.appendBookTickerLine(row, jsonLine);
@@ -949,9 +935,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
                 const auto tapeLine = renderDepthTapeJsonLine(row);
                 const auto sidecarLine = renderDepthRleSidecarJsonLine(row);
-                const auto localBusLine = renderDepthJsonLine(row);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
-                local_exchange::globalLocalMarketDataBus().publish("orderbook.delta", std::string_view{meta.symbol.data}, localBusLine);
                 TscTick eventSinkStartTsc{};
                 if (captureMetrics) eventSinkStartTsc = cxet::probes::captureTsc();
                 const auto fileStatus = jsonSink_.appendDepthTapeSidecarLines(row, tapeLine, sidecarLine);

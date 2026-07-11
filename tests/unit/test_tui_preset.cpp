@@ -10,6 +10,7 @@ namespace {
 
 using hftrec::tui::ChannelSelection;
 using hftrec::tui::RecorderTuiPreset;
+using hftrec::tui::RecorderTuiExecutionMode;
 using hftrec::tui::parseChannelSelection;
 using hftrec::tui::parseDurationMinutes;
 using hftrec::tui::parsePresetText;
@@ -248,6 +249,30 @@ channels=trades
     EXPECT_EQ(preset.launchStaggerMs, 300);
     EXPECT_EQ(preset.sameExchangeCooldownMs, 2000);
     EXPECT_EQ(preset.outputDir, hftrec::recordings::defaultRecordingsRoot());
+}
+
+TEST(RecorderTuiPreset, ParsesAndRoundTripsVenueMultiplexResourcePolicy) {
+    constexpr std::string_view text = R"(
+memory_limit_mib=18432
+execution_mode=venue_multiplex
+
+[job binance_btc]
+exchange=binance
+market=futures
+symbol=BTC_USDT
+channels=trades,bookticker,orderbook
+)";
+
+    RecorderTuiPreset preset{};
+    std::string error;
+    ASSERT_TRUE(parsePresetText(text, preset, error)) << error;
+    EXPECT_EQ(preset.memoryLimitMiB, 18432);
+    EXPECT_EQ(preset.executionMode, RecorderTuiExecutionMode::VenueMultiplex);
+
+    RecorderTuiPreset parsed{};
+    ASSERT_TRUE(parsePresetText(renderPresetText(preset), parsed, error)) << error;
+    EXPECT_EQ(parsed.memoryLimitMiB, preset.memoryLimitMiB);
+    EXPECT_EQ(parsed.executionMode, preset.executionMode);
 }
 
 TEST(RecorderTuiPreset, ResolvesBarePresetNamesIntoConfigsDirectory) {

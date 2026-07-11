@@ -53,6 +53,7 @@ ExchangeId exchangeIdFromConfig(std::string_view exchange) noexcept {
     if (textEqualsAscii(exchange, "toobit")) return canon::kExchangeIdToobit;
     if (textEqualsAscii(exchange, "htx")) return canon::kExchangeIdHtx;
     if (textEqualsAscii(exchange, "phemex")) return canon::kExchangeIdPhemex;
+    if (textEqualsAscii(exchange, "poloniex")) return canon::kExchangeIdPoloniex;
     return canon::kExchangeIdUnknown;
 }
 

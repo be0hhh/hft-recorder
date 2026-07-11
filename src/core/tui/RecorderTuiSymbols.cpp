@@ -153,14 +153,17 @@ std::string canonicalLocalSymbol(std::string_view raw) {
     return trim(raw);
 }
 
-ChannelSelection generatedMarketDataChannels() noexcept {
+ChannelSelection generatedMarketDataChannels(const RecorderTuiVenueSpec& venue) noexcept {
     ChannelSelection channels{};
     channels.trades = true;
     channels.bookTicker = true;
     channels.orderbook = true;
-    channels.markPrice = true;
-    channels.funding = true;
-    channels.priceLimit = true;
+    const bool derivatives = venue.market != "spot";
+    channels.liquidations = derivatives;
+    channels.markPrice = derivatives;
+    channels.indexPrice = derivatives;
+    channels.funding = derivatives;
+    channels.priceLimit = derivatives && (venue.exchange == "bybit" || venue.exchange == "okx");
     return channels;
 }
 
@@ -299,7 +302,7 @@ std::vector<RecorderTuiJob> generateJobsForSymbols(const std::vector<std::string
             job.market = venue.market;
             job.symbol = canonicalSymbol;
             job.durationMin = 0;
-            job.channels = generatedMarketDataChannels();
+            job.channels = generatedMarketDataChannels(venue);
             jobs.push_back(std::move(job));
             ++ordinal;
         }

@@ -259,7 +259,25 @@ GeneratedJobsAppendResult appendGeneratedSymbolJobs(tui::RecorderTuiPreset& pres
 
     result.symbols = batch.symbols.size();
     result.loadedFiles = std::move(batch.loadedFiles);
+    std::vector<std::string> uniqueSymbols;
+    uniqueSymbols.reserve(preset.jobs.size() + batch.symbols.size());
+    for (const auto& job : preset.jobs) {
+        if (std::find(uniqueSymbols.begin(), uniqueSymbols.end(), job.symbol) == uniqueSymbols.end()) {
+            uniqueSymbols.push_back(job.symbol);
+        }
+    }
+    for (const auto& symbol : batch.symbols) {
+        if (std::find(uniqueSymbols.begin(), uniqueSymbols.end(), symbol) == uniqueSymbols.end()) {
+            uniqueSymbols.push_back(symbol);
+        }
+    }
+    if (uniqueSymbols.size() > 20u) {
+        result.error = "venue multiplex supports at most 20 unique symbols";
+        return result;
+    }
     const auto generated = tui::generateJobsForSymbols(batch.symbols, tui::allCryptoVenueSpecs(), preset.jobs.size());
+    preset.executionMode = tui::RecorderTuiExecutionMode::VenueMultiplex;
+    preset.memoryLimitMiB = 18 * 1024;
     for (const auto& job : generated) {
         if (containsCaptureJob(preset.jobs, job)) {
             ++result.skipped;
@@ -561,6 +579,7 @@ struct RunningJob {
     bool running{false};
     bool stopRequested{false};
     bool finalized{false};
+    std::uint64_t finalRows{0u};
     std::string status{"idle"};
     std::string planNote{};
     std::string error{};
@@ -1042,12 +1061,13 @@ void finalizeJob(RunningJob& job) {
     }
     requestStopJob(job);
     job.status = "stopping";
+    job.finalRows = totalRows(*job.coordinator);
     const auto status = job.coordinator->finalizeSession();
     if (!isOk(status)) {
         const auto error = job.coordinator->lastError();
         job.error = error.empty() ? std::string(statusToString(status)) : error;
         job.status = "error";
-    } else if (totalRows(*job.coordinator) == 0u) {
+    } else if (job.finalRows == 0u) {
         const auto error = job.coordinator->lastError();
         if (!error.empty()) {
             job.error = error;
@@ -1111,7 +1131,7 @@ void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, st
     int skippedCount = 0;
     int errorCount = 0;
     for (const auto& job : jobs) {
-        if (job.coordinator) aggregateRows += totalRows(*job.coordinator);
+        aggregateRows += job.finalized ? job.finalRows : (job.coordinator ? totalRows(*job.coordinator) : 0u);
         if (job.running) ++runningCount;
         if (job.startInProgress) ++startingCount;
         if (startStalled(job, now)) ++stalledCount;

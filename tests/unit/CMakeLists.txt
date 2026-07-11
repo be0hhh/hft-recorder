@@ -32,7 +32,6 @@ if(HFTREC_WITH_CXET)
     list(APPEND HFTREC_UNIT_TEST_SOURCES
         test_capture_coordinator.cpp
         test_cxet_capture_bridge.cpp
-        test_local_order_engine.cpp
     )
 endif()
 
@@ -89,14 +88,6 @@ if(Qt6_FOUND)
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelResultRefresh.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestViewModelResults.cpp
             ${PROJECT_SOURCE_DIR}/src/gui/backtests/BacktestSessionSummary.cpp
-    )
-endif()
-
-if(Qt6_FOUND AND HFTREC_WITH_CXET)
-    target_sources(hftrec_unit_tests
-        PRIVATE
-            test_local_venue_ws_order_parser.cpp
-            ${PROJECT_SOURCE_DIR}/src/gui/api/LocalVenueWsServer.cpp
     )
 endif()
 

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 #include <cstdint>
@@ -62,6 +63,17 @@ struct CaptureConfig {
     LiveCacheMode liveCacheMode{LiveCacheMode::Off};
 };
 
+struct ExternalCaptureChannels {
+    bool trades{false};
+    bool liquidations{false};
+    bool bookTicker{false};
+    bool orderbook{false};
+    bool markPrice{false};
+    bool indexPrice{false};
+    bool funding{false};
+    bool priceLimit{false};
+};
+
 class CaptureCoordinator : public market_data::IMarketDataIngress {
   public:
     CaptureCoordinator();
@@ -98,6 +110,21 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status captureDetailedCandlesOnce(const CaptureConfig& config) noexcept;
     Status captureDetailedCandlesBulk(const CaptureConfig& config) noexcept;
     Status captureTradesHistoryOnce(const CaptureConfig& config) noexcept;
+    Status startExternalCapture(const CaptureConfig& config,
+                                const ExternalCaptureChannels& enabledChannels,
+                                const ExternalCaptureChannels& requestedChannels) noexcept;
+    Status appendExternalTrade(const replay::TradeRow& row) noexcept;
+    Status appendExternalLiquidation(const replay::LiquidationRow& row) noexcept;
+    Status appendExternalBookTicker(const replay::BookTickerRow& row) noexcept;
+    Status appendExternalMarkPrice(const replay::MarkPriceRow& row) noexcept;
+    Status appendExternalIndexPrice(const replay::IndexPriceRow& row) noexcept;
+    Status appendExternalFunding(const replay::FundingRow& row) noexcept;
+    Status appendExternalPriceLimit(const replay::PriceLimitRow& row) noexcept;
+    Status appendExternalDepth(const replay::DepthRow& row) noexcept;
+    void noteExternalChannelError(std::string_view channel, std::string_view error) noexcept;
+    void noteExternalUnroutableEvent(std::string_view channel, std::string_view error) noexcept;
+    void noteExternalChannelConnection(std::string_view channel, bool connected, bool reconnected) noexcept;
+    Status refreshExternalManifest() noexcept;
     void reapStoppedThreads() noexcept;
 
     const SessionManifest& manifest() const noexcept { return manifest_; }
@@ -133,6 +160,12 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     }
 
 	  private:
+	    static void noteExternalRow_(ChannelRuntimeHealth& health, std::int64_t tsNs) noexcept;
+	    Status accountExternalAppend_(Status status,
+	                                  ChannelRuntimeHealth& health,
+	                                  std::atomic<std::uint64_t>& counter,
+	                                  std::int64_t tsNs,
+	                                  std::string_view channel) noexcept;
 	    Status ensureSession_(const CaptureConfig& config, bool allowMultiSymbol) noexcept;
 	    void resetSessionState() noexcept;
     bool sessionOpen() const noexcept;

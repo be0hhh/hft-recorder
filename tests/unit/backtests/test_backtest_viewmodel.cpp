@@ -613,6 +613,47 @@ TEST(BacktestViewModel, ClearsLoadedDetailsWhenRunChanges) {
     EXPECT_FALSE(vm.selectedResultMetrics().empty());
     EXPECT_EQ(metricValue(vm.selectedResultMetrics(), QStringLiteral("total_pnl_e8")), QStringLiteral("2"));
 }
+
+TEST(BacktestViewModel, ExposesPerformanceAndDepthExecutionTelemetry) {
+    isolateSettings(QStringLiteral("execution_telemetry"));
+    const QString session = makeTempSessionDir();
+    makeRunDir(session, QStringLiteral("run-telemetry"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-telemetry",
+      "status":"complete",
+      "strategy":"spread_maker1and2",
+      "performance":{"load_ns":1100000,"timeline_ns":2200000,"delivery_ns":3300000,"replay_ns":4400000,"finalize_ns":5500000,"artifact_write_ns":6600000,"total_ns":23100000},
+      "depth_execution":{"mode":"depth","rows_read":42,"bbo_fallback_fills":0,"first_bbo_fallback_ts_ns":0,"read_ns":900000},
+      "legs":[{
+        "exchange":"binance","market":"futures","symbol":"BTC_USDT",
+        "initial_balance_e8":100000000000,"total_pnl_e8":100000000,
+        "depth_execution":{"mode":"bbo_fallback","rows_read":7,"bbo_fallback_fills":3,"first_bbo_fallback_ts_ns":123,"read_ns":800000}
+      }],
+      "streams":{"equity":{"rows":0}},
+      "summary":{"total_pnl_e8":100000000,"initial_balance_e8":100000000000},
+      "errors":[]
+    })json", {});
+
+    hftrec::gui::BacktestViewModel vm;
+    setSessionPathAndWait(vm, session);
+    vm.selectRun(QStringLiteral("run-telemetry"));
+
+    ASSERT_EQ(vm.selectedPerformanceRows().size(), 7);
+    EXPECT_EQ(vm.selectedPerformanceRows().front().toMap().value(QStringLiteral("label")).toString(),
+              QStringLiteral("Load"));
+    EXPECT_EQ(vm.selectedPerformanceRows().front().toMap().value(QStringLiteral("value")).toString(),
+              QStringLiteral("1.10 ms"));
+    ASSERT_EQ(vm.selectedDepthExecutionRows().size(), 5);
+    EXPECT_EQ(vm.selectedDepthExecutionRows().front().toMap().value(QStringLiteral("value")).toString(),
+              QStringLiteral("depth"));
+
+    vm.setSelectedResultScope(QStringLiteral("leg_0"));
+    ASSERT_EQ(vm.selectedDepthExecutionRows().size(), 5);
+    EXPECT_EQ(vm.selectedDepthExecutionRows().front().toMap().value(QStringLiteral("value")).toString(),
+              QStringLiteral("bbo_fallback"));
+    EXPECT_EQ(vm.selectedDepthExecutionRows().at(2).toMap().value(QStringLiteral("value")).toString(),
+              QStringLiteral("3"));
+}
 TEST(BacktestViewModel, ReadsSymbolFromNestedManifestAndAllowsOverride) {
     isolateSettings(QStringLiteral("symbol"));
     const QString session = makeTempSessionDir();

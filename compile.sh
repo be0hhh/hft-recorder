@@ -389,7 +389,6 @@ _install_cxet_force() {
     cmake -B build \
           -DCXET_FULL_BUILD=OFF \
           -DCXET_BUILD_REPLAY=OFF \
-          -DCXET_ENABLE_HFTRECORDER_LOCAL=OFF \
           -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
           -DCMAKE_BUILD_TYPE=Release \
           "${CMAKE_COMPILER_ARGS[@]}" \

@@ -194,6 +194,23 @@ bool anyChannelSelected(const ChannelSelection& channels) noexcept {
            channels.markPrice || channels.indexPrice || channels.funding || channels.priceLimit;
 }
 
+const char* recorderTuiExecutionModeName(RecorderTuiExecutionMode mode) noexcept {
+    return mode == RecorderTuiExecutionMode::VenueMultiplex ? "venue_multiplex" : "legacy";
+}
+
+bool parseRecorderTuiExecutionMode(std::string_view text, RecorderTuiExecutionMode& out) noexcept {
+    const std::string value = lower(trim(text));
+    if (value == "legacy") {
+        out = RecorderTuiExecutionMode::Legacy;
+        return true;
+    }
+    if (value == "venue_multiplex" || value == "venue-multiplex" || value == "venue") {
+        out = RecorderTuiExecutionMode::VenueMultiplex;
+        return true;
+    }
+    return false;
+}
+
 bool parseDurationMinutes(std::string_view text, std::int64_t& out, std::string& error) {
     error.clear();
     std::string value = lower(trim(text));
@@ -339,6 +356,18 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
                     return false;
                 }
                 preset.maxActiveJobs = maxActiveJobs;
+            } else if (key == "memory_limit_mib") {
+                int memoryLimitMiB = 0;
+                if (!parseInt(value, memoryLimitMiB) || memoryLimitMiB < 512 || memoryLimitMiB > 262144) {
+                    error = "line " + std::to_string(lineNo) + ": memory_limit_mib must be in [512,262144]";
+                    return false;
+                }
+                preset.memoryLimitMiB = memoryLimitMiB;
+            } else if (key == "execution_mode") {
+                if (!parseRecorderTuiExecutionMode(value, preset.executionMode)) {
+                    error = "line " + std::to_string(lineNo) + ": execution_mode must be legacy or venue_multiplex";
+                    return false;
+                }
             } else {
                 error = "line " + std::to_string(lineNo) + ": unknown global key " + key;
                 return false;
@@ -374,6 +403,7 @@ bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string&
     if (preset.launchStaggerMs < 0) preset.launchStaggerMs = 250;
     if (preset.sameExchangeCooldownMs < 0) preset.sameExchangeCooldownMs = 1500;
     if (preset.maxActiveJobs < 1) preset.maxActiveJobs = 31;
+    if (preset.memoryLimitMiB < 512) preset.memoryLimitMiB = 18 * 1024;
     if (preset.outputDir.empty()) preset.outputDir = recordings::defaultRecordingsRoot();
     for (const RecorderTuiJob& job : preset.jobs) {
         if (!validateJob(job, error)) return false;
@@ -390,6 +420,8 @@ std::string renderPresetText(const RecorderTuiPreset& preset) {
     appendLine(out, "launch_stagger_ms", std::to_string(preset.launchStaggerMs));
     appendLine(out, "same_exchange_cooldown_ms", std::to_string(preset.sameExchangeCooldownMs));
     appendLine(out, "max_active_jobs", std::to_string(preset.maxActiveJobs));
+    appendLine(out, "memory_limit_mib", std::to_string(preset.memoryLimitMiB));
+    appendLine(out, "execution_mode", recorderTuiExecutionModeName(preset.executionMode));
     for (const RecorderTuiJob& job : preset.jobs) {
         out.push_back('\n');
         out.append("[job ");

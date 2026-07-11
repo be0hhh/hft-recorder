@@ -106,11 +106,13 @@ TEST(RecorderTuiSymbols, GeneratesRequiredMarketDataJobsForAllCryptoVenues) {
         EXPECT_TRUE(job.channels.trades);
         EXPECT_TRUE(job.channels.bookTicker);
         EXPECT_TRUE(job.channels.orderbook);
-        EXPECT_TRUE(job.channels.markPrice);
-        EXPECT_TRUE(job.channels.funding);
-        EXPECT_TRUE(job.channels.priceLimit);
-        EXPECT_FALSE(job.channels.liquidations);
-        EXPECT_FALSE(job.channels.indexPrice);
+        const bool derivatives = job.market != "spot";
+        EXPECT_EQ(job.channels.liquidations, derivatives);
+        EXPECT_EQ(job.channels.markPrice, derivatives);
+        EXPECT_EQ(job.channels.indexPrice, derivatives);
+        EXPECT_EQ(job.channels.funding, derivatives);
+        EXPECT_EQ(job.channels.priceLimit,
+                  derivatives && (job.exchange == "bybit" || job.exchange == "okx"));
     }
 
     bool foundKucoinFutures = false;

@@ -57,10 +57,8 @@ if(HFTREC_WITH_CXET)
         capture/CaptureCoordinatorBulk.cpp
         capture/CaptureCoordinatorRuntime.cpp
         capture/CaptureCoordinatorRuntimeLoops.cpp
+        capture/VenueMultiplexCapture.cpp
         cxet_bridge/CxetCaptureBridge.cpp
-        local_exchange/LocalMarketDataBus.cpp
-        local_exchange/LocalOrderEngine.cpp
-        local_exchange/LocalReplayRunner.cpp
     )
 else()
     list(APPEND HFTREC_CORE_SOURCES

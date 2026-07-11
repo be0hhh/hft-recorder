@@ -111,7 +111,10 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedConfigText READ selectedConfigText NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedErrorText READ selectedErrorText NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedWarningText READ selectedWarningText NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedPerformanceRows READ selectedPerformanceRows NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedDepthExecutionRows READ selectedDepthExecutionRows NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedEquityPoints READ selectedEquityPoints NOTIFY selectionChanged)
+    Q_PROPERTY(QVariantList selectedExecutionQualityPoints READ selectedExecutionQualityPoints NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList resultScopeChoices READ resultScopeChoices NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedResultScope READ selectedResultScope WRITE setSelectedResultScope NOTIFY selectedResultScopeChanged)
     Q_PROPERTY(QVariantList selectedResultMetrics READ selectedResultMetrics NOTIFY selectionChanged)
@@ -231,7 +234,10 @@ class BacktestViewModel : public QObject {
     QString selectedConfigText() const;
     QString selectedErrorText() const;
     QString selectedWarningText() const;
+    QVariantList selectedPerformanceRows() const;
+    QVariantList selectedDepthExecutionRows() const;
     QVariantList selectedEquityPoints() const;
+    QVariantList selectedExecutionQualityPoints() const;
     QVariantList resultScopeChoices() const;
     QString selectedResultScope() const;
     QVariantList selectedResultMetrics() const;
@@ -335,6 +341,7 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE bool deleteSelectedRun();
     Q_INVOKABLE void startBacktest();
     Q_INVOKABLE void startSweep();
+    Q_INVOKABLE void startExecutionLatencySweep();
     Q_INVOKABLE void startBatchSweep();
     Q_INVOKABLE void startBasisChainBatchBacktest(const QString& groupPath);
     Q_INVOKABLE void startBasisChainBatchBacktestForFutures(const QString& groupPath, const QVariantList& enabledFutureSessionPaths);
@@ -401,13 +408,17 @@ class BacktestViewModel : public QObject {
         QString pnlText{};
         QString manifestPath{};
         QString equityPath{};
+        QString executionQualityPath{};
         QString sweepRowsPath{};
         QString sweepCurvesPath{};
         QVariantList equityPoints{};
+        QVariantList executionQualityPoints{};
         QVariantList resultScopes{};
         QVariantList resultMetrics{};
+        QVariantList performanceRows{};
         QHash<QString, QVariantList> scopedEquityPoints{};
         QHash<QString, QVariantList> scopedResultMetrics{};
+        QHash<QString, QVariantList> scopedDepthExecutionRows{};
         QHash<QString, qint64> scopedInitialBalanceE8{};
         QHash<QString, qint64> scopedPnlMinE8{};
         QHash<QString, qint64> scopedPnlMaxE8{};
@@ -539,6 +550,7 @@ class BacktestViewModel : public QObject {
     std::vector<QVariantMap> venueExecutionRowsForPaths_(const QStringList& paths) const;
     QString effectiveResultScopeId_(const RunRecord& record) const;
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
+    void startSweep_(bool includeExecutionLatency);
     void setSelectedSessionId_(const QString& sessionId, bool deferRefresh);
 
     QFileSystemWatcher watcher_{};

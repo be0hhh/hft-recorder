@@ -20,6 +20,9 @@
 
 #include "core/capture/CaptureChannelSupport.hpp"
 #include "core/capture/CaptureCoordinator.hpp"
+#if HFTREC_WITH_CXET
+#include "core/capture/VenueMultiplexCapture.hpp"
+#endif
 #include "core/recordings/RecordingDiscovery.hpp"
 #include "core/tui/RecorderTuiLaunch.hpp"
 #include "core/tui/RecorderTuiPreset.hpp"
@@ -122,6 +125,7 @@ struct RunningJob {
     bool running{false};
     bool stopRequested{false};
     bool finalized{false};
+    std::uint64_t finalRows{0u};
     std::string status{"pending"};
     std::string error{};
 };
@@ -295,12 +299,13 @@ void finalizeJob(RunningJob& job) {
         return;
     }
     requestStopJob(job);
+    job.finalRows = totalRows(*job.coordinator);
     const auto status = job.coordinator->finalizeSession();
     if (!isOk(status)) {
         const auto error = job.coordinator->lastError();
         job.error = error.empty() ? std::string(statusToString(status)) : error;
         job.status = "error";
-    } else if (totalRows(*job.coordinator) == 0u) {
+    } else if (job.finalRows == 0u) {
         const auto error = job.coordinator->lastError();
         if (!error.empty()) {
             job.error = error;
@@ -458,7 +463,7 @@ void finalizeNonStartingJobs(std::vector<RunningJob>& jobs) {
 std::uint64_t totalRows(const std::vector<RunningJob>& jobs) noexcept {
     std::uint64_t rows = 0;
     for (const auto& job : jobs) {
-        if (job.coordinator) rows += totalRows(*job.coordinator);
+        rows += job.finalized ? job.finalRows : (job.coordinator ? totalRows(*job.coordinator) : 0u);
     }
     return rows;
 }
@@ -652,11 +657,126 @@ void writeRunGroupManifests(const std::filesystem::path& recordingsRoot, const R
     }
 }
 
+#if HFTREC_WITH_CXET
+capture::ExternalCaptureChannels externalChannels(const tui::ChannelSelection& channels) noexcept {
+    return capture::ExternalCaptureChannels{
+        .trades = channels.trades,
+        .liquidations = channels.liquidations,
+        .bookTicker = channels.bookTicker,
+        .orderbook = channels.orderbook,
+        .markPrice = channels.markPrice,
+        .indexPrice = channels.indexPrice,
+        .funding = channels.funding,
+        .priceLimit = channels.priceLimit,
+    };
+}
+
+void writeVenueMultiplexStatus(const std::filesystem::path& path,
+                               std::string_view state,
+                               std::string_view message,
+                               std::size_t jobs,
+                               bool running,
+                               std::uint64_t rows,
+                               std::string_view error) {
+    if (path.empty()) return;
+    std::error_code ec;
+    if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path(), ec);
+    const std::filesystem::path tempPath = path.string() + ".tmp";
+    {
+        std::ofstream out(tempPath, std::ios::out | std::ios::trunc);
+        out << "state=" << statusLineValue(state) << '\n';
+        out << "message=" << statusLineValue(message) << '\n';
+        out << "jobs=" << jobs << '\n';
+        out << "running=" << (running ? jobs : 0u) << '\n';
+        out << "starting=0\n";
+        out << "stalled=0\n";
+        out << "pending=0\n";
+        out << "finalized=" << (running ? 0u : jobs) << '\n';
+        out << "errors=" << (error.empty() ? 0 : 1) << '\n';
+        out << "skipped=0\n";
+        out << "rows=" << rows << '\n';
+        out << "first_error=" << statusLineValue(error) << '\n';
+        out << "last_error=" << statusLineValue(error) << '\n';
+    }
+    std::filesystem::rename(tempPath, path, ec);
+    if (ec) {
+        ec.clear();
+        std::filesystem::remove(path, ec);
+        ec.clear();
+        std::filesystem::rename(tempPath, path, ec);
+    }
+}
+
+int runVenueMultiplexPreset(const tui::RecorderTuiPreset& preset,
+                            const std::filesystem::path& statusPath,
+                            bool outputDirIsGroup) {
+    if (preset.jobs.empty()) return 2;
+    if (preset.jobs.size() > 20u) {
+        writeVenueMultiplexStatus(statusPath, "error", "venue multiplex supports at most 20 symbols",
+                                  preset.jobs.size(), false, 0u, "too many symbols");
+        return 1;
+    }
+
+    RunOutputGroups outputGroups = makeRunOutputGroups(preset, outputDirIsGroup);
+    std::vector<capture::VenueMultiplexJob> requests;
+    requests.reserve(preset.jobs.size());
+    for (const auto& job : preset.jobs) {
+        requests.push_back(capture::VenueMultiplexJob{
+            .config = makeCaptureConfig(job, outputDirForRunJob(outputGroups, job)),
+            .channels = externalChannels(job.channels),
+        });
+    }
+
+    capture::VenueMultiplexCapture capture;
+    writeVenueMultiplexStatus(statusPath, "starting", "venue multiplex starting", preset.jobs.size(), false, 0u, {});
+    const Status startStatus = capture.start(std::move(requests));
+    if (!isOk(startStatus)) {
+        const std::string error = capture.lastError().empty() ? std::string{statusToString(startStatus)} : capture.lastError();
+        writeVenueMultiplexStatus(statusPath, "error", error, preset.jobs.size(), false, capture.totalRows(), error);
+        return 1;
+    }
+
+    const auto started = Clock::now();
+    auto nextStatus = started;
+    while (!gPresetRunnerStop && capture.running()) {
+        if (!capture.pollOnce()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const auto now = Clock::now();
+        if (now >= nextStatus) {
+            writeVenueMultiplexStatus(statusPath, "running", "venue multiplex live", preset.jobs.size(), true,
+                                      capture.totalRows(), capture.lastError());
+            nextStatus = now + kStatusFileInterval;
+        }
+        const std::int64_t durationSec = preset.jobs.front().durationMin > 0 ? preset.jobs.front().durationMin * 60 : 0;
+        if (durationSec > 0 && std::chrono::duration_cast<std::chrono::seconds>(now - started).count() >= durationSec) break;
+    }
+
+    capture.requestStop();
+    const Status finalStatus = capture.finalize();
+    const std::uint64_t finalRows = capture.totalRows();
+    const std::string error = capture.lastError();
+    const bool failed = !isOk(finalStatus) || finalRows == 0u;
+    const std::string state = gPresetRunnerStop ? "stopped" : (failed ? "error" : (error.empty() ? "done" : "done_warn"));
+    const std::string message = finalRows == 0u ? "no canonical rows captured" : (error.empty() ? state : error);
+    writeVenueMultiplexStatus(statusPath, state, message, preset.jobs.size(), false, finalRows, failed ? message : error);
+    if (!gPresetRunnerStop) writeRunGroupManifests(preset.outputDir, outputGroups);
+    return failed ? 1 : 0;
+}
+#endif
+
 int runPresetFile(const tui::RecorderTuiPreset& preset,
                   const std::filesystem::path& statusPath,
                   bool outputDirIsGroup) {
     std::signal(SIGINT, handlePresetRunnerSignal);
     std::signal(SIGTERM, handlePresetRunnerSignal);
+
+    if (preset.executionMode == tui::RecorderTuiExecutionMode::VenueMultiplex) {
+#if HFTREC_WITH_CXET
+        return runVenueMultiplexPreset(preset, statusPath, outputDirIsGroup);
+#else
+        std::fputs("run-preset: venue_multiplex requires HFTREC_WITH_CXET\n", stderr);
+        return 1;
+#endif
+    }
 
     RunOutputGroups outputGroups = makeRunOutputGroups(preset, outputDirIsGroup);
     std::vector<RunningJob> jobs = makeJobs(preset, outputGroups);

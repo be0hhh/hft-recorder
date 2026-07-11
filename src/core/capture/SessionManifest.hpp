@@ -10,8 +10,19 @@
 
 namespace hftrec::capture {
 
-inline constexpr std::int32_t kManifestSchemaVersionCurrent = 1;
+inline constexpr std::int32_t kManifestSchemaVersionCurrent = 2;
 inline constexpr std::int32_t kCorpusSchemaVersionCurrent = 2;
+
+struct ChannelRuntimeHealth {
+    std::string state{"not_requested"};
+    bool required{false};
+    std::int64_t firstRowNs{0};
+    std::int64_t lastRowNs{0};
+    std::uint64_t reconnectCount{0};
+    std::uint64_t droppedEventCount{0};
+    std::uint64_t unroutableEventCount{0};
+    std::string lastError{};
+};
 
 struct SessionManifest {
     std::string sessionId;
@@ -19,7 +30,7 @@ struct SessionManifest {
     std::string market;
     std::vector<std::string> symbols;
     std::string storageSymbol;
-    std::int32_t manifestSchemaVersion{kManifestSchemaVersionCurrent};
+    std::int32_t manifestSchemaVersion{1};
     std::int32_t corpusSchemaVersion{kCorpusSchemaVersionCurrent};
     std::string captureContractVersion{"hftrec.strict_canonical_rows_json.v2"};
     std::string sessionStatus{"complete"};
@@ -88,6 +99,14 @@ struct SessionManifest {
     std::uint64_t depthCount{0};
     std::uint64_t candlesCount{0};
     std::uint64_t candles2Count{0};
+    ChannelRuntimeHealth tradesRuntime{};
+    ChannelRuntimeHealth liquidationsRuntime{};
+    ChannelRuntimeHealth bookTickerRuntime{};
+    ChannelRuntimeHealth depthRuntime{};
+    ChannelRuntimeHealth markPriceRuntime{};
+    ChannelRuntimeHealth indexPriceRuntime{};
+    ChannelRuntimeHealth fundingRuntime{};
+    ChannelRuntimeHealth priceLimitRuntime{};
     std::int64_t tradesHistoryWarmupSec{0};
     std::int64_t tradesHistoryRequestedStartNs{0};
     std::int64_t tradesHistoryRequestedEndNs{0};

@@ -71,17 +71,17 @@ The lab layer runs:
 The lab layer does not replace the canonical corpus.
 It consumes it.
 
-## Execution venue layer
+## Execution layer
 
-The local execution venue is a separate domain from market-data capture.
+Execution and backtest simulation are separate domains from market-data capture.
 
 Current thin seams:
 - `execution::IExecutionVenue`
 - `execution::IExecutionEventSink`
 - `execution::IExecutionEventSource`
 
-`LocalOrderEngine` is the first venue implementation behind these seams.
-It may publish normalized execution events into recorder-owned stores without exposing socket-frame internals upstream.
+Implementations may publish normalized execution events into recorder-owned
+stores without exposing engine internals upstream.
 
 ## Qt/QML boundary
 
