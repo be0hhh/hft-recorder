@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -29,6 +30,8 @@ class VenueMultiplexCapture {
 
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] std::uint64_t totalRows() const noexcept;
+    [[nodiscard]] std::size_t activeJobs() const noexcept;
+    [[nodiscard]] std::size_t skippedJobs() const noexcept;
     [[nodiscard]] std::string lastError() const;
 
   private:

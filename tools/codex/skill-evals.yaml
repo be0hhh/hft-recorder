@@ -1,0 +1,72 @@
+version: 1
+forward_tests:
+  - id: corpus-read-only-routing
+    skill: hft-recorder-corpus-pipeline
+    prompt: "Изучи, почему записанная Binance futures session имеет пустой trades.jsonl; пока ничего не меняй и ничего не запускай."
+    expected_roles:
+      primary: recorder_corpus_engineer
+      secondary: []
+    expected_authorization: read-only
+    expected_behavior:
+      - inspect /mnt/d/recordings before repo-local recordings
+      - distinguish live trade from historical aggTrade
+      - inspect manifest and capture status before concluding no events
+      - do not start editing workers
+      - do not run Git, build, test, or runtime commands
+
+  - id: corpus-authorized-workers
+    skill: hft-recorder-corpus-pipeline
+    prompt: "Implement the approved independent capture and validation changes; do not build or test."
+    expected_roles:
+      primary: recorder_corpus_engineer
+      secondary:
+        - architect
+    expected_authorization: edit-only
+    expected_behavior:
+      - allow editing workers only for non-overlapping files
+      - keep shared manifests and integration files with the primary agent
+      - do not run Git, build, test, generated rewrites, or runtime commands
+
+  - id: gui-product-routing
+    skill: hft-recorder-gui-development
+    prompt: "Implement a responsive QML session-validation screen with progress, cancellation, stale-state handling, and visible backend errors."
+    expected_roles:
+      primary: recorder_ui_engineer
+      secondary:
+        - recorder_corpus_engineer
+    expected_authorization: edit-only
+    expected_behavior:
+      - keep blocking work off the GUI thread
+      - bound models and progress updates
+      - preserve thread affinity and shutdown safety
+      - expose failure, stale, canceled, and completed states
+      - do not run Git, build, test, or runtime commands
+
+  - id: compression-baseline-routing
+    skill: hft-recorder-compression-lab
+    prompt: "Design the next lossless orderbook compression experiment and list the evidence required before claiming it wins. Do not execute benchmarks."
+    expected_roles:
+      primary: compression_engineer
+      secondary:
+        - recorder_corpus_engineer
+    expected_authorization: read-only
+    expected_behavior:
+      - require zstd, lz4, brotli, and xz/lzma baselines
+      - rank only within the orderbook stream family
+      - require corpus identity and lossless decode proof
+      - distinguish planned measurements from observed evidence
+      - do not run benchmarks, builds, tests, Git, or runtime commands
+
+  - id: boundary-escalation
+    skill: hft-recorder-compression-lab
+    prompt: "Implement a recorder compression artifact change that also alters the shared cross-app container metadata."
+    expected_roles:
+      primary: compression_engineer
+      secondary:
+        - recorder_corpus_engineer
+        - architect
+    expected_authorization: edit-only
+    expected_behavior:
+      - stop for an explicit compatibility or migration decision when missing
+      - keep experimental codec code outside CXETCPP core
+      - do not infer build, test, Git, or runtime permission

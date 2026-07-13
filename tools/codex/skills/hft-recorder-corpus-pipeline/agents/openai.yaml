@@ -1,0 +1,4 @@
+interface:
+  display_name: "HFT Recorder Corpus Pipeline"
+  short_description: "Build reliable recorder corpus pipelines"
+  default_prompt: "Use $hft-recorder-corpus-pipeline to implement a safe recorder capture, corpus, replay, or validation change."

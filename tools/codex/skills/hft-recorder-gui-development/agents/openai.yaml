@@ -1,0 +1,4 @@
+interface:
+  display_name: "HFT Recorder GUI Development"
+  short_description: "Build robust Qt and QML recorder workflows"
+  default_prompt: "Use $hft-recorder-gui-development to implement a robust Qt 6 and QML recorder product workflow."

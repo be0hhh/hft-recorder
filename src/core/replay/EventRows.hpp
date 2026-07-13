@@ -48,6 +48,7 @@ struct LiquidationRow {
 };
 
 struct BookTickerRow {
+    std::uint64_t eventId{0};
     std::string symbol{};
     std::string exchange{};
     std::string market{};
@@ -108,6 +109,7 @@ struct PricePair {
 };
 
 struct DepthRow {
+    std::uint64_t eventId{0};
     std::int64_t tsNs{0};
     std::vector<PricePair> levels;
 };

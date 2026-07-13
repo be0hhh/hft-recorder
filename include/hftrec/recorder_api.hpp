@@ -88,6 +88,7 @@ struct RecorderLiquidationRow {
 };
 
 struct RecorderBookTickerRow {
+    std::uint64_t eventId{0};
     std::string symbol{};
     std::string exchange{};
     std::string market{};
@@ -124,6 +125,7 @@ struct RecorderPriceLevel {
 };
 
 struct RecorderDepthRow {
+    std::uint64_t eventId{0};
     std::int64_t tsNs{0};
     std::vector<RecorderPriceLevel> levels{};
 };

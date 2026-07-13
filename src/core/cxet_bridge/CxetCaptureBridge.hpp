@@ -52,6 +52,7 @@ struct CapturedLiquidationRow {
 };
 
 struct CapturedBookTickerRow {
+    std::uint64_t eventId{0};
     std::string symbol{};
     std::uint64_t exchangeId{0};
     std::uint64_t tsNs{0};
@@ -70,6 +71,7 @@ struct CapturedLevel {
 };
 
 struct CapturedOrderBookRow {
+    std::uint64_t eventId{0};
     std::uint64_t tsNs{0};
     std::vector<CapturedLevel> bids{};
     std::vector<CapturedLevel> asks{};

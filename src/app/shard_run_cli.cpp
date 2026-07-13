@@ -42,6 +42,7 @@ struct ShardProcess {
     std::filesystem::path presetPath;
     std::filesystem::path statusPath;
     std::filesystem::path logPath;
+    std::filesystem::path outputGroupMapPath;
     pid_t pid{-1};
     bool outputIsGroup{false};
     bool launchStarted{false};
@@ -253,12 +254,53 @@ std::filesystem::path shardRunRoot(const tui::RecorderTuiPreset& preset) {
     return preset.outputDir / ".shards" / name.str();
 }
 
+using OutputGroupMap = std::map<std::string, std::filesystem::path>;
+
+bool writeOutputGroupMap(const std::filesystem::path& path,
+                         const OutputGroupMap& groups,
+                         std::string& error) {
+    const std::filesystem::path temporary = path.string() + ".tmp";
+    std::ofstream out(temporary, std::ios::out | std::ios::trunc);
+    if (!out) {
+        error = "failed to create output group map: " + temporary.string();
+        return false;
+    }
+    for (const auto& [symbol, groupPath] : groups) out << symbol << '\t' << groupPath.string() << '\n';
+    out.close();
+    if (!out) {
+        error = "failed to write output group map: " + temporary.string();
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::rename(temporary, path, ec);
+    if (ec) {
+        ec.clear();
+        std::filesystem::remove(path, ec);
+        ec.clear();
+        std::filesystem::rename(temporary, path, ec);
+    }
+    if (ec) {
+        error = "failed to publish output group map: " + ec.message();
+        return false;
+    }
+    return true;
+}
+
+void writeSupervisorGroupManifests(const std::filesystem::path& recordingsRoot,
+                                   const OutputGroupMap& groups) {
+    for (const auto& [_, groupPath] : groups) {
+        std::string ignoredError;
+        (void)recordings::writeGroupManifestForPath(recordingsRoot, groupPath, &ignoredError);
+    }
+}
+
 bool writeShardPresets(const tui::RecorderTuiPreset& preset,
                        const std::filesystem::path& runRoot,
                        int shardCount,
                        int maxActivePerShard,
                        tui::RecorderTuiShardGrouping grouping,
                        std::vector<ShardProcess>& shards,
+                       OutputGroupMap& groupDirs,
                        std::string& error) {
     std::error_code ec;
     std::filesystem::create_directories(runRoot / "presets", ec);
@@ -269,9 +311,20 @@ bool writeShardPresets(const tui::RecorderTuiPreset& preset,
         return false;
     }
 
-    auto shardPresets = tui::splitPresetIntoShards(preset, shardCount, maxActivePerShard, grouping);
+    const std::filesystem::path groupMapPath = runRoot / "output_groups.tsv";
     const std::int64_t groupTimestampNs = wallNowNs();
-    std::map<std::string, std::filesystem::path> groupDirs;
+    groupDirs.clear();
+    for (const auto& job : preset.jobs) {
+        const std::string normalizedSymbol = normalizedRecordingSymbolForJob(job);
+        auto [it, inserted] = groupDirs.try_emplace(normalizedSymbol);
+        if (inserted) {
+            const std::string groupName = recordings::recordingGroupFolderName(groupTimestampNs, normalizedSymbol);
+            it->second = uniquePath(preset.outputDir, groupName);
+        }
+    }
+    if (!writeOutputGroupMap(groupMapPath, groupDirs, error)) return false;
+
+    auto shardPresets = tui::splitPresetIntoShards(preset, shardCount, maxActivePerShard, grouping);
     shards.clear();
     shards.reserve(shardPresets.size());
     for (std::size_t i = 0; i < shardPresets.size(); ++i) {
@@ -287,21 +340,12 @@ bool writeShardPresets(const tui::RecorderTuiPreset& preset,
         shard.presetPath = runRoot / "presets" / (suffix.str() + ".ini");
         shard.statusPath = runRoot / "status" / (suffix.str() + ".status");
         shard.logPath = runRoot / "logs" / (suffix.str() + ".log");
+        shard.outputGroupMapPath = groupMapPath;
         shard.status.state = "queued";
         shard.status.message = "queued";
         shard.status.jobs = static_cast<int>(shardPreset.jobs.size());
         shard.status.pending = static_cast<int>(shardPreset.jobs.size());
         shard.exclusiveMarketDataSessionKeys = exclusiveMarketDataSessionKeysForPreset(shardPreset);
-        if (grouping == tui::RecorderTuiShardGrouping::ByJob && shardPreset.jobs.size() == 1u) {
-            const std::string normalizedSymbol = normalizedRecordingSymbolForJob(shardPreset.jobs.front());
-            auto [it, inserted] = groupDirs.try_emplace(normalizedSymbol);
-            if (inserted) {
-                const std::string groupName = recordings::recordingGroupFolderName(groupTimestampNs, normalizedSymbol);
-                it->second = uniquePath(preset.outputDir, groupName);
-            }
-            shardPreset.outputDir = it->second;
-            shard.outputIsGroup = true;
-        }
         if (!tui::savePresetFile(shard.presetPath, shardPreset, error)) return false;
         shards.push_back(std::move(shard));
     }
@@ -322,6 +366,7 @@ pid_t spawnShard(const std::filesystem::path& exe, const ShardProcess& shard) {
     const std::string exeText = exe.string();
     const std::string presetText = shard.presetPath.string();
     const std::string statusText = shard.statusPath.string();
+    const std::string outputGroupMapText = shard.outputGroupMapPath.string();
     if (shard.outputIsGroup) {
         ::execl(exeText.c_str(),
                 exeText.c_str(),
@@ -330,6 +375,8 @@ pid_t spawnShard(const std::filesystem::path& exe, const ShardProcess& shard) {
                 presetText.c_str(),
                 "--status",
                 statusText.c_str(),
+                "--output-group-map",
+                outputGroupMapText.c_str(),
                 "--output-is-group",
                 static_cast<char*>(nullptr));
     } else {
@@ -340,6 +387,8 @@ pid_t spawnShard(const std::filesystem::path& exe, const ShardProcess& shard) {
                 presetText.c_str(),
                 "--status",
                 statusText.c_str(),
+                "--output-group-map",
+                outputGroupMapText.c_str(),
                 static_cast<char*>(nullptr));
     }
     std::fprintf(stderr, "exec failed: %s\n", std::strerror(errno));
@@ -716,8 +765,9 @@ int runShardSupervisor(const tui::RecorderTuiPreset& preset,
                        int requestedMaxActiveShards) {
     ShardTerminalGuard terminalGuard;
     std::vector<ShardProcess> shards;
+    OutputGroupMap groupDirs;
     std::string error;
-    if (!writeShardPresets(preset, runRoot, shardCount, maxActivePerShard, grouping, shards, error)) {
+    if (!writeShardPresets(preset, runRoot, shardCount, maxActivePerShard, grouping, shards, groupDirs, error)) {
         std::fprintf(stderr, "shard-run: %s\n", error.c_str());
         return 1;
     }
@@ -766,6 +816,7 @@ int runShardSupervisor(const tui::RecorderTuiPreset& preset,
             break;
         }
         if (allExited(shards)) {
+            writeSupervisorGroupManifests(preset.outputDir, groupDirs);
             message = "all shards exited; press q to return";
             renderShards(shards, runRoot, maxActiveShards, message);
             while (true) {
@@ -790,6 +841,7 @@ int runShardSupervisor(const tui::RecorderTuiPreset& preset,
     }
     reapShardsUntil(shards, Clock::now() + std::chrono::seconds(2));
     for (auto& shard : shards) markKillSentNotReaped(shard);
+    if (allExited(shards)) writeSupervisorGroupManifests(preset.outputDir, groupDirs);
     renderShards(shards, runRoot, maxActiveShards, "stopped");
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     return 0;

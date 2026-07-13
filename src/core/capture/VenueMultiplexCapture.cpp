@@ -4,10 +4,13 @@
 #include <array>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <string_view>
 #include <utility>
 
 #include "api/market/MarketDataReactor.hpp"
+#include "api/market/PublicMarketDataStreamCatalog.hpp"
+#include "api/market/PublicMarketDataSubscriptionPlanner.hpp"
 #include "core/capture/CaptureChannelSupport.hpp"
 #include "core/capture/CaptureCoordinatorRuntimeHelpers.hpp"
 #include "core/cxet_bridge/CxetCaptureBridge.hpp"
@@ -32,6 +35,7 @@ struct SinkState {
     std::vector<replay::PricePair> previousBitgetDepth{};
     bool haveFunding{false};
     replay::FundingRow lastFunding{};
+    std::vector<std::pair<CaptureChannel, std::string>> skippedChannels{};
 };
 
 runtime::EventSequenceIds nextIds(std::uint64_t& channelSeq, std::uint64_t& ingestSeq) noexcept {
@@ -50,6 +54,11 @@ bool requested(const ExternalCaptureChannels& channels, CaptureChannel channel) 
         case CaptureChannel::PriceLimit: return channels.priceLimit;
     }
     return false;
+}
+
+bool anyRequested(const ExternalCaptureChannels& channels) noexcept {
+    return channels.trades || channels.liquidations || channels.bookTicker || channels.orderbook ||
+           channels.markPrice || channels.indexPrice || channels.funding || channels.priceLimit;
 }
 
 PublicStream streamFor(CaptureChannel channel) noexcept {
@@ -80,18 +89,93 @@ std::string_view healthChannelName(PublicStream stream) noexcept {
     }
 }
 
-ExternalCaptureChannels enabledChannelsFor(const ExternalCaptureChannels& requestedChannels,
-                                           const std::array<bool, 8>& enabled) noexcept {
-    ExternalCaptureChannels out{};
-    out.trades = requestedChannels.trades && enabled[0];
-    out.liquidations = requestedChannels.liquidations && enabled[1];
-    out.bookTicker = requestedChannels.bookTicker && enabled[2];
-    out.orderbook = requestedChannels.orderbook && enabled[3];
-    out.markPrice = requestedChannels.markPrice && enabled[4];
-    out.indexPrice = requestedChannels.indexPrice && enabled[5];
-    out.funding = requestedChannels.funding && enabled[6];
-    out.priceLimit = requestedChannels.priceLimit && enabled[7];
-    return out;
+void setRequested(ExternalCaptureChannels& channels, CaptureChannel channel, bool enabled) noexcept {
+    switch (channel) {
+        case CaptureChannel::Trades: channels.trades = enabled; break;
+        case CaptureChannel::Liquidations: channels.liquidations = enabled; break;
+        case CaptureChannel::BookTicker: channels.bookTicker = enabled; break;
+        case CaptureChannel::Orderbook: channels.orderbook = enabled; break;
+        case CaptureChannel::MarkPrice: channels.markPrice = enabled; break;
+        case CaptureChannel::IndexPrice: channels.indexPrice = enabled; break;
+        case CaptureChannel::Funding: channels.funding = enabled; break;
+        case CaptureChannel::PriceLimit: channels.priceLimit = enabled; break;
+    }
+}
+
+std::size_t channelIndex(CaptureChannel channel) noexcept {
+    switch (channel) {
+        case CaptureChannel::Trades: return 0u;
+        case CaptureChannel::Liquidations: return 1u;
+        case CaptureChannel::BookTicker: return 2u;
+        case CaptureChannel::Orderbook: return 3u;
+        case CaptureChannel::MarkPrice: return 4u;
+        case CaptureChannel::IndexPrice: return 5u;
+        case CaptureChannel::Funding: return 6u;
+        case CaptureChannel::PriceLimit: return 7u;
+    }
+    return 0u;
+}
+
+bool makeDesiredChannel(const CaptureConfig& config,
+                        CaptureChannel channel,
+                        cxet::api::market::PublicMarketDataDesiredChannel& out,
+                        std::string& error) {
+    const hft_trader::runtime::VenueRuntimeConfig venue = runtime::makeTraderVenueConfig(config);
+    if (venue.exchange.raw == canon::kExchangeIdUnknown.raw ||
+        venue.market.raw == canon::kMarketTypeUnknown.raw || venue.symbols.size() != 1u) {
+        error = "invalid recorder venue identity";
+        return false;
+    }
+    out = cxet::api::market::PublicMarketDataDesiredChannel{};
+    out.exchange = venue.exchange;
+    out.market = venue.market;
+    out.symbol = venue.symbols.front();
+    out.stream = streamFor(channel);
+    out.apiSlot = venue.apiSlot;
+    out.captureLatency = true;
+    const auto selectedWire = cxet::api::market::publicMarketDataSelectedWirePreference(
+        out.exchange, out.market, out.stream);
+    if (selectedWire != cxet::api::market::PublicMarketDataWirePreference::Auto) {
+        out.wirePreference = selectedWire;
+    }
+    const auto fields = cxet::api::market::publicMarketDataStreamDefaultFields(out.stream);
+    if (fields.size() > cxet::api::market::kMaxManagedMarketDataRequestedFields) {
+        error = "market-data requested field capacity exceeded";
+        return false;
+    }
+    out.requestedFieldCount = fields.size();
+    for (std::size_t i = 0u; i < fields.size(); ++i) out.requestedFields[i] = fields[i];
+    return true;
+}
+
+bool planDesiredChannels(const std::vector<cxet::api::market::PublicMarketDataDesiredChannel>& desired,
+                         std::string& error) {
+    char errorBuf[256]{};
+    if (cxet::api::market::planPublicMarketDataSubscriptions(
+            Span<const cxet::api::market::PublicMarketDataDesiredChannel>(desired.data(), desired.size()),
+            nullptr,
+            errorBuf,
+            sizeof(errorBuf))) {
+        error.clear();
+        return true;
+    }
+    error = errorBuf[0] != '\0' ? errorBuf : "market-data route planning failed";
+    return false;
+}
+
+bool sessionHasCanonicalRows(const std::filesystem::path& sessionDir) {
+    std::error_code ec;
+    const std::filesystem::path jsonl = sessionDir / "jsonl";
+    for (std::filesystem::recursive_directory_iterator it(
+             jsonl, std::filesystem::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        ec.clear();
+        if (std::filesystem::file_size(it->path(), ec) != 0u && !ec) return true;
+        ec.clear();
+    }
+    return false;
 }
 
 std::uint64_t rows(const CaptureCoordinator& coordinator) noexcept {
@@ -145,6 +229,7 @@ struct VenueMultiplexCapture::Impl {
     bool running{false};
     bool finalized{false};
     std::uint64_t finalRows{0u};
+    std::size_t skippedJobCount{0u};
     std::string error{};
     std::chrono::steady_clock::time_point nextLifecycle{};
     std::chrono::steady_clock::time_point nextManifestFlush{};
@@ -292,6 +377,15 @@ struct VenueMultiplexCapture::Impl {
         }
     }
 
+    void appendRouteSkip(std::string_view symbol, CaptureChannel channel, std::string_view detail) {
+        if (!error.empty()) error += " | ";
+        error += std::string{symbol};
+        error += '/';
+        error += healthChannelName(streamFor(channel));
+        error += " skipped: ";
+        error += detail;
+    }
+
 
     void sampleConnections() noexcept {
         if (!runtime) return;
@@ -339,48 +433,81 @@ Status VenueMultiplexCapture::start(std::vector<VenueMultiplexJob> jobs) noexcep
     static constexpr std::array<CaptureChannel, 8> kChannels{
         CaptureChannel::Trades, CaptureChannel::Liquidations, CaptureChannel::BookTicker, CaptureChannel::Orderbook,
         CaptureChannel::MarkPrice, CaptureChannel::IndexPrice, CaptureChannel::Funding, CaptureChannel::PriceLimit};
-    std::vector<PublicStream> streams;
-    streams.reserve(kChannels.size());
-    for (std::size_t i = 0u; i < kChannels.size(); ++i) {
-        bool wanted = false;
-        for (const auto& job : jobs) wanted = wanted || requested(job.channels, kChannels[i]);
-        if (!wanted) continue;
-        std::string detail;
-        if (!captureChannelRuntimeReady(first, kChannels[i], detail)) continue;
-        impl_->enabledStreams[i] = true;
-        streams.push_back(streamFor(kChannels[i]));
+    struct PlannedJob {
+        VenueMultiplexJob job{};
+        ExternalCaptureChannels enabled{};
+        std::vector<std::pair<CaptureChannel, std::string>> skipped{};
+    };
+    std::vector<PlannedJob> plannedJobs;
+    plannedJobs.reserve(jobs.size());
+    for (auto& job : jobs) plannedJobs.push_back(PlannedJob{.job = std::move(job)});
+
+    std::vector<cxet::api::market::PublicMarketDataDesiredChannel> acceptedDesired;
+    acceptedDesired.reserve(plannedJobs.size() * kChannels.size());
+    for (auto& planned : plannedJobs) {
+        const std::string_view symbol = planned.job.config.symbols.front();
+        for (const CaptureChannel channel : kChannels) {
+            if (!requested(planned.job.channels, channel)) continue;
+            std::string detail;
+            if (!captureChannelRuntimeReady(planned.job.config, channel, detail)) {
+                planned.skipped.emplace_back(channel, std::move(detail));
+                continue;
+            }
+            cxet::api::market::PublicMarketDataDesiredChannel candidate{};
+            if (!makeDesiredChannel(planned.job.config, channel, candidate, detail)) {
+                planned.skipped.emplace_back(channel, std::move(detail));
+                continue;
+            }
+            acceptedDesired.push_back(candidate);
+            if (!planDesiredChannels(acceptedDesired, detail)) {
+                acceptedDesired.pop_back();
+                planned.skipped.emplace_back(channel, std::move(detail));
+                continue;
+            }
+            setRequested(planned.enabled, channel, true);
+            impl_->enabledStreams[channelIndex(channel)] = true;
+        }
+        for (const auto& [channel, detail] : planned.skipped) {
+            impl_->appendRouteSkip(symbol, channel, detail);
+        }
+        if (!anyRequested(planned.enabled)) ++impl_->skippedJobCount;
     }
-    if (streams.empty()) {
-        impl_->error = "venue multiplex: no supported market-data streams";
+    if (acceptedDesired.empty()) {
+        if (impl_->error.empty()) impl_->error = "venue multiplex: no exact supported market-data routes";
         return Status::Unimplemented;
     }
 
-    impl_->sinks.reserve(jobs.size());
-    for (auto& job : jobs) {
-        SinkState sink{};
-        sink.job = std::move(job);
-        sink.coordinator = std::make_unique<CaptureCoordinator>();
-        const auto status = sink.coordinator->startExternalCapture(
-            sink.job.config, enabledChannelsFor(sink.job.channels, impl_->enabledStreams), sink.job.channels);
-        if (!isOk(status)) {
-            impl_->error = sink.coordinator->lastError();
-            return status;
-        }
-        impl_->sinks.push_back(std::move(sink));
-    }
-
-    CaptureConfig aggregate = first;
-    aggregate.symbols.clear();
-    for (const auto& sink : impl_->sinks) aggregate.symbols.push_back(sink.job.config.symbols.front());
     impl_->runtime = std::make_unique<hft_trader::runtime::MarketDataRuntime>();
     std::string applyError;
-    if (!runtime::applyTraderMarketDataConfig(*impl_->runtime,
-                                              aggregate,
-                                              Span<const PublicStream>(streams.data(), streams.size()),
-                                              applyError)) {
-        impl_->error = std::move(applyError);
+    if (!impl_->runtime || !impl_->runtime->applyDesiredChannels(
+            Span<const cxet::api::market::PublicMarketDataDesiredChannel>(acceptedDesired.data(), acceptedDesired.size()),
+            applyError)) {
+        if (applyError.empty()) applyError = "venue multiplex: exact market-data apply failed";
+        if (!impl_->error.empty()) impl_->error += " | ";
+        impl_->error += applyError;
         (void)finalize();
         return Status::Unknown;
+    }
+
+    impl_->sinks.reserve(plannedJobs.size());
+    for (auto& planned : plannedJobs) {
+        if (!anyRequested(planned.enabled)) continue;
+        SinkState sink{};
+        sink.job = std::move(planned.job);
+        sink.skippedChannels = std::move(planned.skipped);
+        sink.coordinator = std::make_unique<CaptureCoordinator>();
+        const auto status = sink.coordinator->startExternalCapture(
+            sink.job.config, planned.enabled, sink.job.channels);
+        if (!isOk(status)) {
+            impl_->error = sink.coordinator->lastError();
+            impl_->sinks.push_back(std::move(sink));
+            (void)finalize();
+            return status;
+        }
+        for (const auto& [channel, detail] : sink.skippedChannels) {
+            sink.coordinator->noteExternalUnsupportedChannel(healthChannelName(streamFor(channel)), detail);
+        }
+        impl_->sinks.push_back(std::move(sink));
     }
     if (!impl_->bindChannelSinks()) {
         (void)finalize();
@@ -427,12 +554,19 @@ Status VenueMultiplexCapture::finalize() noexcept {
     Status status = Status::Ok;
     for (auto& sink : impl_->sinks) {
         if (!sink.coordinator) continue;
-        impl_->finalRows += rows(*sink.coordinator);
+        const std::uint64_t sessionRows = rows(*sink.coordinator);
+        const std::filesystem::path sessionDir = sink.coordinator->sessionDirCopy();
+        impl_->finalRows += sessionRows;
         appendRuntimeHealthWarnings(
             impl_->error,
             sink.job.config.symbols.empty() ? std::string_view{} : std::string_view{sink.job.config.symbols.front()},
             sink.coordinator->manifestCopy());
         status = aggregateStatus(status, sink.coordinator->finalizeSession());
+        if (sessionRows == 0u && !sessionDir.empty() && !sessionHasCanonicalRows(sessionDir)) {
+            std::error_code ec;
+            std::filesystem::remove_all(sessionDir, ec);
+            if (ec && impl_->error.empty()) impl_->error = "failed to remove empty session: " + ec.message();
+        }
     }
     impl_->finalized = true;
     return status;
@@ -446,6 +580,14 @@ std::uint64_t VenueMultiplexCapture::totalRows() const noexcept {
     std::uint64_t total = 0u;
     for (const auto& sink : impl_->sinks) if (sink.coordinator) total += rows(*sink.coordinator);
     return total;
+}
+
+std::size_t VenueMultiplexCapture::activeJobs() const noexcept {
+    return impl_ ? impl_->sinks.size() : 0u;
+}
+
+std::size_t VenueMultiplexCapture::skippedJobs() const noexcept {
+    return impl_ ? impl_->skippedJobCount : 0u;
 }
 
 std::string VenueMultiplexCapture::lastError() const { return impl_ ? impl_->error : std::string{}; }

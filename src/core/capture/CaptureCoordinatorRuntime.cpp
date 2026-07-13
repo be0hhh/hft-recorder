@@ -227,6 +227,7 @@ replay::BookTickerRow makeBookTickerRow(const cxet_bridge::CapturedBookTickerRow
                                         std::string_view market,
                                         const EventSequenceIds& sequenceIds) noexcept {
     replay::BookTickerRow row{};
+    row.eventId = bookTicker.eventId;
     row.symbol = bookTicker.symbol;
     row.exchange = std::string(exchange);
     row.market = std::string(market);
@@ -296,6 +297,7 @@ std::vector<replay::PricePair> makeOrderbookLevels(const cxet_bridge::CapturedOr
 
 replay::DepthRow makeDepthRow(const cxet_bridge::CapturedOrderBookRow& depth) {
     replay::DepthRow row{};
+    row.eventId = depth.eventId;
     row.tsNs = static_cast<std::int64_t>(depth.tsNs);
     row.levels = makeOrderbookLevels(depth);
     return row;

@@ -55,15 +55,19 @@ Status CxetCaptureBridge::initialize() noexcept {
 
 CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradeRuntimeV1& trade,
                                                  const cxet::composite::StreamMeta& meta) {
-    return makeCapturedTradeRow(cxet::composite::compat::materializeTradePublicV1(trade, meta));
+    CapturedTradeRow row = makeCapturedTradeRow(cxet::composite::compat::materializeTradePublicV1(trade, meta));
+    row.tradeId = trade.eventId.raw;
+    return row;
 }
 
 CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
                                                            const cxet::composite::StreamMeta& meta) {
-    return makeCapturedBookTickerRow(
+    CapturedBookTickerRow row = makeCapturedBookTickerRow(
         cxet::composite::compat::materializeBookTickerDataV1(bookTicker, meta),
         true,
         true);
+    row.eventId = bookTicker.eventId.raw;
+    return row;
 }
 
 CapturedLiquidationRow CxetCaptureBridge::captureLiquidation(const cxet::composite::LiquidationEvent& event) {
@@ -113,6 +117,7 @@ CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::
                                                           const cxet::composite::StreamMeta& meta) {
     (void)meta;
     CapturedOrderBookRow row{};
+    row.eventId = tape.eventId.raw;
     row.tsNs = static_cast<std::uint64_t>(cxet::composite::orderBookTapeTimestamp(tape).raw);
     const std::uint32_t wordCount = tape.wordCount.raw < cxet::composite::kMaxOrderBookTapeWords
         ? tape.wordCount.raw

@@ -32,7 +32,7 @@ struct SessionManifest {
     std::string storageSymbol;
     std::int32_t manifestSchemaVersion{1};
     std::int32_t corpusSchemaVersion{kCorpusSchemaVersionCurrent};
-    std::string captureContractVersion{"hftrec.strict_canonical_rows_json.v2"};
+    std::string captureContractVersion{"hftrec.runtime_event_id_rows_json.v3"};
     std::string sessionStatus{"complete"};
     std::string selectedParentDir;
     std::string instrumentMetadataPath{"instrument_metadata.json"};
@@ -79,8 +79,8 @@ struct SessionManifest {
     std::string priceLimitPath{"jsonl/price_limit.jsonl"};
     std::string tradesRowSchema{"cxet_trade_strict_v1"};
     std::string liquidationsRowSchema{"cxet_liquidation_alias_first_v1"};
-    std::string bookTickerRowSchema{"cxet_bookticker_strict_v1"};
-    std::string depthRowSchema{"cxet_orderbook_tape_rle_sidecar_v1"};
+    std::string bookTickerRowSchema{"cxet_bookticker_event_id_v2"};
+    std::string depthRowSchema{"cxet_orderbook_tape_rle_sidecar_event_id_v2"};
     std::string candlesRowSchema{"cxet_candle_lite_tiered_v1"};
     std::string candles2RowSchema{"cxet_ohlcv_numeric_v3"};
     std::string markPriceRowSchema{"cxet_mark_price_ref_v1"};

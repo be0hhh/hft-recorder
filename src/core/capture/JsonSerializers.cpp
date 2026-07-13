@@ -185,6 +185,7 @@ std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker) {
     std::string out;
     out.reserve(120);
     out.push_back('[');
+    appendInt(out, bookTicker.eventId); out.push_back(',');
     appendInt(out, bookTicker.bidPriceE8); out.push_back(',');
     appendInt(out, bookTicker.bidQtyE8); out.push_back(',');
     appendInt(out, bookTicker.askPriceE8); out.push_back(',');
@@ -302,6 +303,7 @@ std::string renderDepthTapeJsonLine(const replay::DepthRow& delta) {
     std::string out;
     out.reserve(32 + delta.levels.size() * 40);
     out.push_back('[');
+    appendInt(out, delta.eventId); out.push_back(',');
     appendInt(out, taggedTapeTimestamp(delta.tsNs));
     for (const auto& level : delta.levels) {
         out.push_back(',');
@@ -317,6 +319,7 @@ std::string renderDepthRleSidecarJsonLine(const replay::DepthRow& delta) {
     std::string out;
     out.reserve(32 + delta.levels.size() * 6);
     out.push_back('[');
+    appendInt(out, delta.eventId); out.push_back(',');
     appendInt(out, taggedTapeTimestamp(delta.tsNs));
     if (!delta.levels.empty()) {
         std::int64_t runSide = delta.levels.front().side;

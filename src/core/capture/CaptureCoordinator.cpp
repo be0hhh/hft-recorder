@@ -295,6 +295,16 @@ void CaptureCoordinator::noteExternalChannelError(std::string_view channel, std:
     lastError_.append(error);
 }
 
+void CaptureCoordinator::noteExternalUnsupportedChannel(std::string_view channel, std::string_view error) noexcept {
+    ChannelRuntimeHealth* health = runtimeHealthForChannel(manifest_, channel);
+    if (health) {
+        health->state = "unsupported";
+        health->lastError.assign(error);
+    }
+    if (!lastError_.empty()) lastError_ += " | ";
+    lastError_.append(error);
+}
+
 void CaptureCoordinator::noteExternalUnroutableEvent(std::string_view channel, std::string_view error) noexcept {
     ChannelRuntimeHealth* health = runtimeHealthForChannel(manifest_, channel);
     if (!health) return;
@@ -391,8 +401,9 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
     manifest_.captureContractVersion = "hftrec.strict_canonical_rows_json.v2";
     manifest_.tradesRowSchema = "cxet_trade_strict_v1";
     manifest_.liquidationsRowSchema = "cxet_liquidation_alias_first_v1";
-    manifest_.bookTickerRowSchema = "cxet_bookticker_strict_v1";
-    manifest_.depthRowSchema = "cxet_orderbook_tape_rle_sidecar_v1";
+    manifest_.captureContractVersion = "hftrec.runtime_event_id_rows_json.v3";
+    manifest_.bookTickerRowSchema = "cxet_bookticker_event_id_v2";
+    manifest_.depthRowSchema = "cxet_orderbook_tape_rle_sidecar_event_id_v2";
     manifest_.candlesRowSchema = "cxet_candle_lite_tiered_v1";
     manifest_.candles2RowSchema = "cxet_ohlcv_numeric_v3";
     manifest_.sessionStatus = "recording";

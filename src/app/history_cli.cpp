@@ -536,7 +536,7 @@ bool writeSessionArtifacts(const fs::path& sessionDir,
     manifest.tradesHistoryFeedKind = "agg_trade";
     manifest.tradesHistoryStatus = "imported_binance_vision_futures_um";
     manifest.tradesRowSchema = "cxet_trade_strict_v1";
-    manifest.bookTickerRowSchema = "cxet_bookticker_strict_v1";
+    manifest.bookTickerRowSchema = "cxet_bookticker_event_id_v2";
     manifest.canonicalArtifacts = {
         "manifest.json",
         "instrument_metadata.json",

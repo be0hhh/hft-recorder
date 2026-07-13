@@ -136,6 +136,10 @@ bool parseDepthTapeLine(std::string_view tapeLine, DepthRow& out) noexcept {
     if (!parser.parseArrayStart()) return false;
     std::uint64_t word = 0;
     if (!parser.parseUInt64(word)) return false;
+    if ((word & orderBookTapeTimestampTag) == 0u) {
+        out.eventId = word;
+        if (!parser.parseComma() || !parser.parseUInt64(word)) return false;
+    }
     if ((word & orderBookTapeTimestampTag) == 0u) return false;
     out.tsNs = static_cast<std::int64_t>(word & orderBookTapePayloadMask);
     while (!parser.peek(']')) {
@@ -155,6 +159,12 @@ bool applyDepthRleSidecar(std::string_view sidecarLine, DepthRow& out) noexcept 
     if (!parser.parseArrayStart()) return false;
     std::uint64_t word = 0;
     if (!parser.parseUInt64(word)) return false;
+    if ((word & orderBookTapeTimestampTag) == 0u) {
+        if (word != out.eventId) return false;
+        if (!parser.parseComma() || !parser.parseUInt64(word)) return false;
+    } else if (out.eventId != 0u) {
+        return false;
+    }
     if ((word & orderBookTapeTimestampTag) == 0u) return false;
     if (static_cast<std::int64_t>(word & orderBookTapePayloadMask) != out.tsNs) return false;
 
@@ -384,16 +394,36 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
     out = BookTickerRow{};
     JsonParser parser{line};
     if (!parser.parseArrayStart()) return Status::CorruptData;
-    if (!parser.parseInt64(out.bidPriceE8)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    if (!parser.parseInt64(out.bidQtyE8)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    if (!parser.parseInt64(out.askPriceE8)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    if (!parser.parseInt64(out.askQtyE8)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
+    std::uint64_t first = 0u;
+    if (!parser.parseUInt64(first)) return Status::CorruptData;
+    std::int64_t tail[5]{};
+    std::size_t tailCount = 0u;
+    while (!parser.peek(']')) {
+        if (tailCount >= 5u || !parser.parseComma() || !parser.parseInt64(tail[tailCount])) {
+            return Status::CorruptData;
+        }
+        ++tailCount;
+    }
     if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    if (tailCount == 4u) {
+        if (first > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+            return Status::CorruptData;
+        }
+        out.bidPriceE8 = static_cast<std::int64_t>(first);
+        out.bidQtyE8 = tail[0];
+        out.askPriceE8 = tail[1];
+        out.askQtyE8 = tail[2];
+        out.tsNs = tail[3];
+    } else if (tailCount == 5u) {
+        out.eventId = first;
+        out.bidPriceE8 = tail[0];
+        out.bidQtyE8 = tail[1];
+        out.askPriceE8 = tail[2];
+        out.askQtyE8 = tail[3];
+        out.tsNs = tail[4];
+    } else {
+        return Status::CorruptData;
+    }
     return Status::Ok;
 }
 

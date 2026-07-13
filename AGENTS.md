@@ -67,8 +67,12 @@ The GUI is part of the deliverable, not a thin CLI wrapper:
 
 ## Subagents
 
-Subagents may be used for local file inspection, planning, and disjoint module edits only after the user approves subagent use for the current task.
+Use GPT-5.6-sol high without fast mode for recorder subagents. GPT-5.6-terra high without fast mode is allowed for easy tasks. Use xhigh/max only when the user explicitly requests xhigh/max in the current message.
+
+Read-only explorer and reviewer subagents may be used automatically for non-trivial recorder work. Editing worker subagents may be used automatically only after the current user message explicitly authorizes implementation, for example with `делай`, `implement`, or an equivalent direct instruction. Read-only requests such as `изучи`, `посмотри`, or `пока не делай` never authorize editing workers.
 
 Allowed scopes: capture, corpus, validation, GUI, lab, compression variants, documentation.
 
-Subagents must not run Git commands, GitHub/remote checks, CI/release inspection, builds, tests, compiles, generated-file rewrites, or long-running binaries unless explicitly allowed.
+Use at most three recorder workers concurrently. Give each worker a concrete, non-overlapping file scope; keep shared integration, registry, and manifest files with the primary agent. Stop and ask the user if ownership overlaps or the implementation has no single safe design.
+
+Every subagent must read this file before acting. Subagents must not run Git commands, GitHub/remote checks, CI/release inspection, builds, tests, compiles, generated-file rewrites, runtime binaries, or long-running processes unless the current user message explicitly grants that exact action. Implementation authorization alone does not grant any of those actions.

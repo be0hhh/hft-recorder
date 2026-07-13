@@ -1,0 +1,4 @@
+interface:
+  display_name: "HFT Recorder Compression Lab"
+  short_description: "Research lossless per-stream compression"
+  default_prompt: "Use $hft-recorder-compression-lab to implement or assess a recorder compression-lab pipeline with required baselines."

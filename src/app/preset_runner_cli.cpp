@@ -24,6 +24,7 @@
 #include "core/capture/VenueMultiplexCapture.hpp"
 #endif
 #include "core/recordings/RecordingDiscovery.hpp"
+#include "core/recordings/RecordingRoot.hpp"
 #include "core/tui/RecorderTuiLaunch.hpp"
 #include "core/tui/RecorderTuiPreset.hpp"
 
@@ -82,18 +83,75 @@ std::filesystem::path uniquePath(const std::filesystem::path& parent, const std:
     return parent / (baseName + "_overflow");
 }
 
+using OutputGroupMap = std::map<std::string, std::filesystem::path>;
+
+bool pathIsWithinRoot(const std::filesystem::path& path, const std::filesystem::path& root) {
+    std::error_code ec;
+    const std::filesystem::path canonicalRoot = std::filesystem::weakly_canonical(root, ec);
+    if (ec || canonicalRoot.empty()) return false;
+    ec.clear();
+    const std::filesystem::path canonicalPath = std::filesystem::weakly_canonical(path, ec);
+    if (ec || canonicalPath.empty()) return false;
+    const std::filesystem::path relative = canonicalPath.lexically_relative(canonicalRoot);
+    if (relative.empty() || relative.is_absolute()) return false;
+    for (const auto& component : relative) {
+        if (component == "..") return false;
+    }
+    return true;
+}
+
+bool loadOutputGroupMap(const std::filesystem::path& path,
+                        const std::filesystem::path& recordingsRoot,
+                        OutputGroupMap& out,
+                        std::string& error) {
+    out.clear();
+    std::ifstream in(path);
+    if (!in) {
+        error = "failed to open output group map: " + path.string();
+        return false;
+    }
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        const std::size_t separator = line.find('\t');
+        if (separator == std::string::npos || separator == 0u || separator + 1u >= line.size()) {
+            error = "invalid output group map entry";
+            return false;
+        }
+        const std::filesystem::path groupPath = line.substr(separator + 1u);
+        if (groupPath.empty()) {
+            error = "empty output group path";
+            return false;
+        }
+        if (!pathIsWithinRoot(groupPath, recordingsRoot)) {
+            error = "output group path escapes recordings root";
+            return false;
+        }
+        out.emplace(line.substr(0u, separator), groupPath);
+    }
+    if (out.empty()) {
+        error = "output group map is empty";
+        return false;
+    }
+    return true;
+}
+
 struct RunOutputGroups {
     std::filesystem::path root;
     std::int64_t timestampNs{0};
     bool rootIsGroup{false};
+    const OutputGroupMap* assignedGroups{nullptr};
     std::map<std::string, std::filesystem::path> bySymbol;
 };
 
-RunOutputGroups makeRunOutputGroups(const tui::RecorderTuiPreset& preset, bool outputDirIsGroup) {
+RunOutputGroups makeRunOutputGroups(const tui::RecorderTuiPreset& preset,
+                                    bool outputDirIsGroup,
+                                    const OutputGroupMap* assignedGroups) {
     return RunOutputGroups{
         .root = preset.outputDir,
         .timestampNs = wallNowNs(),
         .rootIsGroup = outputDirIsGroup,
+        .assignedGroups = assignedGroups,
         .bySymbol = {},
     };
 }
@@ -103,7 +161,10 @@ std::filesystem::path outputDirForRunJob(RunOutputGroups& groups, const tui::Rec
     if (normalizedSymbol.empty()) normalizedSymbol = "UNKNOWN";
     const auto [it, inserted] = groups.bySymbol.emplace(normalizedSymbol, std::filesystem::path{});
     if (inserted) {
-        if (groups.rootIsGroup) {
+        if (groups.assignedGroups != nullptr) {
+            const auto assigned = groups.assignedGroups->find(normalizedSymbol);
+            if (assigned != groups.assignedGroups->end()) it->second = assigned->second;
+        } else if (groups.rootIsGroup) {
             it->second = groups.root;
         } else {
             const std::string groupName = recordings::recordingGroupFolderName(groups.timestampNs, normalizedSymbol);
@@ -675,6 +736,7 @@ void writeVenueMultiplexStatus(const std::filesystem::path& path,
                                std::string_view state,
                                std::string_view message,
                                std::size_t jobs,
+                               std::size_t skipped,
                                bool running,
                                std::uint64_t rows,
                                std::string_view error) {
@@ -684,16 +746,18 @@ void writeVenueMultiplexStatus(const std::filesystem::path& path,
     const std::filesystem::path tempPath = path.string() + ".tmp";
     {
         std::ofstream out(tempPath, std::ios::out | std::ios::trunc);
+        const bool terminalError = state == "error";
+        const std::size_t activeJobs = jobs >= skipped ? jobs - skipped : 0u;
         out << "state=" << statusLineValue(state) << '\n';
         out << "message=" << statusLineValue(message) << '\n';
         out << "jobs=" << jobs << '\n';
-        out << "running=" << (running ? jobs : 0u) << '\n';
+        out << "running=" << (running ? activeJobs : 0u) << '\n';
         out << "starting=0\n";
         out << "stalled=0\n";
         out << "pending=0\n";
-        out << "finalized=" << (running ? 0u : jobs) << '\n';
-        out << "errors=" << (error.empty() ? 0 : 1) << '\n';
-        out << "skipped=0\n";
+        out << "finalized=" << (running ? skipped : jobs) << '\n';
+        out << "errors=" << (terminalError ? 1 : 0) << '\n';
+        out << "skipped=" << skipped << '\n';
         out << "rows=" << rows << '\n';
         out << "first_error=" << statusLineValue(error) << '\n';
         out << "last_error=" << statusLineValue(error) << '\n';
@@ -709,15 +773,16 @@ void writeVenueMultiplexStatus(const std::filesystem::path& path,
 
 int runVenueMultiplexPreset(const tui::RecorderTuiPreset& preset,
                             const std::filesystem::path& statusPath,
-                            bool outputDirIsGroup) {
+                            bool outputDirIsGroup,
+                            const OutputGroupMap* assignedGroups) {
     if (preset.jobs.empty()) return 2;
     if (preset.jobs.size() > 20u) {
         writeVenueMultiplexStatus(statusPath, "error", "venue multiplex supports at most 20 symbols",
-                                  preset.jobs.size(), false, 0u, "too many symbols");
+                                  preset.jobs.size(), 0u, false, 0u, "too many symbols");
         return 1;
     }
 
-    RunOutputGroups outputGroups = makeRunOutputGroups(preset, outputDirIsGroup);
+    RunOutputGroups outputGroups = makeRunOutputGroups(preset, outputDirIsGroup, assignedGroups);
     std::vector<capture::VenueMultiplexJob> requests;
     requests.reserve(preset.jobs.size());
     for (const auto& job : preset.jobs) {
@@ -728,11 +793,11 @@ int runVenueMultiplexPreset(const tui::RecorderTuiPreset& preset,
     }
 
     capture::VenueMultiplexCapture capture;
-    writeVenueMultiplexStatus(statusPath, "starting", "venue multiplex starting", preset.jobs.size(), false, 0u, {});
+    writeVenueMultiplexStatus(statusPath, "starting", "venue multiplex starting", preset.jobs.size(), 0u, false, 0u, {});
     const Status startStatus = capture.start(std::move(requests));
     if (!isOk(startStatus)) {
         const std::string error = capture.lastError().empty() ? std::string{statusToString(startStatus)} : capture.lastError();
-        writeVenueMultiplexStatus(statusPath, "error", error, preset.jobs.size(), false, capture.totalRows(), error);
+        writeVenueMultiplexStatus(statusPath, "error", error, preset.jobs.size(), capture.skippedJobs(), false, capture.totalRows(), error);
         return 1;
     }
 
@@ -742,7 +807,7 @@ int runVenueMultiplexPreset(const tui::RecorderTuiPreset& preset,
         if (!capture.pollOnce()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         const auto now = Clock::now();
         if (now >= nextStatus) {
-            writeVenueMultiplexStatus(statusPath, "running", "venue multiplex live", preset.jobs.size(), true,
+            writeVenueMultiplexStatus(statusPath, "running", "venue multiplex live", preset.jobs.size(), capture.skippedJobs(), true,
                                       capture.totalRows(), capture.lastError());
             nextStatus = now + kStatusFileInterval;
         }
@@ -757,28 +822,29 @@ int runVenueMultiplexPreset(const tui::RecorderTuiPreset& preset,
     const bool failed = !isOk(finalStatus) || finalRows == 0u;
     const std::string state = gPresetRunnerStop ? "stopped" : (failed ? "error" : (error.empty() ? "done" : "done_warn"));
     const std::string message = finalRows == 0u ? "no canonical rows captured" : (error.empty() ? state : error);
-    writeVenueMultiplexStatus(statusPath, state, message, preset.jobs.size(), false, finalRows, failed ? message : error);
-    if (!gPresetRunnerStop) writeRunGroupManifests(preset.outputDir, outputGroups);
+    writeVenueMultiplexStatus(statusPath, state, message, preset.jobs.size(), capture.skippedJobs(), false, finalRows, failed ? message : error);
+    if (!gPresetRunnerStop && assignedGroups == nullptr) writeRunGroupManifests(preset.outputDir, outputGroups);
     return failed ? 1 : 0;
 }
 #endif
 
 int runPresetFile(const tui::RecorderTuiPreset& preset,
                   const std::filesystem::path& statusPath,
-                  bool outputDirIsGroup) {
+                  bool outputDirIsGroup,
+                  const OutputGroupMap* assignedGroups) {
     std::signal(SIGINT, handlePresetRunnerSignal);
     std::signal(SIGTERM, handlePresetRunnerSignal);
 
     if (preset.executionMode == tui::RecorderTuiExecutionMode::VenueMultiplex) {
 #if HFTREC_WITH_CXET
-        return runVenueMultiplexPreset(preset, statusPath, outputDirIsGroup);
+        return runVenueMultiplexPreset(preset, statusPath, outputDirIsGroup, assignedGroups);
 #else
         std::fputs("run-preset: venue_multiplex requires HFTREC_WITH_CXET\n", stderr);
         return 1;
 #endif
     }
 
-    RunOutputGroups outputGroups = makeRunOutputGroups(preset, outputDirIsGroup);
+    RunOutputGroups outputGroups = makeRunOutputGroups(preset, outputDirIsGroup, assignedGroups);
     std::vector<RunningJob> jobs = makeJobs(preset, outputGroups);
     writeStatusFile(statusPath, jobs, Clock::now(), "starting", "plan built");
     auto nextStatus = Clock::now();
@@ -857,7 +923,7 @@ int runPresetFile(const tui::RecorderTuiPreset& preset,
                     Clock::now(),
                     finalState,
                     finalMessage);
-    if (blockedStarts == 0 && !gPresetRunnerStop) {
+    if (blockedStarts == 0 && !gPresetRunnerStop && assignedGroups == nullptr) {
         const std::filesystem::path discoveryRoot =
             outputDirIsGroup && !preset.outputDir.parent_path().empty() ? preset.outputDir.parent_path() : preset.outputDir;
         writeRunGroupManifests(discoveryRoot, outputGroups);
@@ -871,7 +937,7 @@ int runPresetFile(const tui::RecorderTuiPreset& preset,
 
 void printRunPresetUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder run-preset --preset path [--status path] [--output-is-group]");
+    std::puts("  hft-recorder run-preset --preset path [--status path] [--output-is-group] [--output-group-map path]");
 }
 
 }  // namespace
@@ -879,6 +945,7 @@ void printRunPresetUsage() {
 int runPresetRunner(int argc, char** argv) {
     std::filesystem::path presetPath;
     std::filesystem::path statusPath;
+    std::filesystem::path outputGroupMapPath;
     bool outputDirIsGroup = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
@@ -906,6 +973,14 @@ int runPresetRunner(int argc, char** argv) {
             outputDirIsGroup = true;
             continue;
         }
+        if (arg == "--output-group-map") {
+            if (i + 1 >= argc) {
+                std::fputs("run-preset: --output-group-map requires a path\n", stderr);
+                return 2;
+            }
+            outputGroupMapPath = argv[++i];
+            continue;
+        }
         std::fprintf(stderr, "run-preset: unknown option '%.*s'\n", static_cast<int>(arg.size()), arg.data());
         printRunPresetUsage();
         return 2;
@@ -925,7 +1000,22 @@ int runPresetRunner(int argc, char** argv) {
         std::fputs("run-preset: preset has no jobs\n", stderr);
         return 2;
     }
-    return runPresetFile(preset, statusPath, outputDirIsGroup);
+    OutputGroupMap assignedGroups;
+    const std::filesystem::path recordingsRoot = recordings::normalizeExplicitRecordingsPath(preset.outputDir);
+    if (!outputGroupMapPath.empty() && !loadOutputGroupMap(outputGroupMapPath, recordingsRoot, assignedGroups, error)) {
+        std::fprintf(stderr, "run-preset: %s\n", error.c_str());
+        return 1;
+    }
+    for (const auto& job : preset.jobs) {
+        std::string normalizedSymbol = recordings::recordingFolderSymbol(job.exchange, job.market, job.symbol);
+        if (normalizedSymbol.empty()) normalizedSymbol = "UNKNOWN";
+        if (!outputGroupMapPath.empty() && assignedGroups.find(normalizedSymbol) == assignedGroups.end()) {
+            std::fprintf(stderr, "run-preset: output group map has no symbol '%s'\n", normalizedSymbol.c_str());
+            return 1;
+        }
+    }
+    return runPresetFile(preset, statusPath, outputDirIsGroup,
+                         outputGroupMapPath.empty() ? nullptr : &assignedGroups);
 }
 
 }  // namespace hftrec::app

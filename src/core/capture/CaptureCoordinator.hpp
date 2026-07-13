@@ -122,6 +122,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status appendExternalPriceLimit(const replay::PriceLimitRow& row) noexcept;
     Status appendExternalDepth(const replay::DepthRow& row) noexcept;
     void noteExternalChannelError(std::string_view channel, std::string_view error) noexcept;
+    void noteExternalUnsupportedChannel(std::string_view channel, std::string_view error) noexcept;
     void noteExternalUnroutableEvent(std::string_view channel, std::string_view error) noexcept;
     void noteExternalChannelConnection(std::string_view channel, bool connected, bool reconnected) noexcept;
     Status refreshExternalManifest() noexcept;

@@ -219,6 +219,7 @@ RecorderLiquidationRow convert(const replay::LiquidationRow& row) {
 
 RecorderBookTickerRow convert(const replay::BookTickerRow& row) {
     RecorderBookTickerRow out{};
+    out.eventId = row.eventId;
     out.symbol = row.symbol;
     out.exchange = row.exchange;
     out.market = row.market;
@@ -253,6 +254,7 @@ RecorderCandleRow convert(const replay::CandleRow& row) {
 
 RecorderDepthRow convert(const replay::DepthRow& row) {
     RecorderDepthRow out{};
+    out.eventId = row.eventId;
     out.tsNs = row.tsNs;
     out.levels = convertLevels(row.levels);
     return out;

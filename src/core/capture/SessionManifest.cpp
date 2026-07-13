@@ -528,6 +528,7 @@ bool isSupportedCaptureContractVersion(std::string_view version) noexcept {
     return version == "hftrec.strict_canonical_rows_json.v1"
         || version == "hftrec.strict_canonical_rows_json.v2"
         || version == "hftrec.orderbook_tape_sidecar_json.v2"
+        || version == "hftrec.runtime_event_id_rows_json.v3"
         || version == "hftrec.cxet_alias_rows_json.v5";
 }
 
@@ -542,6 +543,7 @@ bool isSupportedLiquidationsRowSchema(std::string_view schema) noexcept {
 
 bool isSupportedBookTickerRowSchema(std::string_view schema) noexcept {
     return schema == "cxet_bookticker_strict_v1"
+        || schema == "cxet_bookticker_event_id_v2"
         || schema == "cxet_bookticker_alias_first_v3";
 }
 
@@ -549,12 +551,14 @@ bool isSupportedDepthRowSchema(std::string_view schema) noexcept {
     return schema == "cxet_orderbook_flat_levels_v1"
         || schema == "cxet_orderbook_tape_sidecar_v1"
         || schema == "cxet_orderbook_tape_rle_sidecar_v1"
+        || schema == "cxet_orderbook_tape_rle_sidecar_event_id_v2"
         || schema == "cxet_orderbook_alias_first_v5";
 }
 
 bool isDepthTapeSidecarSchema(std::string_view schema) noexcept {
     return schema == "cxet_orderbook_tape_sidecar_v1"
-        || schema == "cxet_orderbook_tape_rle_sidecar_v1";
+        || schema == "cxet_orderbook_tape_rle_sidecar_v1"
+        || schema == "cxet_orderbook_tape_rle_sidecar_event_id_v2";
 }
 
 bool isSupportedCandlesRowSchema(std::string_view schema) noexcept {
