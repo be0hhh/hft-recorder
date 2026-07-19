@@ -52,6 +52,9 @@ QString rowText(const QVariantMap& row, const QString& camelKey, const QString& 
 QString basisChainSessionSkipReason(const BatchSweepSessionInfo& session, const QString& role) {
     if (!session.sessionDirExists) return QStringLiteral("%1 session directory missing").arg(role);
     if (!session.manifestPresent) return QStringLiteral("%1 manifest missing").arg(role);
+    if (!session.manifestError.isEmpty()) {
+        return QStringLiteral("%1 manifest invalid: %2").arg(role, session.manifestError);
+    }
     if (session.candleRows <= 0) return QStringLiteral("%1 has no candle rows").arg(role);
     return {};
 }
@@ -215,6 +218,11 @@ QVector<BatchSweepPair> buildBatchSweepPairs(const QVector<BatchSweepSessionInfo
         skipped.insert(QStringLiteral("market"), session.market);
         skipped.insert(QStringLiteral("symbol"), session.symbol);
         skipped.insert(QStringLiteral("canonicalSymbol"), symbol);
+        if (!session.manifestError.isEmpty()) {
+            skipped.insert(QStringLiteral("reason"), session.manifestError);
+            if (skippedRows != nullptr) skippedRows->push_back(skipped);
+            continue;
+        }
         if (symbol.isEmpty()) {
             skipped.insert(QStringLiteral("reason"), QStringLiteral("missing symbol"));
             if (skippedRows != nullptr) skippedRows->push_back(skipped);

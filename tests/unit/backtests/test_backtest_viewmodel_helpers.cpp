@@ -3,12 +3,14 @@
 #include <QByteArray>
 #include <QDir>
 #include <QFile>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QStringList>
 #include <QVariantMap>
 
 #include "gui/backtests/BacktestExecutionConfigHelpers.hpp"
+#include "gui/backtests/BacktestResultHelpers.hpp"
 #include "gui/backtests/BacktestSessionHelpers.hpp"
 #include "gui/backtests/BacktestSessionSummary.hpp"
 #include "gui/backtests/BacktestStrategyConfigHelpers.hpp"
@@ -37,6 +39,155 @@ TEST(BacktestSessionHelpers, MapsVenueSectionsFromExchangeAndMarket) {
     EXPECT_TRUE(isVenueSectionKnown(QStringLiteral("binance"), QStringLiteral("linear")));
     EXPECT_FALSE(isVenueSectionKnown(QStringLiteral("unknown"), QStringLiteral("unknown")));
     EXPECT_TRUE(venueSectionFor(QStringLiteral("unknown"), QStringLiteral("unknown")).isEmpty());
+}
+
+TEST(BacktestSessionHelpers, LoadsOneImmutableManifestSnapshotWithExplicitStatus) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+
+    const hftrec::gui::SessionManifestSnapshot missing =
+        hftrec::gui::loadSessionManifestSnapshot(QDir(dir.path()).absoluteFilePath(QStringLiteral("missing")));
+    EXPECT_EQ(missing.status(), hftrec::gui::SessionManifestStatus::Missing);
+    EXPECT_FALSE(missing.ready());
+    EXPECT_FALSE(missing.error().isEmpty());
+
+    const QString malformedPath = QDir(dir.path()).absoluteFilePath(QStringLiteral("malformed"));
+    ASSERT_TRUE(QDir().mkpath(malformedPath));
+    writeTextFile(QDir(malformedPath).absoluteFilePath(QStringLiteral("manifest.json")),
+                  QByteArrayLiteral("{"));
+    const hftrec::gui::SessionManifestSnapshot malformed =
+        hftrec::gui::loadSessionManifestSnapshot(malformedPath);
+    EXPECT_EQ(malformed.status(), hftrec::gui::SessionManifestStatus::Malformed);
+    EXPECT_FALSE(malformed.ready());
+    EXPECT_FALSE(malformed.error().isEmpty());
+
+    const QString readyPath = QDir(dir.path()).absoluteFilePath(QStringLiteral("ready_BTCUSDT"));
+    ASSERT_TRUE(QDir().mkpath(readyPath));
+    writeTextFile(QDir(readyPath).absoluteFilePath(QStringLiteral("manifest.json")),
+                  QByteArrayLiteral(R"json({
+                    "exchange":"binance",
+                    "market":"linear",
+                    "symbols":["BTCUSDT"],
+                    "channels":{
+                      "bookticker":{"declared_event_count":42},
+                      "trades":{"declared_event_count":7}
+                    }
+                  })json"));
+    const hftrec::gui::SessionManifestSnapshot ready =
+        hftrec::gui::loadSessionManifestSnapshot(readyPath);
+    ASSERT_TRUE(ready.ready());
+    EXPECT_EQ(ready.status(), hftrec::gui::SessionManifestStatus::Ready);
+    EXPECT_GT(ready.size(), 0);
+    EXPECT_GT(ready.lastModifiedMs(), 0);
+    EXPECT_EQ(hftrec::gui::venueSectionForSession(ready), QStringLiteral("binance_futures"));
+    EXPECT_EQ(hftrec::gui::symbolForSessionPath(ready), QStringLiteral("BTC_USDT"));
+    EXPECT_EQ(hftrec::gui::manifestChannelDeclaredCount(ready, QStringLiteral("bookticker")), 42u);
+    EXPECT_EQ(hftrec::gui::manifestChannelDeclaredCount(ready, QStringLiteral("trades")), 7u);
+}
+
+TEST(BacktestResultHelpers, UsesAuthoritativeV2TotalAndFailVisibleMissingTotal) {
+    const QJsonObject authoritative{
+        {QStringLiteral("type"), QStringLiteral("run.result.v2")},
+        {QStringLiteral("schema_version"), 2},
+        {QStringLiteral("summary"), QJsonObject{
+            {QStringLiteral("initial_balance_e8"), 1000},
+            {QStringLiteral("total_pnl_e8"), 150},
+            {QStringLiteral("net_realized_pnl_e8"), 100},
+            {QStringLiteral("realized_pnl_e8"), 90},
+        }},
+    };
+    const hftrec::gui::BacktestRunSummary decoded =
+        hftrec::gui::decodeBacktestRunSummary(authoritative);
+    ASSERT_TRUE(decoded.ready());
+    EXPECT_TRUE(decoded.runResultV2);
+    EXPECT_EQ(decoded.initialBalanceE8, 1000);
+    EXPECT_EQ(decoded.totalPnlE8, 150);
+
+    const QJsonObject missingTotal{
+        {QStringLiteral("type"), QStringLiteral("run.result.v2")},
+        {QStringLiteral("summary"), QJsonObject{
+            {QStringLiteral("net_realized_pnl_e8"), 100},
+            {QStringLiteral("realized_pnl_e8"), 90},
+        }},
+    };
+    const hftrec::gui::BacktestRunSummary invalid =
+        hftrec::gui::decodeBacktestRunSummary(missingTotal);
+    EXPECT_FALSE(invalid.ready());
+    EXPECT_EQ(invalid.status, hftrec::gui::BacktestRunSummaryStatus::MissingTotalPnl);
+    EXPECT_FALSE(invalid.error.isEmpty());
+
+    const QJsonObject fractionalTotal{
+        {QStringLiteral("type"), QStringLiteral("run.result.v2")},
+        {QStringLiteral("summary"), QJsonObject{
+            {QStringLiteral("total_pnl_e8"), 1.5},
+        }},
+    };
+    const hftrec::gui::BacktestRunSummary fractional =
+        hftrec::gui::decodeBacktestRunSummary(fractionalTotal);
+    EXPECT_FALSE(fractional.ready());
+    EXPECT_EQ(fractional.status, hftrec::gui::BacktestRunSummaryStatus::InvalidTotalPnl);
+}
+
+TEST(BacktestResultHelpers, LegacyTotalFallbackOrderIsStable) {
+    const auto decodeLegacy = [](const QJsonObject& summary) {
+        return hftrec::gui::decodeBacktestRunSummary(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("run.result")},
+            {QStringLiteral("summary"), summary},
+        });
+    };
+
+    const hftrec::gui::BacktestRunSummary total = decodeLegacy(QJsonObject{
+        {QStringLiteral("total_pnl_e8"), 300},
+        {QStringLiteral("net_realized_pnl_e8"), 200},
+        {QStringLiteral("realized_pnl_e8"), 100},
+    });
+    ASSERT_TRUE(total.ready());
+    EXPECT_EQ(total.totalPnlE8, 300);
+
+    const hftrec::gui::BacktestRunSummary net = decodeLegacy(QJsonObject{
+        {QStringLiteral("net_realized_pnl_e8"), 200},
+        {QStringLiteral("realized_pnl_e8"), 100},
+    });
+    ASSERT_TRUE(net.ready());
+    EXPECT_EQ(net.totalPnlE8, 200);
+
+    const hftrec::gui::BacktestRunSummary realized = decodeLegacy(QJsonObject{
+        {QStringLiteral("realized_pnl_e8"), 100},
+    });
+    ASSERT_TRUE(realized.ready());
+    EXPECT_EQ(realized.totalPnlE8, 100);
+}
+
+TEST(BacktestResultHelpers, PortfolioSynthesisUsesBaselineBeforeLegFirstTimestamp) {
+    const QVariantList firstLeg{
+        QVariantMap{{QStringLiteral("tsNs"), 100ll},
+                    {QStringLiteral("totalPnlE8"), 0ll},
+                    {QStringLiteral("walletBalanceE8"), 1000ll}},
+        QVariantMap{{QStringLiteral("tsNs"), 200ll},
+                    {QStringLiteral("totalPnlE8"), 10ll},
+                    {QStringLiteral("walletBalanceE8"), 1010ll}},
+    };
+    const QVariantList delayedLeg{
+        QVariantMap{{QStringLiteral("tsNs"), 200ll},
+                    {QStringLiteral("totalPnlE8"), 20ll},
+                    {QStringLiteral("walletBalanceE8"), 2020ll}},
+    };
+    qint64 minPnl = 0;
+    qint64 maxPnl = 0;
+    const QVariantList portfolio = hftrec::gui::synthesizePortfolioEquityPoints(
+        std::vector<QVariantList>{firstLeg, delayedLeg},
+        std::vector<qint64>{1000, 2000},
+        minPnl,
+        maxPnl);
+
+    ASSERT_EQ(portfolio.size(), 2);
+    const QVariantMap beforeDelayedLeg = portfolio.at(0).toMap();
+    EXPECT_EQ(beforeDelayedLeg.value(QStringLiteral("tsNs")).toLongLong(), 100ll);
+    EXPECT_EQ(beforeDelayedLeg.value(QStringLiteral("totalPnlE8")).toLongLong(), 0ll);
+    EXPECT_EQ(beforeDelayedLeg.value(QStringLiteral("walletBalanceE8")).toLongLong(), 3000ll);
+    const QVariantMap bothLegs = portfolio.at(1).toMap();
+    EXPECT_EQ(bothLegs.value(QStringLiteral("totalPnlE8")).toLongLong(), 30ll);
+    EXPECT_EQ(bothLegs.value(QStringLiteral("walletBalanceE8")).toLongLong(), 3030ll);
 }
 
 TEST(BacktestSessionSummary, AppendsCompactCaptureHealthWarning) {
@@ -140,6 +291,55 @@ TEST(BacktestExecutionConfigHelpers, BuildsRateLimitScheduleFromVenueRow) {
     EXPECT_EQ(schedule.actions[1].costs[0].cost, 2);
     EXPECT_EQ(schedule.actions[2].action, hft_trader::core::RateLimitActionKind::CancelOrder);
     EXPECT_EQ(schedule.actions[2].costs[0].bucket, hft_trader::core::RateLimitBucketKind::CancelOrders);
+}
+
+TEST(BacktestExecutionConfigHelpers, AppliesTypedExecutionPolicyAndGatesStrictRejects) {
+    hftrec::gui::BacktestExecutionPolicy policy;
+    policy.latencySeed = 17;
+    policy.marketDataLatency = {11, 12};
+    policy.marketOrderLatency = {21, 22};
+    policy.limitOrderLatency = {31, 32};
+    policy.cancelOrderLatency = {41, 42};
+    policy.userDataLatency = {51, 52};
+    policy.orderLatencyUs = 61;
+    policy.cancelLatencyUs = 62;
+    policy.initialBalanceE8 = 70;
+    policy.rateLimitsEnabled = false;
+    policy.strictRateLimitsEnabled = true;
+    policy.legInitialBalancesE8 = {71, 72};
+    policy.feeSchedules.push_back(hft_backtest::BacktestFeeSchedule{});
+    policy.latencySchedules.push_back(hft_backtest::BacktestLatencySchedule{});
+    policy.rateLimitSchedules.push_back(hft_backtest::BacktestRateLimitSchedule{});
+
+    hft_backtest::BacktestRunRequest request;
+    hftrec::gui::applyBacktestExecutionPolicy(request, policy);
+
+    EXPECT_EQ(request.latencySeed, 17u);
+    EXPECT_EQ(request.marketDataLatency.baseUs, 11u);
+    EXPECT_EQ(request.marketDataLatency.jitterUs, 12u);
+    EXPECT_EQ(request.marketOrderLatency.baseUs, 21u);
+    EXPECT_EQ(request.limitOrderLatency.baseUs, 31u);
+    EXPECT_EQ(request.cancelOrderLatency.baseUs, 41u);
+    EXPECT_EQ(request.userDataLatency.baseUs, 51u);
+    EXPECT_EQ(request.orderLatencyUs, 61u);
+    EXPECT_EQ(request.cancelLatencyUs, 62u);
+    EXPECT_EQ(request.initialBalanceE8, 70);
+    EXPECT_FALSE(request.rateLimitsEnabled);
+    EXPECT_FALSE(request.strictRateLimitRejects);
+    EXPECT_EQ(request.legInitialBalancesE8, policy.legInitialBalancesE8);
+    EXPECT_EQ(request.feeSchedules.size(), 1u);
+    EXPECT_EQ(request.latencySchedules.size(), 1u);
+    EXPECT_EQ(request.rateLimitSchedules.size(), 1u);
+
+    policy.rateLimitsEnabled = true;
+    hftrec::gui::applyBacktestExecutionPolicy(request, policy);
+    EXPECT_TRUE(request.rateLimitsEnabled);
+    EXPECT_TRUE(request.strictRateLimitRejects);
+}
+
+TEST(BacktestExecutionConfigHelpers, ExecutionLatencySweepOmitsOverridingVenueLatencySchedules) {
+    EXPECT_TRUE(hftrec::gui::usePerVenueLatencySchedules(false));
+    EXPECT_FALSE(hftrec::gui::usePerVenueLatencySchedules(true));
 }
 
 TEST(BacktestExecutionConfigHelpers, BuildsFeeScheduleFromVenueRowWithPresetFallback) {

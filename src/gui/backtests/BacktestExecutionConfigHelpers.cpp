@@ -213,6 +213,26 @@ QString costSummary(const hft_trader::core::RateLimitActionConfig& action) {
 
 }  // namespace
 
+void applyBacktestExecutionPolicy(hft_backtest::BacktestRunRequest& request,
+                                  const BacktestExecutionPolicy& policy) {
+    request.latencySeed = policy.latencySeed;
+    request.marketDataLatency = policy.marketDataLatency;
+    request.marketOrderLatency = policy.marketOrderLatency;
+    request.limitOrderLatency = policy.limitOrderLatency;
+    request.cancelOrderLatency = policy.cancelOrderLatency;
+    request.userDataLatency = policy.userDataLatency;
+    request.orderLatencyUs = policy.orderLatencyUs;
+    request.cancelLatencyUs = policy.cancelLatencyUs;
+    request.initialBalanceE8 = policy.initialBalanceE8;
+    request.rateLimitsEnabled = policy.rateLimitsEnabled;
+    request.strictRateLimitRejects =
+        policy.rateLimitsEnabled && policy.strictRateLimitsEnabled;
+    request.legInitialBalancesE8 = policy.legInitialBalancesE8;
+    request.feeSchedules = policy.feeSchedules;
+    request.latencySchedules = policy.latencySchedules;
+    request.rateLimitSchedules = policy.rateLimitSchedules;
+}
+
 QString normalizedFeeMarket(QString market) {
     market = market.trimmed().toLower();
     if (market == QStringLiteral("usdt") || market == QStringLiteral("linear")) return QStringLiteral("futures_usdt");
@@ -220,11 +240,15 @@ QString normalizedFeeMarket(QString market) {
     return market;
 }
 
-QString venueExecutionKey(const QString& sessionPath) {
-    const QString exchange = manifestValue(sessionPath, QStringLiteral("exchange")).trimmed().toLower();
-    const QString market = normalizedFeeMarket(manifestValue(sessionPath, QStringLiteral("market")));
+QString venueExecutionKey(const SessionManifestSnapshot& manifest) {
+    const QString exchange = manifestValue(manifest, QStringLiteral("exchange")).trimmed().toLower();
+    const QString market = normalizedFeeMarket(manifestValue(manifest, QStringLiteral("market")));
     if (exchange.isEmpty() || market.isEmpty()) return {};
     return exchange + QLatin1Char('|') + market;
+}
+
+QString venueExecutionKey(const QString& sessionPath) {
+    return venueExecutionKey(loadSessionManifestSnapshot(sessionPath));
 }
 
 QString venueExecutionSettingKey(QString venueKey) {

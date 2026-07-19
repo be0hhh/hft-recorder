@@ -21,6 +21,7 @@ struct BatchSweepSessionInfo {
     qint64 priceBasisQtyE8{0};
     bool sessionDirExists{false};
     bool manifestPresent{false};
+    QString manifestError{};
 };
 
 struct BatchSweepPair {

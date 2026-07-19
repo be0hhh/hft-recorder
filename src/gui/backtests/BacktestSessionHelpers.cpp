@@ -5,22 +5,141 @@
 #include "gui/backtests/BacktestResultHelpers.hpp"
 
 #include <QDir>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
+
+#include <utility>
 
 namespace hftrec::gui {
+
+SessionManifestSnapshot::SessionManifestSnapshot(SessionManifestStatus status,
+                                                 QString sessionPath,
+                                                 QString manifestPath,
+                                                 QJsonObject object,
+                                                 QString error,
+                                                 qint64 size,
+                                                 qint64 lastModifiedMs)
+    : status_(status),
+      sessionPath_(std::move(sessionPath)),
+      manifestPath_(std::move(manifestPath)),
+      object_(std::move(object)),
+      error_(std::move(error)),
+      size_(size),
+      lastModifiedMs_(lastModifiedMs) {}
+
+SessionManifestSnapshot loadSessionManifestSnapshot(const QString& sessionPath) {
+    if (sessionPath.trimmed().isEmpty()) {
+        return {SessionManifestStatus::Missing,
+                {},
+                {},
+                {},
+                QStringLiteral("session path is empty"),
+                -1,
+                0};
+    }
+    const QString normalizedSessionPath = QDir::cleanPath(sessionPath);
+    const QString manifestPath =
+        QDir(normalizedSessionPath).absoluteFilePath(QStringLiteral("manifest.json"));
+    constexpr int kMaxReadAttempts = 2;
+    for (int attempt = 0; attempt < kMaxReadAttempts; ++attempt) {
+        const QFileInfo before(manifestPath);
+        if (!before.isFile()) {
+            return {SessionManifestStatus::Missing,
+                    normalizedSessionPath,
+                    manifestPath,
+                    {},
+                    QStringLiteral("session manifest is missing"),
+                    -1,
+                    0};
+        }
+        const qint64 beforeSize = before.size();
+        const qint64 beforeModifiedMs = before.lastModified().toMSecsSinceEpoch();
+        QFile file(manifestPath);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return {SessionManifestStatus::Unreadable,
+                    normalizedSessionPath,
+                    manifestPath,
+                    {},
+                    QStringLiteral("session manifest is unreadable: %1").arg(file.errorString()),
+                    beforeSize,
+                    beforeModifiedMs};
+        }
+        const QByteArray bytes = file.readAll();
+        const QFileDevice::FileError readError = file.error();
+        file.close();
+        const QFileInfo after(manifestPath);
+        const qint64 afterSize = after.isFile() ? after.size() : -1;
+        const qint64 afterModifiedMs = after.isFile()
+            ? after.lastModified().toMSecsSinceEpoch()
+            : 0;
+        const bool generationChanged =
+            !after.isFile() ||
+            beforeSize != afterSize ||
+            beforeModifiedMs != afterModifiedMs ||
+            bytes.size() != beforeSize;
+        if (readError != QFileDevice::NoError) {
+            return {SessionManifestStatus::Unreadable,
+                    normalizedSessionPath,
+                    manifestPath,
+                    {},
+                    QStringLiteral("session manifest read failed: %1").arg(file.errorString()),
+                    afterSize,
+                    afterModifiedMs};
+        }
+        if (generationChanged) {
+            if (attempt + 1 < kMaxReadAttempts) continue;
+            return {SessionManifestStatus::ChangedDuringRead,
+                    normalizedSessionPath,
+                    manifestPath,
+                    {},
+                    QStringLiteral("session manifest changed while being read"),
+                    afterSize,
+                    afterModifiedMs};
+        }
+
+        QJsonParseError parseError{};
+        const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            const QString detail = parseError.error != QJsonParseError::NoError
+                ? parseError.errorString()
+                : QStringLiteral("root is not an object");
+            return {SessionManifestStatus::Malformed,
+                    normalizedSessionPath,
+                    manifestPath,
+                    {},
+                    QStringLiteral("session manifest is malformed: %1").arg(detail),
+                    afterSize,
+                    afterModifiedMs};
+        }
+        return {SessionManifestStatus::Ready,
+                normalizedSessionPath,
+                manifestPath,
+                document.object(),
+                {},
+                afterSize,
+                afterModifiedMs};
+    }
+    return {SessionManifestStatus::ChangedDuringRead,
+            normalizedSessionPath,
+            manifestPath,
+            {},
+            QStringLiteral("session manifest changed while being read"),
+            -1,
+            0};
+}
 
 QString resolveRecordingsRoot() {
     return QDir::cleanPath(QString::fromStdString(recordings::defaultRecordingsRoot().string()));
 }
 
-QString sessionSourceSummary(const QString& sessionPath, const BacktestLegCounts& backtestCounts) {
-    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
-    if (!file.open(QIODevice::ReadOnly)) return sessionBacktestSummaryText(0, backtestCounts, 0);
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    const QJsonObject manifest = doc.object();
+QString sessionSourceSummary(const SessionManifestSnapshot& snapshot,
+                             const BacktestLegCounts& backtestCounts) {
+    if (!snapshot.ready()) return sessionBacktestSummaryText(0, backtestCounts, 0);
+    const QJsonObject& manifest = snapshot.object();
     const QJsonObject bookTicker = manifest.value(QStringLiteral("channels")).toObject().value(QStringLiteral("bookticker")).toObject();
     const QString summary = sessionBacktestSummaryText(
         bookTicker.value(QStringLiteral("declared_event_count")).toInt(),
@@ -32,12 +151,35 @@ QString sessionSourceSummary(const QString& sessionPath, const BacktestLegCounts
         manifest.value(QStringLiteral("summary")).toObject().value(QStringLiteral("warning_summary")).toString());
 }
 
+QString sessionSourceSummary(const QString& sessionPath, const BacktestLegCounts& backtestCounts) {
+    return sessionSourceSummary(loadSessionManifestSnapshot(sessionPath), backtestCounts);
+}
+
+QString manifestValue(const SessionManifestSnapshot& manifest, const QString& key) {
+    if (!manifest.ready()) return {};
+    return manifestObjectValue(manifest.object(), key);
+}
+
 QString manifestValue(const QString& sessionPath, const QString& key) {
-    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    if (!doc.isObject()) return {};
-    return manifestObjectValue(doc.object(), key);
+    return manifestValue(loadSessionManifestSnapshot(sessionPath), key);
+}
+
+std::uint64_t manifestChannelDeclaredCount(const SessionManifestSnapshot& manifest,
+                                           const QString& channel) {
+    if (!manifest.ready()) return 0u;
+    const qint64 count = manifest.object()
+                             .value(QStringLiteral("channels"))
+                             .toObject()
+                             .value(channel)
+                             .toObject()
+                             .value(QStringLiteral("declared_event_count"))
+                             .toInteger();
+    return count < 0 ? 0u : static_cast<std::uint64_t>(count);
+}
+
+std::uint64_t manifestChannelDeclaredCount(const QString& sessionPath,
+                                           const QString& channel) {
+    return manifestChannelDeclaredCount(loadSessionManifestSnapshot(sessionPath), channel);
 }
 
 QString symbolFromSessionId(const QString& sessionId) {
@@ -75,21 +217,32 @@ bool isVenueSectionKnown(const QString& exchange, const QString& market) {
     return !venueSectionFor(exchange, market).isEmpty();
 }
 
-QString venueSectionForSession(const QString& sessionPath) {
-    return venueSectionFor(manifestValue(sessionPath, QStringLiteral("exchange")), manifestValue(sessionPath, QStringLiteral("market")));
+QString venueSectionForSession(const SessionManifestSnapshot& manifest) {
+    return venueSectionFor(manifestValue(manifest, QStringLiteral("exchange")),
+                           manifestValue(manifest, QStringLiteral("market")));
 }
 
-QString symbolForSessionPath(const QString& sessionPath) {
-    QString raw = manifestValue(sessionPath, QStringLiteral("symbols")).trimmed();
-    if (raw.isEmpty()) raw = symbolFromSessionId(QFileInfo(sessionPath).fileName()).trimmed();
+QString venueSectionForSession(const QString& sessionPath) {
+    return venueSectionForSession(loadSessionManifestSnapshot(sessionPath));
+}
+
+QString symbolForSessionPath(const SessionManifestSnapshot& manifest) {
+    QString raw = manifestValue(manifest, QStringLiteral("symbols")).trimmed();
+    if (raw.isEmpty()) {
+        raw = symbolFromSessionId(QFileInfo(manifest.sessionPath()).fileName()).trimmed();
+    }
     if (raw.isEmpty()) return {};
-    const QString exchange = manifestValue(sessionPath, QStringLiteral("exchange")).trimmed();
-    const QString market = manifestValue(sessionPath, QStringLiteral("market")).trimmed();
+    const QString exchange = manifestValue(manifest, QStringLiteral("exchange")).trimmed();
+    const QString market = manifestValue(manifest, QStringLiteral("market")).trimmed();
     const std::string local = recordings::recordingLocalSymbol(exchange.toStdString(),
                                                                market.toStdString(),
                                                                raw.toStdString());
     if (!local.empty()) return QString::fromStdString(local).toUpper();
     return raw.toUpper();
+}
+
+QString symbolForSessionPath(const QString& sessionPath) {
+    return symbolForSessionPath(loadSessionManifestSnapshot(sessionPath));
 }
 
 QString sessionPathFromToken(const QString& recordingsRoot, const QString& token) {

@@ -20,6 +20,9 @@
 namespace hftrec::gui {
 
 class RecordingCatalog;
+struct BacktestExecutionPolicy;
+struct BacktestPreparedSession;
+struct BacktestPreparedSessions;
 
 class BacktestViewModel : public QObject {
     Q_OBJECT
@@ -503,7 +506,9 @@ class BacktestViewModel : public QObject {
     void stopWorker_();
     static void configureWorkerThreadStack_() noexcept;
     QString runId_() const;
+    QString runIdForSymbol_(const QString& symbol) const;
     QString displayName_() const;
+    QString displayNameForSymbol_(const QString& symbol) const;
     QString configSummary_(const QHash<QString, QString>& overrides = {}) const;
     void loadStrategyDefaults_();
     void loadPersistentConfig_();
@@ -516,6 +521,11 @@ class BacktestViewModel : public QObject {
                                                         const QHash<QString, QString>& overrides = {},
                                                         bool fixedOnly = false,
                                                         bool useSelectedSymbolOverride = true);
+    RunConfigWriteResult writeRunConfigForPreparedSessions_(
+        const QString& runId,
+        const std::vector<BacktestPreparedSession>& sessions,
+        const QHash<QString, QString>& overrides = {},
+        bool fixedOnly = false);
     QStringList selectedSessionCandidatePaths_() const;
     QStringList selectedSessionPaths_() const;
     QStringList candidatePathsForSessionId_(const QString& sessionId) const;
@@ -546,8 +556,12 @@ class BacktestViewModel : public QObject {
     quint64 latencyValue_(const QString& value, quint64 fallback) const noexcept;
     QString venueExecutionValue_(const QString& venueKey, const QString& field, const QString& fallback) const;
     QString venueExecutionOverrideValue_(const QString& venueKey, const QString& field) const;
-    std::vector<QVariantMap> venueExecutionRows_() const;
+    QVariantMap venueExecutionRow_(const QString& exchange, const QString& market) const;
     std::vector<QVariantMap> venueExecutionRowsForPaths_(const QStringList& paths) const;
+    BacktestPreparedSessions prepareSelectedSessions_() const;
+    BacktestExecutionPolicy executionPolicyForSessions_(
+        const std::vector<BacktestPreparedSession>& sessions,
+        bool includeExecutionLatency) const;
     QString effectiveResultScopeId_(const RunRecord& record) const;
     void startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix);
     void startSweep_(bool includeExecutionLatency);

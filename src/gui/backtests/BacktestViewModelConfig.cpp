@@ -765,14 +765,22 @@ void BacktestViewModel::loadProfile() {
 }
 
 QString BacktestViewModel::runId_() const {
+    return runIdForSymbol_(selectedSymbol());
+}
+
+QString BacktestViewModel::runIdForSymbol_(const QString& symbol) const {
     const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
     return QStringLiteral("%1-%2-%3-%4")
-        .arg(cleanRunSlugPart(selectedStrategy_), cleanRunSlugPart(selectedSymbol()), cleanRunSlugPart(configMode_), stamp);
+        .arg(cleanRunSlugPart(selectedStrategy_), cleanRunSlugPart(symbol), cleanRunSlugPart(configMode_), stamp);
 }
 
 QString BacktestViewModel::displayName_() const {
+    return displayNameForSymbol_(selectedSymbol());
+}
+
+QString BacktestViewModel::displayNameForSymbol_(const QString& symbol) const {
     return QStringLiteral("%1 %2 %3")
-        .arg(selectedStrategy_.trimmed(), selectedSymbol().trimmed(), configMode_.trimmed())
+        .arg(selectedStrategy_.trimmed(), symbol.trimmed(), configMode_.trimmed())
         .simplified();
 }
 
@@ -1056,22 +1064,63 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForSess
                                                                                           const QHash<QString, QString>& overrides,
                                                                                           bool fixedOnly,
                                                                                           bool useSelectedSymbolOverride) {
+    std::vector<BacktestPreparedSession> sessions;
+    sessions.reserve(static_cast<std::size_t>(sessionPaths.size()));
+    for (const QString& path : sessionPaths) {
+        const SessionManifestSnapshot manifest = loadSessionManifestSnapshot(path);
+        if (!manifest.ready()) {
+            return {{}, QStringLiteral("%1: %2").arg(manifest.error(), path)};
+        }
+        BacktestPreparedSession session;
+        session.path = path;
+        session.exchange = manifestValue(manifest, QStringLiteral("exchange")).trimmed().toLower();
+        session.market = manifestValue(manifest, QStringLiteral("market")).trimmed().toLower();
+        session.venue = venueSectionFor(session.exchange, session.market);
+        session.symbol = symbolForSessionPath(manifest);
+        session.configSymbol = session.symbol;
+        if (useSelectedSymbolOverride && path == selectedSessionPath()) {
+            const QString manualSymbol = symbolOverride_.trimmed().toUpper();
+            const QString manifestSymbol =
+                manifestValue(manifest, QStringLiteral("symbols")).trimmed().toUpper();
+            session.configSymbol = !manualSymbol.isEmpty()
+                ? manualSymbol
+                : (!manifestSymbol.isEmpty()
+                       ? manifestSymbol
+                       : symbolFromSessionId(selectedSessionId_).toUpper());
+        }
+        sessions.push_back(std::move(session));
+    }
+    return writeRunConfigForPreparedSessions_(runId, sessions, overrides, fixedOnly);
+}
+
+BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForPreparedSessions_(
+    const QString& runId,
+    const std::vector<BacktestPreparedSession>& sessions,
+    const QHash<QString, QString>& overrides,
+    bool fixedOnly) {
     const QString templatePath = configTemplatePathForStrategy(selectedStrategy_);
     const QString base = templatePath.isEmpty() ? QString{} : readTextFile(templatePath);
     if (!templatePath.isEmpty() && base.isEmpty()) {
         return {{}, QStringLiteral("failed to read config template: %1").arg(templatePath)};
     }
-    if (sessionPaths.empty()) return {{}, QStringLiteral("no session paths selected")};
-    const QString session = sessionPaths.front();
+    if (sessions.empty()) return {{}, QStringLiteral("no session paths selected")};
+    const QString session = sessions.front().path;
+    QStringList sessionPaths;
+    sessionPaths.reserve(static_cast<qsizetype>(sessions.size()));
+    for (const BacktestPreparedSession& prepared : sessions) {
+        sessionPaths.push_back(prepared.path);
+    }
     QStringList legRefs;
     QStringList venueOrder;
     QHash<QString, QStringList> venueSymbols;
     QHash<QString, QString> venueApiSlots;
     QHash<QString, QVariantMap> venueExecutionByVenue;
-    for (int i = 0; i < sessionPaths.size(); ++i) {
-        const QString path = sessionPaths.at(i);
-        const QString venue = venueSectionForSession(path);
-        const QString symbol = useSelectedSymbolOverride && path == selectedSessionPath() ? selectedSymbol() : symbolForSessionPath(path);
+    for (const BacktestPreparedSession& prepared : sessions) {
+        const QString& path = prepared.path;
+        const QString& venue = prepared.venue;
+        const QString symbol = prepared.configSymbol.isEmpty()
+            ? prepared.symbol
+            : prepared.configSymbol;
         if (venue.isEmpty() || symbol.isEmpty()) {
             return {{}, QStringLiteral("missing venue or symbol for session: %1").arg(path)};
         }
@@ -1084,7 +1133,8 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForSess
         if (apiSlot.isEmpty()) apiSlot = QStringLiteral("1");
         if (!venueApiSlots.contains(venue)) venueApiSlots.insert(venue, apiSlot);
         if (!venueExecutionByVenue.contains(venue)) {
-            const QString venueKey = venueExecutionKey(path);
+            const QString venueKey = prepared.exchange + QLatin1Char('|') +
+                normalizedFeeMarket(prepared.market);
             const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
             const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
             QVariantMap row;
@@ -1125,7 +1175,7 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForSess
     }
     QTextStream out(&file);
     out << "# recorder backtest metadata\n";
-    out << "# display_name=" << displayName_() << "\n";
+    out << "# display_name=" << displayNameForSymbol_(sessions.front().configSymbol) << "\n";
     out << "# config_summary=" << configSummary_(overrides) << "\n\n";
     const QString filteredBase = filteredBaseConfig(base);
     out << filteredBase;

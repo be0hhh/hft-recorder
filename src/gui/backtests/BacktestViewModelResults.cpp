@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <exception>
 #include <limits>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -670,10 +671,18 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     }
     if (record.displayName.isEmpty()) record.displayName = jsonValueString(object, QStringLiteral("display_name"));
     if (record.configText.isEmpty()) record.configText = jsonValueString(object, QStringLiteral("config_summary"));
-    const QJsonObject summary = object.value(QStringLiteral("summary")).toObject();
-    record.initialBalanceE8 = summary.value(QStringLiteral("initial_balance_e8")).toInteger();
-    record.totalPnlE8 = summary.value(QStringLiteral("net_realized_pnl_e8")).toInteger(
-        summary.value(QStringLiteral("realized_pnl_e8")).toInteger(summary.value(QStringLiteral("total_pnl_e8")).toInteger()));
+    const BacktestRunSummary decodedSummary = decodeBacktestRunSummary(object);
+    if (!decodedSummary.ready()) {
+        record.valid = false;
+        record.status = QStringLiteral("invalid_result_summary");
+        record.errorText = decodedSummary.error;
+        record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
+        record.rawJson = QString::fromUtf8(doc.toJson(QJsonDocument::Indented));
+        return record;
+    }
+    const QJsonObject summary = decodedSummary.values;
+    record.initialBalanceE8 = decodedSummary.initialBalanceE8;
+    record.totalPnlE8 = decodedSummary.totalPnlE8;
     record.pnlText = pnlPercentText(record.totalPnlE8, record.initialBalanceE8);
     record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
     record.performanceRows = performanceRows(object.value(QStringLiteral("performance")).toObject(), false);
@@ -702,7 +711,13 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.scopedResultMetrics.insert(QStringLiteral("portfolio"), record.resultMetrics);
     record.scopedInitialBalanceE8.insert(QStringLiteral("portfolio"), record.initialBalanceE8);
     if (mode != RecordLoadMode::MetadataOnly) {
-        record.equityPoints = equityPointsFromJsonl(record.equityPath, summary, equityRows, record.pnlMinE8, record.pnlMaxE8);
+        record.equityPoints = equityPointsFromJsonl(
+            record.equityPath,
+            summary,
+            equityRows,
+            record.pnlMinE8,
+            record.pnlMaxE8,
+            decodedSummary.totalPnlE8);
         record.executionQualityPoints = executionQualityPointsFromJsonl(record.executionQualityPath);
         record.scopedEquityPoints.insert(QStringLiteral("portfolio"), record.equityPoints);
         record.scopedPnlMinE8.insert(QStringLiteral("portfolio"), record.pnlMinE8);
@@ -710,7 +725,11 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     }
     const QJsonArray legs = object.value(QStringLiteral("legs")).toArray();
     std::vector<QVariantList> legEquitySeries;
-    if (mode != RecordLoadMode::MetadataOnly) legEquitySeries.reserve(static_cast<std::size_t>(legs.size()));
+    std::vector<qint64> legInitialBalancesE8;
+    if (mode != RecordLoadMode::MetadataOnly) {
+        legEquitySeries.reserve(static_cast<std::size_t>(legs.size()));
+        legInitialBalancesE8.reserve(static_cast<std::size_t>(legs.size()));
+    }
     for (int i = 0; i < legs.size(); ++i) {
         if (!legs.at(i).isObject()) continue;
         const QJsonObject leg = legs.at(i).toObject();
@@ -740,8 +759,18 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
             if (QFileInfo(legEquityPath).isRelative()) legEquityPath = runDir.absoluteFilePath(legEquityPath);
             qint64 minPnl = 0;
             qint64 maxPnl = 0;
-            const QVariantList points = equityPointsFromJsonl(legEquityPath, leg, legEquity.value(QStringLiteral("rows")).toInteger(), minPnl, maxPnl);
+            std::optional<qint64> legTotalPnlE8;
+            const QJsonValue legTotal = leg.value(QStringLiteral("total_pnl_e8"));
+            if (legTotal.isDouble()) legTotalPnlE8 = legTotal.toInteger();
+            const QVariantList points = equityPointsFromJsonl(
+                legEquityPath,
+                leg,
+                legEquity.value(QStringLiteral("rows")).toInteger(),
+                minPnl,
+                maxPnl,
+                legTotalPnlE8);
             legEquitySeries.push_back(points);
+            legInitialBalancesE8.push_back(leg.value(QStringLiteral("initial_balance_e8")).toInteger());
             record.scopedEquityPoints.insert(scopeId, points);
             record.scopedPnlMinE8.insert(scopeId, minPnl);
             record.scopedPnlMaxE8.insert(scopeId, maxPnl);
@@ -750,7 +779,8 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     if (mode != RecordLoadMode::MetadataOnly && !legEquitySeries.empty()) {
         qint64 minPnl = 0;
         qint64 maxPnl = 0;
-        const QVariantList points = synthesizePortfolioEquityPoints(legEquitySeries, minPnl, maxPnl);
+        const QVariantList points = synthesizePortfolioEquityPoints(
+            legEquitySeries, legInitialBalancesE8, minPnl, maxPnl);
         if (points.size() >= 2 && points.size() > record.equityPoints.size()) {
             record.equityPoints = points;
             record.pnlMinE8 = minPnl;

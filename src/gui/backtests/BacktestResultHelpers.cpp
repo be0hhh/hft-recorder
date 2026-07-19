@@ -9,7 +9,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <limits>
+#include <optional>
 
 namespace hftrec::gui {
 namespace {
@@ -69,7 +72,11 @@ QString percentRatioText(qint64 numerator, qint64 denominator) {
         .arg(sign, QString::number(absBps / 100), QString::number(absBps % 100).rightJustified(2, QLatin1Char('0')));
 }
 
-QVariantList equityPoints(const QJsonArray& points, const QJsonObject& summary, qint64& minPnl, qint64& maxPnl) {
+QVariantList equityPoints(const QJsonArray& points,
+                          const QJsonObject& summary,
+                          std::optional<qint64> summaryTotalPnlE8,
+                          qint64& minPnl,
+                          qint64& maxPnl) {
     QVariantList out;
     bool hasPoint = false;
     qint64 lastTs = 0;
@@ -130,11 +137,11 @@ QVariantList equityPoints(const QJsonArray& points, const QJsonObject& summary, 
         const qint64 fillCount = object.value(QStringLiteral("fill_count")).toInteger();
         appendRow(ts, grossRealized, realized, unrealized, total, grossTotal, netTotal, fees, wallet, position, fillCount);
     }
-    if (!summary.isEmpty() && summary.contains(QStringLiteral("total_pnl_e8"))) {
+    if (!summary.isEmpty() && summaryTotalPnlE8.has_value()) {
         const qint64 realized = summary.value(QStringLiteral("net_realized_pnl_e8")).toInteger(summary.value(QStringLiteral("realized_pnl_e8")).toInteger());
         const qint64 grossRealized = summary.value(QStringLiteral("gross_realized_pnl_e8")).toInteger(realized);
         const qint64 unrealized = summary.value(QStringLiteral("unrealized_pnl_e8")).toInteger();
-        const qint64 total = summary.value(QStringLiteral("total_pnl_e8")).toInteger(realized + unrealized);
+        const qint64 total = *summaryTotalPnlE8;
         const qint64 grossTotal = summary.value(QStringLiteral("gross_total_pnl_e8")).toInteger(grossRealized + unrealized);
         const qint64 netTotal = summary.value(QStringLiteral("net_total_pnl_e8")).toInteger(total);
         const qint64 fees = summary.value(QStringLiteral("fees_paid_e8")).toInteger();
@@ -220,6 +227,68 @@ void appendSyntheticEquityPoint(QVariantList& out,
 }
 
 }  // namespace
+
+BacktestRunSummary decodeBacktestRunSummary(const QJsonObject& root) {
+    BacktestRunSummary out;
+    out.runResultV2 = root.value(QStringLiteral("type")).toString() ==
+        QStringLiteral("run.result.v2");
+    if (out.runResultV2) {
+        const QJsonValue schemaVersion = root.value(QStringLiteral("schema_version"));
+        if (!schemaVersion.isUndefined() &&
+            (!schemaVersion.isDouble() || schemaVersion.toInteger() != 2)) {
+            out.status = BacktestRunSummaryStatus::UnsupportedSchema;
+            out.error = QStringLiteral("run.result.v2 has unsupported schema_version");
+            return out;
+        }
+    }
+
+    const QJsonValue summaryValue = root.value(QStringLiteral("summary"));
+    if (!summaryValue.isObject()) {
+        out.status = BacktestRunSummaryStatus::MissingSummary;
+        out.error = QStringLiteral("backtest result has no summary object");
+        return out;
+    }
+    out.values = summaryValue.toObject();
+    const QJsonValue initialBalance = out.values.value(QStringLiteral("initial_balance_e8"));
+    if (initialBalance.isDouble()) out.initialBalanceE8 = initialBalance.toInteger();
+
+    const auto acceptTotal = [&out](const QJsonValue& value, const QString& key) {
+        if (value.isUndefined()) return false;
+        const double numeric = value.toDouble(std::numeric_limits<double>::quiet_NaN());
+        constexpr double kQint64UpperExclusive = 9223372036854775808.0;
+        constexpr double kQint64LowerInclusive = -9223372036854775808.0;
+        if (!value.isDouble() ||
+            !std::isfinite(numeric) ||
+            std::trunc(numeric) != numeric ||
+            numeric < kQint64LowerInclusive ||
+            numeric >= kQint64UpperExclusive) {
+            out.status = BacktestRunSummaryStatus::InvalidTotalPnl;
+            out.error = QStringLiteral("backtest summary %1 must be an integer").arg(key);
+            return true;
+        }
+        out.status = BacktestRunSummaryStatus::Ready;
+        out.totalPnlE8 = value.toInteger();
+        return true;
+    };
+
+    if (out.runResultV2) {
+        if (!acceptTotal(out.values.value(QStringLiteral("total_pnl_e8")),
+                         QStringLiteral("total_pnl_e8"))) {
+            out.status = BacktestRunSummaryStatus::MissingTotalPnl;
+            out.error = QStringLiteral("run.result.v2 summary has no total_pnl_e8");
+        }
+        return out;
+    }
+
+    for (const QString& key : {QStringLiteral("total_pnl_e8"),
+                               QStringLiteral("net_realized_pnl_e8"),
+                               QStringLiteral("realized_pnl_e8")}) {
+        if (acceptTotal(out.values.value(key), key)) return out;
+    }
+    out.status = BacktestRunSummaryStatus::MissingTotalPnl;
+    out.error = QStringLiteral("legacy backtest summary has no total, net realized, or realized PnL");
+    return out;
+}
 
 QString jsonValueString(const QJsonObject& object, const QString& key) {
     const QJsonValue value = object.value(key);
@@ -478,10 +547,17 @@ QString pnlPercentText(qint64 pnlE8, qint64 initialBalanceE8) {
     return QStringLiteral("%1%2.%3%").arg(sign, QString::number(absBps / 100), QString::number(absBps % 100).rightJustified(2, QLatin1Char('0')));
 }
 
-QVariantList equityPointsFromJsonl(const QString& path, const QJsonObject& summary, qint64 totalRows, qint64& minPnl, qint64& maxPnl) {
+QVariantList equityPointsFromJsonl(const QString& path,
+                                   const QJsonObject& summary,
+                                   qint64 totalRows,
+                                   qint64& minPnl,
+                                   qint64& maxPnl,
+                                   std::optional<qint64> summaryTotalPnlE8) {
     QJsonArray sampled;
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return equityPoints(sampled, summary, minPnl, maxPnl);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return equityPoints(sampled, summary, summaryTotalPnlE8, minPnl, maxPnl);
+    }
 
     const qint64 stride = totalRows > kMaxDisplayEquityPoints ? ((totalRows + kMaxDisplayEquityPoints - 1) / kMaxDisplayEquityPoints) : 1;
     qint64 index = 0;
@@ -511,10 +587,14 @@ QVariantList equityPointsFromJsonl(const QString& path, const QJsonObject& summa
     if (!lastObject.isEmpty() && (sampled.isEmpty() || sampled.last().toObject().value(QStringLiteral("ts_ns")).toInteger() != lastObject.value(QStringLiteral("ts_ns")).toInteger())) {
         sampled.push_back(lastObject);
     }
-    return equityPoints(sampled, summary, minPnl, maxPnl);
+    return equityPoints(sampled, summary, summaryTotalPnlE8, minPnl, maxPnl);
 }
 
-QVariantList synthesizePortfolioEquityPoints(const std::vector<QVariantList>& legSeries, qint64& minPnl, qint64& maxPnl) {
+QVariantList synthesizePortfolioEquityPoints(
+    const std::vector<QVariantList>& legSeries,
+    const std::vector<qint64>& legInitialBalancesE8,
+    qint64& minPnl,
+    qint64& maxPnl) {
     std::vector<qint64> timestamps;
     for (const QVariantList& series : legSeries) {
         timestamps.reserve(timestamps.size() + static_cast<std::size_t>(series.size()));
@@ -530,7 +610,7 @@ QVariantList synthesizePortfolioEquityPoints(const std::vector<QVariantList>& le
 
     QVariantList out;
     out.reserve(static_cast<qsizetype>(timestamps.size()));
-    std::vector<qsizetype> cursors(legSeries.size(), 0);
+    std::vector<qsizetype> cursors(legSeries.size(), -1);
     bool hasPoint = false;
     for (qint64 ts : timestamps) {
         qint64 grossRealized = 0;
@@ -545,9 +625,12 @@ QVariantList synthesizePortfolioEquityPoints(const std::vector<QVariantList>& le
         qint64 fillCount = 0;
         for (std::size_t leg = 0; leg < legSeries.size(); ++leg) {
             const QVariantList& series = legSeries[leg];
-            if (series.empty()) continue;
             qsizetype& cursor = cursors[leg];
             while (cursor + 1 < series.size() && series.at(cursor + 1).toMap().value(QStringLiteral("tsNs")).toLongLong() <= ts) ++cursor;
+            if (cursor < 0) {
+                if (leg < legInitialBalancesE8.size()) wallet += legInitialBalancesE8[leg];
+                continue;
+            }
             const QVariantMap point = series.at(cursor).toMap();
             grossRealized += pointInt(point, QStringLiteral("grossRealizedPnlE8"));
             realized += pointInt(point, QStringLiteral("realizedPnlE8"));

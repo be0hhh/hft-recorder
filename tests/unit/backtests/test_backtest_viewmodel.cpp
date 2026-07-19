@@ -442,6 +442,28 @@ TEST(BacktestViewModel, IgnoresLooseLegacyJsonResultFiles) {
     EXPECT_TRUE(vm.selectedRunId().isEmpty());
 }
 
+TEST(BacktestViewModel, ExposesV2ResultWithMissingAuthoritativeTotalAsInvalid) {
+    isolateSettings(QStringLiteral("missing_total"));
+    const QString session = makeTempSessionDir();
+    makeRunDir(session, QStringLiteral("run-missing-total"), R"json({
+      "type":"run.result.v2",
+      "run_id":"run-missing-total",
+      "status":"complete",
+      "strategy":"spread_maker1and2",
+      "summary":{"initial_balance_e8":10000000000,"net_realized_pnl_e8":100000000,"realized_pnl_e8":100000000},
+      "errors":[]
+    })json");
+
+    hftrec::gui::BacktestViewModel vm;
+    setSessionPathAndWait(vm, session);
+
+    ASSERT_EQ(vm.runCount(), 1);
+    const QVariantMap row = vm.runs().front().toMap();
+    EXPECT_FALSE(row.value(QStringLiteral("valid")).toBool());
+    EXPECT_EQ(row.value(QStringLiteral("status")).toString(), QStringLiteral("invalid_result_summary"));
+    EXPECT_TRUE(row.value(QStringLiteral("pnlText")).toString().isEmpty());
+}
+
 TEST(BacktestViewModel, DefersEquityPointsUntilDetailsLoadButExposesSummaryMetrics) {
     isolateSettings(QStringLiteral("equity_points"));
     const QString session = makeTempSessionDir();
@@ -464,6 +486,10 @@ TEST(BacktestViewModel, DefersEquityPointsUntilDetailsLoadButExposesSummaryMetri
     EXPECT_TRUE(vm.selectedEquityPoints().empty());
     EXPECT_FALSE(vm.selectedResultMetrics().empty());
     EXPECT_FALSE(vm.hasEquityPoints());
+    ASSERT_EQ(vm.runs().size(), 1);
+    const QVariantMap runRow = vm.runs().front().toMap();
+    EXPECT_EQ(runRow.value(QStringLiteral("pnlText")).toString(), QStringLiteral("+0.15%"));
+    EXPECT_TRUE(runRow.value(QStringLiteral("pnlPositive")).toBool());
 
     vm.loadSelectedRunDetails();
     waitForDetailsLoad(vm);

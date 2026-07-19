@@ -88,6 +88,21 @@ TEST(BacktestBatchSweepHelpers, HonorsPairBudget) {
     EXPECT_EQ(pairs.size(), 2);
 }
 
+TEST(BacktestBatchSweepHelpers, PropagatesManifestFailureIntoSkippedRows) {
+    hftrec::gui::BatchSweepSessionInfo invalid =
+        session(QStringLiteral("bad"), QString{}, QString{}, QString{});
+    invalid.manifestError = QStringLiteral("session manifest is malformed");
+    QVariantList skipped;
+
+    const QVector<hftrec::gui::BatchSweepPair> pairs =
+        hftrec::gui::buildBatchSweepPairs({invalid}, 64, false, &skipped);
+
+    EXPECT_TRUE(pairs.empty());
+    ASSERT_EQ(skipped.size(), 1);
+    EXPECT_EQ(skipped.front().toMap().value(QStringLiteral("reason")).toString(),
+              invalid.manifestError);
+}
+
 TEST(BacktestBatchSweepHelpers, ExplainsBasisChainUnavailableSpot) {
     hftrec::gui::BatchSweepSessionInfo spot = session(QStringLiteral("spot"),
                                                       QStringLiteral("finam"),

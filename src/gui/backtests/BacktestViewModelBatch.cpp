@@ -164,9 +164,13 @@ BatchSweepSessionInfo sessionInfoForPath(const QString& path) {
     out.path = path;
     out.sessionId = QFileInfo(path).fileName();
     out.sessionDirExists = QFileInfo(path).isDir();
-    const QString manifestPath = QDir(path).absoluteFilePath(QStringLiteral("manifest.json"));
-    out.manifestPresent = QFileInfo(manifestPath).isFile();
-    const QJsonObject manifest = readJsonObject(manifestPath);
+    const SessionManifestSnapshot snapshot = loadSessionManifestSnapshot(path);
+    out.manifestPresent = snapshot.status() != SessionManifestStatus::Missing;
+    if (!snapshot.ready()) {
+        out.manifestError = snapshot.error();
+        return out;
+    }
+    const QJsonObject& manifest = snapshot.object();
     out.exchange = normalizedExchange(manifestString(manifest, QStringLiteral("exchange")));
     out.market = manifestString(manifest, QStringLiteral("market")).trimmed().toLower();
     out.symbol = manifestString(manifest, QStringLiteral("symbols")).trimmed().toUpper();
@@ -177,6 +181,26 @@ BatchSweepSessionInfo sessionInfoForPath(const QString& path) {
     out.expiryUtcNs = metadataInt64(path, QStringLiteral("expiry_utc_ns"));
     out.priceBasisQtyE8 = metadataInt64(path, QStringLiteral("price_basis_qty_e8"));
     return out;
+}
+
+std::vector<BacktestPreparedSession> preparedSessionsForPair(const BatchSweepPair& pair) {
+    std::vector<BacktestPreparedSession> sessions;
+    sessions.reserve(2u);
+    const auto append = [&sessions](const BatchSweepSessionInfo& source) {
+        BacktestPreparedSession session;
+        session.path = source.path;
+        session.exchange = source.exchange;
+        session.market = source.market;
+        session.venue = source.venue;
+        session.symbol = source.canonicalSymbol.isEmpty()
+            ? batchCanonicalSymbol(source.symbol)
+            : source.canonicalSymbol;
+        session.configSymbol = session.symbol;
+        sessions.push_back(std::move(session));
+    };
+    append(pair.first);
+    append(pair.second);
+    return sessions;
 }
 
 bool basisSpotMarket(const QString& market) {
@@ -269,6 +293,10 @@ QVector<BatchSweepPair> buildBasisChainPairs(const QString& groupPath,
     BatchSweepSessionInfo spot;
     QVector<BatchSweepSessionInfo> futures;
     for (const BatchSweepSessionInfo& session : sessions) {
+        if (!session.manifestError.isEmpty()) {
+            appendSkippedSession(session, session.manifestError);
+            continue;
+        }
         if (basisSpotMarket(session.market)) {
             const QString reason = basisChainSpotSkipReason(session);
             if (!reason.isEmpty()) {
@@ -569,27 +597,12 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
     setProgress_(0, QStringLiteral("Starting basis chain batch"));
     setStatusText_(QStringLiteral("Basis chain batch running"));
 
-    const QString batchId = QStringLiteral("basis-chain-") + runId_();
+    const QString batchId = QStringLiteral("basis-chain-") +
+        runIdForSymbol_(pairs.front().first.symbol);
     const QString groupRoot = QDir::cleanPath(groupPath);
     const QString batchRoot = QDir(groupRoot).absoluteFilePath(QStringLiteral("backtests/basis_chain_batches/%1").arg(batchId));
     const QHash<QString, QString> strategyOverrides = basisChainStrategyOverrides(groupRoot);
     QDir().mkpath(batchRoot);
-
-    const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
-    const quint64 latencySeed = latencyValue_(latencySeed_, 0);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
-    const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
-    const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
-    const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
-    const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
-    const quint64 cancelOrderLatency = latencyValue_(cancelOrderLatencyUs_, limitOrderLatency);
-    const quint64 cancelOrderJitter = latencyValue_(cancelOrderJitterUs_, limitOrderJitter);
-    const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
-    const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
-    const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
-    const bool rateLimitsEnabled = rateLimitsEnabled_;
-    const bool strictRateLimitsEnabled = rateLimitsEnabled && strictRateLimitsEnabled_;
     const QString strategy = selectedStrategy_;
     const QString indicatorProfile = selectedIndicatorProfile_;
 
@@ -598,12 +611,14 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
     QString firstConfigError;
     for (const BatchSweepPair& pair : pairs) {
         const QStringList sessionPaths{pair.first.path, pair.second.path};
+        const std::vector<BacktestPreparedSession> preparedSessions =
+            preparedSessionsForPair(pair);
         const QString pairSlug = basisChainPairSlug(pair);
-        const RunConfigWriteResult config = writeRunConfigForSessionPaths_(QStringLiteral("basis_chain_batches/%1/pair_configs/%2").arg(batchId, pairSlug),
-                                                                           sessionPaths,
-                                                                           strategyOverrides,
-                                                                           true,
-                                                                           false);
+        const RunConfigWriteResult config = writeRunConfigForPreparedSessions_(
+            QStringLiteral("basis_chain_batches/%1/pair_configs/%2").arg(batchId, pairSlug),
+            preparedSessions,
+            strategyOverrides,
+            true);
         if (!config.ok()) {
             if (firstConfigError.isEmpty()) firstConfigError = config.error;
             QVariantMap row;
@@ -618,14 +633,11 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
         item.pair = pair;
         item.configPath = config.path;
         item.outputPath = QDir(batchRoot).absoluteFilePath(QStringLiteral("runs/%1").arg(pairSlug));
-        item.request.sessionPath = pair.first.path.toStdString();
+        item.request.sessionPath = preparedSessions.front().path.toStdString();
         hft_backtest::BacktestSessionRequest leg;
-        leg.path = pair.second.path.toStdString();
-        leg.venue = pair.second.venue.toStdString();
-        const QString basisLegSymbol = pair.second.canonicalSymbol.isEmpty()
-            ? batchCanonicalSymbol(pair.second.symbol)
-            : pair.second.canonicalSymbol;
-        leg.symbol = basisLegSymbol.toStdString();
+        leg.path = preparedSessions[1].path.toStdString();
+        leg.venue = preparedSessions[1].venue.toStdString();
+        leg.symbol = preparedSessions[1].symbol.toStdString();
         item.request.sessions.push_back(std::move(leg));
         item.request.configPath = item.configPath.toStdString();
         item.request.outputPath = item.outputPath.toStdString();
@@ -638,43 +650,8 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
             : hft_backtest::BacktestTradeMode::AllLegs;
         item.request.runId = QStringLiteral("%1-%2").arg(batchId, pairSlug).toStdString();
         item.request.requestId = item.request.runId;
-        item.request.latencySeed = latencySeed;
-        item.request.marketDataLatency.baseUs = marketDataLatency;
-        item.request.marketDataLatency.jitterUs = marketDataJitter;
-        item.request.marketOrderLatency.baseUs = marketOrderLatency;
-        item.request.marketOrderLatency.jitterUs = marketOrderJitter;
-        item.request.limitOrderLatency.baseUs = limitOrderLatency;
-        item.request.limitOrderLatency.jitterUs = limitOrderJitter;
-        item.request.cancelOrderLatency.baseUs = cancelOrderLatency;
-        item.request.cancelOrderLatency.jitterUs = cancelOrderJitter;
-        item.request.userDataLatency.baseUs = userDataLatency;
-        item.request.userDataLatency.jitterUs = userDataJitter;
-        item.request.orderLatencyUs = marketOrderLatency;
-        item.request.cancelLatencyUs = cancelOrderLatency;
-        item.request.initialBalanceE8 = initialBalance;
-        const std::vector<QVariantMap> venueRows = venueExecutionRowsForPaths_(sessionPaths);
-        for (const QVariantMap& row : venueRows) {
-            item.request.legInitialBalancesE8.push_back(decimalE8Value_(row.value(QStringLiteral("initialBalanceUsdt")).toString(), initialBalance));
-            item.request.feeSchedules.push_back(feeScheduleFromVenueRow(row));
-            hft_backtest::BacktestLatencySchedule latency;
-            latency.exchange = row.value(QStringLiteral("exchange")).toString().toStdString();
-            latency.market = row.value(QStringLiteral("market")).toString().toStdString();
-            latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
-            latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
-            latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
-            latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
-            latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
-            latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
-            latency.cancelOrder.baseUs = latencyValue_(row.value(QStringLiteral("cancelOrderLatencyUs")).toString(), cancelOrderLatency);
-            latency.cancelOrder.jitterUs = latencyValue_(row.value(QStringLiteral("cancelOrderJitterUs")).toString(), cancelOrderJitter);
-            latency.userData.baseUs = latencyValue_(row.value(QStringLiteral("userDataLatencyUs")).toString(), userDataLatency);
-            latency.userData.jitterUs = latencyValue_(row.value(QStringLiteral("userDataJitterUs")).toString(), userDataJitter);
-            item.request.latencySchedules.push_back(std::move(latency));
-            hft_backtest::BacktestRateLimitSchedule rateLimit = rateLimitScheduleFromVenueRow(row);
-            if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) item.request.rateLimitSchedules.push_back(std::move(rateLimit));
-        }
-        item.request.rateLimitsEnabled = rateLimitsEnabled;
-        item.request.strictRateLimitRejects = strictRateLimitsEnabled;
+        applyBacktestExecutionPolicy(item.request,
+                                     executionPolicyForSessions_(preparedSessions, false));
         item.request.writeArtifacts = true;
         item.request.captureStrategySpread = false;
         prepared.push_back(std::move(item));
@@ -900,26 +877,13 @@ void BacktestViewModel::startBatchSweep() {
     setProgress_(0, QStringLiteral("Starting batch sweep"));
     setStatusText_(QStringLiteral("Batch sweep running"));
 
-    const QString batchId = QStringLiteral("batch-") + runId_();
+    const QString batchId = QStringLiteral("batch-") +
+        runIdForSymbol_(pairs.front().first.symbol);
     const QString batchRoot = QDir(pairs.front().first.path).absoluteFilePath(QStringLiteral("backtests/batches/%1").arg(batchId));
     QDir().mkpath(batchRoot);
 
-    const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
-    const quint64 latencySeed = latencyValue_(latencySeed_, 0);
     const quint64 searchSeed = latencyValue_(sweepSeed_, 0);
     const quint64 runBudget = latencyValue_(sweepBudget_, 64);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
-    const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
-    const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
-    const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
-    const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
-    const quint64 cancelOrderLatency = latencyValue_(cancelOrderLatencyUs_, limitOrderLatency);
-    const quint64 cancelOrderJitter = latencyValue_(cancelOrderJitterUs_, limitOrderJitter);
-    const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
-    const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
-    const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
-    const bool rateLimitsEnabled = rateLimitsEnabled_;
     const QString strategy = selectedStrategy_;
     const QString indicatorProfile = selectedIndicatorProfile_;
 
@@ -928,12 +892,14 @@ void BacktestViewModel::startBatchSweep() {
     QString firstConfigError;
     for (const BatchSweepPair& pair : pairs) {
         const QStringList sessionPaths{pair.first.path, pair.second.path};
+        const std::vector<BacktestPreparedSession> preparedSessions =
+            preparedSessionsForPair(pair);
         const QString pairSlug = cleanPairSlug(pair);
-        const RunConfigWriteResult config = writeRunConfigForSessionPaths_(QStringLiteral("batches/%1/pair_configs/%2").arg(batchId, pairSlug),
-                                                                           sessionPaths,
-                                                                           {},
-                                                                           true,
-                                                                           false);
+        const RunConfigWriteResult config = writeRunConfigForPreparedSessions_(
+            QStringLiteral("batches/%1/pair_configs/%2").arg(batchId, pairSlug),
+            preparedSessions,
+            {},
+            true);
         if (!config.ok()) {
             if (firstConfigError.isEmpty()) firstConfigError = config.error;
             QVariantMap row;
@@ -948,14 +914,11 @@ void BacktestViewModel::startBatchSweep() {
         item.pair = pair;
         item.configPath = config.path;
         item.outputPath = QDir(batchRoot).absoluteFilePath(QStringLiteral("sweeps/%1").arg(pairSlug));
-        item.request.baseRun.sessionPath = pair.first.path.toStdString();
+        item.request.baseRun.sessionPath = preparedSessions.front().path.toStdString();
         hft_backtest::BacktestSessionRequest leg;
-        leg.path = pair.second.path.toStdString();
-        leg.venue = pair.second.venue.toStdString();
-        const QString sweepLegSymbol = pair.second.canonicalSymbol.isEmpty()
-            ? batchCanonicalSymbol(pair.second.symbol)
-            : pair.second.canonicalSymbol;
-        leg.symbol = sweepLegSymbol.toStdString();
+        leg.path = preparedSessions[1].path.toStdString();
+        leg.venue = preparedSessions[1].venue.toStdString();
+        leg.symbol = preparedSessions[1].symbol.toStdString();
         item.request.baseRun.sessions.push_back(std::move(leg));
         item.request.baseRun.configPath = item.configPath.toStdString();
         item.request.baseRun.strategy = strategy.toStdString();
@@ -965,42 +928,8 @@ void BacktestViewModel::startBatchSweep() {
         item.request.baseRun.tradeMode = selectedTradeMode_ == QStringLiteral("primary")
             ? hft_backtest::BacktestTradeMode::PrimaryOnly
             : hft_backtest::BacktestTradeMode::AllLegs;
-        item.request.baseRun.latencySeed = latencySeed;
-        item.request.baseRun.marketDataLatency.baseUs = marketDataLatency;
-        item.request.baseRun.marketDataLatency.jitterUs = marketDataJitter;
-        item.request.baseRun.marketOrderLatency.baseUs = marketOrderLatency;
-        item.request.baseRun.marketOrderLatency.jitterUs = marketOrderJitter;
-        item.request.baseRun.limitOrderLatency.baseUs = limitOrderLatency;
-        item.request.baseRun.limitOrderLatency.jitterUs = limitOrderJitter;
-        item.request.baseRun.cancelOrderLatency.baseUs = cancelOrderLatency;
-        item.request.baseRun.cancelOrderLatency.jitterUs = cancelOrderJitter;
-        item.request.baseRun.userDataLatency.baseUs = userDataLatency;
-        item.request.baseRun.userDataLatency.jitterUs = userDataJitter;
-        item.request.baseRun.orderLatencyUs = marketOrderLatency;
-        item.request.baseRun.cancelLatencyUs = cancelOrderLatency;
-        item.request.baseRun.initialBalanceE8 = initialBalance;
-        const std::vector<QVariantMap> venueRows = venueExecutionRowsForPaths_(sessionPaths);
-        for (const QVariantMap& row : venueRows) {
-            item.request.baseRun.legInitialBalancesE8.push_back(decimalE8Value_(row.value(QStringLiteral("initialBalanceUsdt")).toString(), initialBalance));
-            item.request.baseRun.feeSchedules.push_back(feeScheduleFromVenueRow(row));
-            hft_backtest::BacktestLatencySchedule latency;
-            latency.exchange = row.value(QStringLiteral("exchange")).toString().toStdString();
-            latency.market = row.value(QStringLiteral("market")).toString().toStdString();
-            latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
-            latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
-            latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
-            latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
-            latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
-            latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
-            latency.cancelOrder.baseUs = latencyValue_(row.value(QStringLiteral("cancelOrderLatencyUs")).toString(), cancelOrderLatency);
-            latency.cancelOrder.jitterUs = latencyValue_(row.value(QStringLiteral("cancelOrderJitterUs")).toString(), cancelOrderJitter);
-            latency.userData.baseUs = latencyValue_(row.value(QStringLiteral("userDataLatencyUs")).toString(), userDataLatency);
-            latency.userData.jitterUs = latencyValue_(row.value(QStringLiteral("userDataJitterUs")).toString(), userDataJitter);
-            item.request.baseRun.latencySchedules.push_back(std::move(latency));
-            hft_backtest::BacktestRateLimitSchedule rateLimit = rateLimitScheduleFromVenueRow(row);
-            if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) item.request.baseRun.rateLimitSchedules.push_back(std::move(rateLimit));
-        }
-        item.request.baseRun.rateLimitsEnabled = rateLimitsEnabled;
+        applyBacktestExecutionPolicy(item.request.baseRun,
+                                     executionPolicyForSessions_(preparedSessions, false));
         item.request.baseRun.writeArtifacts = false;
         item.request.sweepId = QStringLiteral("%1-%2").arg(batchId, pairSlug).toStdString();
         item.request.runBudget = runBudget;

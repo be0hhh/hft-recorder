@@ -22,6 +22,7 @@
 #include <exception>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -88,19 +89,26 @@ bool progressCallback(const hft_backtest::BacktestProgress& progress, void* user
     return !vm->workerCancelRequested();
 }
 
-bool sessionVenueIsKnown(const QString& sessionPath, QString* reason) {
-    const QString exchange = manifestValue(sessionPath, QStringLiteral("exchange")).trimmed().toLower();
-    const QString market = manifestValue(sessionPath, QStringLiteral("market")).trimmed().toLower();
-    if (exchange.isEmpty() || market.isEmpty() || !isVenueSectionKnown(exchange, market)) {
-        const auto printableExchange = exchange.isEmpty() ? QStringLiteral("<empty>") : exchange;
-        const auto printableMarket = market.isEmpty() ? QStringLiteral("<empty>") : market;
-        if (reason != nullptr) {
-            *reason = QStringLiteral("Unsupported venue: exchange=%1 market=%2 in session=%3")
-                          .arg(printableExchange, printableMarket, sessionPath);
-        }
-        return false;
+QStringList preparedSessionPaths(const std::vector<BacktestPreparedSession>& sessions) {
+    QStringList paths;
+    paths.reserve(static_cast<qsizetype>(sessions.size()));
+    for (const BacktestPreparedSession& session : sessions) paths.push_back(session.path);
+    return paths;
+}
+
+std::vector<hft_backtest::BacktestSessionRequest> preparedSecondarySessions(
+    const std::vector<BacktestPreparedSession>& sessions) {
+    std::vector<hft_backtest::BacktestSessionRequest> out;
+    if (sessions.size() <= 1u) return out;
+    out.reserve(sessions.size() - 1u);
+    for (std::size_t i = 1; i < sessions.size(); ++i) {
+        hft_backtest::BacktestSessionRequest request;
+        request.path = sessions[i].path.toStdString();
+        request.venue = sessions[i].venue.toStdString();
+        request.symbol = sessions[i].symbol.toStdString();
+        out.push_back(std::move(request));
     }
-    return true;
+    return out;
 }
 
 QString catalogSessionSummary(const hftrec::recordings::RecordedSessionInfo& session, const BacktestLegCounts& counts) {
@@ -109,20 +117,6 @@ QString catalogSessionSummary(const hftrec::recordings::RecordedSessionInfo& ses
     return appendSessionHealthSummary(summary,
                                       QString::fromStdString(session.sessionHealth),
                                       QString::fromStdString(session.warningSummary));
-}
-
-std::uint64_t manifestChannelDeclaredCount(const QString& sessionPath, const QString& channel) {
-    QFile file(QDir(sessionPath).absoluteFilePath(QStringLiteral("manifest.json")));
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return 0;
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    if (!doc.isObject()) return 0;
-    const QJsonObject channelObject = doc.object()
-                                        .value(QStringLiteral("channels"))
-                                        .toObject()
-                                        .value(channel)
-                                        .toObject();
-    const qint64 count = channelObject.value(QStringLiteral("declared_event_count")).toInteger();
-    return count < 0 ? 0 : static_cast<std::uint64_t>(count);
 }
 
 QString sessionDataSummaryText(std::uint64_t bookTickerCount, std::uint64_t tradesCount) {
@@ -486,7 +480,19 @@ QString BacktestViewModel::sessionSymbolForPath_(const QString& path) const {
 QString BacktestViewModel::sessionVenueSectionForPath_(const QString& path) const {
     const QVariantMap row = sessionCatalogRowForPath_(path);
     const QString venue = row.value(QStringLiteral("venue")).toString().trimmed();
-    return venue.isEmpty() ? venueSectionFor(sessionExchangeForPath_(path), sessionMarketForPath_(path)) : venue;
+    if (!venue.isEmpty()) return venue;
+    QString exchange = row.value(QStringLiteral("exchange")).toString().trimmed().toLower();
+    QString market = row.value(QStringLiteral("market")).toString().trimmed().toLower();
+    if (exchange.isEmpty() || market.isEmpty()) {
+        const SessionManifestSnapshot manifest = loadSessionManifestSnapshot(path);
+        if (exchange.isEmpty()) {
+            exchange = manifestValue(manifest, QStringLiteral("exchange")).trimmed().toLower();
+        }
+        if (market.isEmpty()) {
+            market = manifestValue(manifest, QStringLiteral("market")).trimmed().toLower();
+        }
+    }
+    return venueSectionFor(exchange, market);
 }
 
 std::uint64_t BacktestViewModel::sessionBookTickerCountForPath_(const QString& path) const {
@@ -504,8 +510,18 @@ std::uint64_t BacktestViewModel::sessionTradeCountForPath_(const QString& path) 
 }
 
 QString BacktestViewModel::venueExecutionKeyForPath_(const QString& path) const {
-    const QString exchange = sessionExchangeForPath_(path);
-    const QString market = sessionMarketForPath_(path);
+    const QVariantMap row = sessionCatalogRowForPath_(path);
+    QString exchange = row.value(QStringLiteral("exchange")).toString().trimmed().toLower();
+    QString market = row.value(QStringLiteral("market")).toString().trimmed().toLower();
+    if (exchange.isEmpty() || market.isEmpty()) {
+        const SessionManifestSnapshot manifest = loadSessionManifestSnapshot(path);
+        if (exchange.isEmpty()) {
+            exchange = manifestValue(manifest, QStringLiteral("exchange")).trimmed().toLower();
+        }
+        if (market.isEmpty()) {
+            market = manifestValue(manifest, QStringLiteral("market")).trimmed().toLower();
+        }
+    }
     if (exchange.isEmpty() || market.isEmpty()) return {};
     return exchange + QLatin1Char('|') + normalizedFeeMarket(market);
 }
@@ -519,13 +535,51 @@ QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths
         const QString path = paths.at(i);
         const bool enabled = !disabledPaths.contains(path);
         const bool primary = i == primaryIndex;
-        const QString exchange = sessionExchangeForPath_(path);
-        const QString market = sessionMarketForPath_(path);
-        const QString symbol = sessionSymbolForPath_(path);
-        const QString venue = sessionVenueSectionForPath_(path);
-        const QString venueKey = venueExecutionKeyForPath_(path);
-        const std::uint64_t bookTickerCount = sessionBookTickerCountForPath_(path);
-        const std::uint64_t tradesCount = sessionTradeCountForPath_(path);
+        const QVariantMap catalogRow = sessionCatalogRowForPath_(path);
+        const bool needsManifest =
+            catalogRow.value(QStringLiteral("exchange")).toString().trimmed().isEmpty() ||
+            catalogRow.value(QStringLiteral("market")).toString().trimmed().isEmpty() ||
+            catalogRow.value(QStringLiteral("symbol")).toString().trimmed().isEmpty() ||
+            !catalogRow.value(QStringLiteral("bookTickerCount")).isValid() ||
+            !catalogRow.value(QStringLiteral("tradeCount")).isValid();
+        std::optional<SessionManifestSnapshot> manifest;
+        if (needsManifest) manifest.emplace(loadSessionManifestSnapshot(path));
+        const QString exchangeFromManifest = manifest.has_value()
+            ? manifestValue(*manifest, QStringLiteral("exchange")).trimmed().toLower()
+            : QString{};
+        const QString marketFromManifest = manifest.has_value()
+            ? manifestValue(*manifest, QStringLiteral("market"))
+            : QString{};
+        const QString exchange = catalogRow.value(QStringLiteral("exchange")).toString().trimmed().toLower().isEmpty()
+            ? exchangeFromManifest
+            : catalogRow.value(QStringLiteral("exchange")).toString().trimmed().toLower();
+        const QString catalogMarket = catalogRow.value(QStringLiteral("market")).toString().trimmed().toLower();
+        const QString market = catalogMarket.isEmpty()
+            ? normalizedFeeMarket(marketFromManifest)
+            : catalogMarket;
+        const QString catalogSymbol = catalogRow.value(QStringLiteral("symbol")).toString().trimmed().toUpper();
+        const QString symbol = catalogSymbol.isEmpty() && manifest.has_value()
+            ? symbolForSessionPath(*manifest)
+            : catalogSymbol;
+        const QString catalogVenue = catalogRow.value(QStringLiteral("venue")).toString().trimmed();
+        const QString venue = catalogVenue.isEmpty()
+            ? venueSectionFor(exchange, market)
+            : catalogVenue;
+        const QString venueKey = exchange.isEmpty() || market.isEmpty()
+            ? QString{}
+            : exchange + QLatin1Char('|') + normalizedFeeMarket(market);
+        const QVariant bookTickerValue = catalogRow.value(QStringLiteral("bookTickerCount"));
+        const QVariant tradesValue = catalogRow.value(QStringLiteral("tradeCount"));
+        const std::uint64_t bookTickerCount = bookTickerValue.isValid()
+            ? bookTickerValue.toULongLong()
+            : (manifest.has_value()
+                   ? manifestChannelDeclaredCount(*manifest, QStringLiteral("bookticker"))
+                   : 0u);
+        const std::uint64_t tradesCount = tradesValue.isValid()
+            ? tradesValue.toULongLong()
+            : (manifest.has_value()
+                   ? manifestChannelDeclaredCount(*manifest, QStringLiteral("trades"))
+                   : 0u);
         const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
         const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
         row.insert(QStringLiteral("index"), i);
@@ -606,52 +660,218 @@ QString BacktestViewModel::venueExecutionOverrideValue_(const QString& venueKey,
     return settings_.value(settingsKey).toString().trimmed();
 }
 
+QVariantMap BacktestViewModel::venueExecutionRow_(const QString& exchange,
+                                                  const QString& market) const {
+    const QString venueKey = exchange.trimmed().toLower() + QLatin1Char('|') +
+        normalizedFeeMarket(market);
+    const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
+    const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
+    QVariantMap row;
+    row.insert(QStringLiteral("exchange"), exchange.trimmed().toLower());
+    row.insert(QStringLiteral("market"), normalizedFeeMarket(market));
+    row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
+    if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
+    if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);
+    row.insert(QStringLiteral("marketDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_));
+    row.insert(QStringLiteral("marketDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_));
+    row.insert(QStringLiteral("marketOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_));
+    row.insert(QStringLiteral("marketOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_));
+    row.insert(QStringLiteral("limitOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_));
+    row.insert(QStringLiteral("limitOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_));
+    row.insert(QStringLiteral("cancelOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("cancel_order_latency_us"), cancelOrderLatencyUs_));
+    row.insert(QStringLiteral("cancelOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("cancel_order_jitter_us"), cancelOrderJitterUs_));
+    row.insert(QStringLiteral("userDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_latency_us"), userDataLatencyUs_));
+    row.insert(QStringLiteral("userDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_jitter_us"), userDataJitterUs_));
+    row.insert(QStringLiteral("rateLimitOrdersLimit"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_orders_limit"), QString{}));
+    row.insert(QStringLiteral("rateLimitOrdersIntervalMs"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_orders_interval_ms"), QString{}));
+    row.insert(QStringLiteral("rateLimitCancelOrdersLimit"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_cancel_orders_limit"), QString{}));
+    row.insert(QStringLiteral("rateLimitCancelOrdersIntervalMs"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_cancel_orders_interval_ms"), QString{}));
+    row.insert(QStringLiteral("rateLimitReduceOnlyOrdersLimit"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_reduce_only_orders_limit"), QString{}));
+    row.insert(QStringLiteral("rateLimitReduceOnlyOrdersIntervalMs"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_reduce_only_orders_interval_ms"), QString{}));
+    row.insert(QStringLiteral("rateLimitLimitOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_limit_order_cost"), QStringLiteral("1")));
+    row.insert(QStringLiteral("rateLimitMarketOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_market_order_cost"), QStringLiteral("1")));
+    row.insert(QStringLiteral("rateLimitCancelOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_cancel_order_cost"), QStringLiteral("1")));
+    row.insert(QStringLiteral("rateLimitReduceOnlyLimitOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_reduce_only_limit_order_cost"), QStringLiteral("1")));
+    row.insert(QStringLiteral("rateLimitReduceOnlyMarketOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_reduce_only_market_order_cost"), QStringLiteral("1")));
+    return row;
+}
+
 std::vector<QVariantMap> BacktestViewModel::venueExecutionRowsForPaths_(const QStringList& paths) const {
     std::vector<QVariantMap> out;
     QSet<QString> emitted;
     out.reserve(static_cast<std::size_t>(paths.size()));
     for (const QString& path : paths) {
-        const QString venueKey = venueExecutionKeyForPath_(path);
+        const QVariantMap catalogRow = sessionCatalogRowForPath_(path);
+        QString exchange = catalogRow.value(QStringLiteral("exchange")).toString().trimmed().toLower();
+        QString market = catalogRow.value(QStringLiteral("market")).toString().trimmed().toLower();
+        if (exchange.isEmpty() || market.isEmpty()) {
+            const SessionManifestSnapshot manifest = loadSessionManifestSnapshot(path);
+            if (exchange.isEmpty()) {
+                exchange = manifestValue(manifest, QStringLiteral("exchange")).trimmed().toLower();
+            }
+            if (market.isEmpty()) {
+                market = normalizedFeeMarket(manifestValue(manifest, QStringLiteral("market")));
+            }
+        }
+        const QString venueKey = exchange.isEmpty() || market.isEmpty()
+            ? QString{}
+            : exchange + QLatin1Char('|') + normalizedFeeMarket(market);
         if (venueKey.isEmpty() || emitted.contains(venueKey)) continue;
         emitted.insert(venueKey);
-        const QString exchange = sessionExchangeForPath_(path);
-        const QString market = sessionMarketForPath_(path);
-        const QString makerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("maker_fee_bps"));
-        const QString takerFeeOverride = venueExecutionOverrideValue_(venueKey, QStringLiteral("taker_fee_bps"));
-        QVariantMap row;
-        row.insert(QStringLiteral("exchange"), exchange);
-        row.insert(QStringLiteral("market"), market);
-        row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
-        if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
-        if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);
-        row.insert(QStringLiteral("marketDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_));
-        row.insert(QStringLiteral("marketDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_));
-        row.insert(QStringLiteral("marketOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_));
-        row.insert(QStringLiteral("marketOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_));
-        row.insert(QStringLiteral("limitOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_));
-        row.insert(QStringLiteral("limitOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_jitter_us"), limitOrderJitterUs_));
-        row.insert(QStringLiteral("cancelOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("cancel_order_latency_us"), cancelOrderLatencyUs_));
-        row.insert(QStringLiteral("cancelOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("cancel_order_jitter_us"), cancelOrderJitterUs_));
-        row.insert(QStringLiteral("userDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_latency_us"), userDataLatencyUs_));
-        row.insert(QStringLiteral("userDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("user_data_jitter_us"), userDataJitterUs_));
-        row.insert(QStringLiteral("rateLimitOrdersLimit"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_orders_limit"), QString{}));
-        row.insert(QStringLiteral("rateLimitOrdersIntervalMs"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_orders_interval_ms"), QString{}));
-        row.insert(QStringLiteral("rateLimitCancelOrdersLimit"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_cancel_orders_limit"), QString{}));
-        row.insert(QStringLiteral("rateLimitCancelOrdersIntervalMs"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_cancel_orders_interval_ms"), QString{}));
-        row.insert(QStringLiteral("rateLimitReduceOnlyOrdersLimit"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_reduce_only_orders_limit"), QString{}));
-        row.insert(QStringLiteral("rateLimitReduceOnlyOrdersIntervalMs"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_reduce_only_orders_interval_ms"), QString{}));
-        row.insert(QStringLiteral("rateLimitLimitOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_limit_order_cost"), QStringLiteral("1")));
-        row.insert(QStringLiteral("rateLimitMarketOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_market_order_cost"), QStringLiteral("1")));
-        row.insert(QStringLiteral("rateLimitCancelOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_cancel_order_cost"), QStringLiteral("1")));
-        row.insert(QStringLiteral("rateLimitReduceOnlyLimitOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_reduce_only_limit_order_cost"), QStringLiteral("1")));
-        row.insert(QStringLiteral("rateLimitReduceOnlyMarketOrderCost"), venueExecutionValue_(venueKey, QStringLiteral("rate_limit_reduce_only_market_order_cost"), QStringLiteral("1")));
-        out.push_back(std::move(row));
+        out.push_back(venueExecutionRow_(exchange, market));
     }
     return out;
 }
 
-std::vector<QVariantMap> BacktestViewModel::venueExecutionRows_() const {
-    return venueExecutionRowsForPaths_(orderedSessionPathsForRun_());
+BacktestPreparedSessions BacktestViewModel::prepareSelectedSessions_() const {
+    BacktestPreparedSessions prepared;
+    const QStringList paths = selectedSessionPaths_();
+    if (paths.empty()) {
+        prepared.error = QStringLiteral("Select at least one session");
+        return prepared;
+    }
+
+    std::vector<BacktestPreparedSession> candidates;
+    candidates.reserve(static_cast<std::size_t>(paths.size()));
+    for (const QString& path : paths) {
+        const SessionManifestSnapshot manifest = loadSessionManifestSnapshot(path);
+        if (!manifest.ready()) {
+            prepared.error = QStringLiteral("%1: %2").arg(manifest.error(), path);
+            return prepared;
+        }
+        BacktestPreparedSession session;
+        session.path = path;
+        session.exchange = manifestValue(manifest, QStringLiteral("exchange")).trimmed().toLower();
+        session.market = manifestValue(manifest, QStringLiteral("market")).trimmed().toLower();
+        session.venue = venueSectionFor(session.exchange, session.market);
+        session.symbol = symbolForSessionPath(manifest);
+        session.configSymbol = session.symbol;
+        if (path == selectedSessionPath()) {
+            const QString manualSymbol = symbolOverride_.trimmed().toUpper();
+            const QString manifestSymbol =
+                manifestValue(manifest, QStringLiteral("symbols")).trimmed().toUpper();
+            session.configSymbol = !manualSymbol.isEmpty()
+                ? manualSymbol
+                : (!manifestSymbol.isEmpty()
+                       ? manifestSymbol
+                       : symbolFromSessionId(selectedSessionId_).toUpper());
+        }
+        if (session.exchange.isEmpty() || session.market.isEmpty() || session.venue.isEmpty()) {
+            prepared.error = QStringLiteral("Unsupported venue: exchange=%1 market=%2 in session=%3")
+                                 .arg(session.exchange.isEmpty() ? QStringLiteral("<empty>") : session.exchange,
+                                      session.market.isEmpty() ? QStringLiteral("<empty>") : session.market,
+                                      path);
+            return prepared;
+        }
+        if (session.symbol.isEmpty() || session.configSymbol.isEmpty()) {
+            prepared.error = QStringLiteral("missing symbol for session: %1").arg(path);
+            return prepared;
+        }
+        candidates.push_back(std::move(session));
+    }
+
+    if (selectedStrategy_ != QStringLiteral("basis_convergence_probe") || candidates.size() < 2u) {
+        prepared.sessions = std::move(candidates);
+        return prepared;
+    }
+    const auto isFuturesMarket = [](const QString& market) {
+        return market == QStringLiteral("futures") ||
+               market == QStringLiteral("future") ||
+               market == QStringLiteral("forts") ||
+               market == QStringLiteral("usdt") ||
+               market == QStringLiteral("usdc") ||
+               market == QStringLiteral("linear");
+    };
+    int spotIndex = -1;
+    int futuresIndex = -1;
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        if (candidates[i].market == QStringLiteral("spot")) {
+            spotIndex = static_cast<int>(i);
+        } else if (futuresIndex < 0 && isFuturesMarket(candidates[i].market)) {
+            futuresIndex = static_cast<int>(i);
+        }
+    }
+    if (spotIndex >= 0 && futuresIndex >= 0 && spotIndex != futuresIndex) {
+        prepared.sessions.push_back(std::move(candidates[static_cast<std::size_t>(spotIndex)]));
+        prepared.sessions.push_back(std::move(candidates[static_cast<std::size_t>(futuresIndex)]));
+    } else {
+        prepared.sessions = std::move(candidates);
+    }
+    return prepared;
+}
+
+BacktestExecutionPolicy BacktestViewModel::executionPolicyForSessions_(
+    const std::vector<BacktestPreparedSession>& sessions,
+    bool includeExecutionLatency) const {
+    const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
+    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
+    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
+    const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
+    const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
+    const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
+    const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
+    const quint64 cancelOrderLatency = latencyValue_(cancelOrderLatencyUs_, limitOrderLatency);
+    const quint64 cancelOrderJitter = latencyValue_(cancelOrderJitterUs_, limitOrderJitter);
+    const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
+    const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
+
+    BacktestExecutionPolicy policy{};
+    policy.latencySeed = latencyValue_(latencySeed_, 0);
+    policy.marketDataLatency = {marketDataLatency, marketDataJitter};
+    policy.marketOrderLatency = {marketOrderLatency, marketOrderJitter};
+    policy.limitOrderLatency = {limitOrderLatency, limitOrderJitter};
+    policy.cancelOrderLatency = {cancelOrderLatency, cancelOrderJitter};
+    policy.userDataLatency = {userDataLatency, userDataJitter};
+    policy.orderLatencyUs = marketOrderLatency;
+    policy.cancelLatencyUs = cancelOrderLatency;
+    policy.initialBalanceE8 = decimalE8Value_(initialBalanceUsdt_, 0);
+    policy.rateLimitsEnabled = rateLimitsEnabled_;
+    policy.strictRateLimitsEnabled = strictRateLimitsEnabled_;
+
+    std::vector<QVariantMap> venueRows;
+    QSet<QString> emittedVenueKeys;
+    venueRows.reserve(sessions.size());
+    for (const BacktestPreparedSession& session : sessions) {
+        const QString venueKey = session.exchange + QLatin1Char('|') +
+            normalizedFeeMarket(session.market);
+        if (venueKey.isEmpty() || emittedVenueKeys.contains(venueKey)) continue;
+        emittedVenueKeys.insert(venueKey);
+        venueRows.push_back(venueExecutionRow_(session.exchange, session.market));
+    }
+    policy.legInitialBalancesE8.reserve(venueRows.size());
+    policy.feeSchedules.reserve(venueRows.size());
+    policy.latencySchedules.reserve(venueRows.size());
+    policy.rateLimitSchedules.reserve(venueRows.size());
+    for (const QVariantMap& row : venueRows) {
+        const QString exchange = row.value(QStringLiteral("exchange")).toString();
+        const QString market = row.value(QStringLiteral("market")).toString();
+        if (exchange.isEmpty() || market.isEmpty()) continue;
+        policy.legInitialBalancesE8.push_back(
+            decimalE8Value_(row.value(QStringLiteral("initialBalanceUsdt")).toString(),
+                            policy.initialBalanceE8));
+        policy.feeSchedules.push_back(feeScheduleFromVenueRow(row));
+        if (usePerVenueLatencySchedules(includeExecutionLatency)) {
+            hft_backtest::BacktestLatencySchedule latency{};
+            latency.exchange = exchange.toStdString();
+            latency.market = market.toStdString();
+            latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
+            latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
+            latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
+            latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
+            latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
+            latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
+            latency.cancelOrder.baseUs = latencyValue_(row.value(QStringLiteral("cancelOrderLatencyUs")).toString(), cancelOrderLatency);
+            latency.cancelOrder.jitterUs = latencyValue_(row.value(QStringLiteral("cancelOrderJitterUs")).toString(), cancelOrderJitter);
+            latency.userData.baseUs = latencyValue_(row.value(QStringLiteral("userDataLatencyUs")).toString(), userDataLatency);
+            latency.userData.jitterUs = latencyValue_(row.value(QStringLiteral("userDataJitterUs")).toString(), userDataJitter);
+            policy.latencySchedules.push_back(std::move(latency));
+        }
+        hft_backtest::BacktestRateLimitSchedule rateLimit = rateLimitScheduleFromVenueRow(row);
+        if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) {
+            policy.rateLimitSchedules.push_back(std::move(rateLimit));
+        }
+    }
+    return policy;
 }
 
 QString BacktestViewModel::selectedSymbol() const {
@@ -815,7 +1035,8 @@ QVariantList BacktestViewModel::runs() const {
 }
 
 bool BacktestViewModel::canRun() const {
-    return !running_ && !orderedSessionPathsForRun_().empty() && !selectedStrategy_.trimmed().isEmpty() && strategySupportsSelectedSessionCount_();
+    return !running_ && !selectedSessionPaths_().empty() &&
+           !selectedStrategy_.trimmed().isEmpty() && strategySupportsSelectedSessionCount_();
 }
 
 void BacktestViewModel::startBacktest() {
@@ -827,30 +1048,27 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     stopWorker_();
     cancelRequested_.store(false, std::memory_order_release);
 
-    const QStringList sessionPaths = orderedSessionPathsForRun_();
-    if (sessionPaths.empty()) {
+    const BacktestPreparedSessions prepared = prepareSelectedSessions_();
+    if (!prepared.ready()) {
         setRunning_(false);
-        setStatusText_(QStringLiteral("Select at least one session"));
+        setStatusText_(prepared.error);
         return;
     }
+    const QStringList sessionPaths = preparedSessionPaths(prepared.sessions);
+    const std::vector<hft_backtest::BacktestSessionRequest> secondarySessions =
+        preparedSecondarySessions(prepared.sessions);
     const QString outputSessionPath = sessionPaths.front();
-    QString venueError;
-    for (const QString& path : sessionPaths) {
-        if (!sessionVenueIsKnown(path, &venueError)) {
-            setStatusText_(venueError);
-            return;
-        }
-    }
 
     setRunning_(true);
     setProgress_(0, QStringLiteral("Starting"));
     setStatusText_(QStringLiteral("Backtest running"));
 
     const QString strategy = selectedStrategy_;
-    QString runId = runId_();
+    QString runId = runIdForSymbol_(prepared.sessions.front().configSymbol);
     if (!suffix.trimmed().isEmpty()) runId += QStringLiteral("-") + cleanRunSlugPart(suffix);
     activeRunId_ = runId;
-    const RunConfigWriteResult config = writeRunConfig_(runId, overrides, false);
+    const RunConfigWriteResult config =
+        writeRunConfigForPreparedSessions_(runId, prepared.sessions, overrides, false);
     if (!config.ok()) {
         activeRunId_.clear();
         setRunning_(false);
@@ -858,74 +1076,17 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         return;
     }
     const QString configPath = config.path;
-    const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
-    const quint64 latencySeed = latencyValue_(latencySeed_, 0);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
-    const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
-    const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
-    const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
-    const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
-    const quint64 cancelOrderLatency = latencyValue_(cancelOrderLatencyUs_, limitOrderLatency);
-    const quint64 cancelOrderJitter = latencyValue_(cancelOrderJitterUs_, limitOrderJitter);
-    const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
-    const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
-    const quint64 orderLatency = marketOrderLatency;
-    const quint64 cancelLatency = cancelOrderLatency;
-    const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
-    const bool rateLimitsEnabled = rateLimitsEnabled_;
-    const bool strictRateLimitsEnabled = rateLimitsEnabled && strictRateLimitsEnabled_;
-    std::vector<std::int64_t> legInitialBalances;
-    std::vector<hft_backtest::BacktestFeeSchedule> feeSchedules;
-    std::vector<hft_backtest::BacktestLatencySchedule> latencySchedules;
-    std::vector<hft_backtest::BacktestRateLimitSchedule> rateLimitSchedules;
-    const std::vector<QVariantMap> venueRows = venueExecutionRows_();
-    legInitialBalances.reserve(venueRows.size());
-    feeSchedules.reserve(venueRows.size());
-    latencySchedules.reserve(venueRows.size());
-    rateLimitSchedules.reserve(venueRows.size());
-    for (const QVariantMap& row : venueRows) {
-        const QString exchange = row.value(QStringLiteral("exchange")).toString();
-        const QString market = row.value(QStringLiteral("market")).toString();
-        if (exchange.isEmpty() || market.isEmpty()) continue;
-        legInitialBalances.push_back(decimalE8Value_(row.value(QStringLiteral("initialBalanceUsdt")).toString(), initialBalance));
-        feeSchedules.push_back(feeScheduleFromVenueRow(row));
-        hft_backtest::BacktestLatencySchedule latency{};
-        latency.exchange = exchange.toStdString();
-        latency.market = market.toStdString();
-        latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
-        latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
-        latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
-        latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
-        latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
-        latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
-        latency.cancelOrder.baseUs = latencyValue_(row.value(QStringLiteral("cancelOrderLatencyUs")).toString(), cancelOrderLatency);
-        latency.cancelOrder.jitterUs = latencyValue_(row.value(QStringLiteral("cancelOrderJitterUs")).toString(), cancelOrderJitter);
-        latency.userData.baseUs = latencyValue_(row.value(QStringLiteral("userDataLatencyUs")).toString(), userDataLatency);
-        latency.userData.jitterUs = latencyValue_(row.value(QStringLiteral("userDataJitterUs")).toString(), userDataJitter);
-        latencySchedules.push_back(std::move(latency));
-        hft_backtest::BacktestRateLimitSchedule rateLimit = rateLimitScheduleFromVenueRow(row);
-        if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) rateLimitSchedules.push_back(std::move(rateLimit));
-    }
+    const BacktestExecutionPolicy executionPolicy =
+        executionPolicyForSessions_(prepared.sessions, false);
     const QString indicatorProfile = selectedIndicatorProfile_;
     const int primaryLegIndex = selectedPrimaryLegIndexForPaths_(sessionPaths);
     const QString tradeMode = selectedTradeMode_;
     configureWorkerThreadStack_();
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, latencySeed, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, orderLatency, cancelLatency, initialBalance, rateLimitsEnabled, strictRateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, secondarySessions, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, executionPolicy] {
         try {
         hft_backtest::BacktestRunRequest request{};
         request.sessionPath = sessionPaths.front().toStdString();
-        if (sessionPaths.size() > 1) {
-            request.sessions.reserve(static_cast<std::size_t>(sessionPaths.size() - 1));
-            for (qsizetype i = 1; i < sessionPaths.size(); ++i) {
-                const QString& path = sessionPaths.at(i);
-                hft_backtest::BacktestSessionRequest leg{};
-                leg.path = path.toStdString();
-                leg.venue = venueSectionForSession(path).toStdString();
-                leg.symbol = symbolForSessionPath(path).toStdString();
-                request.sessions.push_back(std::move(leg));
-            }
-        }
+        request.sessions = secondarySessions;
         request.configPath = configPath.toStdString();
         request.strategy = strategy.toStdString();
         request.indicatorProfile = indicatorProfile.toStdString();
@@ -936,26 +1097,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
             : hft_backtest::BacktestTradeMode::AllLegs;
         request.runId = runId.toStdString();
         request.requestId = runId.toStdString();
-        request.latencySeed = latencySeed;
-        request.marketDataLatency.baseUs = marketDataLatency;
-        request.marketDataLatency.jitterUs = marketDataJitter;
-        request.marketOrderLatency.baseUs = marketOrderLatency;
-        request.marketOrderLatency.jitterUs = marketOrderJitter;
-        request.limitOrderLatency.baseUs = limitOrderLatency;
-        request.limitOrderLatency.jitterUs = limitOrderJitter;
-        request.cancelOrderLatency.baseUs = cancelOrderLatency;
-        request.cancelOrderLatency.jitterUs = cancelOrderJitter;
-        request.userDataLatency.baseUs = userDataLatency;
-        request.userDataLatency.jitterUs = userDataJitter;
-        request.orderLatencyUs = orderLatency;
-        request.cancelLatencyUs = cancelLatency;
-        request.initialBalanceE8 = initialBalance;
-        request.legInitialBalancesE8 = legInitialBalances;
-        request.feeSchedules = feeSchedules;
-        request.latencySchedules = latencySchedules;
-        request.rateLimitSchedules = rateLimitSchedules;
-        request.rateLimitsEnabled = rateLimitsEnabled;
-        request.strictRateLimitRejects = strictRateLimitsEnabled;
+        applyBacktestExecutionPolicy(request, executionPolicy);
         request.captureStrategySpread = false;
         request.outputPath = (QDir(outputSessionPath).absoluteFilePath(QStringLiteral("backtests/%1").arg(runId))).toStdString();
 
@@ -1058,103 +1200,46 @@ void BacktestViewModel::startSweep_(bool includeExecutionLatency) {
     stopWorker_();
     cancelRequested_.store(false, std::memory_order_release);
 
-    const QStringList sessionPaths = orderedSessionPathsForRun_();
-    if (sessionPaths.empty()) {
+    const BacktestPreparedSessions prepared = prepareSelectedSessions_();
+    if (!prepared.ready()) {
         setRunning_(false);
-        setStatusText_(QStringLiteral("Select at least one session"));
+        setStatusText_(prepared.error);
         return;
     }
+    const QStringList sessionPaths = preparedSessionPaths(prepared.sessions);
+    const std::vector<hft_backtest::BacktestSessionRequest> secondarySessions =
+        preparedSecondarySessions(prepared.sessions);
     const QString outputSessionPath = sessionPaths.front();
-    QString venueError;
-    for (const QString& path : sessionPaths) {
-        if (!sessionVenueIsKnown(path, &venueError)) {
-            setStatusText_(venueError);
-            return;
-        }
-    }
 
     setRunning_(true);
     setProgress_(0, QStringLiteral("Starting sweep"));
     setStatusText_(QStringLiteral("Sweep running"));
 
     const QString strategy = selectedStrategy_;
-    const QString runId = QStringLiteral("sweep-") + runId_();
-    const RunConfigWriteResult config = writeRunConfig_(QStringLiteral("sweeps/%1").arg(runId), {}, true);
+    const QString runId = QStringLiteral("sweep-") +
+        runIdForSymbol_(prepared.sessions.front().configSymbol);
+    const RunConfigWriteResult config = writeRunConfigForPreparedSessions_(
+        QStringLiteral("sweeps/%1").arg(runId), prepared.sessions, {}, true);
     if (!config.ok()) {
         setRunning_(false);
         setStatusText_(QStringLiteral("Failed to write sweep config: %1").arg(config.error));
         return;
     }
     const QString configPath = config.path;
-    const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
-    const quint64 latencySeed = latencyValue_(latencySeed_, 0);
     const quint64 searchSeed = latencyValue_(sweepSeed_, 0);
     const quint64 runBudget = latencyValue_(sweepBudget_, 64);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
-    const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
-    const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
-    const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
-    const quint64 limitOrderJitter = latencyValue_(limitOrderJitterUs_, 0);
-    const quint64 cancelOrderLatency = latencyValue_(cancelOrderLatencyUs_, limitOrderLatency);
-    const quint64 cancelOrderJitter = latencyValue_(cancelOrderJitterUs_, limitOrderJitter);
-    const quint64 userDataLatency = latencyValue_(userDataLatencyUs_, 0);
-    const quint64 userDataJitter = latencyValue_(userDataJitterUs_, 0);
-    const qint64 initialBalance = decimalE8Value_(initialBalanceUsdt_, 0);
-    const bool rateLimitsEnabled = rateLimitsEnabled_;
-    const bool strictRateLimitsEnabled = rateLimitsEnabled && strictRateLimitsEnabled_;
-    std::vector<std::int64_t> legInitialBalances;
-    std::vector<hft_backtest::BacktestFeeSchedule> feeSchedules;
-    std::vector<hft_backtest::BacktestLatencySchedule> latencySchedules;
-    std::vector<hft_backtest::BacktestRateLimitSchedule> rateLimitSchedules;
-    const std::vector<QVariantMap> venueRows = venueExecutionRows_();
-    legInitialBalances.reserve(venueRows.size());
-    feeSchedules.reserve(venueRows.size());
-    latencySchedules.reserve(venueRows.size());
-    rateLimitSchedules.reserve(venueRows.size());
-    for (const QVariantMap& row : venueRows) {
-        const QString exchange = row.value(QStringLiteral("exchange")).toString();
-        const QString market = row.value(QStringLiteral("market")).toString();
-        if (exchange.isEmpty() || market.isEmpty()) continue;
-        legInitialBalances.push_back(decimalE8Value_(row.value(QStringLiteral("initialBalanceUsdt")).toString(), initialBalance));
-        feeSchedules.push_back(feeScheduleFromVenueRow(row));
-        hft_backtest::BacktestLatencySchedule latency{};
-        latency.exchange = exchange.toStdString();
-        latency.market = market.toStdString();
-        latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
-        latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
-        latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
-        latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
-        latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
-        latency.limitOrder.jitterUs = latencyValue_(row.value(QStringLiteral("limitOrderJitterUs")).toString(), limitOrderJitter);
-        latency.cancelOrder.baseUs = latencyValue_(row.value(QStringLiteral("cancelOrderLatencyUs")).toString(), cancelOrderLatency);
-        latency.cancelOrder.jitterUs = latencyValue_(row.value(QStringLiteral("cancelOrderJitterUs")).toString(), cancelOrderJitter);
-        latency.userData.baseUs = latencyValue_(row.value(QStringLiteral("userDataLatencyUs")).toString(), userDataLatency);
-        latency.userData.jitterUs = latencyValue_(row.value(QStringLiteral("userDataJitterUs")).toString(), userDataJitter);
-        latencySchedules.push_back(std::move(latency));
-        hft_backtest::BacktestRateLimitSchedule rateLimit = rateLimitScheduleFromVenueRow(row);
-        if (!rateLimit.buckets.empty() || !rateLimit.actions.empty()) rateLimitSchedules.push_back(std::move(rateLimit));
-    }
+    const BacktestExecutionPolicy executionPolicy =
+        executionPolicyForSessions_(prepared.sessions, includeExecutionLatency);
     const QString indicatorProfile = selectedIndicatorProfile_;
     const int primaryLegIndex = selectedPrimaryLegIndexForPaths_(sessionPaths);
     const QString tradeMode = selectedTradeMode_;
 
     configureWorkerThreadStack_();
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, latencySeed, searchSeed, runBudget, marketDataLatency, marketDataJitter, marketOrderLatency, marketOrderJitter, limitOrderLatency, limitOrderJitter, cancelOrderLatency, cancelOrderJitter, userDataLatency, userDataJitter, initialBalance, rateLimitsEnabled, strictRateLimitsEnabled, legInitialBalances = std::move(legInitialBalances), feeSchedules = std::move(feeSchedules), latencySchedules = std::move(latencySchedules), rateLimitSchedules = std::move(rateLimitSchedules), ranges = std::move(ranges)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, secondarySessions, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, searchSeed, runBudget, executionPolicy, ranges = std::move(ranges)] {
         try {
         hft_backtest::BacktestSweepRequest request{};
         request.baseRun.sessionPath = sessionPaths.front().toStdString();
-        if (sessionPaths.size() > 1) {
-            request.baseRun.sessions.reserve(static_cast<std::size_t>(sessionPaths.size() - 1));
-            for (qsizetype i = 1; i < sessionPaths.size(); ++i) {
-                const QString& path = sessionPaths.at(i);
-                hft_backtest::BacktestSessionRequest leg{};
-                leg.path = path.toStdString();
-                leg.venue = venueSectionForSession(path).toStdString();
-                leg.symbol = symbolForSessionPath(path).toStdString();
-                request.baseRun.sessions.push_back(std::move(leg));
-            }
-        }
+        request.baseRun.sessions = secondarySessions;
         request.baseRun.configPath = configPath.toStdString();
         request.baseRun.strategy = strategy.toStdString();
         request.baseRun.indicatorProfile = indicatorProfile.toStdString();
@@ -1163,26 +1248,7 @@ void BacktestViewModel::startSweep_(bool includeExecutionLatency) {
         request.baseRun.tradeMode = tradeMode == QStringLiteral("primary")
             ? hft_backtest::BacktestTradeMode::PrimaryOnly
             : hft_backtest::BacktestTradeMode::AllLegs;
-        request.baseRun.latencySeed = latencySeed;
-        request.baseRun.marketDataLatency.baseUs = marketDataLatency;
-        request.baseRun.marketDataLatency.jitterUs = marketDataJitter;
-        request.baseRun.marketOrderLatency.baseUs = marketOrderLatency;
-        request.baseRun.marketOrderLatency.jitterUs = marketOrderJitter;
-        request.baseRun.limitOrderLatency.baseUs = limitOrderLatency;
-        request.baseRun.limitOrderLatency.jitterUs = limitOrderJitter;
-        request.baseRun.cancelOrderLatency.baseUs = cancelOrderLatency;
-        request.baseRun.cancelOrderLatency.jitterUs = cancelOrderJitter;
-        request.baseRun.userDataLatency.baseUs = userDataLatency;
-        request.baseRun.userDataLatency.jitterUs = userDataJitter;
-        request.baseRun.orderLatencyUs = marketOrderLatency;
-        request.baseRun.cancelLatencyUs = cancelOrderLatency;
-        request.baseRun.initialBalanceE8 = initialBalance;
-        request.baseRun.legInitialBalancesE8 = legInitialBalances;
-        request.baseRun.feeSchedules = feeSchedules;
-        request.baseRun.latencySchedules = latencySchedules;
-        request.baseRun.rateLimitSchedules = rateLimitSchedules;
-        request.baseRun.rateLimitsEnabled = rateLimitsEnabled;
-        request.baseRun.strictRateLimitRejects = strictRateLimitsEnabled;
+        applyBacktestExecutionPolicy(request.baseRun, executionPolicy);
         request.baseRun.writeArtifacts = false;
         request.sweepId = runId.toStdString();
         request.runBudget = runBudget;
