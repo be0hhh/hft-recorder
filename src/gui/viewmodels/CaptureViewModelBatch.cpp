@@ -90,7 +90,7 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) {
 }
 
 bool useBulkDetailedCandles(const capture::CaptureConfig& config) {
-    return textEqualsAscii(config.exchange, "finam") || textEqualsAscii(config.exchange, "finam_arena");
+    return textEqualsAscii(config.exchange, "finam");
 }
 
 capture::CaptureConfig detailedCandlesProbeConfig(capture::CaptureConfig config) {

@@ -410,8 +410,8 @@ _install_cxet_force() {
 _resolve_cxet_paths() {
     CXET_INCLUDE="$INSTALL_DIR/include/cxet"
     CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so"
-    if ! _valid_shared_lib_file "$CXET_LIB" && _valid_shared_lib_file "$INSTALL_DIR/lib/libcxet_lib.so.1"; then
-        CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so.1"
+    if ! _valid_shared_lib_file "$CXET_LIB" && _valid_shared_lib_file "$INSTALL_DIR/lib/libcxet_lib.so.5"; then
+        CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so.5"
     fi
     # Replay-core is intentionally disabled for the recorder build. The app has an offline SessionReplay fallback.
     CXET_REPLAY_LIB=""
@@ -492,7 +492,7 @@ resolve_shared_lib_dir() {
 
 BACKTEST_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-backtest/build" "$backtest_lib_dir" "hft-backtest" libhft_backtest_core.so)"
 TRADER_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build" "$trader_lib_dir" "hft-trader" libhft_trader_runtime.so)"
-TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.1)"
+TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.5)"
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 export HFTREC_METRICS_PORT="\${HFTREC_METRICS_PORT:-8080}"
 export HFTREC_METRICS_MODE="\${HFTREC_METRICS_MODE:-$default_metrics_mode}"
@@ -704,7 +704,7 @@ resolve_shared_lib_dir() {
 
 BACKTEST_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-backtest/build" "$backtest_lib_dir" "hft-backtest" libhft_backtest_core.so)"
 TRADER_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build" "$trader_lib_dir" "hft-trader" libhft_trader_runtime.so)"
-TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.1)"
+TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.5)"
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 
 warn_if_another_tui_running() {
@@ -785,7 +785,7 @@ resolve_shared_lib_dir() {
 
 BACKTEST_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-backtest/build" "$backtest_lib_dir" "hft-backtest" libhft_backtest_core.so)"
 TRADER_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build" "$trader_lib_dir" "hft-trader" libhft_trader_runtime.so)"
-TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.1)"
+TRADER_CXET_LIB_DIR="\$(resolve_shared_lib_dir "\$APP_DIR/../hft-trader/build/cxetcpp/lib" "$trader_cxet_lib_dir" "CXETCPP" libcxet_lib.so libcxet_lib.so.5)"
 export LD_LIBRARY_PATH="\$BACKTEST_LIB_DIR:\$TRADER_LIB_DIR:\$TRADER_CXET_LIB_DIR:\$COMPRESSOR_LIB_DIR:\$INSTALL_DIR/lib:\${LD_LIBRARY_PATH:-}"
 
 exec "\$APP_DIR/build/bin/history" "\$@"

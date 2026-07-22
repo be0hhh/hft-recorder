@@ -485,7 +485,7 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) noexcept {
 }
 
 bool detailedCandlesNeedInstrumentMetadata(const CaptureConfig& config) noexcept {
-    return (textEqualsAscii(config.exchange, "finam") || textEqualsAscii(config.exchange, "finam_arena"))
+    return textEqualsAscii(config.exchange, "finam")
         && !textEqualsAscii(config.market, "spot")
         && !textEqualsAscii(config.market, "shares");
 }

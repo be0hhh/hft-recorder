@@ -102,7 +102,6 @@ TEST(CaptureCoordinator, RejectsUnsupportedExchange) {
 
     EXPECT_EQ(coordinator.ensureSession(config), Status::InvalidArgument);
     EXPECT_NE(coordinator.lastError().find("capture exchange must be one of"), std::string::npos);
-    EXPECT_NE(coordinator.lastError().find("finam_arena"), std::string::npos);
 }
 
 TEST(CaptureCoordinator, RejectsMultipleSymbolsPerCoordinator) {
@@ -166,27 +165,6 @@ TEST(CaptureCoordinator, WritesManifestAsSoonAsSessionIsEnsured) {
     EXPECT_EQ(manifest.find("\"route_symbols\""), std::string::npos);
     EXPECT_NE(manifest.find("\"storage_symbol\": \"ETH_USDT\""), std::string::npos);
     EXPECT_NE(sessionDir.filename().string().find("ETH_USDT"), std::string::npos);
-
-    std::error_code ec;
-    coordinator.finalizeSession();
-    fs::remove_all(config.outputDir, ec);
-}
-
-TEST(CaptureCoordinator, AcceptsFinamArenaExchangeName) {
-    CaptureCoordinator coordinator{};
-    auto config = makeValidConfig();
-    config.exchange = "finam_arena";
-    config.market = "spot";
-    config.symbols = {"SBER@MISX"};
-
-    ASSERT_EQ(coordinator.ensureSession(config), Status::Ok) << coordinator.lastError();
-
-    const auto manifestPath = coordinator.sessionDirCopy() / "manifest.json";
-    ASSERT_TRUE(fs::exists(manifestPath));
-    std::ifstream manifestStream(manifestPath);
-    ASSERT_TRUE(manifestStream.is_open());
-    const std::string manifest((std::istreambuf_iterator<char>(manifestStream)), std::istreambuf_iterator<char>());
-    EXPECT_NE(manifest.find("\"exchange\": \"finam_arena\""), std::string::npos);
 
     std::error_code ec;
     coordinator.finalizeSession();
