@@ -29,6 +29,13 @@ struct InstrumentMetadata {
     std::string priceScaleDigitsSource{"unknown"};
     std::optional<std::int64_t> qtyScaleDigits{};
     std::string qtyScaleDigitsSource{"unknown"};
+    std::optional<std::int64_t> canonicalBaseMultiplier{};
+    std::optional<std::int64_t> nativeBaseMultiplier{};
+    std::optional<std::int64_t> pricePowerOfTenAdjustment{};
+    std::optional<std::int64_t> spotQuantityPowerOfTenAdjustment{};
+    std::optional<std::int64_t> denominationGeneration{};
+    std::optional<std::string> denominationCatalogDigest{};
+    std::string denominationSource{"unknown"};
     std::optional<std::int64_t> tickSizeE8{};
     std::string tickSizeSource{"unknown"};
     std::optional<std::int64_t> lotSizeE8{};

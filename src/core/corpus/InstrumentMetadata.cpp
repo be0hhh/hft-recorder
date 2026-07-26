@@ -1,6 +1,7 @@
 #include "core/corpus/InstrumentMetadata.hpp"
 
 #include <array>
+#include <limits>
 #include <sstream>
 
 #include "core/common/JsonString.hpp"
@@ -47,6 +48,25 @@ std::optional<std::string> inferBaseAsset(std::string_view symbol,
     }
     if (symbol.size() <= quoteAsset.size()) return std::nullopt;
     return std::string{symbol.substr(0, symbol.size() - quoteAsset.size())};
+}
+
+std::int64_t inferCanonicalBaseMultiplier(std::string_view symbol) noexcept {
+    const auto first = symbol.find('_');
+    if (first == std::string_view::npos ||
+        symbol.find('_', first + 1u) == std::string_view::npos) {
+        return 1;
+    }
+    std::int64_t value = 0;
+    for (std::size_t index = 0u; index < first; ++index) {
+        const char ch = symbol[index];
+        if (ch < '0' || ch > '9' ||
+            value > (std::numeric_limits<std::int64_t>::max() -
+                     static_cast<std::int64_t>(ch - '0')) / 10) {
+            return 1;
+        }
+        value = value * 10 + static_cast<std::int64_t>(ch - '0');
+    }
+    return value > 1 ? value : 1;
 }
 
 std::string inferInstrumentType(std::string_view market) {
@@ -121,6 +141,11 @@ InstrumentMetadata makeInstrumentMetadata(std::string_view exchange,
     metadata.priceScaleDigitsSource = "recorder_default";
     metadata.qtyScaleDigits = 8;
     metadata.qtyScaleDigitsSource = "recorder_default";
+    metadata.canonicalBaseMultiplier = inferCanonicalBaseMultiplier(symbol);
+    metadata.nativeBaseMultiplier = 1;
+    metadata.pricePowerOfTenAdjustment = 0;
+    metadata.spotQuantityPowerOfTenAdjustment = 0;
+    metadata.denominationSource = "identity_default";
 
     const auto quote = inferQuoteAsset(symbol);
     const auto base = quote.has_value() ? inferBaseAsset(symbol, *quote) : std::nullopt;
@@ -157,6 +182,13 @@ std::string renderInstrumentMetadataJson(const InstrumentMetadata& metadata) {
     out << "  \"price_scale_digits_source\": " << json::quote(metadata.priceScaleDigitsSource) << ",\n";
     appendOptionalI64(out, "qty_scale_digits", metadata.qtyScaleDigits);
     out << "  \"qty_scale_digits_source\": " << json::quote(metadata.qtyScaleDigitsSource) << ",\n";
+    appendOptionalI64(out, "canonical_base_multiplier", metadata.canonicalBaseMultiplier);
+    appendOptionalI64(out, "native_base_multiplier", metadata.nativeBaseMultiplier);
+    appendOptionalI64(out, "price_power_of_ten_adjustment", metadata.pricePowerOfTenAdjustment);
+    appendOptionalI64(out, "spot_quantity_power_of_ten_adjustment", metadata.spotQuantityPowerOfTenAdjustment);
+    appendOptionalI64(out, "denomination_generation", metadata.denominationGeneration);
+    appendOptionalString(out, "denomination_catalog_digest", metadata.denominationCatalogDigest);
+    out << "  \"denomination_source\": " << json::quote(metadata.denominationSource) << ",\n";
     appendOptionalI64(out, "tick_size_e8", metadata.tickSizeE8);
     out << "  \"tick_size_source\": " << json::quote(metadata.tickSizeSource) << ",\n";
     appendOptionalI64(out, "lot_size_e8", metadata.lotSizeE8);
@@ -221,6 +253,20 @@ Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata
                 if (!parseOptionalI64(parser, parsed.qtyScaleDigits)) return Status::CorruptData;
             } else if (key == "qty_scale_digits_source") {
                 if (!parser.parseString(parsed.qtyScaleDigitsSource)) return Status::CorruptData;
+            } else if (key == "canonical_base_multiplier") {
+                if (!parseOptionalI64(parser, parsed.canonicalBaseMultiplier)) return Status::CorruptData;
+            } else if (key == "native_base_multiplier") {
+                if (!parseOptionalI64(parser, parsed.nativeBaseMultiplier)) return Status::CorruptData;
+            } else if (key == "price_power_of_ten_adjustment") {
+                if (!parseOptionalI64(parser, parsed.pricePowerOfTenAdjustment)) return Status::CorruptData;
+            } else if (key == "spot_quantity_power_of_ten_adjustment") {
+                if (!parseOptionalI64(parser, parsed.spotQuantityPowerOfTenAdjustment)) return Status::CorruptData;
+            } else if (key == "denomination_generation") {
+                if (!parseOptionalI64(parser, parsed.denominationGeneration)) return Status::CorruptData;
+            } else if (key == "denomination_catalog_digest") {
+                if (!parseOptionalString(parser, parsed.denominationCatalogDigest)) return Status::CorruptData;
+            } else if (key == "denomination_source") {
+                if (!parser.parseString(parsed.denominationSource)) return Status::CorruptData;
             } else if (key == "tick_size_e8") {
                 if (!parseOptionalI64(parser, parsed.tickSizeE8)) return Status::CorruptData;
             } else if (key == "tick_size_source") {

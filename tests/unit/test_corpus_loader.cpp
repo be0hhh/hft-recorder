@@ -42,6 +42,13 @@ TEST(InstrumentMetadata, RoundTripsTraderBacktestGridFields) {
     metadata.contractBaseQtyE8 = 100000;
     metadata.priceBasisQtyE8 = 10000000000LL;
     metadata.expiryUtcNs = 1781913600000000000LL;
+    metadata.canonicalBaseMultiplier = 100;
+    metadata.nativeBaseMultiplier = 1;
+    metadata.pricePowerOfTenAdjustment = 2;
+    metadata.spotQuantityPowerOfTenAdjustment = 0;
+    metadata.denominationGeneration = 42;
+    metadata.denominationCatalogDigest = "00112233";
+    metadata.denominationSource = "cxet_plan_v1";
     metadata.tickSizeSource = "hft_trader_exchange_info";
     metadata.lotSizeSource = "hft_trader_exchange_info";
     metadata.contractBaseQtySource = "hft_trader_exchange_info";
@@ -54,6 +61,7 @@ TEST(InstrumentMetadata, RoundTripsTraderBacktestGridFields) {
     EXPECT_NE(document.find("\"price_basis_qty_e8\": 10000000000"), std::string::npos);
     EXPECT_NE(document.find("\"expiry_utc_ns\": 1781913600000000000"), std::string::npos);
     EXPECT_NE(document.find("\"metadata_source\": \"hft_trader\""), std::string::npos);
+    EXPECT_NE(document.find("\"canonical_base_multiplier\": 100"), std::string::npos);
 
     hftrec::corpus::InstrumentMetadata parsed{};
     ASSERT_EQ(hftrec::corpus::parseInstrumentMetadataJson(document, parsed), hftrec::Status::Ok);
@@ -67,6 +75,9 @@ TEST(InstrumentMetadata, RoundTripsTraderBacktestGridFields) {
     EXPECT_EQ(*parsed.expiryUtcNs, 1781913600000000000LL);
     EXPECT_EQ(parsed.expiryUtcNsSource, "hft_trader_exchange_info");
     EXPECT_EQ(parsed.metadataSource, "hft_trader");
+    ASSERT_TRUE(parsed.canonicalBaseMultiplier.has_value());
+    EXPECT_EQ(*parsed.canonicalBaseMultiplier, 100);
+    EXPECT_EQ(parsed.denominationSource, "cxet_plan_v1");
 }
 
 TEST(InstrumentMetadata, ParsesLegacyDocumentWithoutPriceBasisAsIdentityMissing) {
@@ -84,6 +95,8 @@ TEST(InstrumentMetadata, ParsesLegacyDocumentWithoutPriceBasisAsIdentityMissing)
     EXPECT_EQ(parsed.priceBasisQtySource, "unknown");
     EXPECT_FALSE(parsed.expiryUtcNs.has_value());
     EXPECT_EQ(parsed.expiryUtcNsSource, "unknown");
+    EXPECT_FALSE(parsed.canonicalBaseMultiplier.has_value());
+    EXPECT_EQ(parsed.denominationSource, "unknown");
 }
 
 TEST(CorpusLoader, CorruptJsonFixtureReportsArtifactAndLine) {
