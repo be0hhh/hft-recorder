@@ -401,7 +401,6 @@ _install_cxet_force() {
 
     mkdir -p "$INSTALL_DIR/lib"
     _copy_runtime_glob "build/extra/wolfssl/libwolfssl.so*"
-    _copy_runtime_glob "build/extra/simdjson/libsimdjson.so*"
     find build/extra/abseil-cpp/absl -name 'libabsl*.so*' -exec cp -a {} "$INSTALL_DIR/lib/" \;
     CXET_REFRESHED=1
     cd "$APP"
