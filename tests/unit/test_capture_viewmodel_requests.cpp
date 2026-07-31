@@ -59,8 +59,6 @@ TEST(CaptureViewModelRequests, AppliesLocalVenueSymbolsFromGlobalInput) {
               QStringLiteral("BTC_USDT"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bitget_futures"), QStringLiteral("BTC_USDT")),
               QStringLiteral("BTC_USDT"));
-    EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("bitmart_futures"), QStringLiteral("BTC_USDT")),
-              QStringLiteral("BTC_USDT"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("poloniex_futures"), QStringLiteral("BTC_USDT")),
               QStringLiteral("BTC_USDT"));
     EXPECT_EQ(venueSymbolsFromGlobalInput(QStringLiteral("poloniex_spot"), QStringLiteral("BTC_USDT")),
@@ -90,7 +88,6 @@ TEST(CaptureViewModelRequests, VenuePlaceholdersShowLocalFormat) {
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("toobit_futures")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("htx_futures")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("phemex_futures")), QStringLiteral("Example: BTC_USDT"));
-    EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("bitmart_futures")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("poloniex_futures")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("poloniex_spot")), QStringLiteral("Example: BTC_USDT"));
     EXPECT_EQ(venueSymbolPlaceholder(QStringLiteral("hyperliquid_futures")), QStringLiteral("Example: BTC_USDT"));
@@ -344,7 +341,6 @@ TEST(CaptureViewModelRequests, DetailedCandlesVenueChoicesExcludeUnsupportedKlin
     const auto liveKeys = choiceKeys(venueChoices());
     const auto candleKeys = choiceKeys(detailedCandlesVenueChoices());
     EXPECT_TRUE(liveKeys.contains(QStringLiteral("mexc_spot")));
-    EXPECT_TRUE(liveKeys.contains(QStringLiteral("bitmart_futures")));
     EXPECT_TRUE(liveKeys.contains(QStringLiteral("poloniex_futures")));
     EXPECT_TRUE(liveKeys.contains(QStringLiteral("poloniex_spot")));
     EXPECT_TRUE(liveKeys.contains(QStringLiteral("hyperliquid_futures")));

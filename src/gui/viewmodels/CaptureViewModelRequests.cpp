@@ -93,8 +93,6 @@ constexpr VenueSpec kVenues[] = {
     {"poloniex_spot", "Poloniex Spot", "poloniex", "spot"},
     {"bingx_futures", "BingX Futures", "bingx", "futures"},
     {"bingx_spot", "BingX Spot", "bingx", "spot"},
-    {"bitmart_futures", "Bitmart Futures", "bitmart", "futures"},
-    {"bitmart_spot", "Bitmart Spot", "bitmart", "spot"},
     {"toobit_futures", "Toobit Futures", "toobit", "futures"},
     {"toobit_spot", "Toobit Spot", "toobit", "spot"},
     {"htx_futures", "HTX Futures", "htx", "futures"},

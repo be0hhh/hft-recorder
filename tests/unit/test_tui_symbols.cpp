@@ -32,8 +32,6 @@ TEST(RecorderTuiSymbols, KeepsLocalGlobalSymbolsForCryptoVenues) {
     EXPECT_EQ(venueSymbolsFromGlobalInput("htx_spot", "BTC_USDT"), "BTC_USDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("phemex_spot", "BTC_USDT"), "BTC_USDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("mexc_futures", "BTC_USDT"), "BTC_USDT");
-    EXPECT_EQ(venueSymbolsFromGlobalInput("bitmart_futures", "BTC_USDT"), "BTC_USDT");
-    EXPECT_EQ(venueSymbolsFromGlobalInput("bitmart_spot", "BTC_USDT"), "BTC_USDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("poloniex_futures", "BTC_USDT"), "BTC_USDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("poloniex_spot", "BTC_USDT"), "BTC_USDT");
     EXPECT_EQ(venueSymbolsFromGlobalInput("hyperliquid_futures", "BTC_USDT"), "BTC_USDT");
@@ -118,7 +116,6 @@ TEST(RecorderTuiSymbols, GeneratesRequiredMarketDataJobsForAllCryptoVenues) {
     bool foundKucoinFutures = false;
     bool foundOkxFutures = false;
     bool foundMexcFutures = false;
-    bool foundBitmartFutures = false;
     bool foundPoloniexFutures = false;
     bool foundPoloniexSpot = false;
     bool foundHyperliquidFutures = false;
@@ -134,10 +131,6 @@ TEST(RecorderTuiSymbols, GeneratesRequiredMarketDataJobsForAllCryptoVenues) {
         if (job.exchange == "mexc" && job.market == "futures" &&
             job.symbol == "LAB_USDT" && job.routeSymbol.empty()) {
             foundMexcFutures = true;
-        }
-        if (job.exchange == "bitmart" && job.market == "futures" &&
-            job.symbol == "LAB_USDT" && job.routeSymbol.empty()) {
-            foundBitmartFutures = true;
         }
         if (job.exchange == "poloniex" && job.market == "futures" &&
             job.symbol == "LAB_USDT" && job.routeSymbol.empty()) {
@@ -156,7 +149,6 @@ TEST(RecorderTuiSymbols, GeneratesRequiredMarketDataJobsForAllCryptoVenues) {
     EXPECT_TRUE(foundKucoinFutures);
     EXPECT_TRUE(foundOkxFutures);
     EXPECT_TRUE(foundMexcFutures);
-    EXPECT_TRUE(foundBitmartFutures);
     EXPECT_TRUE(foundPoloniexFutures);
     EXPECT_TRUE(foundPoloniexSpot);
     EXPECT_TRUE(foundHyperliquidFutures);
