@@ -113,6 +113,7 @@ if(Qt6_FOUND)
             Qt6::Quick
             Qt6::Network
             hft_backtest_core
+            ${CMAKE_DL_LIBS}
     )
     target_compile_definitions(hftrec_unit_tests PRIVATE HFT_BACKTEST_TRADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-trader")
 endif()

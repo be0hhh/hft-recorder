@@ -17,6 +17,7 @@
 #include <vector>
 #include <chrono>
 
+#include "core/capture/SessionManifest.hpp"
 #include "core/metrics/Metrics.hpp"
 #include "core/replay/CxetReplaySessionLoader.hpp"
 
@@ -108,7 +109,17 @@ std::filesystem::path existingPathOrEmpty(const std::filesystem::path& path) noe
 QJsonObject readSessionManifestObject(const std::filesystem::path& sessionPath) {
     QFile file(QString::fromStdString((sessionPath / "manifest.json").string()));
     if (!file.open(QIODevice::ReadOnly)) return {};
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    const QByteArray bytes = file.readAll();
+    hftrec::capture::SessionManifest parsed{};
+    if (!isOk(hftrec::capture::parseManifestJson(
+            std::string_view{bytes.constData(), static_cast<std::size_t>(bytes.size())},
+            parsed)) || !parsed.structurallyLoadable ||
+        parsed.manifestSchemaVersion != hftrec::capture::kManifestSchemaVersionCurrent ||
+        parsed.corpusSchemaVersion != hftrec::capture::kCorpusSchemaVersionCurrent ||
+        parsed.captureContractVersion != hftrec::capture::kCaptureContractVersionCurrent) {
+        return {};
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(bytes);
     return doc.isObject() ? doc.object() : QJsonObject{};
 }
 
@@ -116,17 +127,17 @@ std::filesystem::path sessionChannelPath(const std::filesystem::path& sessionPat
                                          const QJsonObject& manifest,
                                          QStringView channel,
                                          const char* fallbackFileName) {
+    (void)fallbackFileName;
     const QJsonObject channels = manifest.value(QStringLiteral("channels")).toObject();
-    const QString manifestPath = channels.value(channel.toString()).toObject().value(QStringLiteral("path")).toString();
-    if (!manifestPath.isEmpty()) {
-        if (const auto path = existingPathOrEmpty(sessionPath / manifestPath.toStdString()); !path.empty()) return path;
+    const QJsonObject channelObject = channels.value(channel.toString()).toObject();
+    if (!channelObject.value(QStringLiteral("enabled")).toBool()) return {};
+    const QString manifestPath = channelObject.value(QStringLiteral("path")).toString();
+    const std::filesystem::path relative{manifestPath.toStdString()};
+    if (relative.empty() || relative.is_absolute()) return {};
+    for (const auto& component : relative) {
+        if (component == "..") return {};
     }
-    if (QString::fromUtf8(fallbackFileName) == QStringLiteral("depth.jsonl")) {
-        if (const auto path = existingPathOrEmpty(sessionPath / "jsonl" / "depth_tape.jsonl"); !path.empty()) return path;
-        if (const auto path = existingPathOrEmpty(sessionPath / "depth_tape.jsonl"); !path.empty()) return path;
-    }
-    if (const auto path = existingPathOrEmpty(sessionPath / "jsonl" / fallbackFileName); !path.empty()) return path;
-    return existingPathOrEmpty(sessionPath / fallbackFileName);
+    return existingPathOrEmpty(sessionPath / relative);
 }
 
 std::size_t channelDeclaredCount(const QJsonObject& manifest, QStringView channel) {
@@ -205,8 +216,8 @@ CachedManifestSummary readManifestSummary(const std::filesystem::path& manifestP
     const QJsonObject root = doc.object();
     const QString type = root.value(QStringLiteral("type")).toString();
     summary.type = type;
-    summary.valid = type == QStringLiteral("run.result.v2") || type == QStringLiteral("sweep.result.v1");
-    summary.selectable = type == QStringLiteral("run.result.v2");
+    summary.valid = type == QStringLiteral("run.result.v3") || type == QStringLiteral("sweep.result.v1");
+    summary.selectable = type == QStringLiteral("run.result.v3");
     if (type == QStringLiteral("sweep.result.v1")) {
         const qint64 points = root.value(QStringLiteral("points_evaluated")).toInteger();
         summary.rightText = points > 0 ? QStringLiteral("sweep %1 pts").arg(points) : QStringLiteral("sweep");
@@ -793,7 +804,7 @@ bool ChartController::addBookTickerFile(const QString& path) {
 
 bool ChartController::addDepthFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
-        statusText_ = QStringLiteral("No path. Enter a depth_tape.jsonl or depth.jsonl path first.");
+        statusText_ = QStringLiteral("No path. Enter a depth_tape.jsonl or depth_sidecar.jsonl path first.");
         emit statusChanged();
         return false;
     }
@@ -1104,7 +1115,7 @@ bool ChartController::loadSessionForLayers(const QString& dir,
     }
     if (orderbookVisible) {
         loadOptional(QStringLiteral("depth"),
-                     sessionChannelPath(path, manifest, QStringLiteral("depth"), "depth.jsonl"),
+                     sessionChannelPath(path, manifest, QStringLiteral("depth"), "depth_tape.jsonl"),
                      [&](const std::filesystem::path& channelPath) {
                          const auto depthStatus = replay_.addDepthFileAllowPartial(channelPath, channelDeclaredCount(manifest, QStringLiteral("depth")));
                          return !isOk(depthStatus) && replay_.depths().empty() ? depthStatus : Status::Ok;
@@ -1224,7 +1235,7 @@ bool ChartController::loadRecordedOrderbook() {
 
     const auto rowsBefore = replayRowCount(replay_);
     const auto loadStartedAt = std::chrono::steady_clock::now();
-    loadOptional(sessionChannelPath(path, manifest, QStringLiteral("depth"), "depth.jsonl"),
+    loadOptional(sessionChannelPath(path, manifest, QStringLiteral("depth"), "depth_tape.jsonl"),
                  [&](const std::filesystem::path& channelPath) {
                      const auto depthStatus = replay_.addDepthFileAllowPartial(channelPath, channelDeclaredCount(manifest, QStringLiteral("depth")));
                      return !isOk(depthStatus) && replay_.depths().empty() ? depthStatus : Status::Ok;

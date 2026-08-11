@@ -55,7 +55,7 @@ Status CxetCaptureBridge::initialize() noexcept {
 
 CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradeRuntimeV1& trade,
                                                  const cxet::composite::StreamMeta& meta) {
-    CapturedTradeRow row = makeCapturedTradeRow(cxet::composite::compat::materializeTradePublicV1(trade, meta));
+    CapturedTradeRow row = makeCapturedTradeRow(cxet::composite::compat::materializeTradePublic(trade, meta));
     row.tradeId = trade.eventId.raw;
     return row;
 }
@@ -63,7 +63,7 @@ CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradeRun
 CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
                                                            const cxet::composite::StreamMeta& meta) {
     CapturedBookTickerRow row = makeCapturedBookTickerRow(
-        cxet::composite::compat::materializeBookTickerDataV1(bookTicker, meta),
+        cxet::composite::compat::materializeBookTickerData(bookTicker, meta),
         true,
         true);
     row.eventId = bookTicker.eventId.raw;

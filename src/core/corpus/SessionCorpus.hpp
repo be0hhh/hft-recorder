@@ -7,6 +7,7 @@
 #include "core/capture/SessionManifest.hpp"
 #include "core/corpus/InstrumentMetadata.hpp"
 #include "core/corpus/LoadReport.hpp"
+#include "core/replay/EventRows.hpp"
 
 namespace hftrec::corpus {
 
@@ -23,7 +24,13 @@ struct SessionCorpus {
     std::vector<std::string> priceLimitLines;
     std::vector<std::string> candleLines;
     std::vector<std::string> candle2Lines;
-    std::vector<std::string> depthLines;
+    // Depth is decoded exactly once from the paired current tape package.
+    // Keeping the typed row preserves captured arrival clocks and sequence
+    // evidence; flattening it back to the retired depth.jsonl shape would
+    // silently discard that evidence.
+    std::vector<replay::DepthRow> depthRows;
+    std::vector<std::string> depthTapeLines;
+    std::vector<std::string> depthSidecarLines;
     std::string instrumentMetadataDocument;
     std::string sessionAuditDocument;
     std::string integrityReportDocument;

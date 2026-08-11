@@ -2,6 +2,7 @@
 
 #include "core/recordings/RecordingDiscovery.hpp"
 #include "core/recordings/RecordingRoot.hpp"
+#include "core/capture/SessionManifest.hpp"
 #include "gui/backtests/BacktestResultHelpers.hpp"
 
 #include <QDir>
@@ -12,6 +13,9 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 
+#include <array>
+#include <cstdint>
+#include <limits>
 #include <utility>
 
 namespace hftrec::gui {
@@ -130,6 +134,110 @@ SessionManifestSnapshot loadSessionManifestSnapshot(const QString& sessionPath) 
             QStringLiteral("session manifest changed while being read"),
             -1,
             0};
+}
+
+bool sessionSupportsCurrentBacktestContract(const SessionManifestSnapshot& snapshot,
+                                            QString* error) {
+    const auto reject = [error](const QString& reason) {
+        if (error != nullptr) *error = reason;
+        return false;
+    };
+    if (!snapshot.ready()) return reject(snapshot.error());
+    const QJsonObject& manifest = snapshot.object();
+    if (manifest.value(QStringLiteral("manifest_schema_version")).toInt() !=
+            hftrec::capture::kManifestSchemaVersionCurrent ||
+        manifest.value(QStringLiteral("corpus_schema_version")).toInt() !=
+            hftrec::capture::kCorpusSchemaVersionCurrent ||
+        manifest.value(QStringLiteral("capture_contract_version")).toString() !=
+            QString::fromUtf8(hftrec::capture::kCaptureContractVersionCurrent.data(),
+                              static_cast<qsizetype>(hftrec::capture::kCaptureContractVersionCurrent.size()))) {
+        return reject(QStringLiteral("legacy recorder corpus is view-only; current v3 is required for backtest"));
+    }
+    const QString status = manifest.value(QStringLiteral("session_status")).toString();
+    if (status != QStringLiteral("complete")) {
+        return reject(QStringLiteral("recorder session is not cleanly finalized"));
+    }
+    if (!manifest.value(QStringLiteral("replay")).toObject()
+             .value(QStringLiteral("structurally_loadable")).toBool()) {
+        return reject(QStringLiteral("recorder session is not structurally loadable"));
+    }
+    const QJsonObject integrity =
+        manifest.value(QStringLiteral("integrity")).toObject();
+    if (integrity.value(QStringLiteral("session_health")).toString() !=
+            QStringLiteral("clean") ||
+        !integrity.value(QStringLiteral("exact_replay_eligible")).toBool()) {
+        return reject(QStringLiteral("recorder session is not exact-replay eligible"));
+    }
+    const QJsonObject arrival =
+        manifest.value(QStringLiteral("arrival_clock")).toObject();
+    constexpr std::array<const char*, 14u> arrivalFields{
+        "boundary", "realtime_clock", "monotonic_clock", "captured_rows",
+        "historical_rows", "unavailable_rows", "realtime_regressions",
+        "monotonic_non_increasing", "exchange_ahead_of_receive",
+        "exchange_timestamp_missing", "first_receive_realtime_ns",
+        "last_receive_realtime_ns", "first_receive_monotonic_ns",
+        "last_receive_monotonic_ns"};
+    for (const char* field : arrivalFields) {
+        if (!arrival.contains(QString::fromLatin1(field))) {
+            return reject(QStringLiteral("recorder session has incomplete arrival-clock evidence"));
+        }
+    }
+    if (arrival.value(QStringLiteral("realtime_clock")).toString() !=
+            QStringLiteral("CLOCK_REALTIME") ||
+        arrival.value(QStringLiteral("monotonic_clock")).toString() !=
+            QStringLiteral("CLOCK_MONOTONIC")) {
+        return reject(QStringLiteral("recorder session uses an unsupported arrival clock"));
+    }
+    if (arrival.value(QStringLiteral("boundary")).toString() !=
+            QStringLiteral("hft-parser.application-frame-ready") ||
+        arrival.value(QStringLiteral("captured_rows")).toVariant().toULongLong() == 0u ||
+        arrival.value(QStringLiteral("unavailable_rows")).toVariant().toULongLong() != 0u ||
+        arrival.value(QStringLiteral("first_receive_realtime_ns")).toVariant().toLongLong() <= 0 ||
+        arrival.value(QStringLiteral("last_receive_realtime_ns")).toVariant().toLongLong() <= 0 ||
+        arrival.value(QStringLiteral("first_receive_monotonic_ns")).toVariant().toULongLong() == 0u ||
+        arrival.value(QStringLiteral("last_receive_monotonic_ns")).toVariant().toULongLong() == 0u) {
+        return reject(QStringLiteral("recorder session has no complete captured-arrival clock evidence"));
+    }
+    const auto addUnsigned = [](const QJsonValue& value,
+                                std::uint64_t& total) {
+        bool ok = false;
+        const std::uint64_t parsed = value.toVariant().toULongLong(&ok);
+        if (!ok || parsed > std::numeric_limits<std::uint64_t>::max() - total)
+            return false;
+        total += parsed;
+        return true;
+    };
+    std::uint64_t declaredRows = 0u;
+    const QJsonObject channels =
+        manifest.value(QStringLiteral("channels")).toObject();
+    constexpr std::array<const char*, 10u> channelNames{
+        "trades", "liquidations", "bookticker", "depth", "candles",
+        "candles2", "mark_price", "index_price", "funding", "price_limit"};
+    for (const char* name : channelNames) {
+        const QJsonObject channel =
+            channels.value(QString::fromLatin1(name)).toObject();
+        if (channel.isEmpty() ||
+            !addUnsigned(channel.value(QStringLiteral("declared_event_count")),
+                         declaredRows)) {
+            return reject(QStringLiteral("recorder session has invalid declared channel counts"));
+        }
+    }
+    std::uint64_t accountedRows = 0u;
+    if (!addUnsigned(arrival.value(QStringLiteral("captured_rows")),
+                     accountedRows) ||
+        !addUnsigned(arrival.value(QStringLiteral("historical_rows")),
+                     accountedRows) ||
+        !addUnsigned(arrival.value(QStringLiteral("unavailable_rows")),
+                     accountedRows) ||
+        accountedRows != declaredRows) {
+        return reject(QStringLiteral("recorder arrival summary does not match declared rows"));
+    }
+    if (error != nullptr) error->clear();
+    return true;
+}
+
+bool sessionSupportsCurrentBacktestContract(const QString& sessionPath, QString* error) {
+    return sessionSupportsCurrentBacktestContract(loadSessionManifestSnapshot(sessionPath), error);
 }
 
 QString resolveRecordingsRoot() {

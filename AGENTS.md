@@ -2,6 +2,18 @@
 
 `hft-recorder` is a standalone GUI-first application and research lab over CXETCPP.
 
+## Project-owned versioning
+
+- Keep one canonical current recorder contract. Do not add parallel
+  `V1`/`V2`/`V3` types, compatibility aliases or forwarding facades; update all
+  in-repo producers and consumers atomically.
+- Keep numeric corpus/storage/ABI guards and fail closed on mismatch, but do not
+  put `V<number>` in current recorder-owned type, function, constant, file or
+  directory names.
+- Old corpus/session formats may retain versioned names only inside isolated
+  read-only migration code. The current writer is unique; external protocol
+  tokens and immutable historical evidence remain unchanged.
+
 ## Hard safety stop - no Git / no remote automation
 
 - Do not run any Git command in this repository unless the user explicitly asks for that exact Git action in the current message.

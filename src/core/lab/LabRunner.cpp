@@ -28,7 +28,8 @@ std::vector<PipelineResult> LabRunner::run(const corpus::SessionCorpus& corpus,
     results.reserve(pipelines.size());
     const auto inputBytes = totalBytes(corpus.tradeLines)
         + totalBytes(corpus.bookTickerLines)
-        + totalBytes(corpus.depthLines);
+        + totalBytes(corpus.depthTapeLines)
+        + totalBytes(corpus.depthSidecarLines);
     std::vector<BookFrame> groundTruthFrames;
     const auto groundTruthStatus = sampleGroundTruthBookFrames(corpus, 16, groundTruthFrames);
 

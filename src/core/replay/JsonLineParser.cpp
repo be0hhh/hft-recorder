@@ -12,73 +12,8 @@ namespace hftrec::replay {
 namespace {
 using JsonParser = hftrec::json::MiniJsonParser;
 
-constexpr char price[] = {'p','r','i','c','e','\0'};
-constexpr char amount[] = {'a','m','o','u','n','t','\0'};
-constexpr char side[] = {'s','i','d','e','\0'};
-constexpr char timestamp[] = {'t','i','m','e','s','t','a','m','p','\0'};
-constexpr char id[] = {'i','d','\0'};
-constexpr char isBuyerMaker[] = {'i','s','B','u','y','e','r','M','a','k','e','r','\0'};
-constexpr char firstTradeId[] = {'f','i','r','s','t','T','r','a','d','e','I','d','\0'};
-constexpr char lastTradeId[] = {'l','a','s','t','T','r','a','d','e','I','d','\0'};
-constexpr char quoteQty[] = {'q','u','o','t','e','Q','t','y','\0'};
-constexpr char symbol[] = {'s','y','m','b','o','l','\0'};
-constexpr char exchange[] = {'e','x','c','h','a','n','g','e','\0'};
-constexpr char market[] = {'m','a','r','k','e','t','\0'};
-constexpr char bidPrice[] = {'b','i','d','P','r','i','c','e','\0'};
-constexpr char bidQty[] = {'b','i','d','Q','t','y','\0'};
-constexpr char askPrice[] = {'a','s','k','P','r','i','c','e','\0'};
-constexpr char askQty[] = {'a','s','k','Q','t','y','\0'};
-constexpr char updateId[] = {'u','p','d','a','t','e','I','d','\0'};
-constexpr char avgPrice[] = {'a','v','g','P','r','i','c','e','\0'};
-constexpr char filledQty[] = {'f','i','l','l','e','d','Q','t','y','\0'};
-constexpr char orderType[] = {'o','r','d','e','r','T','y','p','e','\0'};
-constexpr char timeInForce[] = {'t','i','m','e','I','n','F','o','r','c','e','\0'};
-constexpr char status[] = {'s','t','a','t','u','s','\0'};
-constexpr char sourceMode[] = {'s','o','u','r','c','e','M','o','d','e','\0'};
-constexpr char captureSeq[] = {'c','a','p','t','u','r','e','S','e','q','\0'};
-constexpr char ingestSeq[] = {'i','n','g','e','s','t','S','e','q','\0'};
 constexpr std::uint64_t orderBookTapeTimestampTag = 1ull << 63u;
 constexpr std::uint64_t orderBookTapePayloadMask = orderBookTapeTimestampTag - 1u;
-constexpr std::int64_t kNsPerSecond = 1000000000ll;
-
-std::int64_t timeframeDurationNs(std::string_view timeframe) noexcept {
-    if (timeframe.size() < 2u) return 0;
-    std::uint64_t value = 0u;
-    std::size_t i = 0u;
-    while (i < timeframe.size() && timeframe[i] >= '0' && timeframe[i] <= '9') {
-        const std::uint64_t digit = static_cast<std::uint64_t>(timeframe[i] - '0');
-        if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10u) return 0;
-        value = value * 10u + digit;
-        ++i;
-    }
-    if (value == 0u || i + 1u != timeframe.size()) return 0;
-    std::uint64_t unitNs = 0u;
-    switch (timeframe[i]) {
-        case 's': unitNs = static_cast<std::uint64_t>(kNsPerSecond); break;
-        case 'm': unitNs = 60ull * static_cast<std::uint64_t>(kNsPerSecond); break;
-        case 'h': unitNs = 60ull * 60ull * static_cast<std::uint64_t>(kNsPerSecond); break;
-        case 'd': unitNs = 24ull * 60ull * 60ull * static_cast<std::uint64_t>(kNsPerSecond); break;
-        case 'w': unitNs = 7ull * 24ull * 60ull * 60ull * static_cast<std::uint64_t>(kNsPerSecond); break;
-        default: return 0;
-    }
-    if (value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) / unitNs) return 0;
-    return static_cast<std::int64_t>(value * unitNs);
-}
-
-std::int64_t tierFromTimeframe(std::string_view timeframe) noexcept {
-    if (timeframe == "1m") return 1;
-    if (timeframe == "10m") return 2;
-    if (timeframe == "15m") return 2;
-    if (timeframe == "1d") return 3;
-    return 0;
-}
-
-std::int64_t durationFromTier(std::int64_t tier) noexcept {
-    if (tier == 1) return 60ll * kNsPerSecond;
-    if (tier == 2) return 15ll * 60ll * kNsPerSecond;
-    if (tier == 3) return 24ll * 60ll * 60ll * kNsPerSecond;
-    return 0;
-}
 
 bool validateCandle(const CandleRow& row) noexcept {
     if (row.tsNs <= 0 || row.highE8 <= 0 || row.lowE8 <= 0 || row.highE8 < row.lowE8 || row.quoteAmountE8 < 0) {
@@ -86,12 +21,63 @@ bool validateCandle(const CandleRow& row) noexcept {
     }
     if (!row.hasOhlc) return row.tier >= 1 && row.tier <= 3;
     const bool hasNumericTier = row.tier >= 1 && row.tier <= 3;
-    const bool hasTextInterval = !row.timeframe.empty() && row.durationNs > 0;
-    return (hasNumericTier || hasTextInterval)
+    return hasNumericTier
         && row.durationNs > 0
         && row.openE8 > 0
         && row.closeE8 > 0
         && row.volumeE8 >= 0;
+}
+
+bool parseCommaInt64(JsonParser& parser, std::int64_t& value) noexcept {
+    return parser.parseComma() && parser.parseInt64(value);
+}
+
+bool parseCommaUInt64(JsonParser& parser, std::uint64_t& value) noexcept {
+    return parser.parseComma() && parser.parseUInt64(value);
+}
+
+bool parseArrival(JsonParser& parser, EventArrival& out) noexcept {
+    std::uint64_t sourceId = 0u;
+    std::uint64_t shardId = 0u;
+    std::uint64_t eventOrdinal = 0u;
+    std::uint64_t flags = 0u;
+    if (!parseCommaInt64(parser, out.receiveRealtimeNs) ||
+        !parseCommaUInt64(parser, out.receiveMonotonicNs) ||
+        !parseCommaUInt64(parser, out.producerEpoch) ||
+        !parseCommaUInt64(parser, out.sourceGeneration) ||
+        !parseCommaUInt64(parser, out.sessionEpoch) ||
+        !parseCommaUInt64(parser, out.frameSequence) ||
+        !parseCommaUInt64(parser, out.shardSequence) ||
+        !parseCommaUInt64(parser, sourceId) ||
+        !parseCommaUInt64(parser, shardId) ||
+        !parseCommaUInt64(parser, eventOrdinal) ||
+        !parseCommaUInt64(parser, flags) ||
+        sourceId > std::numeric_limits<std::uint32_t>::max() ||
+        shardId > std::numeric_limits<std::uint16_t>::max() ||
+        eventOrdinal > std::numeric_limits<std::uint16_t>::max() ||
+        flags > std::numeric_limits<std::uint32_t>::max()) {
+        return false;
+    }
+    out.sourceId = static_cast<std::uint32_t>(sourceId);
+    out.shardId = static_cast<std::uint16_t>(shardId);
+    out.eventOrdinal = static_cast<std::uint16_t>(eventOrdinal);
+    out.flags = static_cast<std::uint32_t>(flags);
+    if ((out.flags & ~kEventArrivalKnownFlags) != 0u) return false;
+    const bool application =
+        (out.flags & EventArrivalApplicationFrame) != 0u;
+    const bool historical =
+        (out.flags & EventArrivalHistoricalBackfill) != 0u;
+    if (application && historical) return false;
+    if (application) return hasCapturedApplicationArrival(out);
+    if ((out.flags & ~(EventArrivalHistoricalBackfill |
+                       EventArrivalExchangeTimestampMissing)) != 0u) {
+        return false;
+    }
+    return out.receiveRealtimeNs == 0 && out.receiveMonotonicNs == 0u &&
+        out.producerEpoch == 0u && out.sourceGeneration == 0u &&
+        out.sessionEpoch == 0u && out.frameSequence == 0u &&
+        out.shardSequence == 0u && out.sourceId == 0u && out.shardId == 0u &&
+        out.eventOrdinal == 0u;
 }
 
 bool parsePricePair(JsonParser& parser, PricePair& out) noexcept {
@@ -131,17 +117,24 @@ bool parseTapeNonNegativeI64(JsonParser& parser, std::int64_t& out) noexcept {
 }
 
 bool parseDepthTapeLine(std::string_view tapeLine, DepthRow& out) noexcept {
-    out = DepthRow{};
+    out.eventId = 0u;
+    out.tsNs = 0;
+    out.captureSeq = 0;
+    out.ingestSeq = 0;
+    out.arrival = {};
+    out.levels.clear();
     JsonParser parser{tapeLine};
     if (!parser.parseArrayStart()) return false;
     std::uint64_t word = 0;
     if (!parser.parseUInt64(word)) return false;
-    if ((word & orderBookTapeTimestampTag) == 0u) {
-        out.eventId = word;
-        if (!parser.parseComma() || !parser.parseUInt64(word)) return false;
-    }
+    out.eventId = word;
+    if (out.eventId == 0u || !parser.parseComma() ||
+        !parser.parseUInt64(word)) return false;
     if ((word & orderBookTapeTimestampTag) == 0u) return false;
     out.tsNs = static_cast<std::int64_t>(word & orderBookTapePayloadMask);
+    if (!parseCommaInt64(parser, out.captureSeq) ||
+        !parseCommaInt64(parser, out.ingestSeq) ||
+        !parseArrival(parser, out.arrival)) return false;
     while (!parser.peek(']')) {
         if (!parser.parseComma()) return false;
         std::int64_t price = 0;
@@ -159,12 +152,8 @@ bool applyDepthRleSidecar(std::string_view sidecarLine, DepthRow& out) noexcept 
     if (!parser.parseArrayStart()) return false;
     std::uint64_t word = 0;
     if (!parser.parseUInt64(word)) return false;
-    if ((word & orderBookTapeTimestampTag) == 0u) {
-        if (word != out.eventId) return false;
-        if (!parser.parseComma() || !parser.parseUInt64(word)) return false;
-    } else if (out.eventId != 0u) {
-        return false;
-    }
+    if (word != out.eventId || !parser.parseComma() ||
+        !parser.parseUInt64(word)) return false;
     if ((word & orderBookTapeTimestampTag) == 0u) return false;
     if (static_cast<std::int64_t>(word & orderBookTapePayloadMask) != out.tsNs) return false;
 
@@ -215,10 +204,6 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
     out.sideBuy = static_cast<std::uint8_t>(out.side);
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
-    if (parser.peek(']')) {
-        if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
-        return Status::Ok;
-    }
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseUInt64(out.tradeId)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
@@ -239,6 +224,7 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
     if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
+    if (!parseArrival(parser, out.arrival)) return Status::CorruptData;
     if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
     return Status::Ok;
 }
@@ -246,54 +232,8 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
 Status parseTradeLine(std::string_view line,
                       TradeRow& out,
                       const std::vector<std::string>& aliases) noexcept {
-    out = TradeRow{};
-    if (aliases.empty()) return parseTradeLine(line, out);
-
-    JsonParser parser{line};
-    if (!parser.parseArrayStart()) return Status::CorruptData;
-    bool firstValue = true;
-    for (const auto& alias : aliases) {
-        if (!firstValue) {
-            if (parser.peek(']')) break;
-            if (!parser.parseComma()) return Status::CorruptData;
-        }
-        if (alias == price) {
-            if (!parser.parseInt64(out.priceE8)) return Status::CorruptData;
-        } else if (alias == amount) {
-            if (!parser.parseInt64(out.qtyE8)) return Status::CorruptData;
-        } else if (alias == side) {
-            if (!parser.parseInt64(out.side)) return Status::CorruptData;
-            if (out.side != 0 && out.side != 1) return Status::CorruptData;
-            out.sideBuy = static_cast<std::uint8_t>(out.side);
-        } else if (alias == timestamp) {
-            if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
-        } else if (alias == id) {
-            if (!parser.parseUInt64(out.tradeId)) return Status::CorruptData;
-        } else if (alias == firstTradeId) {
-            if (!parser.parseUInt64(out.firstTradeId)) return Status::CorruptData;
-        } else if (alias == lastTradeId) {
-            if (!parser.parseUInt64(out.lastTradeId)) return Status::CorruptData;
-        } else if (alias == quoteQty) {
-            if (!parser.parseInt64(out.quoteQtyE8)) return Status::CorruptData;
-        } else if (alias == isBuyerMaker) {
-            if (!parseBoolByte(parser, out.isBuyerMaker)) return Status::CorruptData;
-        } else if (alias == symbol) {
-            if (!parser.parseString(out.symbol)) return Status::CorruptData;
-        } else if (alias == exchange) {
-            if (!parser.parseString(out.exchange)) return Status::CorruptData;
-        } else if (alias == market) {
-            if (!parser.parseString(out.market)) return Status::CorruptData;
-        } else if (alias == captureSeq) {
-            if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
-        } else if (alias == ingestSeq) {
-            if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
-        } else if (!parser.skipValue()) {
-            return Status::CorruptData;
-        }
-        firstValue = false;
-    }
-    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
-    return Status::Ok;
+    (void)aliases;
+    return parseTradeLine(line, out);
 }
 
 Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept {
@@ -313,10 +253,6 @@ Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept
     if (!parser.parseInt64(out.avgPriceE8)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseInt64(out.filledQtyE8)) return Status::CorruptData;
-    if (parser.peek(']')) {
-        if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
-        return Status::Ok;
-    }
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseString(out.symbol)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
@@ -335,6 +271,7 @@ Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept
     if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
+    if (!parseArrival(parser, out.arrival)) return Status::CorruptData;
     if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
     return Status::Ok;
 }
@@ -342,88 +279,27 @@ Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept
 Status parseLiquidationLine(std::string_view line,
                             LiquidationRow& out,
                             const std::vector<std::string>& aliases) noexcept {
-    out = LiquidationRow{};
-    JsonParser parser{line};
-    if (!parser.parseArrayStart()) return Status::CorruptData;
-    bool firstValue = true;
-    for (const auto& alias : aliases) {
-        if (!firstValue) {
-            if (parser.peek(']')) break;
-            if (!parser.parseComma()) return Status::CorruptData;
-        }
-        if (alias == price) {
-            if (!parser.parseInt64(out.priceE8)) return Status::CorruptData;
-        } else if (alias == amount) {
-            if (!parser.parseInt64(out.qtyE8)) return Status::CorruptData;
-        } else if (alias == side) {
-            if (!parser.parseInt64(out.side)) return Status::CorruptData;
-            if (out.side != 0 && out.side != 1) return Status::CorruptData;
-            out.sideBuy = static_cast<std::uint8_t>(out.side);
-        } else if (alias == timestamp) {
-            if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
-        } else if (alias == avgPrice) {
-            if (!parser.parseInt64(out.avgPriceE8)) return Status::CorruptData;
-        } else if (alias == filledQty) {
-            if (!parser.parseInt64(out.filledQtyE8)) return Status::CorruptData;
-        } else if (alias == symbol) {
-            if (!parser.parseString(out.symbol)) return Status::CorruptData;
-        } else if (alias == exchange) {
-            if (!parser.parseString(out.exchange)) return Status::CorruptData;
-        } else if (alias == market) {
-            if (!parser.parseString(out.market)) return Status::CorruptData;
-        } else if (alias == orderType) {
-            if (!parser.parseInt64(out.orderType)) return Status::CorruptData;
-        } else if (alias == timeInForce) {
-            if (!parser.parseInt64(out.timeInForce)) return Status::CorruptData;
-        } else if (alias == status) {
-            if (!parser.parseInt64(out.status)) return Status::CorruptData;
-        } else if (alias == sourceMode) {
-            if (!parser.parseInt64(out.sourceMode)) return Status::CorruptData;
-        } else if (alias == captureSeq) {
-            if (!parser.parseInt64(out.captureSeq)) return Status::CorruptData;
-        } else if (alias == ingestSeq) {
-            if (!parser.parseInt64(out.ingestSeq)) return Status::CorruptData;
-        }
-        firstValue = false;
-    }
-    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
-    return Status::Ok;
+    (void)aliases;
+    return parseLiquidationLine(line, out);
 }
 
 Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
     out = BookTickerRow{};
     JsonParser parser{line};
     if (!parser.parseArrayStart()) return Status::CorruptData;
-    std::uint64_t first = 0u;
-    if (!parser.parseUInt64(first)) return Status::CorruptData;
-    std::int64_t tail[5]{};
-    std::size_t tailCount = 0u;
-    while (!parser.peek(']')) {
-        if (tailCount >= 5u || !parser.parseComma() || !parser.parseInt64(tail[tailCount])) {
-            return Status::CorruptData;
-        }
-        ++tailCount;
-    }
-    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
-    if (tailCount == 4u) {
-        if (first > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-            return Status::CorruptData;
-        }
-        out.bidPriceE8 = static_cast<std::int64_t>(first);
-        out.bidQtyE8 = tail[0];
-        out.askPriceE8 = tail[1];
-        out.askQtyE8 = tail[2];
-        out.tsNs = tail[3];
-    } else if (tailCount == 5u) {
-        out.eventId = first;
-        out.bidPriceE8 = tail[0];
-        out.bidQtyE8 = tail[1];
-        out.askPriceE8 = tail[2];
-        out.askQtyE8 = tail[3];
-        out.tsNs = tail[4];
-    } else {
-        return Status::CorruptData;
-    }
+    if (!parser.parseUInt64(out.eventId) || out.eventId == 0u ||
+        !parseCommaInt64(parser, out.bidPriceE8) ||
+        !parseCommaInt64(parser, out.bidQtyE8) ||
+        !parseCommaInt64(parser, out.askPriceE8) ||
+        !parseCommaInt64(parser, out.askQtyE8) ||
+        !parseCommaInt64(parser, out.tsNs) || !parser.parseComma() ||
+        !parser.parseString(out.symbol) || !parser.parseComma() ||
+        !parser.parseString(out.exchange) || !parser.parseComma() ||
+        !parser.parseString(out.market) ||
+        !parseCommaInt64(parser, out.captureSeq) ||
+        !parseCommaInt64(parser, out.ingestSeq) ||
+        !parseArrival(parser, out.arrival) || !parser.parseArrayEnd() ||
+        !parser.finish()) return Status::CorruptData;
     return Status::Ok;
 }
 
@@ -438,69 +314,27 @@ Status parseCandleLine(std::string_view line, CandleRow& out) noexcept {
     out = CandleRow{};
     JsonParser parser{line};
     if (!parser.parseArrayStart()) return Status::CorruptData;
-    if (parser.peek('"')) {
-        if (!parser.parseString(out.exchange)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseString(out.market)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseString(out.symbol)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseString(out.timeframe)) return Status::CorruptData;
-        out.durationNs = timeframeDurationNs(out.timeframe);
-        out.tier = tierFromTimeframe(out.timeframe);
-        out.hasOhlc = true;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseInt64(out.openE8)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseInt64(out.highE8)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseInt64(out.lowE8)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseInt64(out.closeE8)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseInt64(out.volumeE8)) return Status::CorruptData;
-        if (!parser.parseComma()) return Status::CorruptData;
-        if (!parser.parseInt64(out.quoteAmountE8)) return Status::CorruptData;
-        if (!validateCandle(out)) return Status::CorruptData;
-        if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
-        return Status::Ok;
-    }
-    if (!parser.parseInt64(out.tier)) return Status::CorruptData;
-    if (out.tier < 1 || out.tier > 3) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    std::int64_t firstPrice = 0;
-    if (!parser.parseInt64(firstPrice)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    std::int64_t secondPrice = 0;
-    if (!parser.parseInt64(secondPrice)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    std::int64_t thirdPrice = 0;
-    if (!parser.parseInt64(thirdPrice)) return Status::CorruptData;
-    if (parser.peek(']')) {
-        out.highE8 = firstPrice;
-        out.lowE8 = secondPrice;
-        out.quoteAmountE8 = thirdPrice;
-        if (!validateCandle(out)) return Status::CorruptData;
-        if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
-        return Status::Ok;
-    }
-    if (!parser.parseComma()) return Status::CorruptData;
-    if (!parser.parseInt64(out.closeE8)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    if (!parser.parseInt64(out.volumeE8)) return Status::CorruptData;
-    if (!parser.parseComma()) return Status::CorruptData;
-    if (!parser.parseInt64(out.quoteAmountE8)) return Status::CorruptData;
-    out.openE8 = firstPrice;
-    out.highE8 = secondPrice;
-    out.lowE8 = thirdPrice;
-    out.hasOhlc = true;
-    out.durationNs = durationFromTier(out.tier);
-    if (!validateCandle(out)) return Status::CorruptData;
-    if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
+    std::uint8_t hasOhlc = 0u;
+    if (!parser.parseInt64(out.tier) ||
+        !parseCommaInt64(parser, out.tsNs) ||
+        !parseCommaInt64(parser, out.openE8) ||
+        !parseCommaInt64(parser, out.highE8) ||
+        !parseCommaInt64(parser, out.lowE8) ||
+        !parseCommaInt64(parser, out.closeE8) ||
+        !parseCommaInt64(parser, out.volumeE8) ||
+        !parseCommaInt64(parser, out.quoteAmountE8) ||
+        !parser.parseComma() || !parseBoolByte(parser, hasOhlc) ||
+        !parser.parseComma() || !parser.parseString(out.exchange) ||
+        !parser.parseComma() || !parser.parseString(out.market) ||
+        !parser.parseComma() || !parser.parseString(out.symbol) ||
+        !parser.parseComma() || !parser.parseString(out.timeframe) ||
+        !parseCommaInt64(parser, out.durationNs) ||
+        !parseCommaInt64(parser, out.captureSeq) ||
+        !parseCommaInt64(parser, out.ingestSeq) ||
+        !parseArrival(parser, out.arrival)) return Status::CorruptData;
+    out.hasOhlc = hasOhlc != 0u;
+    if (!validateCandle(out) || !parser.parseArrayEnd() ||
+        !parser.finish()) return Status::CorruptData;
     return Status::Ok;
 }
 
@@ -511,6 +345,9 @@ Status parseMarkPriceLine(std::string_view line, MarkPriceRow& out) noexcept {
     if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseInt64(out.markPriceE8)) return Status::CorruptData;
+    if (!parseCommaInt64(parser, out.captureSeq) ||
+        !parseCommaInt64(parser, out.ingestSeq) ||
+        !parseArrival(parser, out.arrival)) return Status::CorruptData;
     if (out.tsNs <= 0 || out.markPriceE8 <= 0) return Status::CorruptData;
     if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
     return Status::Ok;
@@ -523,6 +360,9 @@ Status parseIndexPriceLine(std::string_view line, IndexPriceRow& out) noexcept {
     if (!parser.parseInt64(out.tsNs)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseInt64(out.indexPriceE8)) return Status::CorruptData;
+    if (!parseCommaInt64(parser, out.captureSeq) ||
+        !parseCommaInt64(parser, out.ingestSeq) ||
+        !parseArrival(parser, out.arrival)) return Status::CorruptData;
     if (out.tsNs <= 0 || out.indexPriceE8 <= 0) return Status::CorruptData;
     if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
     return Status::Ok;
@@ -539,6 +379,9 @@ Status parseFundingLine(std::string_view line, FundingRow& out) noexcept {
     if (!parser.parseInt64(out.fundingTsNs)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parser.parseInt64(out.nextFundingTsNs)) return Status::CorruptData;
+    if (!parseCommaInt64(parser, out.captureSeq) ||
+        !parseCommaInt64(parser, out.ingestSeq) ||
+        !parseArrival(parser, out.arrival)) return Status::CorruptData;
     if (out.tsNs <= 0) return Status::CorruptData;
     if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
     return Status::Ok;
@@ -555,22 +398,12 @@ Status parsePriceLimitLine(std::string_view line, PriceLimitRow& out) noexcept {
     if (!parser.parseInt64(out.sellLimitE8)) return Status::CorruptData;
     if (!parser.parseComma()) return Status::CorruptData;
     if (!parseBoolByte(parser, out.enabled)) return Status::CorruptData;
+    if (!parseCommaInt64(parser, out.captureSeq) ||
+        !parseCommaInt64(parser, out.ingestSeq) ||
+        !parseArrival(parser, out.arrival)) return Status::CorruptData;
     if (out.tsNs <= 0 || out.buyLimitE8 < 0 || out.sellLimitE8 < 0) return Status::CorruptData;
     if (!parser.parseArrayEnd() || !parser.finish()) return Status::CorruptData;
     return Status::Ok;
-}
-
-Status parseDepthLine(std::string_view line, DepthRow& out) noexcept {
-    out = DepthRow{};
-    JsonParser parser{line};
-    return parseFlatOrderbook(parser, out.levels, out.tsNs) ? Status::Ok : Status::CorruptData;
-}
-
-Status parseDepthLine(std::string_view line,
-                      DepthRow& out,
-                      const std::vector<std::string>& aliases) noexcept {
-    (void)aliases;
-    return parseDepthLine(line, out);
 }
 
 Status parseDepthTapeSidecarLine(std::string_view tapeLine,

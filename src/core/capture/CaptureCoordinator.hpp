@@ -162,10 +162,13 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
 
 	  private:
 	    static void noteExternalRow_(ChannelRuntimeHealth& health, std::int64_t tsNs) noexcept;
+	    void noteArrival_(const replay::EventArrival& arrival,
+	                      std::int64_t exchangeTsNs) noexcept;
 	    Status accountExternalAppend_(Status status,
 	                                  ChannelRuntimeHealth& health,
 	                                  std::atomic<std::uint64_t>& counter,
 	                                  std::int64_t tsNs,
+	                                  const replay::EventArrival& arrival,
 	                                  std::string_view channel) noexcept;
 	    Status ensureSession_(const CaptureConfig& config, bool allowMultiSymbol) noexcept;
 	    void resetSessionState() noexcept;
@@ -212,7 +215,6 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     ChannelJsonWriter bookTickerWriter_{};
     ChannelJsonWriter candlesWriter_{};
     ChannelJsonWriter candles2Writer_{};
-    ChannelJsonWriter depthWriter_{};
     storage::LiveEventStore liveStore_{};
     storage::JsonSessionSink jsonSink_{};
     storage::CompositeEventSink eventSink_{};

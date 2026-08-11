@@ -258,7 +258,7 @@ QString defaultRecordingCatalogCachePath() {
     }
     QDir dir(base);
     (void)dir.mkpath(QStringLiteral("."));
-    return dir.absoluteFilePath(QStringLiteral("recording_catalog_v2.json"));
+    return dir.absoluteFilePath(QStringLiteral("recording_catalog.json"));
 }
 
 bool writeRecordingCatalogCache(const QString& path, const RecordingCatalogSnapshot& snapshot, QString* errorText) {

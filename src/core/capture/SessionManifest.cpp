@@ -142,6 +142,65 @@ bool parseCaptureObject(JsonParser& parser, SessionManifest& manifest) noexcept 
     return parser.parseObjectEnd();
 }
 
+bool parseArrivalClockObject(JsonParser& parser,
+                             ArrivalClockSummary& summary) noexcept {
+    if (!parser.parseObjectStart()) return false;
+    if (parser.peek('}')) return false;
+    std::uint16_t seen = 0u;
+    std::string key;
+    do {
+        if (!parser.parseKey(key)) return false;
+        if (key == "boundary") {
+            if (!parser.parseString(summary.boundary)) return false;
+            seen |= std::uint16_t{1u} << 0u;
+        } else if (key == "realtime_clock") {
+            if (!parser.parseString(summary.realtimeClock)) return false;
+            seen |= std::uint16_t{1u} << 1u;
+        } else if (key == "monotonic_clock") {
+            if (!parser.parseString(summary.monotonicClock)) return false;
+            seen |= std::uint16_t{1u} << 2u;
+        } else if (key == "captured_rows") {
+            if (!parseUint64Field(parser, summary.capturedRows)) return false;
+            seen |= std::uint16_t{1u} << 3u;
+        } else if (key == "historical_rows") {
+            if (!parseUint64Field(parser, summary.historicalRows)) return false;
+            seen |= std::uint16_t{1u} << 4u;
+        } else if (key == "unavailable_rows") {
+            if (!parseUint64Field(parser, summary.unavailableRows)) return false;
+            seen |= std::uint16_t{1u} << 5u;
+        } else if (key == "realtime_regressions") {
+            if (!parseUint64Field(parser, summary.realtimeRegressions)) return false;
+            seen |= std::uint16_t{1u} << 6u;
+        } else if (key == "monotonic_non_increasing") {
+            if (!parseUint64Field(parser, summary.monotonicNonIncreasing)) return false;
+            seen |= std::uint16_t{1u} << 7u;
+        } else if (key == "exchange_ahead_of_receive") {
+            if (!parseUint64Field(parser, summary.exchangeAheadOfReceive)) return false;
+            seen |= std::uint16_t{1u} << 8u;
+        } else if (key == "exchange_timestamp_missing") {
+            if (!parseUint64Field(parser, summary.exchangeTimestampMissing)) return false;
+            seen |= std::uint16_t{1u} << 9u;
+        } else if (key == "first_receive_realtime_ns") {
+            if (!parseInt64Field(parser, summary.firstReceiveRealtimeNs)) return false;
+            seen |= std::uint16_t{1u} << 10u;
+        } else if (key == "last_receive_realtime_ns") {
+            if (!parseInt64Field(parser, summary.lastReceiveRealtimeNs)) return false;
+            seen |= std::uint16_t{1u} << 11u;
+        } else if (key == "first_receive_monotonic_ns") {
+            if (!parseUint64Field(parser, summary.firstReceiveMonotonicNs)) return false;
+            seen |= std::uint16_t{1u} << 12u;
+        } else if (key == "last_receive_monotonic_ns") {
+            if (!parseUint64Field(parser, summary.lastReceiveMonotonicNs)) return false;
+            seen |= std::uint16_t{1u} << 13u;
+        } else if (!parser.skipValue()) {
+            return false;
+        }
+        if (parser.peek('}')) break;
+    } while (parser.parseComma());
+    constexpr std::uint16_t required = (std::uint16_t{1u} << 14u) - 1u;
+    return seen == required && parser.parseObjectEnd();
+}
+
 
 bool parseReplayObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
@@ -525,62 +584,47 @@ bool parseChannelIntegrityGroupObject(JsonParser& parser, SessionManifest& manif
 
 
 bool isSupportedCaptureContractVersion(std::string_view version) noexcept {
-    return version == "hftrec.strict_canonical_rows_json.v1"
-        || version == "hftrec.strict_canonical_rows_json.v2"
-        || version == "hftrec.orderbook_tape_sidecar_json.v2"
-        || version == "hftrec.runtime_event_id_rows_json.v3"
-        || version == "hftrec.cxet_alias_rows_json.v5";
+    return version == kCaptureContractVersionCurrent;
 }
 
 bool isSupportedTradesRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_trade_strict_v1"
-        || schema == "cxet_trade_alias_first_v3";
+    return schema == kTradesRowSchemaCurrent;
 }
 
 bool isSupportedLiquidationsRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_liquidation_alias_first_v1";
+    return schema == kLiquidationsRowSchemaCurrent;
 }
 
 bool isSupportedBookTickerRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_bookticker_strict_v1"
-        || schema == "cxet_bookticker_event_id_v2"
-        || schema == "cxet_bookticker_alias_first_v3";
+    return schema == kBookTickerRowSchemaCurrent;
 }
 
 bool isSupportedDepthRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_orderbook_flat_levels_v1"
-        || schema == "cxet_orderbook_tape_sidecar_v1"
-        || schema == "cxet_orderbook_tape_rle_sidecar_v1"
-        || schema == "cxet_orderbook_tape_rle_sidecar_event_id_v2"
-        || schema == "cxet_orderbook_alias_first_v5";
+    return schema == kDepthRowSchemaCurrent;
 }
 
 bool isDepthTapeSidecarSchema(std::string_view schema) noexcept {
-    return schema == "cxet_orderbook_tape_sidecar_v1"
-        || schema == "cxet_orderbook_tape_rle_sidecar_v1"
-        || schema == "cxet_orderbook_tape_rle_sidecar_event_id_v2";
+    return schema == kDepthRowSchemaCurrent;
 }
 
 bool isSupportedCandlesRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_candle_lite_tiered_v1"
-        || schema == "cxet_ohlcv_detailed_v2"
-        || schema == "cxet_ohlcv_numeric_v3";
+    return schema == kCandlesRowSchemaCurrent;
 }
 
 bool isSupportedMarkPriceRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_mark_price_ref_v1";
+    return schema == kMarkPriceRowSchemaCurrent;
 }
 
 bool isSupportedIndexPriceRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_index_price_ref_v1";
+    return schema == kIndexPriceRowSchemaCurrent;
 }
 
 bool isSupportedFundingRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_funding_ref_dedup_v1";
+    return schema == kFundingRowSchemaCurrent;
 }
 
 bool isSupportedPriceLimitRowSchema(std::string_view schema) noexcept {
-    return schema == "cxet_price_limit_ref_v1";
+    return schema == kPriceLimitRowSchemaCurrent;
 }
 
 void populateCanonicalArtifacts(SessionManifest& manifest) {
@@ -752,6 +796,22 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "    \"actual_duration_sec\": " << manifest.actualDurationSec << ",\n";
     out << "    \"snapshot_interval_sec\": " << manifest.snapshotIntervalSec << "\n";
     out << "  },\n";
+    out << "  \"arrival_clock\": {\n";
+    out << "    \"boundary\": " << json::quote(manifest.arrivalClock.boundary) << ",\n";
+    out << "    \"realtime_clock\": " << json::quote(manifest.arrivalClock.realtimeClock) << ",\n";
+    out << "    \"monotonic_clock\": " << json::quote(manifest.arrivalClock.monotonicClock) << ",\n";
+    out << "    \"captured_rows\": " << manifest.arrivalClock.capturedRows << ",\n";
+    out << "    \"historical_rows\": " << manifest.arrivalClock.historicalRows << ",\n";
+    out << "    \"unavailable_rows\": " << manifest.arrivalClock.unavailableRows << ",\n";
+    out << "    \"realtime_regressions\": " << manifest.arrivalClock.realtimeRegressions << ",\n";
+    out << "    \"monotonic_non_increasing\": " << manifest.arrivalClock.monotonicNonIncreasing << ",\n";
+    out << "    \"exchange_ahead_of_receive\": " << manifest.arrivalClock.exchangeAheadOfReceive << ",\n";
+    out << "    \"exchange_timestamp_missing\": " << manifest.arrivalClock.exchangeTimestampMissing << ",\n";
+    out << "    \"first_receive_realtime_ns\": " << manifest.arrivalClock.firstReceiveRealtimeNs << ",\n";
+    out << "    \"last_receive_realtime_ns\": " << manifest.arrivalClock.lastReceiveRealtimeNs << ",\n";
+    out << "    \"first_receive_monotonic_ns\": " << manifest.arrivalClock.firstReceiveMonotonicNs << ",\n";
+    out << "    \"last_receive_monotonic_ns\": " << manifest.arrivalClock.lastReceiveMonotonicNs << "\n";
+    out << "  },\n";
     out << "  \"replay\": {\n";
     out << "    \"structurally_loadable\": " << boolToString(manifest.structurallyLoadable) << ",\n";
     out << "    \"structural_blockers\": ";
@@ -837,18 +897,16 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"declared_event_count\": " << manifest.priceLimitCount << "\n";
     out << "    }\n";
     out << "  },\n";
-    if (manifest.manifestSchemaVersion >= 2) {
-        out << "  \"runtime_health\": {\n";
-        appendChannelRuntimeHealth(out, "trades", manifest.tradesRuntime, true);
-        appendChannelRuntimeHealth(out, "liquidations", manifest.liquidationsRuntime, true);
-        appendChannelRuntimeHealth(out, "bookticker", manifest.bookTickerRuntime, true);
-        appendChannelRuntimeHealth(out, "depth", manifest.depthRuntime, true);
-        appendChannelRuntimeHealth(out, "mark_price", manifest.markPriceRuntime, true);
-        appendChannelRuntimeHealth(out, "index_price", manifest.indexPriceRuntime, true);
-        appendChannelRuntimeHealth(out, "funding", manifest.fundingRuntime, true);
-        appendChannelRuntimeHealth(out, "price_limit", manifest.priceLimitRuntime, false);
-        out << "  },\n";
-    }
+    out << "  \"runtime_health\": {\n";
+    appendChannelRuntimeHealth(out, "trades", manifest.tradesRuntime, true);
+    appendChannelRuntimeHealth(out, "liquidations", manifest.liquidationsRuntime, true);
+    appendChannelRuntimeHealth(out, "bookticker", manifest.bookTickerRuntime, true);
+    appendChannelRuntimeHealth(out, "depth", manifest.depthRuntime, true);
+    appendChannelRuntimeHealth(out, "mark_price", manifest.markPriceRuntime, true);
+    appendChannelRuntimeHealth(out, "index_price", manifest.indexPriceRuntime, true);
+    appendChannelRuntimeHealth(out, "funding", manifest.fundingRuntime, true);
+    appendChannelRuntimeHealth(out, "price_limit", manifest.priceLimitRuntime, false);
+    out << "  },\n";
     out << "  \"artifacts\": {\n";
     out << "    \"instrument_metadata_path\": " << json::quote(manifest.instrumentMetadataPath) << ",\n";
     out << "    \"session_audit_path\": " << json::quote(manifest.sessionAuditPath) << ",\n";
@@ -885,6 +943,11 @@ std::string renderManifestJson(const SessionManifest& manifest) {
 
 Status parseManifestJson(std::string_view document, SessionManifest& manifest) noexcept {
     SessionManifest parsed{};
+    bool manifestSchemaSeen = false;
+    bool corpusSchemaSeen = false;
+    bool captureContractSeen = false;
+    bool sessionStatusSeen = false;
+    bool arrivalClockSeen = false;
     JsonParser parser{document};
     if (!parser.parseObjectStart()) return Status::CorruptData;
     if (!parser.peek('}')) {
@@ -893,16 +956,23 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
             if (!parser.parseKey(key)) return Status::CorruptData;
             if (key == "manifest_schema_version") {
                 if (!parseInt32Field(parser, parsed.manifestSchemaVersion)) return Status::CorruptData;
+                manifestSchemaSeen = true;
             } else if (key == "corpus_schema_version") {
                 if (!parseInt32Field(parser, parsed.corpusSchemaVersion)) return Status::CorruptData;
+                corpusSchemaSeen = true;
             } else if (key == "capture_contract_version") {
                 if (!parser.parseString(parsed.captureContractVersion)) return Status::CorruptData;
+                captureContractSeen = true;
             } else if (key == "session_status") {
                 if (!parser.parseString(parsed.sessionStatus)) return Status::CorruptData;
+                sessionStatusSeen = true;
             } else if (key == "identity") {
                 if (!parseIdentityObject(parser, parsed)) return Status::CorruptData;
             } else if (key == "capture") {
                 if (!parseCaptureObject(parser, parsed)) return Status::CorruptData;
+            } else if (key == "arrival_clock") {
+                if (!parseArrivalClockObject(parser, parsed.arrivalClock)) return Status::CorruptData;
+                arrivalClockSeen = true;
             } else if (key == "replay") {
                 if (!parseReplayObject(parser, parsed)) return Status::CorruptData;
             } else if (key == "channels") {
@@ -963,8 +1033,15 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
         } while (parser.parseComma());
     }
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
+    if (!manifestSchemaSeen || !corpusSchemaSeen || !captureContractSeen ||
+        !sessionStatusSeen || parsed.sessionStatus.empty() ||
+        !arrivalClockSeen ||
+        parsed.arrivalClock.boundary != "hft-parser.application-frame-ready" ||
+        parsed.arrivalClock.realtimeClock != "CLOCK_REALTIME" ||
+        parsed.arrivalClock.monotonicClock != "CLOCK_MONOTONIC") {
+        return Status::CorruptData;
+    }
 
-    if (parsed.sessionStatus.empty()) parsed.sessionStatus = "complete";
     populateCanonicalArtifacts(parsed);
     populateSupportArtifacts(parsed);
     validateStructurally(parsed);
@@ -973,7 +1050,7 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
 }
 
 bool isSupportedManifestSchemaVersion(std::int32_t version) noexcept {
-    return version == 1 || version == kManifestSchemaVersionCurrent;
+    return version == kManifestSchemaVersionCurrent;
 }
 
 bool isSupportedCorpusSchemaVersion(std::int32_t version) noexcept {

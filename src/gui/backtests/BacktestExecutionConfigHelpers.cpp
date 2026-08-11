@@ -216,7 +216,6 @@ QString costSummary(const hft_trader::core::RateLimitActionConfig& action) {
 void applyBacktestExecutionPolicy(hft_backtest::BacktestRunRequest& request,
                                   const BacktestExecutionPolicy& policy) {
     request.latencySeed = policy.latencySeed;
-    request.marketDataLatency = policy.marketDataLatency;
     request.marketOrderLatency = policy.marketOrderLatency;
     request.limitOrderLatency = policy.limitOrderLatency;
     request.cancelOrderLatency = policy.cancelOrderLatency;
@@ -266,8 +265,6 @@ bool isVenueExecutionField(const QString& field) {
     return field == QStringLiteral("initial_balance_usdt") ||
            field == QStringLiteral("maker_fee_bps") ||
            field == QStringLiteral("taker_fee_bps") ||
-           field == QStringLiteral("market_data_latency_us") ||
-           field == QStringLiteral("market_data_jitter_us") ||
            field == QStringLiteral("market_order_latency_us") ||
            field == QStringLiteral("market_order_jitter_us") ||
            field == QStringLiteral("limit_order_latency_us") ||

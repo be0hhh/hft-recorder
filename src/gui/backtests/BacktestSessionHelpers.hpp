@@ -50,6 +50,10 @@ class SessionManifestSnapshot {
 };
 
 SessionManifestSnapshot loadSessionManifestSnapshot(const QString& sessionPath);
+bool sessionSupportsCurrentBacktestContract(const SessionManifestSnapshot& manifest,
+                                            QString* error = nullptr);
+bool sessionSupportsCurrentBacktestContract(const QString& sessionPath,
+                                            QString* error = nullptr);
 
 QString resolveRecordingsRoot();
 QString sessionSourceSummary(const SessionManifestSnapshot& manifest,

@@ -183,16 +183,6 @@ Status JsonSessionSink::appendPriceLimitLine(const replay::PriceLimitRow&, const
     return status;
 }
 
-Status JsonSessionSink::appendDepthLine(const replay::DepthRow&, const std::string& line) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
-    const auto status = writeLine_(capture::ChannelKind::DepthDelta, depth_, line);
-    if (isOk(status)) {
-        ++stats_.depthsTotal;
-        ++stats_.version;
-    }
-    return status;
-}
-
 Status JsonSessionSink::appendDepthTapeSidecarLines(const replay::DepthRow&,
                                                     const std::string& tapeLine,
                                                     const std::string& sidecarLine) noexcept {
@@ -233,7 +223,6 @@ Status JsonSessionSink::flush() noexcept {
     if (indexPrice_.is_open()) indexPrice_.flush();
     if (funding_.is_open()) funding_.flush();
     if (priceLimit_.is_open()) priceLimit_.flush();
-    if (depth_.is_open()) depth_.flush();
     if (depthTape_.is_open()) depthTape_.flush();
     if (depthSidecar_.is_open()) depthSidecar_.flush();
     if ((trades_.is_open() && !trades_.good())
@@ -243,7 +232,6 @@ Status JsonSessionSink::flush() noexcept {
         || (indexPrice_.is_open() && !indexPrice_.good())
         || (funding_.is_open() && !funding_.good())
         || (priceLimit_.is_open() && !priceLimit_.good())
-        || (depth_.is_open() && !depth_.good())
         || (depthTape_.is_open() && !depthTape_.good())
         || (depthSidecar_.is_open() && !depthSidecar_.good())) {
         return Status::IoError;
@@ -261,7 +249,6 @@ Status JsonSessionSink::close() noexcept {
     status = mergeStatus(status, closeStreamChecked(indexPrice_));
     status = mergeStatus(status, closeStreamChecked(funding_));
     status = mergeStatus(status, closeStreamChecked(priceLimit_));
-    status = mergeStatus(status, closeStreamChecked(depth_));
     status = mergeStatus(status, closeStreamChecked(depthTape_));
     status = mergeStatus(status, closeStreamChecked(depthSidecar_));
     sessionDir_.clear();

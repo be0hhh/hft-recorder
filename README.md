@@ -7,7 +7,8 @@ Current truth:
 - GUI-first product: `Qt 6 + QML`
 - first milestone: capture clean normalized market data, replay it, validate it,
   and visualize it
-- canonical session format: JSON corpus per session
+- canonical direct-recorder format: JSON corpus per session
+- canonical parser-wide format: sealed sharded binary corpus
 - compression research happens on top of that corpus
 
 Current Phase-1 capture target:
@@ -48,6 +49,33 @@ Current runtime truth:
 - the active viewer path is still `ChartItem` (`QQuickPaintedItem`)
 - this means current `--gpu` is hardware-backed compositing, not yet a separate GPU-native chart renderer
 - `./build/start` exports `HFTREC_METRICS_PORT=8080`, but leaves metrics disabled unless `HFTREC_METRICS_MODE` is set to `full`, `sampled`, or `counters`; `/metrics` includes `hftrec_build_info{compiler="..."}` so Prometheus/Grafana can separate Clang and GCC runs when metrics are enabled
+
+Parser-wide market capture:
+
+1. Start `hft-parserd` normally. Recorder attaches to its dedicated same-UID
+   `market-capture.sock`; it does not start, replace, or configure parserd.
+2. Inspect the frozen source/channel directory:
+   `./build/bin/hft-recorder parser-capture catalog --runtime-dir PATH`.
+3. Check attach, ABI/schema, arena and directory:
+   `./build/bin/hft-recorder parser-capture doctor --runtime-dir PATH`.
+4. Capture every exposed source/channel into a new directory, normally below
+   `/mnt/d/recordings`:
+   `./build/bin/hft-recorder parser-capture capture --runtime-dir PATH --output /mnt/d/recordings/SESSION --duration-sec N --max-bytes N`.
+   `tui` uses the same contract with a terminal dashboard.
+
+Duration and byte quota are both hard stops; the first one reached wins. The
+writer never deletes an existing session to satisfy quota. Stop freezes the
+producer boundary, drains committed ring records within the pre-reserved final
+budget, imports the loss ledger and seals the corpus.
+
+Binary backtest selection is explicit and half-open in receive realtime:
+`hft-backtest --corpus DIR --source exchange:market:canonical_symbol --from-receive-ns BEGIN --to-receive-ns END --config INI`.
+Required channels are derived from the selected strategy descriptor. Missing,
+recorded-only, stale, degraded, gapped or generation-crossing input fails
+closed; it is never replaced with another stream.
+Trades whose PublicMarket V2 aggressor side is `Unknown` are retained as
+recorded-only evidence because the current trader `TradeRuntimeV1` cannot
+represent that tri-state value without fabricating Buy or Sell.
 
 Primary user workflow:
 1. Open the GUI.

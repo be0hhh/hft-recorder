@@ -8,6 +8,9 @@
 
 #include <QString>
 
+#include "CapturedArrivalTestData.hpp"
+#include "core/capture/JsonSerializers.hpp"
+#include "core/capture/SessionManifest.hpp"
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/ChartItemInternal.hpp"
 #include "gui/viewer/hit_test/HoverDetection.hpp"
@@ -42,30 +45,84 @@ void writeFile(const fs::path& path, const std::string& data) {
     out << data;
 }
 
-std::string tradeLineWithSide(std::int64_t tsNs, std::int64_t priceE8, std::int64_t qtyE8, std::int64_t side) {
-    return "[" + std::to_string(priceE8)
-        + "," + std::to_string(qtyE8)
-        + "," + std::to_string(side)
-        + "," + std::to_string(tsNs)
-        + "]"
-        + "\n";
+std::string tradeLineWithSide(std::int64_t tsNs,
+                              std::int64_t priceE8,
+                              std::int64_t qtyE8,
+                              std::int64_t side,
+                              std::uint64_t sequence) {
+    hftrec::replay::TradeRow row{};
+    row.symbol = "BTC_USDT";
+    row.exchange = "binance";
+    row.market = "futures_usd";
+    row.tsNs = tsNs;
+    row.priceE8 = priceE8;
+    row.qtyE8 = qtyE8;
+    row.side = side;
+    row.sideBuy = static_cast<std::uint8_t>(side);
+    row.captureSeq = static_cast<std::int64_t>(sequence);
+    row.ingestSeq = static_cast<std::int64_t>(sequence);
+    row.arrival = hftrec::test_support::applicationArrival(sequence, tsNs);
+    return hftrec::capture::renderTradeJsonLine(row) + "\n";
 }
 
-std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8, std::int64_t) {
-    return tradeLineWithSide(tsNs, priceE8, e8(1), 1);
+std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8, std::int64_t sequence) {
+    return tradeLineWithSide(tsNs, priceE8, e8(1), 1,
+                             static_cast<std::uint64_t>(sequence));
 }
 
 std::string bookTickerLine(std::int64_t tsNs,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8,
-                           std::int64_t) {
-    return "[" + std::to_string(bidPriceE8)
-        + "," + std::to_string(e8(1))
-        + "," + std::to_string(askPriceE8)
-        + "," + std::to_string(e8(1))
-        + "," + std::to_string(tsNs)
-        + "]"
-        + "\n";
+                           std::int64_t sequence) {
+    hftrec::replay::BookTickerRow row{};
+    row.eventId = static_cast<std::uint64_t>(sequence);
+    row.symbol = "BTC_USDT";
+    row.exchange = "binance";
+    row.market = "futures_usd";
+    row.tsNs = tsNs;
+    row.bidPriceE8 = bidPriceE8;
+    row.bidQtyE8 = e8(1);
+    row.askPriceE8 = askPriceE8;
+    row.askQtyE8 = e8(1);
+    row.captureSeq = sequence;
+    row.ingestSeq = sequence;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(sequence), tsNs);
+    return hftrec::capture::renderBookTickerJsonLine(row) + "\n";
+}
+
+void writeCurrentTradeManifest(const fs::path& dir, std::uint64_t rows) {
+    auto manifest = hftrec::test_support::manifest({.trades = rows});
+    manifest.tradesPath = "trades.jsonl";
+    writeFile(dir / "manifest.json",
+              hftrec::capture::renderManifestJson(manifest));
+}
+
+std::string candleLine(std::int64_t tsNs,
+                       std::int64_t openE8,
+                       std::int64_t highE8,
+                       std::int64_t lowE8,
+                       std::int64_t closeE8,
+                       std::int64_t sequence) {
+    hftrec::replay::CandleRow row{};
+    row.tier = 1;
+    row.tsNs = tsNs;
+    row.openE8 = openE8;
+    row.highE8 = highE8;
+    row.lowE8 = lowE8;
+    row.closeE8 = closeE8;
+    row.volumeE8 = e8(1);
+    row.quoteAmountE8 = e8(1);
+    row.hasOhlc = true;
+    row.exchange = "binance";
+    row.market = "futures_usd";
+    row.symbol = "BTC_USDT";
+    row.timeframe = "1m";
+    row.durationNs = 60'000'000'000LL;
+    row.captureSeq = sequence;
+    row.ingestSeq = sequence;
+    row.arrival.flags = hftrec::replay::EventArrivalHistoricalBackfill;
+    return hftrec::capture::renderCandleJsonLine(row) + "\n";
 }
 
 TEST(ChartMarkers, RequiresLoadedChartAndAppearsInSnapshot) {
@@ -100,17 +157,10 @@ TEST(ChartStrategyOverlay, LoadsBacktestResultIntoSnapshot) {
     const auto dir = makeTmpDir();
     fs::create_directories(dir / "backtests");
     writeFile(dir / "trades.jsonl", tradeLine(1000, e8(100), 1) + tradeLine(2500, e8(101), 2));
-    writeFile(dir / "manifest.json", R"json({
-  "manifest_schema_version": 1,
-  "corpus_schema_version": 2,
-  "replay": { "structurally_loadable": true },
-  "channels": {
-    "trades": { "enabled": true, "required_when_enabled": true, "path": "trades.jsonl" }
-  }
-})json");
+    writeCurrentTradeManifest(dir, 2u);
     const auto resultPath = dir / "backtests" / "run-a";
     fs::create_directories(resultPath);
-    writeFile(resultPath / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","strategy":"test","session_path":"session","summary":{},"errors":[]})json");
+    writeFile(resultPath / "manifest.json", R"json({"type":"run.result.v3","run_id":"run-a","strategy":"test","session_path":"session","summary":{},"errors":[]})json");
     writeFile(resultPath / "order_lifetimes.jsonl",
               "[1200,1800,9900000000,100000000,1,0]\n");
     writeFile(resultPath / "fills.jsonl",
@@ -268,14 +318,7 @@ TEST(ChartRenderWindow, LoadSessionOpensAtLatestWindowWhenConfigured) {
     writeFile(dir / "trades.jsonl",
               tradeLine(1000000000ll, e8(100), 1)
               + tradeLine(61000000000ll, e8(102), 2));
-    writeFile(dir / "manifest.json", R"json({
-  "manifest_schema_version": 1,
-  "corpus_schema_version": 2,
-  "replay": { "structurally_loadable": true },
-  "channels": {
-    "trades": { "enabled": true, "required_when_enabled": true, "path": "trades.jsonl" }
-  }
-})json");
+    writeCurrentTradeManifest(dir, 2u);
 
     ChartController chart;
     chart.setRenderWindowSeconds(30);
@@ -303,10 +346,10 @@ TEST(ChartTradeGrouping, GroupsOnlyContiguousSameTimestampPriceAndSide) {
     ChartController chart;
     const auto dir = makeTmpDir();
     writeFile(dir / "trades.jsonl",
-              tradeLineWithSide(1000, e8(100), e8(1), 1)
-              + tradeLineWithSide(1000, e8(100), e8(2), 1)
-              + tradeLineWithSide(1000, e8(100), e8(4), 0)
-              + tradeLineWithSide(1000, e8(101), e8(3), 1));
+              tradeLineWithSide(1000, e8(100), e8(1), 1, 1)
+              + tradeLineWithSide(1000, e8(100), e8(2), 1, 2)
+              + tradeLineWithSide(1000, e8(100), e8(4), 0, 3)
+              + tradeLineWithSide(1000, e8(101), e8(3), 1, 4));
 
     ASSERT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
     chart.finalizeFiles();
@@ -338,7 +381,8 @@ TEST(ChartTradesFullDots, KeepsDenseTradesExact) {
     const auto dir = makeTmpDir();
     std::string lines;
     for (int i = 0; i < 25000; ++i) {
-        lines += tradeLineWithSide(1000 + i, e8(100 + (i % 5)), e8(1), i % 2);
+        lines += tradeLineWithSide(1000 + i, e8(100 + (i % 5)), e8(1), i % 2,
+                                   static_cast<std::uint64_t>(i + 1));
     }
     writeFile(dir / "trades.jsonl", lines);
 
@@ -365,7 +409,8 @@ TEST(ChartTradesFullDots, KeepsSemanticSameTradeGroupingOnly) {
     const auto dir = makeTmpDir();
     std::string lines;
     for (int i = 0; i < 25000; ++i) {
-        lines += tradeLineWithSide(1000 + (i / 10), e8(100), e8(1), 1);
+        lines += tradeLineWithSide(1000 + (i / 10), e8(100), e8(1), 1,
+                                   static_cast<std::uint64_t>(i + 1));
     }
     writeFile(dir / "trades.jsonl", lines);
 
@@ -390,8 +435,8 @@ TEST(ChartCandles, KeepsTierDirectionWhenViewportStartsAfterPreviousCandle) {
     ChartController chart;
     const auto dir = makeTmpDir();
     writeFile(dir / "candles.jsonl",
-              "[1,1000,11000000000,9000000000,100000000]\n"
-              "[1,2000,10000000000,9000000000,100000000]\n");
+              candleLine(1000, e8(100), e8(110), e8(90), e8(100), 1)
+              + candleLine(2000, e8(100), e8(100), e8(90), e8(90), 2));
 
     ASSERT_TRUE(chart.addCandlesFile(QString::fromStdString((dir / "candles.jsonl").string())));
     chart.finalizeFiles();

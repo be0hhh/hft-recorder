@@ -48,9 +48,6 @@ Status parsePriceLimitCanonicalLine(std::string_view line, PriceLimitRow& row) n
     return parsePriceLimitLine(line, row);
 }
 
-Status parseDepthCanonicalLine(std::string_view line, DepthRow& row) noexcept {
-    return parseDepthLine(line, row);
-}
 bool sameLevelKey(const PricePair& lhs, const PricePair& rhs) noexcept {
     return lhs.priceE8 == rhs.priceE8 && lhs.side == rhs.side;
 }
@@ -538,21 +535,20 @@ Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allo
 
     std::size_t lineNumber = 0;
     auto st = Status::Ok;
-    const std::filesystem::path tapePath = path.filename() == "depth_tape.jsonl"
-        ? path
-        : path.parent_path() / "depth_tape.jsonl";
-    const std::filesystem::path sidecarPath = path.filename() == "depth_sidecar.jsonl"
-        ? path
-        : path.parent_path() / "depth_sidecar.jsonl";
-
-    if (path.filename() == "depth_tape.jsonl" || path.filename() == "depth_sidecar.jsonl") {
-        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber, allowPartial, reserveHint);
-    } else if (regularFileExists(path)) {
-        st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber, reserveHint);
-    } else if (regularFileExists(tapePath) || regularFileExists(sidecarPath)) {
-        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_, errorDetail_, lineNumber, allowPartial, reserveHint);
+    if (path.filename() != "depth_tape.jsonl" &&
+        path.filename() != "depth_sidecar.jsonl") {
+        errorDetail_ = "current depth input must be depth_tape.jsonl or depth_sidecar.jsonl";
+        st = Status::InvalidArgument;
     } else {
-        st = loadJsonl<DepthRow>(path, depths_, errorDetail_, parseDepthCanonicalLine, lineNumber, reserveHint);
+        const std::filesystem::path tapePath = path.filename() == "depth_tape.jsonl"
+            ? path
+            : path.parent_path() / "depth_tape.jsonl";
+        const std::filesystem::path sidecarPath = path.filename() == "depth_sidecar.jsonl"
+            ? path
+            : path.parent_path() / "depth_sidecar.jsonl";
+        st = loadDepthTapeSidecarJsonl(tapePath, sidecarPath, depths_,
+                                       errorDetail_, lineNumber, allowPartial,
+                                       reserveHint);
     }
     if (!isOk(st)) {
         ++parseFailureCount_;
@@ -788,22 +784,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
     sortCandles(candles_);
     sortCandles(candles2_);
 
-    depths_.reserve(corpus.depthLines.size());
-    for (const auto& line : corpus.depthLines) {
-        if (line.empty()) continue;
-        DepthRow row{};
-        const auto st = parseDepthLine(std::string_view{line}, row);
-        if (!isOk(st)) {
-            errorDetail_ = "failed to parse depth sidecar line from loaded corpus";
-            ++parseFailureCount_;
-            metrics::recordReplayParseFailure("depth");
-            status_ = st;
-            refreshHealthSummary_();
-            maybeWriteIntegrityReport_();
-            return status_;
-        }
-        depths_.push_back(std::move(row));
-    }
+    depths_ = std::move(corpus.depthRows);
     if (manifestHints_.exchange == "bitget") {
         normalizeFixedDepthSnapshotDeltas(depths_);
     }
@@ -895,9 +876,21 @@ bool SessionReplay::loadManifestHints_(const std::filesystem::path& sessionDir) 
     manifestHints_.present = true;
     manifestHints_.exchange = manifest.exchange;
     manifestHints_.tradesEnabled = manifest.tradesEnabled;
+    manifestHints_.tradesRequired = manifest.tradesRequiredWhenEnabled;
     manifestHints_.liquidationsEnabled = manifest.liquidationsEnabled;
+    manifestHints_.liquidationsRequired = manifest.liquidationsRequiredWhenEnabled;
     manifestHints_.bookTickerEnabled = manifest.bookTickerEnabled;
+    manifestHints_.bookTickerRequired = manifest.bookTickerRequiredWhenEnabled;
     manifestHints_.orderbookEnabled = manifest.orderbookEnabled;
+    manifestHints_.orderbookRequired = manifest.orderbookRequiredWhenEnabled;
+    manifestHints_.markPriceEnabled = manifest.markPriceEnabled;
+    manifestHints_.markPriceRequired = manifest.markPriceRequiredWhenEnabled;
+    manifestHints_.indexPriceEnabled = manifest.indexPriceEnabled;
+    manifestHints_.indexPriceRequired = manifest.indexPriceRequiredWhenEnabled;
+    manifestHints_.fundingEnabled = manifest.fundingEnabled;
+    manifestHints_.fundingRequired = manifest.fundingRequiredWhenEnabled;
+    manifestHints_.priceLimitEnabled = manifest.priceLimitEnabled;
+    manifestHints_.priceLimitRequired = manifest.priceLimitRequiredWhenEnabled;
     manifestHints_.endedAtNs = manifest.endedAtNs;
     return true;
 }
@@ -905,9 +898,12 @@ bool SessionReplay::loadManifestHints_(const std::filesystem::path& sessionDir) 
 void SessionReplay::markStaleLiveChannels_() noexcept {
     constexpr std::int64_t kLiveStreamStaleGraceNs = 30000000000LL;
     if (manifestHints_.endedAtNs <= 0) return;
-    const auto mark = [&](IntegrityChannel channel, std::int64_t lastTsNs) noexcept {
-        if (lastTsNs <= 0 || manifestHints_.endedAtNs <= lastTsNs) return;
-        const std::int64_t gapNs = manifestHints_.endedAtNs - lastTsNs;
+    const auto mark = [&](IntegrityChannel channel,
+                          std::int64_t lastReceiveRealtimeNs) noexcept {
+        if (lastReceiveRealtimeNs <= 0 ||
+            manifestHints_.endedAtNs <= lastReceiveRealtimeNs) return;
+        const std::int64_t gapNs =
+            manifestHints_.endedAtNs - lastReceiveRealtimeNs;
         if (gapNs <= kLiveStreamStaleGraceNs) return;
         noteIncident_(IntegrityIncident{
             channel,
@@ -918,20 +914,32 @@ void SessionReplay::markStaleLiveChannels_() noexcept {
             manifestHints_.endedAtNs,
             0,
             std::to_string(manifestHints_.endedAtNs),
-            std::to_string(lastTsNs),
+            std::to_string(lastReceiveRealtimeNs),
             true
         });
     };
+    const auto latestReceiveRealtime = [](const auto& rows) noexcept {
+        std::int64_t latest = 0;
+        for (const auto& row : rows) {
+            if (row.arrival.receiveRealtimeNs > latest)
+                latest = row.arrival.receiveRealtimeNs;
+        }
+        return latest;
+    };
     if (manifestHints_.bookTickerEnabled && !bookTickers_.empty()) {
-        mark(IntegrityChannel::BookTicker, bookTickers_.back().tsNs);
+        mark(IntegrityChannel::BookTicker,
+             latestReceiveRealtime(bookTickers_));
     }
     if (manifestHints_.orderbookEnabled && !depths_.empty()) {
-        mark(IntegrityChannel::Depth, depths_.back().tsNs);
+        mark(IntegrityChannel::Depth, latestReceiveRealtime(depths_));
     }
 }
 
 void SessionReplay::finalizeChannelStates_() noexcept {
-    const auto markSimpleChannel = [&](IntegrityChannel channel, bool enabled, std::size_t count) {
+    const auto markSimpleChannel = [&](IntegrityChannel channel,
+                                       bool enabled,
+                                       bool required,
+                                       std::size_t count) {
         auto& summary = summaryFor_(channel);
         if (!enabled) {
             summary.state = ChannelHealthState::NotCaptured;
@@ -945,6 +953,13 @@ void SessionReplay::finalizeChannelStates_() noexcept {
             return;
         }
         if (count == 0u) {
+            if (!required) {
+                summary.state = ChannelHealthState::Clean;
+                summary.exactReplayEligible = true;
+                if (summary.reasonCode.empty()) summary.reasonCode = "empty_optional";
+                if (summary.reasonText.empty()) summary.reasonText = "optional channel captured no events";
+                return;
+            }
             summary.state = ChannelHealthState::Missing;
             summary.exactReplayEligible = false;
             if (summary.reasonCode.empty()) summary.reasonCode = "missing_file";
@@ -974,9 +989,16 @@ void SessionReplay::finalizeChannelStates_() noexcept {
         if (summary.reasonText.empty()) summary.reasonText = "channel loaded cleanly";
     };
 
-    markSimpleChannel(IntegrityChannel::Trades, manifestHints_.tradesEnabled, trades_.size());
-    markSimpleChannel(IntegrityChannel::Liquidations, manifestHints_.liquidationsEnabled, liquidations_.size());
-    markSimpleChannel(IntegrityChannel::BookTicker, manifestHints_.bookTickerEnabled, bookTickers_.size());
+    markSimpleChannel(IntegrityChannel::Trades, manifestHints_.tradesEnabled,
+                      manifestHints_.tradesRequired, trades_.size());
+    markSimpleChannel(IntegrityChannel::Liquidations,
+                      manifestHints_.liquidationsEnabled,
+                      manifestHints_.liquidationsRequired,
+                      liquidations_.size());
+    markSimpleChannel(IntegrityChannel::BookTicker,
+                      manifestHints_.bookTickerEnabled,
+                      manifestHints_.bookTickerRequired,
+                      bookTickers_.size());
 
     auto& snapshotSummary = integritySummary_.snapshot;
     if (!manifestHints_.orderbookEnabled) {
@@ -1004,7 +1026,7 @@ void SessionReplay::finalizeChannelStates_() noexcept {
         if (depthSummary.reasonText.empty()) depthSummary.reasonText = "orderbook channel disabled for session";
     } else if (depthSummary.state == ChannelHealthState::Corrupt) {
         depthSummary.exactReplayEligible = false;
-    } else if (depths_.empty()) {
+    } else if (depths_.empty() && manifestHints_.orderbookRequired) {
         depthSummary.state = ChannelHealthState::Missing;
         depthSummary.exactReplayEligible = false;
         if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "missing_file";
@@ -1013,7 +1035,11 @@ void SessionReplay::finalizeChannelStates_() noexcept {
         depthSummary.state = ChannelHealthState::Clean;
         depthSummary.exactReplayEligible = true;
         if (depthSummary.reasonCode.empty()) depthSummary.reasonCode = "ok";
-        if (depthSummary.reasonText.empty()) depthSummary.reasonText = "depth rows loaded";
+        if (depthSummary.reasonText.empty()) {
+            depthSummary.reasonText = depths_.empty()
+                ? "optional depth channel captured no events"
+                : "depth rows loaded";
+        }
     } else {
         depthSummary.state = ChannelHealthState::Degraded;
         depthSummary.exactReplayEligible = false;
@@ -1022,7 +1048,41 @@ void SessionReplay::finalizeChannelStates_() noexcept {
 
 void SessionReplay::refreshHealthSummary_() noexcept {
     finalizeChannelStates_();
-    integritySummary_.exactReplayEligible = integritySummary_.depth.exactReplayEligible;
+    bool anyLiveChannel = false;
+    bool exact = true;
+    const auto includeTracked = [&](bool enabled,
+                                    const ChannelIntegritySummary& summary) noexcept {
+        if (!enabled) return;
+        anyLiveChannel = true;
+        exact = exact && summary.exactReplayEligible;
+    };
+    includeTracked(manifestHints_.tradesEnabled, integritySummary_.trades);
+    includeTracked(manifestHints_.liquidationsEnabled,
+                   integritySummary_.liquidations);
+    includeTracked(manifestHints_.bookTickerEnabled,
+                   integritySummary_.bookTicker);
+    includeTracked(manifestHints_.orderbookEnabled, integritySummary_.depth);
+
+    bool requiredReferenceMissing = false;
+    const auto includeReference = [&](bool enabled,
+                                      bool required,
+                                      std::size_t count) noexcept {
+        if (!enabled) return;
+        anyLiveChannel = true;
+        if (required && count == 0u) {
+            exact = false;
+            requiredReferenceMissing = true;
+        }
+    };
+    includeReference(manifestHints_.markPriceEnabled,
+                     manifestHints_.markPriceRequired, markPrices_.size());
+    includeReference(manifestHints_.indexPriceEnabled,
+                     manifestHints_.indexPriceRequired, indexPrices_.size());
+    includeReference(manifestHints_.fundingEnabled,
+                     manifestHints_.fundingRequired, fundings_.size());
+    includeReference(manifestHints_.priceLimitEnabled,
+                     manifestHints_.priceLimitRequired, priceLimits_.size());
+    integritySummary_.exactReplayEligible = anyLiveChannel && exact;
 
     integritySummary_.sessionHealth = SessionHealth::Clean;
     const ChannelIntegritySummary* channels[] = {
@@ -1041,6 +1101,8 @@ void SessionReplay::refreshHealthSummary_() noexcept {
             integritySummary_.sessionHealth = SessionHealth::Degraded;
         }
     }
+    if (requiredReferenceMissing)
+        integritySummary_.sessionHealth = SessionHealth::Degraded;
 }
 
 void SessionReplay::maybeWriteIntegrityReport_() noexcept {

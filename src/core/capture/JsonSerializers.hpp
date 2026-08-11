@@ -42,9 +42,6 @@ std::string renderIndexPriceJsonLine(const hftrec::replay::IndexPriceRow& row);
 std::string renderFundingJsonLine(const hftrec::replay::FundingRow& row);
 std::string renderPriceLimitJsonLine(const hftrec::replay::PriceLimitRow& row);
 
-std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta);
-std::string renderDepthJsonLine(const hftrec::replay::DepthRow& delta,
-                                const std::vector<std::string>& aliases);
 std::string renderDepthTapeJsonLine(const hftrec::replay::DepthRow& delta);
 std::string renderDepthRleSidecarJsonLine(const hftrec::replay::DepthRow& delta);
 

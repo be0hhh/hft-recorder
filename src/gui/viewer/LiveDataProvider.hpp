@@ -118,7 +118,6 @@ class JsonTailLiveDataProvider final : public ILiveDataProvider {
     TailFile priceLimit_{};
     TailFile depthTape_{};
     TailFile depth_{};
-    bool depthTapeSidecarMode_{false};
     std::vector<hftrec::replay::TradeRow> tradesHistory_{};
     std::vector<hftrec::replay::LiquidationRow> liquidationHistory_{};
     std::vector<hftrec::replay::BookTickerRow> bookTickerHistory_{};

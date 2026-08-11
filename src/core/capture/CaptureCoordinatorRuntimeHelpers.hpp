@@ -23,6 +23,8 @@
 
 namespace hftrec::capture::runtime {
 
+inline constexpr std::uint8_t kRecorderMarketWsLanes = 1u;
+
 inline constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
 inline constexpr std::int64_t kMarketDataLifecyclePollIntervalNs = 250'000'000LL;
 inline constexpr std::int64_t kMarketDataStartupFailureGraceNs = 3'000'000'000LL;

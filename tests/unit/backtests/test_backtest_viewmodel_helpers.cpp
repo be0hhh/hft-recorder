@@ -83,11 +83,59 @@ TEST(BacktestSessionHelpers, LoadsOneImmutableManifestSnapshotWithExplicitStatus
     EXPECT_EQ(hftrec::gui::symbolForSessionPath(ready), QStringLiteral("BTC_USDT"));
     EXPECT_EQ(hftrec::gui::manifestChannelDeclaredCount(ready, QStringLiteral("bookticker")), 42u);
     EXPECT_EQ(hftrec::gui::manifestChannelDeclaredCount(ready, QStringLiteral("trades")), 7u);
+    QString compatibilityError;
+    EXPECT_FALSE(hftrec::gui::sessionSupportsCurrentBacktestContract(ready, &compatibilityError));
+    EXPECT_TRUE(compatibilityError.contains(QStringLiteral("view-only")));
+
+    const QString currentPath = QDir(dir.path()).absoluteFilePath(QStringLiteral("current_BTC_USDT"));
+    ASSERT_TRUE(QDir().mkpath(currentPath));
+    writeTextFile(QDir(currentPath).absoluteFilePath(QStringLiteral("manifest.json")),
+                  QByteArrayLiteral(R"json({
+                    "manifest_schema_version":3,
+                    "corpus_schema_version":3,
+                    "capture_contract_version":"hftrec.captured_arrival_rows_json.v4",
+                    "session_status":"complete",
+                    "replay":{"structurally_loadable":true},
+                    "integrity":{"session_health":"clean","exact_replay_eligible":true},
+                    "channels":{
+                      "trades":{"declared_event_count":1},
+                      "liquidations":{"declared_event_count":0},
+                      "bookticker":{"declared_event_count":0},
+                      "depth":{"declared_event_count":0},
+                      "candles":{"declared_event_count":0},
+                      "candles2":{"declared_event_count":0},
+                      "mark_price":{"declared_event_count":0},
+                      "index_price":{"declared_event_count":0},
+                      "funding":{"declared_event_count":0},
+                      "price_limit":{"declared_event_count":0}
+                    },
+                    "arrival_clock":{
+                      "boundary":"hft-parser.application-frame-ready",
+                      "realtime_clock":"CLOCK_REALTIME",
+                      "monotonic_clock":"CLOCK_MONOTONIC",
+                      "captured_rows":1,
+                      "historical_rows":0,
+                      "unavailable_rows":0,
+                      "realtime_regressions":0,
+                      "monotonic_non_increasing":0,
+                      "exchange_ahead_of_receive":0,
+                      "exchange_timestamp_missing":0,
+                      "first_receive_realtime_ns":1900000000000000000,
+                      "last_receive_realtime_ns":1900000000000000000,
+                      "first_receive_monotonic_ns":900000000000000000,
+                      "last_receive_monotonic_ns":900000000000000000
+                    }
+                  })json"));
+    const hftrec::gui::SessionManifestSnapshot current =
+        hftrec::gui::loadSessionManifestSnapshot(currentPath);
+    ASSERT_TRUE(current.ready());
+    EXPECT_TRUE(hftrec::gui::sessionSupportsCurrentBacktestContract(current, &compatibilityError));
+    EXPECT_TRUE(compatibilityError.isEmpty());
 }
 
-TEST(BacktestResultHelpers, UsesAuthoritativeV2TotalAndFailVisibleMissingTotal) {
+TEST(BacktestResultHelpers, UsesAuthoritativeTotalAndFailVisibleMissingTotal) {
     const QJsonObject authoritative{
-        {QStringLiteral("type"), QStringLiteral("run.result.v2")},
+        {QStringLiteral("type"), QStringLiteral("run.result.v3")},
         {QStringLiteral("schema_version"), 2},
         {QStringLiteral("summary"), QJsonObject{
             {QStringLiteral("initial_balance_e8"), 1000},
@@ -99,12 +147,12 @@ TEST(BacktestResultHelpers, UsesAuthoritativeV2TotalAndFailVisibleMissingTotal) 
     const hftrec::gui::BacktestRunSummary decoded =
         hftrec::gui::decodeBacktestRunSummary(authoritative);
     ASSERT_TRUE(decoded.ready());
-    EXPECT_TRUE(decoded.runResultV2);
+    EXPECT_TRUE(decoded.canonicalRunResult);
     EXPECT_EQ(decoded.initialBalanceE8, 1000);
     EXPECT_EQ(decoded.totalPnlE8, 150);
 
     const QJsonObject missingTotal{
-        {QStringLiteral("type"), QStringLiteral("run.result.v2")},
+        {QStringLiteral("type"), QStringLiteral("run.result.v3")},
         {QStringLiteral("summary"), QJsonObject{
             {QStringLiteral("net_realized_pnl_e8"), 100},
             {QStringLiteral("realized_pnl_e8"), 90},
@@ -117,7 +165,7 @@ TEST(BacktestResultHelpers, UsesAuthoritativeV2TotalAndFailVisibleMissingTotal) 
     EXPECT_FALSE(invalid.error.isEmpty());
 
     const QJsonObject fractionalTotal{
-        {QStringLiteral("type"), QStringLiteral("run.result.v2")},
+        {QStringLiteral("type"), QStringLiteral("run.result.v3")},
         {QStringLiteral("summary"), QJsonObject{
             {QStringLiteral("total_pnl_e8"), 1.5},
         }},
@@ -212,7 +260,7 @@ TEST(BacktestSessionSummary, MatchesThreeLegResultsOnlyInSelectedOrder) {
     ASSERT_TRUE(dir.isValid());
     const QString manifestPath = QDir(dir.path()).absoluteFilePath(QStringLiteral("manifest.json"));
     writeTextFile(manifestPath, QByteArrayLiteral(R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"multi-leg",
       "legs":[
         {"leg_index":0,"session_path":"/recordings/binance_btc"},
@@ -237,7 +285,7 @@ TEST(BacktestSessionSummary, KeepsTwoLegResultsOrderIndependent) {
     ASSERT_TRUE(dir.isValid());
     const QString manifestPath = QDir(dir.path()).absoluteFilePath(QStringLiteral("manifest.json"));
     writeTextFile(manifestPath, QByteArrayLiteral(R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"pair",
       "legs":[
         {"leg_index":0,"session_path":"/recordings/binance_eth"},
@@ -296,7 +344,6 @@ TEST(BacktestExecutionConfigHelpers, BuildsRateLimitScheduleFromVenueRow) {
 TEST(BacktestExecutionConfigHelpers, AppliesTypedExecutionPolicyAndGatesStrictRejects) {
     hftrec::gui::BacktestExecutionPolicy policy;
     policy.latencySeed = 17;
-    policy.marketDataLatency = {11, 12};
     policy.marketOrderLatency = {21, 22};
     policy.limitOrderLatency = {31, 32};
     policy.cancelOrderLatency = {41, 42};
@@ -315,8 +362,6 @@ TEST(BacktestExecutionConfigHelpers, AppliesTypedExecutionPolicyAndGatesStrictRe
     hftrec::gui::applyBacktestExecutionPolicy(request, policy);
 
     EXPECT_EQ(request.latencySeed, 17u);
-    EXPECT_EQ(request.marketDataLatency.baseUs, 11u);
-    EXPECT_EQ(request.marketDataLatency.jitterUs, 12u);
     EXPECT_EQ(request.marketOrderLatency.baseUs, 21u);
     EXPECT_EQ(request.limitOrderLatency.baseUs, 31u);
     EXPECT_EQ(request.cancelOrderLatency.baseUs, 41u);

@@ -15,6 +15,7 @@ add_executable(hft-recorder
     analyze_cli.cpp
     report_export.cpp
     recordings_cli.cpp
+    parser_capture_cli.cpp
 )
 
 target_include_directories(hft-recorder

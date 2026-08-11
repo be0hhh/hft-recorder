@@ -12,6 +12,8 @@
 #include <QSettings>
 #include <QString>
 
+#include "CapturedArrivalTestData.hpp"
+#include "core/capture/JsonSerializers.hpp"
 #include "core/storage/EventStorage.hpp"
 #include "gui/viewer/BookTickerCompareController.hpp"
 #include "gui/viewer/ChartController.hpp"
@@ -73,23 +75,37 @@ void isolateViewerSettings(QStringView suffix) {
 }
 
 std::string bookTickerLine(std::int64_t tsNs,
-                           std::int64_t,
+                           std::int64_t eventId,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8) {
-    return "[" + std::to_string(bidPriceE8)
-        + "," + std::to_string(e8(2))
-        + "," + std::to_string(askPriceE8)
-        + "," + std::to_string(e8(3))
-        + "," + std::to_string(tsNs)
-        + "]\n";
+    hftrec::replay::BookTickerRow row{};
+    row.eventId = static_cast<std::uint64_t>(eventId);
+    row.symbol = "BTC_USDT";
+    row.exchange = "binance";
+    row.market = "futures_usd";
+    row.tsNs = tsNs;
+    row.bidPriceE8 = bidPriceE8;
+    row.bidQtyE8 = e8(2);
+    row.askPriceE8 = askPriceE8;
+    row.askQtyE8 = e8(3);
+    row.captureSeq = eventId;
+    row.ingestSeq = eventId;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(eventId), tsNs);
+    return hftrec::capture::renderBookTickerJsonLine(row) + "\n";
 }
 
 std::string fundingLine(std::int64_t tsNs, std::int64_t rateE8) {
-    return "[" + std::to_string(tsNs)
-        + "," + std::to_string(rateE8)
-        + "," + std::to_string(tsNs)
-        + "," + std::to_string(tsNs + 8LL * 60LL * 60LL * 1000000000LL)
-        + "]\n";
+    const auto sequence = static_cast<std::uint64_t>(tsNs);
+    hftrec::replay::FundingRow row{};
+    row.tsNs = tsNs;
+    row.fundingRateE8 = rateE8;
+    row.fundingTsNs = tsNs;
+    row.nextFundingTsNs = tsNs + 8LL * 60LL * 60LL * 1000000000LL;
+    row.captureSeq = tsNs;
+    row.ingestSeq = tsNs;
+    row.arrival = hftrec::test_support::applicationArrival(sequence, tsNs);
+    return hftrec::capture::renderFundingJsonLine(row) + "\n";
 }
 
 std::string detailedCandleLine(const char* market,
@@ -98,16 +114,25 @@ std::string detailedCandleLine(const char* market,
                                std::int64_t highE8,
                                std::int64_t lowE8,
                                std::int64_t closeE8) {
-    return "[\"finam\",\"" + std::string{market}
-        + "\",\"SBER@MISX\",\"1m\","
-        + std::to_string(tsNs)
-        + "," + std::to_string(openE8)
-        + "," + std::to_string(highE8)
-        + "," + std::to_string(lowE8)
-        + "," + std::to_string(closeE8)
-        + "," + std::to_string(e8(10))
-        + "," + std::to_string(e8(100000))
-        + "]\n";
+    hftrec::replay::CandleRow row{};
+    row.tier = 1;
+    row.tsNs = tsNs;
+    row.exchange = "finam";
+    row.market = market;
+    row.symbol = "SBER@MISX";
+    row.timeframe = "1m";
+    row.durationNs = 60'000'000'000LL;
+    row.openE8 = openE8;
+    row.highE8 = highE8;
+    row.lowE8 = lowE8;
+    row.closeE8 = closeE8;
+    row.volumeE8 = e8(10);
+    row.quoteAmountE8 = e8(100000);
+    row.hasOhlc = true;
+    row.captureSeq = tsNs;
+    row.ingestSeq = tsNs;
+    row.arrival.flags = hftrec::replay::EventArrivalHistoricalBackfill;
+    return hftrec::capture::renderCandleJsonLine(row) + "\n";
 }
 
 std::string numericDetailedCandleLine(std::int64_t tier,
@@ -116,32 +141,50 @@ std::string numericDetailedCandleLine(std::int64_t tier,
                                       std::int64_t highE8,
                                       std::int64_t lowE8,
                                       std::int64_t closeE8) {
-    return "[" + std::to_string(tier)
-        + "," + std::to_string(tsNs)
-        + "," + std::to_string(openE8)
-        + "," + std::to_string(highE8)
-        + "," + std::to_string(lowE8)
-        + "," + std::to_string(closeE8)
-        + "," + std::to_string(e8(10))
-        + "," + std::to_string(e8(100000))
-        + "]\n";
+    hftrec::replay::CandleRow row{};
+    row.tier = tier;
+    row.tsNs = tsNs;
+    row.exchange = "finam";
+    row.market = "spot";
+    row.symbol = "SBER@MISX";
+    row.timeframe = "1m";
+    row.durationNs = 60'000'000'000LL;
+    row.openE8 = openE8;
+    row.highE8 = highE8;
+    row.lowE8 = lowE8;
+    row.closeE8 = closeE8;
+    row.volumeE8 = e8(10);
+    row.quoteAmountE8 = e8(100000);
+    row.hasOhlc = true;
+    row.captureSeq = tsNs;
+    row.ingestSeq = tsNs;
+    row.arrival.flags = hftrec::replay::EventArrivalHistoricalBackfill;
+    return hftrec::capture::renderCandleJsonLine(row) + "\n";
 }
 
 std::string tierCandleLine(std::int64_t tier,
                            std::int64_t tsNs,
                            std::int64_t highE8,
                            std::int64_t lowE8) {
-    return "[" + std::to_string(tier)
-        + "," + std::to_string(tsNs)
-        + "," + std::to_string(highE8)
-        + "," + std::to_string(lowE8)
-        + "," + std::to_string(e8(100000))
-        + "]\n";
+    hftrec::replay::CandleRow row{};
+    row.tier = tier;
+    row.tsNs = tsNs;
+    row.exchange = "finam";
+    row.market = "spot";
+    row.symbol = "SBER@MISX";
+    row.timeframe = "1m";
+    row.highE8 = highE8;
+    row.lowE8 = lowE8;
+    row.quoteAmountE8 = e8(100000);
+    row.captureSeq = tsNs;
+    row.ingestSeq = tsNs;
+    row.arrival.flags = hftrec::replay::EventArrivalHistoricalBackfill;
+    return hftrec::capture::renderCandleJsonLine(row) + "\n";
 }
 
 void writeEmptyResultBase(const fs::path& dir, const std::string& streams = "{}") {
     fs::create_directories(dir);
-    writeFile(dir / "manifest.json", "{\"type\":\"run.result.v2\",\"streams\":" + streams + "}\n");
+    writeFile(dir / "manifest.json", "{\"type\":\"run.result.v3\",\"streams\":" + streams + "}\n");
     writeFile(dir / "fills.jsonl", "");
 }
 
@@ -178,15 +221,22 @@ hftrec::replay::TradeRow tradeRow(std::int64_t tsNs,
     row.qtyE8 = qtyE8;
     row.side = 1;
     row.sideBuy = 1u;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(captureSeq), tsNs);
     return row;
 }
 
 hftrec::replay::DepthRow depthRow(std::int64_t tsNs,
-                                  std::int64_t,
+                                  std::int64_t eventId,
                                   std::int64_t bidPriceE8,
                                   std::int64_t askPriceE8) {
     hftrec::replay::DepthRow row{};
+    row.eventId = static_cast<std::uint64_t>(eventId);
     row.tsNs = tsNs;
+    row.captureSeq = eventId;
+    row.ingestSeq = eventId;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(eventId), tsNs);
     row.levels.push_back(hftrec::replay::PricePair{bidPriceE8, e8(2), 0});
     row.levels.push_back(hftrec::replay::PricePair{askPriceE8, e8(3), 1});
     return row;
@@ -425,10 +475,22 @@ TEST(ViewerBookTickerCompare, RecordedSourceUsesBookTickerWithoutFullSessionRepl
         bookTickerLine(1000, 1, e8(10005), e8(10015))
             + bookTickerLine(2000, 2, e8(10025), e8(10035)));
 
-    writeFile(dirA / "jsonl" / "depth_tape.jsonl", "[9223372036854776808,100,2]\n[9223372036854777808,101,2]\n");
-    writeFile(dirA / "jsonl" / "depth_sidecar.jsonl", "[9223372036854776808,0,1]\n");
-    writeFile(dirB / "jsonl" / "depth_tape.jsonl", "[9223372036854776808,100,2]\n[9223372036854777808,101,2]\n");
-    writeFile(dirB / "jsonl" / "depth_sidecar.jsonl", "[9223372036854776808,0,1]\n");
+    const auto depthA1 = depthRow(1000, 1, e8(100), e8(101));
+    const auto depthA2 = depthRow(2000, 2, e8(101), e8(102));
+    const auto depthB1 = depthRow(1000, 1, e8(103), e8(104));
+    const auto depthB2 = depthRow(2000, 2, e8(104), e8(105));
+    writeFile(dirA / "jsonl" / "depth_tape.jsonl",
+              hftrec::capture::renderDepthTapeJsonLine(depthA1) + "\n" +
+                  hftrec::capture::renderDepthTapeJsonLine(depthA2) + "\n");
+    writeFile(dirA / "jsonl" / "depth_sidecar.jsonl",
+              hftrec::capture::renderDepthRleSidecarJsonLine(depthA1) + "\n" +
+                  hftrec::capture::renderDepthRleSidecarJsonLine(depthA2) + "\n");
+    writeFile(dirB / "jsonl" / "depth_tape.jsonl",
+              hftrec::capture::renderDepthTapeJsonLine(depthB1) + "\n" +
+                  hftrec::capture::renderDepthTapeJsonLine(depthB2) + "\n");
+    writeFile(dirB / "jsonl" / "depth_sidecar.jsonl",
+              hftrec::capture::renderDepthRleSidecarJsonLine(depthB1) + "\n" +
+                  hftrec::capture::renderDepthRleSidecarJsonLine(depthB2) + "\n");
     writeFile(dirA / "jsonl" / "funding.jsonl", fundingLine(1500, 1000));
     writeFile(dirB / "jsonl" / "funding.jsonl", fundingLine(1700, -2000));
 

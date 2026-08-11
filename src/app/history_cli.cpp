@@ -351,6 +351,7 @@ bool appendAggTradesCsv(const std::string& csv,
                     line.substr(0, std::min<std::size_t>(line.size(), 240u));
             return false;
         }
+        row.arrival.flags = replay::EventArrivalHistoricalBackfill;
         out << capture::renderTradeJsonLine(row, tradeAliases()) << '\n';
         if (!out.good()) {
             error = "failed to write trades.jsonl";
@@ -386,6 +387,7 @@ bool appendBookTickerCsv(const std::string& csv,
                     line.substr(0, std::min<std::size_t>(line.size(), 240u));
             return false;
         }
+        row.arrival.flags = replay::EventArrivalHistoricalBackfill;
         out << capture::renderBookTickerJsonLine(row) << '\n';
         if (!out.good()) {
             error = "failed to write bookticker.jsonl";
@@ -535,8 +537,10 @@ bool writeSessionArtifacts(const fs::path& sessionDir,
     manifest.tradesHistoryRequestedEndNs = stats.lastTsNs;
     manifest.tradesHistoryFeedKind = "agg_trade";
     manifest.tradesHistoryStatus = "imported_binance_vision_futures_um";
-    manifest.tradesRowSchema = "cxet_trade_strict_v1";
-    manifest.bookTickerRowSchema = "cxet_bookticker_event_id_v2";
+    manifest.tradesRowSchema = std::string{capture::kTradesRowSchemaCurrent};
+    manifest.bookTickerRowSchema =
+        std::string{capture::kBookTickerRowSchemaCurrent};
+    manifest.arrivalClock.historicalRows = stats.trades + stats.bookTickers;
     manifest.canonicalArtifacts = {
         "manifest.json",
         "instrument_metadata.json",

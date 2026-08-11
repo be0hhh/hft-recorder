@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
@@ -39,11 +40,12 @@ bool readWholeFile(const std::filesystem::path& path, std::string& out) noexcept
 
 Status loadManifest(const std::filesystem::path& sessionPath,
                     capture::SessionManifest& manifest,
-                    bool& manifestPresent,
                     std::string& error) noexcept {
-    manifestPresent = false;
     const auto manifestPath = sessionPath / "manifest.json";
-    if (!fileExists(manifestPath)) return Status::Ok;
+    if (!fileExists(manifestPath)) {
+        error = "current captured-arrival manifest.json is required";
+        return Status::CorruptData;
+    }
 
     std::string document;
     if (!readWholeFile(manifestPath, document)) {
@@ -56,43 +58,25 @@ Status loadManifest(const std::filesystem::path& sessionPath,
         error = "failed to parse manifest.json";
         return status;
     }
-    manifestPresent = true;
+    if (!manifest.structurallyLoadable ||
+        manifest.manifestSchemaVersion != capture::kManifestSchemaVersionCurrent ||
+        manifest.corpusSchemaVersion != capture::kCorpusSchemaVersionCurrent ||
+        manifest.captureContractVersion != capture::kCaptureContractVersionCurrent) {
+        error = "manifest.json does not declare the current captured-arrival contract";
+        return Status::CorruptData;
+    }
     return Status::Ok;
 }
 
-std::filesystem::path resolveJsonlPath(const std::filesystem::path& sessionPath,
-                                       bool manifestPresent,
-                                       const std::string& manifestPath,
-                                       const char* legacyName) {
-    if (manifestPresent && !manifestPath.empty()) {
-        const auto path = sessionPath / manifestPath;
-        if (fileExists(path)) return path;
+std::filesystem::path declaredChannelPath(
+    const std::filesystem::path& sessionPath,
+    const std::string& manifestPath) {
+    const std::filesystem::path relative{manifestPath};
+    if (relative.empty() || relative.is_absolute()) return {};
+    for (const auto& component : relative) {
+        if (component == "..") return {};
     }
-
-    const auto nestedPath = sessionPath / "jsonl" / legacyName;
-    if (fileExists(nestedPath)) return nestedPath;
-    const auto legacyPath = sessionPath / legacyName;
-    if (fileExists(legacyPath)) return legacyPath;
-    return manifestPresent && !manifestPath.empty() ? sessionPath / manifestPath : legacyPath;
-}
-
-std::filesystem::path resolveDepthJsonlPath(const std::filesystem::path& sessionPath,
-                                            bool manifestPresent,
-                                            const std::string& manifestPath) {
-    if (manifestPresent && !manifestPath.empty()) {
-        const auto path = sessionPath / manifestPath;
-        if (fileExists(path)) return path;
-    }
-
-    const auto nestedTapePath = sessionPath / "jsonl" / "depth_tape.jsonl";
-    if (fileExists(nestedTapePath)) return nestedTapePath;
-    const auto rootTapePath = sessionPath / "depth_tape.jsonl";
-    if (fileExists(rootTapePath)) return rootTapePath;
-    const auto nestedSidecarPath = sessionPath / "jsonl" / "depth_sidecar.jsonl";
-    if (fileExists(nestedSidecarPath)) return nestedSidecarPath;
-    const auto rootSidecarPath = sessionPath / "depth_sidecar.jsonl";
-    if (fileExists(rootSidecarPath)) return rootSidecarPath;
-    return resolveJsonlPath(sessionPath, manifestPresent, manifestPath, "depth.jsonl");
+    return sessionPath / relative;
 }
 
 Status openSelectedReplay(const std::filesystem::path& sessionPath,
@@ -110,56 +94,102 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
     }
 
     capture::SessionManifest manifest{};
-    bool manifestPresent = false;
-    const Status manifestStatus = loadManifest(sessionPath, manifest, manifestPresent, error);
+    const Status manifestStatus = loadManifest(sessionPath, manifest, error);
     if (!isOk(manifestStatus)) return manifestStatus;
 
     const auto addChannel = [&](RecorderChannelMask channel,
+                                bool enabled,
+                                std::string_view label,
                                 const std::filesystem::path& path,
                                 auto addFile) noexcept -> Status {
-        if (!wants(channels, channel)) return Status::Ok;
+        if (!wants(channels, channel) || !enabled) return Status::Ok;
+        if (path.empty() || !fileExists(path)) {
+            error = "manifest-declared ";
+            error += label;
+            error += " artifact is missing or unsafe";
+            return Status::CorruptData;
+        }
         return (replay.*addFile)(path, 0u);
     };
 
     Status status = addChannel(RecorderChannel_Trades,
-                               resolveJsonlPath(sessionPath, manifestPresent, manifest.tradesPath, "trades.jsonl"),
+                               manifest.tradesEnabled,
+                               "trades",
+                               declaredChannelPath(sessionPath, manifest.tradesPath),
                                &replay::SessionReplay::addTradesFile);
     if (!isOk(status)) return status;
 
     status = addChannel(RecorderChannel_Liquidations,
-                        resolveJsonlPath(sessionPath, manifestPresent, manifest.liquidationsPath, "liquidations.jsonl"),
+                        manifest.liquidationsEnabled,
+                        "liquidations",
+                        declaredChannelPath(sessionPath, manifest.liquidationsPath),
                         &replay::SessionReplay::addLiquidationsFile);
     if (!isOk(status)) return status;
 
     status = addChannel(RecorderChannel_BookTicker,
-                        resolveJsonlPath(sessionPath, manifestPresent, manifest.bookTickerPath, "bookticker.jsonl"),
+                        manifest.bookTickerEnabled,
+                        "bookticker",
+                        declaredChannelPath(sessionPath, manifest.bookTickerPath),
                         &replay::SessionReplay::addBookTickerFile);
     if (!isOk(status)) return status;
 
     if (wants(channels, RecorderChannel_Candles)) {
-        const auto candlesPath = resolveJsonlPath(sessionPath, manifestPresent, manifest.candlesPath, "candles.jsonl");
-        const auto candles2Path = resolveJsonlPath(sessionPath, manifestPresent, manifest.candles2Path, "candles2.jsonl");
-        bool loadedCandles = false;
-        if (fileExists(candlesPath)) {
+        const auto candlesPath = declaredChannelPath(sessionPath, manifest.candlesPath);
+        const auto candles2Path = declaredChannelPath(sessionPath, manifest.candles2Path);
+        if (manifest.candlesEnabled) {
+            if (candlesPath.empty() || !fileExists(candlesPath)) {
+                error = "manifest-declared candles artifact is missing or unsafe";
+                return Status::CorruptData;
+            }
             status = replay.addCandlesFile(candlesPath);
             if (!isOk(status)) return status;
-            loadedCandles = true;
         }
-        if (fileExists(candles2Path)) {
+        if (manifest.candles2Enabled) {
+            if (candles2Path.empty() || !fileExists(candles2Path)) {
+                error = "manifest-declared candles2 artifact is missing or unsafe";
+                return Status::CorruptData;
+            }
             status = replay.addCandles2File(candles2Path);
-            if (!isOk(status)) return status;
-            loadedCandles = true;
-        }
-        if (!loadedCandles) {
-            status = replay.addCandlesFile(candlesPath);
             if (!isOk(status)) return status;
         }
     }
 
     status = addChannel(RecorderChannel_Depth,
-                        resolveDepthJsonlPath(sessionPath, manifestPresent, manifest.depthPath),
+                        manifest.orderbookEnabled,
+                        "depth",
+                        declaredChannelPath(sessionPath, manifest.depthPath),
                         &replay::SessionReplay::addDepthFile);
     if (!isOk(status)) return status;
+
+    const auto countMatches = [&](RecorderChannelMask channel,
+                                  bool enabled,
+                                  std::uint64_t declared,
+                                  std::size_t actual,
+                                  std::string_view label) noexcept {
+        if (!wants(channels, channel) || !enabled ||
+            declared == static_cast<std::uint64_t>(actual)) return true;
+        error = "manifest declared_event_count mismatch for ";
+        error += label;
+        return false;
+    };
+    if (!countMatches(RecorderChannel_Trades, manifest.tradesEnabled,
+                      manifest.tradesCount, replay.trades().size(), "trades") ||
+        !countMatches(RecorderChannel_Liquidations, manifest.liquidationsEnabled,
+                      manifest.liquidationsCount, replay.liquidations().size(), "liquidations") ||
+        !countMatches(RecorderChannel_BookTicker, manifest.bookTickerEnabled,
+                      manifest.bookTickerCount, replay.bookTickers().size(), "bookticker") ||
+        !countMatches(RecorderChannel_Depth, manifest.orderbookEnabled,
+                      manifest.depthCount, replay.depths().size(), "depth")) {
+        return Status::CorruptData;
+    }
+    if (wants(channels, RecorderChannel_Candles) &&
+        ((manifest.candlesEnabled &&
+          manifest.candlesCount != static_cast<std::uint64_t>(replay.candles().size())) ||
+         (manifest.candles2Enabled &&
+          manifest.candles2Count != static_cast<std::uint64_t>(replay.candles2().size())))) {
+        error = "manifest declared_event_count mismatch for candles";
+        return Status::CorruptData;
+    }
 
     replay.finalize();
     return replay.status();

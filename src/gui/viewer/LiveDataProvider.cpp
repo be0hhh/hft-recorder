@@ -72,23 +72,12 @@ std::filesystem::path liveChannelPath(const std::filesystem::path& sessionDir, c
     return sessionDir / fileName;
 }
 
-bool regularFileExists(const std::filesystem::path& path) noexcept {
-    std::error_code ec;
-    return std::filesystem::is_regular_file(path, ec) && !ec;
-}
-
 std::filesystem::path liveDepthTapeChannelPath(const std::filesystem::path& sessionDir) {
     return liveChannelPath(sessionDir, "depth_tape.jsonl");
 }
 
 std::filesystem::path liveDepthSidecarChannelPath(const std::filesystem::path& sessionDir) {
     return liveChannelPath(sessionDir, "depth_sidecar.jsonl");
-}
-
-std::filesystem::path liveDepthLegacyChannelPath(const std::filesystem::path& sessionDir) {
-    const auto legacyPath = sessionDir / "jsonl" / "depth.jsonl";
-    if (regularFileExists(legacyPath)) return legacyPath;
-    return sessionDir / "depth.jsonl";
 }
 
 template <typename Row>
@@ -279,9 +268,8 @@ void JsonTailLiveDataProvider::start(const LiveDataProviderConfig& config) {
     priceLimit_ = TailFile{liveChannelPath(sessionDir_, "price_limit.jsonl"), 0, {}};
     const auto depthTapePath = liveDepthTapeChannelPath(sessionDir_);
     const auto depthSidecarPath = liveDepthSidecarChannelPath(sessionDir_);
-    depthTapeSidecarMode_ = regularFileExists(depthTapePath) || regularFileExists(depthSidecarPath);
-    depthTape_ = depthTapeSidecarMode_ ? TailFile{depthTapePath, 0, {}} : TailFile{};
-    depth_ = depthTapeSidecarMode_ ? TailFile{depthSidecarPath, 0, {}} : TailFile{liveDepthLegacyChannelPath(sessionDir_), 0, {}};
+    depthTape_ = TailFile{depthTapePath, 0, {}};
+    depth_ = TailFile{depthSidecarPath, 0, {}};
     syncTailOffset_(trades_);
     syncTailOffset_(liquidations_);
     syncTailOffset_(bookTicker_);
@@ -306,7 +294,6 @@ void JsonTailLiveDataProvider::stop() noexcept {
     priceLimit_ = TailFile{};
     depthTape_ = TailFile{};
     depth_ = TailFile{};
-    depthTapeSidecarMode_ = false;
     tradesHistory_.clear();
     liquidationHistory_.clear();
     bookTickerHistory_.clear();
@@ -405,19 +392,7 @@ LiveDataPollResult JsonTailLiveDataProvider::pollHot(std::uint64_t nextBatchId) 
              result);
     if (result.reloadRequired || !isOk(result.failureStatus)) return result;
 
-    if (depthTapeSidecarMode_) {
-        tailDepthTapeSidecarRows(depthTape_, depth_, result);
-    } else {
-        tailRows(depth_,
-                 [&result](std::string_view line) {
-                     hftrec::replay::DepthRow row{};
-                     const auto st = hftrec::replay::parseDepthLine(line, row);
-                     if (isOk(st)) result.batch.depths.push_back(std::move(row));
-                     return st;
-                 },
-                 "depth",
-                 result);
-    }
+    tailDepthTapeSidecarRows(depthTape_, depth_, result);
 
     result.appendedRows = result.appendedRows || hasRows(result.batch);
     if (hasRows(result.batch)) {

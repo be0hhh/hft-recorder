@@ -149,8 +149,8 @@ qint64 channelRows(const QJsonObject& manifest, const QString& channel) {
 qint64 sessionCandleRows(const QJsonObject& manifest) {
     const qint64 candles2 = channelRows(manifest, QStringLiteral("candles2"));
     if (candles2 > 0) return candles2;
-    const qint64 candlesV2 = channelRows(manifest, QStringLiteral("candlesv2"));
-    if (candlesV2 > 0) return candlesV2;
+    const qint64 versionedCandleRows = channelRows(manifest, QStringLiteral("candlesv2"));
+    if (versionedCandleRows > 0) return versionedCandleRows;
     return channelRows(manifest, QStringLiteral("candles"));
 }
 
@@ -170,6 +170,7 @@ BatchSweepSessionInfo sessionInfoForPath(const QString& path) {
         out.manifestError = snapshot.error();
         return out;
     }
+    if (!sessionSupportsCurrentBacktestContract(snapshot, &out.manifestError)) return out;
     const QJsonObject& manifest = snapshot.object();
     out.exchange = normalizedExchange(manifestString(manifest, QStringLiteral("exchange")));
     out.market = manifestString(manifest, QStringLiteral("market")).trimmed().toLower();
@@ -565,6 +566,10 @@ void BacktestViewModel::startBasisChainBatchBacktest(const QString& groupPath) {
 
 void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& groupPath, const QVariantList& enabledFutureSessionPaths) {
     if (running_) return;
+    if (!backtestApiCompatible_()) {
+        setStatusText_(QStringLiteral("Backtest library API mismatch; rebuild hft-backtest and hft-recorder together"));
+        return;
+    }
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata == nullptr || !strategyMetadataSupportsSessionCount(*metadata, 2)) {
         setStatusText_(QStringLiteral("Selected strategy does not support spot+future basis batch"));
@@ -809,6 +814,10 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
 
 void BacktestViewModel::startBatchSweep() {
     if (running_) return;
+    if (!backtestApiCompatible_()) {
+        setStatusText_(QStringLiteral("Backtest library API mismatch; rebuild hft-backtest and hft-recorder together"));
+        return;
+    }
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata == nullptr || !strategyMetadataSupportsSessionCount(*metadata, 2)) {
         setStatusText_(QStringLiteral("Selected strategy does not support 2-leg batch sweep"));

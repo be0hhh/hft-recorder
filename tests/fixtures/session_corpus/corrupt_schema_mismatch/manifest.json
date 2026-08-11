@@ -1,28 +1,20 @@
 {
-  "manifest_schema_version": 1,
+  "manifest_schema_version": 3,
   "corpus_schema_version": 999,
-  "capture_contract_version": "hftrec.strict_canonical_rows_json.v1",
+  "capture_contract_version": "hftrec.captured_arrival_rows_json.v4",
   "session_status": "complete",
-  "identity": { "session_id": "fixture_corrupt_schema_mismatch", "exchange": "binance", "market": "futures_usd", "symbols": ["BTC_USDT"] },
-  "capture": { "selected_parent_dir": "/mnt/d/recordings", "started_at_ns": 1000, "ended_at_ns": 2000, "target_duration_sec": 2, "actual_duration_sec": 2, "snapshot_interval_sec": 60 },
-  "replay": { "structurally_loadable": true, "structural_blockers": [] },
+  "identity": {"session_id":"fixture_corrupt_schema_mismatch","exchange":"binance","market":"futures_usd","symbols":["BTC_USDT"]},
+  "capture": {"started_at_ns":1900000000000000000,"ended_at_ns":1900000000000002000},
+  "arrival_clock": {
+    "boundary":"hft-parser.application-frame-ready","realtime_clock":"CLOCK_REALTIME","monotonic_clock":"CLOCK_MONOTONIC",
+    "captured_rows":1,"historical_rows":0,"unavailable_rows":0,
+    "realtime_regressions":0,"monotonic_non_increasing":0,
+    "exchange_ahead_of_receive":0,"exchange_timestamp_missing":0,
+    "first_receive_realtime_ns":1900000000000001000,"last_receive_realtime_ns":1900000000000001000,
+    "first_receive_monotonic_ns":900000000000001000,"last_receive_monotonic_ns":900000000000001000
+  },
+  "replay": {"structurally_loadable":false,"structural_blockers":["unsupported corpus schema version"]},
   "channels": {
-    "trades": { "enabled": true, "required_when_enabled": true, "path": "trades.jsonl", "row_schema": "cxet_trade_strict_v1", "declared_event_count": 1 },
-    "bookticker": { "enabled": false, "required_when_enabled": false, "path": "bookticker.jsonl", "row_schema": "cxet_bookticker_strict_v1", "declared_event_count": 0 },
-    "depth": { "enabled": false, "required_when_enabled": false, "path": "depth.jsonl", "row_schema": "cxet_orderbook_flat_levels_v1", "declared_event_count": 0 }
-  },
-  "artifacts": { "instrument_metadata_path": "derived/instrument_metadata.json", "session_audit_path": "reports/session_audit.json", "loader_diagnostics_path": "reports/loader_diagnostics.json", "canonical": ["manifest.json", "trades.jsonl"], "support": [] },
-  "integrity": {
-    "session_health": "corrupt",
-    "exact_replay_eligible": false,
-    "report_path": "reports/integrity_report.json",
-    "summary": { "total_incidents": 0, "highest_severity": "error" },
-    "channels": {
-      "trades": { "state": "clean", "exact_replay_eligible": false, "incident_count": 0, "gap_count": 0, "parse_error_count": 0, "highest_severity": "info", "reason_code": "", "reason_text": "" },
-      "bookticker": { "state": "not_captured", "exact_replay_eligible": false, "incident_count": 0, "gap_count": 0, "parse_error_count": 0, "highest_severity": "info", "reason_code": "", "reason_text": "" },
-      "depth": { "state": "not_captured", "exact_replay_eligible": false, "incident_count": 0, "gap_count": 0, "parse_error_count": 0, "highest_severity": "info", "reason_code": "", "reason_text": "" },
-      "snapshot": { "state": "not_captured", "exact_replay_eligible": false, "incident_count": 0, "gap_count": 0, "parse_error_count": 0, "highest_severity": "info", "reason_code": "", "reason_text": "" }
-    }
-  },
-  "summary": { "warning_summary": "" }
+    "trades": {"enabled":true,"required_when_enabled":true,"path":"trades.jsonl","row_schema":"cxet_trade_captured_arrival_v1","declared_event_count":1}
+  }
 }

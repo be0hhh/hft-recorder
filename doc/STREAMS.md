@@ -13,6 +13,10 @@ upstream exchange feed is exact microstructure truth.
 Every channel must carry `source_quality`, `source_format`, `origin`,
 `feed_kind`, `sequence_policy`, and `timestamp_policy`.
 
+Recorder subscription topology is deterministic: every logical recorded stream
+uses exactly one physical WebSocket lane. The hft-trader three-lane first-unique
+default is a live-trading policy and is not inherited by corpus capture.
+
 ## Canonical channels
 
 ### Trades

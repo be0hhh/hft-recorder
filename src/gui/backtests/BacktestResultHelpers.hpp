@@ -24,7 +24,7 @@ struct BacktestRunSummary {
     qint64 initialBalanceE8{0};
     qint64 totalPnlE8{0};
     QString error{};
-    bool runResultV2{false};
+    bool canonicalRunResult{false};
 
     [[nodiscard]] bool ready() const noexcept {
         return status == BacktestRunSummaryStatus::Ready;

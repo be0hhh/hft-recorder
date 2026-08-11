@@ -26,10 +26,8 @@ bool isFuturesLikeMarket(const QString& market) {
 }
 
 QString latencySummary(const QVariantMap& row) {
-    return QStringLiteral("MD %1/%2 | Mkt %3/%4 | Lim %5/%6 | Cxl %7/%8 | User %9/%10")
-        .arg(row.value(QStringLiteral("marketDataLatencyUs")).toString(),
-             row.value(QStringLiteral("marketDataJitterUs")).toString(),
-             row.value(QStringLiteral("marketOrderLatencyUs")).toString(),
+    return QStringLiteral("MD captured | Mkt %1/%2 | Lim %3/%4 | Cxl %5/%6 | User %7/%8")
+        .arg(row.value(QStringLiteral("marketOrderLatencyUs")).toString(),
              row.value(QStringLiteral("marketOrderJitterUs")).toString(),
              row.value(QStringLiteral("limitOrderLatencyUs")).toString(),
              row.value(QStringLiteral("limitOrderJitterUs")).toString(),

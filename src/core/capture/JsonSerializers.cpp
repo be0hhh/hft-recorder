@@ -11,39 +11,6 @@ namespace hftrec::capture {
 
 namespace {
 
-constexpr char price[] = {'p','r','i','c','e','\0'};
-constexpr char amount[] = {'a','m','o','u','n','t','\0'};
-constexpr char side[] = {'s','i','d','e','\0'};
-constexpr char timestamp[] = {'t','i','m','e','s','t','a','m','p','\0'};
-constexpr char id[] = {'i','d','\0'};
-constexpr char isBuyerMaker[] = {'i','s','B','u','y','e','r','M','a','k','e','r','\0'};
-constexpr char firstTradeId[] = {'f','i','r','s','t','T','r','a','d','e','I','d','\0'};
-constexpr char lastTradeId[] = {'l','a','s','t','T','r','a','d','e','I','d','\0'};
-constexpr char quoteQty[] = {'q','u','o','t','e','Q','t','y','\0'};
-constexpr char symbol[] = {'s','y','m','b','o','l','\0'};
-constexpr char exchange[] = {'e','x','c','h','a','n','g','e','\0'};
-constexpr char market[] = {'m','a','r','k','e','t','\0'};
-constexpr char bidPrice[] = {'b','i','d','P','r','i','c','e','\0'};
-constexpr char bidQty[] = {'b','i','d','Q','t','y','\0'};
-constexpr char askPrice[] = {'a','s','k','P','r','i','c','e','\0'};
-constexpr char askQty[] = {'a','s','k','Q','t','y','\0'};
-constexpr char updateId[] = {'u','p','d','a','t','e','I','d','\0'};
-constexpr char avgPrice[] = {'a','v','g','P','r','i','c','e','\0'};
-constexpr char filledQty[] = {'f','i','l','l','e','d','Q','t','y','\0'};
-constexpr char orderType[] = {'o','r','d','e','r','T','y','p','e','\0'};
-constexpr char timeInForce[] = {'t','i','m','e','I','n','F','o','r','c','e','\0'};
-constexpr char status[] = {'s','t','a','t','u','s','\0'};
-constexpr char sourceMode[] = {'s','o','u','r','c','e','M','o','d','e','\0'};
-constexpr char captureSeq[] = {'c','a','p','t','u','r','e','S','e','q','\0'};
-constexpr char ingestSeq[] = {'i','n','g','e','s','t','S','e','q','\0'};
-
-template <typename AppendFn>
-void appendValue(std::string& out, bool& first, AppendFn&& appendFn) {
-    if (!first) out.push_back(',');
-    appendFn();
-    first = false;
-}
-
 template <typename Int>
 void appendInt(std::string& out, Int value) {
     char buf[32];
@@ -55,6 +22,20 @@ void appendString(std::string& out, std::string_view value) {
     out.push_back(static_cast<char>(34));
     json::appendEscaped(out, value);
     out.push_back(static_cast<char>(34));
+}
+
+void appendArrival(std::string& out, const replay::EventArrival& arrival) {
+    appendInt(out, arrival.receiveRealtimeNs); out.push_back(',');
+    appendInt(out, arrival.receiveMonotonicNs); out.push_back(',');
+    appendInt(out, arrival.producerEpoch); out.push_back(',');
+    appendInt(out, arrival.sourceGeneration); out.push_back(',');
+    appendInt(out, arrival.sessionEpoch); out.push_back(',');
+    appendInt(out, arrival.frameSequence); out.push_back(',');
+    appendInt(out, arrival.shardSequence); out.push_back(',');
+    appendInt(out, arrival.sourceId); out.push_back(',');
+    appendInt(out, arrival.shardId); out.push_back(',');
+    appendInt(out, arrival.eventOrdinal); out.push_back(',');
+    appendInt(out, arrival.flags);
 }
 
 std::int64_t candleTierFromTimeframe(std::string_view timeframe) noexcept {
@@ -91,47 +72,36 @@ std::uint64_t taggedTapeTimestamp(std::int64_t tsNs) noexcept {
 
 std::string renderTradeJsonLine(const replay::TradeRow& trade) {
     std::string out;
-    out.reserve(96);
+    out.reserve(320);
     out.push_back('[');
     appendInt(out, trade.priceE8); out.push_back(',');
     appendInt(out, trade.qtyE8); out.push_back(',');
     appendInt(out, trade.side); out.push_back(',');
-    appendInt(out, trade.tsNs);
+    appendInt(out, trade.tsNs); out.push_back(',');
+    appendInt(out, trade.tradeId); out.push_back(',');
+    appendInt(out, trade.firstTradeId); out.push_back(',');
+    appendInt(out, trade.lastTradeId); out.push_back(',');
+    appendInt(out, trade.quoteQtyE8); out.push_back(',');
+    appendInt(out, static_cast<unsigned>(trade.isBuyerMaker)); out.push_back(',');
+    appendString(out, trade.symbol); out.push_back(',');
+    appendString(out, trade.exchange); out.push_back(',');
+    appendString(out, trade.market); out.push_back(',');
+    appendInt(out, trade.captureSeq); out.push_back(',');
+    appendInt(out, trade.ingestSeq); out.push_back(',');
+    appendArrival(out, trade.arrival);
     out.push_back(']');
     return out;
 }
 
 std::string renderTradeJsonLine(const replay::TradeRow& trade,
                                 const std::vector<std::string>& aliases) {
-    if (aliases.empty()) return renderTradeJsonLine(trade);
-
-    std::string out;
-    out.reserve(256);
-    out.push_back('[');
-    bool first = true;
-    for (const auto& alias : aliases) {
-        if (alias == price) appendValue(out, first, [&] { appendInt(out, trade.priceE8); });
-        else if (alias == amount) appendValue(out, first, [&] { appendInt(out, trade.qtyE8); });
-        else if (alias == side) appendValue(out, first, [&] { appendInt(out, trade.side); });
-        else if (alias == timestamp) appendValue(out, first, [&] { appendInt(out, trade.tsNs); });
-        else if (alias == id) appendValue(out, first, [&] { appendInt(out, trade.tradeId); });
-        else if (alias == firstTradeId) appendValue(out, first, [&] { appendInt(out, trade.firstTradeId); });
-        else if (alias == lastTradeId) appendValue(out, first, [&] { appendInt(out, trade.lastTradeId); });
-        else if (alias == quoteQty) appendValue(out, first, [&] { appendInt(out, trade.quoteQtyE8); });
-        else if (alias == isBuyerMaker) appendValue(out, first, [&] { appendInt(out, static_cast<int>(trade.isBuyerMaker)); });
-        else if (alias == symbol) appendValue(out, first, [&] { appendString(out, trade.symbol); });
-        else if (alias == exchange) appendValue(out, first, [&] { appendString(out, trade.exchange); });
-        else if (alias == market) appendValue(out, first, [&] { appendString(out, trade.market); });
-        else if (alias == captureSeq) appendValue(out, first, [&] { appendInt(out, trade.captureSeq); });
-        else if (alias == ingestSeq) appendValue(out, first, [&] { appendInt(out, trade.ingestSeq); });
-    }
-    out.push_back(']');
-    return out;
+    (void)aliases;
+    return renderTradeJsonLine(trade);
 }
 
 std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation) {
     std::string out;
-    out.reserve(256);
+    out.reserve(384);
     out.push_back('[');
     appendInt(out, liquidation.priceE8); out.push_back(',');
     appendInt(out, liquidation.qtyE8); out.push_back(',');
@@ -147,50 +117,34 @@ std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation)
     appendInt(out, liquidation.status); out.push_back(',');
     appendInt(out, liquidation.sourceMode); out.push_back(',');
     appendInt(out, liquidation.captureSeq); out.push_back(',');
-    appendInt(out, liquidation.ingestSeq);
+    appendInt(out, liquidation.ingestSeq); out.push_back(',');
+    appendArrival(out, liquidation.arrival);
     out.push_back(']');
     return out;
 }
 
 std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation,
                                       const std::vector<std::string>& aliases) {
-    if (aliases.empty()) return renderLiquidationJsonLine(liquidation);
-
-    std::string out;
-    out.reserve(256);
-    out.push_back('[');
-    bool first = true;
-    for (const auto& alias : aliases) {
-        if (alias == price) appendValue(out, first, [&] { appendInt(out, liquidation.priceE8); });
-        else if (alias == amount) appendValue(out, first, [&] { appendInt(out, liquidation.qtyE8); });
-        else if (alias == side) appendValue(out, first, [&] { appendInt(out, liquidation.side); });
-        else if (alias == timestamp) appendValue(out, first, [&] { appendInt(out, liquidation.tsNs); });
-        else if (alias == avgPrice) appendValue(out, first, [&] { appendInt(out, liquidation.avgPriceE8); });
-        else if (alias == filledQty) appendValue(out, first, [&] { appendInt(out, liquidation.filledQtyE8); });
-        else if (alias == symbol) appendValue(out, first, [&] { appendString(out, liquidation.symbol); });
-        else if (alias == exchange) appendValue(out, first, [&] { appendString(out, liquidation.exchange); });
-        else if (alias == market) appendValue(out, first, [&] { appendString(out, liquidation.market); });
-        else if (alias == orderType) appendValue(out, first, [&] { appendInt(out, liquidation.orderType); });
-        else if (alias == timeInForce) appendValue(out, first, [&] { appendInt(out, liquidation.timeInForce); });
-        else if (alias == status) appendValue(out, first, [&] { appendInt(out, liquidation.status); });
-        else if (alias == sourceMode) appendValue(out, first, [&] { appendInt(out, liquidation.sourceMode); });
-        else if (alias == captureSeq) appendValue(out, first, [&] { appendInt(out, liquidation.captureSeq); });
-        else if (alias == ingestSeq) appendValue(out, first, [&] { appendInt(out, liquidation.ingestSeq); });
-    }
-    out.push_back(']');
-    return out;
+    (void)aliases;
+    return renderLiquidationJsonLine(liquidation);
 }
 
 std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker) {
     std::string out;
-    out.reserve(120);
+    out.reserve(320);
     out.push_back('[');
     appendInt(out, bookTicker.eventId); out.push_back(',');
     appendInt(out, bookTicker.bidPriceE8); out.push_back(',');
     appendInt(out, bookTicker.bidQtyE8); out.push_back(',');
     appendInt(out, bookTicker.askPriceE8); out.push_back(',');
     appendInt(out, bookTicker.askQtyE8); out.push_back(',');
-    appendInt(out, bookTicker.tsNs);
+    appendInt(out, bookTicker.tsNs); out.push_back(',');
+    appendString(out, bookTicker.symbol); out.push_back(',');
+    appendString(out, bookTicker.exchange); out.push_back(',');
+    appendString(out, bookTicker.market); out.push_back(',');
+    appendInt(out, bookTicker.captureSeq); out.push_back(',');
+    appendInt(out, bookTicker.ingestSeq); out.push_back(',');
+    appendArrival(out, bookTicker.arrival);
     out.push_back(']');
     return out;
 }
@@ -203,108 +157,95 @@ std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker,
 
 std::string renderCandleJsonLine(const replay::CandleRow& candle) {
     std::string out;
-    out.reserve(candle.hasOhlc ? 192 : 96);
+    out.reserve(384);
     out.push_back('[');
-    if (candle.hasOhlc) {
-        const std::int64_t tier = candle.tier > 0 ? candle.tier : candleTierFromTimeframe(candle.timeframe);
-        if (tier >= 1 && tier <= 3) {
-            appendInt(out, tier); out.push_back(',');
-            appendInt(out, candle.tsNs); out.push_back(',');
-            appendInt(out, candle.openE8); out.push_back(',');
-            appendInt(out, candle.highE8); out.push_back(',');
-            appendInt(out, candle.lowE8); out.push_back(',');
-            appendInt(out, candle.closeE8); out.push_back(',');
-            appendInt(out, candle.volumeE8); out.push_back(',');
-            appendInt(out, candle.quoteAmountE8);
-            out.push_back(']');
-            return out;
-        }
-        appendString(out, candle.exchange); out.push_back(',');
-        appendString(out, candle.market); out.push_back(',');
-        appendString(out, candle.symbol); out.push_back(',');
-        appendString(out, candle.timeframe); out.push_back(',');
-        appendInt(out, candle.tsNs); out.push_back(',');
-        appendInt(out, candle.openE8); out.push_back(',');
-        appendInt(out, candle.highE8); out.push_back(',');
-        appendInt(out, candle.lowE8); out.push_back(',');
-        appendInt(out, candle.closeE8); out.push_back(',');
-        appendInt(out, candle.volumeE8); out.push_back(',');
-        appendInt(out, candle.quoteAmountE8);
-        out.push_back(']');
-        return out;
-    }
-    appendInt(out, candle.tier); out.push_back(',');
+    const std::int64_t tier = candle.tier > 0 ? candle.tier : candleTierFromTimeframe(candle.timeframe);
+    appendInt(out, tier); out.push_back(',');
     appendInt(out, candle.tsNs); out.push_back(',');
+    appendInt(out, candle.openE8); out.push_back(',');
     appendInt(out, candle.highE8); out.push_back(',');
     appendInt(out, candle.lowE8); out.push_back(',');
-    appendInt(out, candle.quoteAmountE8);
+    appendInt(out, candle.closeE8); out.push_back(',');
+    appendInt(out, candle.volumeE8); out.push_back(',');
+    appendInt(out, candle.quoteAmountE8); out.push_back(',');
+    appendInt(out, candle.hasOhlc ? 1u : 0u); out.push_back(',');
+    appendString(out, candle.exchange); out.push_back(',');
+    appendString(out, candle.market); out.push_back(',');
+    appendString(out, candle.symbol); out.push_back(',');
+    appendString(out, candle.timeframe); out.push_back(',');
+    appendInt(out, candle.durationNs); out.push_back(',');
+    appendInt(out, candle.captureSeq); out.push_back(',');
+    appendInt(out, candle.ingestSeq); out.push_back(',');
+    appendArrival(out, candle.arrival);
     out.push_back(']');
     return out;
 }
 
 std::string renderMarkPriceJsonLine(const replay::MarkPriceRow& row) {
     std::string out;
-    out.reserve(64);
+    out.reserve(224);
     out.push_back('[');
     appendInt(out, row.tsNs); out.push_back(',');
-    appendInt(out, row.markPriceE8);
+    appendInt(out, row.markPriceE8); out.push_back(',');
+    appendInt(out, row.captureSeq); out.push_back(',');
+    appendInt(out, row.ingestSeq); out.push_back(',');
+    appendArrival(out, row.arrival);
     out.push_back(']');
     return out;
 }
 
 std::string renderIndexPriceJsonLine(const replay::IndexPriceRow& row) {
     std::string out;
-    out.reserve(64);
+    out.reserve(224);
     out.push_back('[');
     appendInt(out, row.tsNs); out.push_back(',');
-    appendInt(out, row.indexPriceE8);
+    appendInt(out, row.indexPriceE8); out.push_back(',');
+    appendInt(out, row.captureSeq); out.push_back(',');
+    appendInt(out, row.ingestSeq); out.push_back(',');
+    appendArrival(out, row.arrival);
     out.push_back(']');
     return out;
 }
 
 std::string renderFundingJsonLine(const replay::FundingRow& row) {
     std::string out;
-    out.reserve(96);
+    out.reserve(256);
     out.push_back('[');
     appendInt(out, row.tsNs); out.push_back(',');
     appendInt(out, row.fundingRateE8); out.push_back(',');
     appendInt(out, row.fundingTsNs); out.push_back(',');
-    appendInt(out, row.nextFundingTsNs);
+    appendInt(out, row.nextFundingTsNs); out.push_back(',');
+    appendInt(out, row.captureSeq); out.push_back(',');
+    appendInt(out, row.ingestSeq); out.push_back(',');
+    appendArrival(out, row.arrival);
     out.push_back(']');
     return out;
 }
 
 std::string renderPriceLimitJsonLine(const replay::PriceLimitRow& row) {
     std::string out;
-    out.reserve(96);
+    out.reserve(256);
     out.push_back('[');
     appendInt(out, row.tsNs); out.push_back(',');
     appendInt(out, row.buyLimitE8); out.push_back(',');
     appendInt(out, row.sellLimitE8); out.push_back(',');
-    appendInt(out, static_cast<int>(row.enabled));
+    appendInt(out, static_cast<int>(row.enabled)); out.push_back(',');
+    appendInt(out, row.captureSeq); out.push_back(',');
+    appendInt(out, row.ingestSeq); out.push_back(',');
+    appendArrival(out, row.arrival);
     out.push_back(']');
     return out;
 }
 
-std::string renderDepthJsonLine(const replay::DepthRow& delta) {
-    std::string out;
-    out.reserve(64 + delta.levels.size() * 48);
-    appendFlatOrderbook(out, delta.levels, delta.tsNs);
-    return out;
-}
-
-std::string renderDepthJsonLine(const replay::DepthRow& delta,
-                                const std::vector<std::string>& aliases) {
-    (void)aliases;
-    return renderDepthJsonLine(delta);
-}
-
 std::string renderDepthTapeJsonLine(const replay::DepthRow& delta) {
     std::string out;
-    out.reserve(32 + delta.levels.size() * 40);
+    out.reserve(224 + delta.levels.size() * 40);
     out.push_back('[');
     appendInt(out, delta.eventId); out.push_back(',');
-    appendInt(out, taggedTapeTimestamp(delta.tsNs));
+    appendInt(out, taggedTapeTimestamp(delta.tsNs)); out.push_back(',');
+    appendInt(out, delta.captureSeq); out.push_back(',');
+    appendInt(out, delta.ingestSeq); out.push_back(',');
+    appendArrival(out, delta.arrival);
     for (const auto& level : delta.levels) {
         out.push_back(',');
         appendInt(out, level.priceE8);

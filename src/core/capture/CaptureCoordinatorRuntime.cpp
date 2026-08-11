@@ -55,6 +55,18 @@ std::int64_t candleTierFromTimeframe(std::string_view timeframe) noexcept {
     return 0;
 }
 
+std::int64_t candleDurationNs(std::string_view timeframe,
+                              std::int64_t tier) noexcept {
+    if (timeframe == "1m") return 60LL * 1'000'000'000LL;
+    if (timeframe == "10m") return 10LL * 60LL * 1'000'000'000LL;
+    if (timeframe == "15m") return 15LL * 60LL * 1'000'000'000LL;
+    if (timeframe == "1d") return 24LL * 60LL * 60LL * 1'000'000'000LL;
+    if (tier == 1) return 60LL * 1'000'000'000LL;
+    if (tier == 2) return 15LL * 60LL * 1'000'000'000LL;
+    if (tier == 3) return 24LL * 60LL * 60LL * 1'000'000'000LL;
+    return 0;
+}
+
 std::string sanitizedTimeframeSuffix(std::string_view timeframe) {
     std::string out;
     out.reserve(timeframe.size());
@@ -157,6 +169,7 @@ replay::TradeRow makeHistoricalTradeRow(const cxet::composite::TradePublic& trad
     row.side = static_cast<std::int64_t>(trade.side.raw);
     row.isBuyerMaker = trade.isBuyerMaker == canon::TriState::True ? 1u : 0u;
     row.sideBuy = static_cast<std::uint8_t>(trade.side.raw) == 1u ? 1u : 0u;
+    row.arrival.flags = replay::EventArrivalHistoricalBackfill;
     return row;
 }
 
@@ -635,6 +648,9 @@ hft_trader::runtime::HftRuntimeConfig makeTraderMarketDataConfig(
     Span<const cxet::api::market::PublicMarketDataStream> streams) {
     hft_trader::runtime::HftRuntimeConfig cfg{};
     cfg.name = "hft_recorder_market_data_client";
+    // Recorder captures one canonical physical lane. The trader default is a
+    // three-lane first-unique race and must never leak into corpus production.
+    cfg.marketWsLanes = kRecorderMarketWsLanes;
     cfg.strategyType = "explicit_inputs";
     cfg.hasInputs = true;
     cfg.inputs.assign(streams.data(), streams.data() + streams.size());
@@ -790,14 +806,24 @@ Status CaptureCoordinator::captureCandlesOnce(const CaptureConfig& config) noexc
             const auto& candle = rows[i];
             replay::CandleRow row{};
             row.tier = tier;
+            row.exchange = config.exchange;
+            row.market = config.market;
+            row.symbol = std::string{internal::primaryIdentitySymbolText(config)};
+            row.timeframe = tier == 1 ? "1m" : (tier == 2 ? "15m" : "1d");
+            row.durationNs = candleDurationNs(row.timeframe, tier);
             row.tsNs = static_cast<std::int64_t>(candle.ts.raw);
             row.highE8 = static_cast<std::int64_t>(candle.high.raw);
             row.lowE8 = static_cast<std::int64_t>(candle.low.raw);
             row.quoteAmountE8 = static_cast<std::int64_t>(candle.quoteAmount.raw);
+            row.arrival.flags = replay::EventArrivalHistoricalBackfill;
             if (row.tsNs <= 0 || row.highE8 <= 0 || row.lowE8 <= 0 || row.highE8 < row.lowE8) continue;
             const auto line = renderCandleJsonLine(row);
             const auto writeStatus = candlesWriter_.writeLine(line);
             if (!isOk(writeStatus)) return writeStatus;
+            {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                noteArrival_(row.arrival, row.tsNs);
+            }
             candlesCount_.fetch_add(1, std::memory_order_acq_rel);
         }
         return Status::Ok;
@@ -911,6 +937,7 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
         row.market = config.market;
         row.symbol = std::string{internal::primaryIdentitySymbolText(config)};
         row.timeframe = tfText;
+        row.durationNs = candleDurationNs(tfText, candleTier);
         row.tsNs = static_cast<std::int64_t>(candle.ts.raw);
         row.openE8 = static_cast<std::int64_t>(candle.open.raw);
         row.highE8 = static_cast<std::int64_t>(candle.high.raw);
@@ -919,6 +946,7 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
         row.volumeE8 = static_cast<std::int64_t>(candle.amount.raw);
         row.quoteAmountE8 = static_cast<std::int64_t>(candle.quoteAmount.raw);
         row.hasOhlc = true;
+        row.arrival.flags = replay::EventArrivalHistoricalBackfill;
         if (!validDetailedCandle(candle) || row.volumeE8 < 0 || row.quoteAmountE8 < 0) {
             continue;
         }
@@ -927,6 +955,10 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
         if (!isOk(writeStatus)) {
             lastError_ = "candles2: failed to write candles2.jsonl";
             return writeStatus;
+        }
+        {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            noteArrival_(row.arrival, row.tsNs);
         }
         candles2Count_.fetch_add(1, std::memory_order_acq_rel);
         ++written;
@@ -938,11 +970,21 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
             lite.highE8 = row.highE8;
             lite.lowE8 = row.lowE8;
             lite.quoteAmountE8 = row.quoteAmountE8;
+            lite.exchange = row.exchange;
+            lite.market = row.market;
+            lite.symbol = row.symbol;
+            lite.timeframe = row.timeframe;
+            lite.durationNs = row.durationNs;
+            lite.arrival = row.arrival;
             const auto legacyLine = renderCandleJsonLine(lite);
             const auto legacyWriteStatus = candlesWriter_.writeLine(legacyLine);
             if (!isOk(legacyWriteStatus)) {
                 lastError_ = "candles2: failed to write compatibility candles.jsonl";
                 return legacyWriteStatus;
+            }
+            {
+                std::lock_guard<std::mutex> lock(stateMutex_);
+                noteArrival_(lite.arrival, lite.tsNs);
             }
             candlesCount_.fetch_add(1, std::memory_order_acq_rel);
             ++legacyWritten;
@@ -1069,11 +1111,15 @@ Status CaptureCoordinator::captureTradesHistoryOnce(const CaptureConfig& config)
     }
 
     for (const auto& row : historyRows) {
-        const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
+        const auto jsonLine = renderTradeJsonLine(row);
         const auto fileStatus = jsonSink_.appendTradeLine(row, jsonLine);
         if (!isOk(fileStatus)) {
             lastError_ = "trades_history: failed to write trades.jsonl";
             return fileStatus;
+        }
+        {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            noteArrival_(row.arrival, row.tsNs);
         }
         (void)appendLiveTrade(row);
         tradesCount_.fetch_add(1, std::memory_order_acq_rel);

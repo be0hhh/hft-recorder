@@ -76,8 +76,7 @@ Item {
                     Label { text: "Use"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 38 }
                     Label { text: "Leg"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 190 }
                     Label { text: "Balance"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 82 }
-                    Label { text: "MD base"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
-                    Label { text: "MD jit"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 70 }
+                    Label { text: "MD arrival"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 148 }
                     Label { text: "Mkt base"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
                     Label { text: "Mkt jit"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 74 }
                     Label { text: "Limit base"; color: table.mutedTextColor; font.pixelSize: 11; Layout.preferredWidth: 78 }
@@ -127,23 +126,12 @@ Item {
                                 background: Rectangle { color: table.panelDeepColor; border.color: table.borderColor; radius: 5 }
                                 onEditingFinished: table.backtestVm.setVenueExecutionValue(modelData.index, "initial_balance_usdt", text)
                             }
-                            TextField {
-                                text: modelData.marketDataLatencyUs
-                                selectByMouse: true
+                            Label {
+                                text: "Captured"
                                 color: table.textColor
                                 font.pixelSize: 12
-                                Layout.preferredWidth: 70
-                                background: Rectangle { color: table.panelDeepColor; border.color: table.borderColor; radius: 5 }
-                                onEditingFinished: table.backtestVm.setVenueExecutionValue(modelData.index, "market_data_latency_us", text)
-                            }
-                            TextField {
-                                text: modelData.marketDataJitterUs
-                                selectByMouse: true
-                                color: table.textColor
-                                font.pixelSize: 12
-                                Layout.preferredWidth: 70
-                                background: Rectangle { color: table.panelDeepColor; border.color: table.borderColor; radius: 5 }
-                                onEditingFinished: table.backtestVm.setVenueExecutionValue(modelData.index, "market_data_jitter_us", text)
+                                horizontalAlignment: Text.AlignHCenter
+                                Layout.preferredWidth: 148
                             }
                             TextField {
                                 text: modelData.marketOrderLatencyUs

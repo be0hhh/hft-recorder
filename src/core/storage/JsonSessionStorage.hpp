@@ -35,7 +35,6 @@ class JsonSessionSink final : public IStorageBackend {
     Status appendIndexPriceLine(const replay::IndexPriceRow& row, const std::string& line) noexcept;
     Status appendFundingLine(const replay::FundingRow& row, const std::string& line) noexcept;
     Status appendPriceLimitLine(const replay::PriceLimitRow& row, const std::string& line) noexcept;
-    Status appendDepthLine(const replay::DepthRow& row, const std::string& line) noexcept;
     Status appendDepthTapeSidecarLines(const replay::DepthRow& row,
                                        const std::string& tapeLine,
                                        const std::string& sidecarLine) noexcept;
@@ -56,7 +55,6 @@ class JsonSessionSink final : public IStorageBackend {
     std::ofstream indexPrice_{};
     std::ofstream funding_{};
     std::ofstream priceLimit_{};
-    std::ofstream depth_{};
     std::ofstream depthTape_{};
     std::ofstream depthSidecar_{};
     mutable std::mutex mutex_{};

@@ -133,6 +133,7 @@ bool makeDesiredChannel(const CaptureConfig& config,
     out.stream = streamFor(channel);
     out.apiSlot = venue.apiSlot;
     out.captureLatency = true;
+    out.wsLanes = runtime::kRecorderMarketWsLanes;
     const auto selectedWire = cxet::api::market::publicMarketDataSelectedWirePreference(
         out.exchange, out.market, out.stream);
     if (selectedWire != cxet::api::market::PublicMarketDataWirePreference::Auto) {
@@ -417,6 +418,11 @@ VenueMultiplexCapture::~VenueMultiplexCapture() { (void)finalize(); }
 
 Status VenueMultiplexCapture::start(std::vector<VenueMultiplexJob> jobs) noexcept {
     if (!impl_ || jobs.empty()) return Status::InvalidArgument;
+    std::string abiError;
+    if (!runtime::linkedTraderMarketDataRuntimeAbiMatches(abiError)) {
+        impl_->error = std::move(abiError);
+        return Status::Unknown;
+    }
     if (jobs.size() > 20u) {
         impl_->error = "venue multiplex supports at most 20 symbols";
         return Status::InvalidArgument;

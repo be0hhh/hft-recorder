@@ -38,8 +38,7 @@ Item {
     }
 
     function latencyText(row) {
-        return "MD " + rowValue(row, "marketDataLatencyUs") + "/" + rowValue(row, "marketDataJitterUs")
-            + " | Mkt " + rowValue(row, "marketOrderLatencyUs") + "/" + rowValue(row, "marketOrderJitterUs")
+        return "MD captured | Mkt " + rowValue(row, "marketOrderLatencyUs") + "/" + rowValue(row, "marketOrderJitterUs")
             + " | Lim " + rowValue(row, "limitOrderLatencyUs") + "/" + rowValue(row, "limitOrderJitterUs")
             + " | Cxl " + rowValue(row, "cancelOrderLatencyUs") + "/" + rowValue(row, "cancelOrderJitterUs")
             + " | User " + rowValue(row, "userDataLatencyUs") + "/" + rowValue(row, "userDataJitterUs")
@@ -510,8 +509,6 @@ Item {
 
                 Repeater {
                     model: [
-                        { caption: "MD base", key: "marketDataLatencyUs", field: "market_data_latency_us" },
-                        { caption: "MD jit", key: "marketDataJitterUs", field: "market_data_jitter_us" },
                         { caption: "Mkt base", key: "marketOrderLatencyUs", field: "market_order_latency_us" },
                         { caption: "Mkt jit", key: "marketOrderJitterUs", field: "market_order_jitter_us" },
                         { caption: "Limit base", key: "limitOrderLatencyUs", field: "limit_order_latency_us" },

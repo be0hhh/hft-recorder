@@ -1,6 +1,6 @@
-Corrupt session with gap in depth update ids.
+Retired flat-depth session. It is kept as a negative fixture proving that the
+current loader does not migrate or reinterpret legacy depth rows.
 
 Expected:
 - replay status = CorruptData
-- gapDetected = true
-
+- failure occurs at the legacy corpus/depth contract gate

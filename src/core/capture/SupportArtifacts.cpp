@@ -76,8 +76,7 @@ std::string renderLoaderDiagnosticsJson(const SessionManifest& manifest, std::in
 std::string renderMarketDataLaunchJson(const SessionManifest& manifest, std::int64_t generatedAtNs) {
     std::ostringstream out;
     out << "{\n";
-    out << "  \"schema_version\": \"hftrec.support_artifact.market_data_launch."
-        << (manifest.manifestSchemaVersion >= 2 ? "v2" : "v1") << "\",\n";
+    out << "  \"schema_version\": \"hftrec.support_artifact.market_data_launch.v3\",\n";
     out << "  \"producer\": \"hft-recorder\",\n";
     out << "  \"generated_at_ns\": " << generatedAtNs << ",\n";
     out << "  \"session_id\": " << json::quote(manifest.sessionId) << ",\n";
@@ -92,25 +91,14 @@ std::string renderMarketDataLaunchJson(const SessionManifest& manifest, std::int
     out << "  \"session_status\": " << json::quote(manifest.sessionStatus) << ",\n";
     out << "  \"warning_summary\": " << json::quote(manifest.warningSummary) << ",\n";
     out << "  \"channels\": {\n";
-    if (manifest.manifestSchemaVersion < 2) {
-        out << "    \"trades\": {\"enabled\": " << (manifest.tradesEnabled ? "true" : "false") << ", \"rows\": " << manifest.tradesCount << "},\n";
-        out << "    \"liquidations\": {\"enabled\": " << (manifest.liquidationsEnabled ? "true" : "false") << ", \"rows\": " << manifest.liquidationsCount << "},\n";
-        out << "    \"bookticker\": {\"enabled\": " << (manifest.bookTickerEnabled ? "true" : "false") << ", \"rows\": " << manifest.bookTickerCount << "},\n";
-        out << "    \"orderbook\": {\"enabled\": " << (manifest.orderbookEnabled ? "true" : "false") << ", \"rows\": " << manifest.depthCount << "},\n";
-        out << "    \"mark_price\": {\"enabled\": " << (manifest.markPriceEnabled ? "true" : "false") << ", \"rows\": " << manifest.markPriceCount << "},\n";
-        out << "    \"index_price\": {\"enabled\": " << (manifest.indexPriceEnabled ? "true" : "false") << ", \"rows\": " << manifest.indexPriceCount << "},\n";
-        out << "    \"funding\": {\"enabled\": " << (manifest.fundingEnabled ? "true" : "false") << ", \"rows\": " << manifest.fundingCount << "},\n";
-        out << "    \"price_limit\": {\"enabled\": " << (manifest.priceLimitEnabled ? "true" : "false") << ", \"rows\": " << manifest.priceLimitCount << "}\n";
-    } else {
-        appendRuntimeHealth(out, "trades", manifest.tradesEnabled, manifest.tradesCount, manifest.tradesRuntime, true);
-        appendRuntimeHealth(out, "liquidations", manifest.liquidationsEnabled, manifest.liquidationsCount, manifest.liquidationsRuntime, true);
-        appendRuntimeHealth(out, "bookticker", manifest.bookTickerEnabled, manifest.bookTickerCount, manifest.bookTickerRuntime, true);
-        appendRuntimeHealth(out, "orderbook", manifest.orderbookEnabled, manifest.depthCount, manifest.depthRuntime, true);
-        appendRuntimeHealth(out, "mark_price", manifest.markPriceEnabled, manifest.markPriceCount, manifest.markPriceRuntime, true);
-        appendRuntimeHealth(out, "index_price", manifest.indexPriceEnabled, manifest.indexPriceCount, manifest.indexPriceRuntime, true);
-        appendRuntimeHealth(out, "funding", manifest.fundingEnabled, manifest.fundingCount, manifest.fundingRuntime, true);
-        appendRuntimeHealth(out, "price_limit", manifest.priceLimitEnabled, manifest.priceLimitCount, manifest.priceLimitRuntime, false);
-    }
+    appendRuntimeHealth(out, "trades", manifest.tradesEnabled, manifest.tradesCount, manifest.tradesRuntime, true);
+    appendRuntimeHealth(out, "liquidations", manifest.liquidationsEnabled, manifest.liquidationsCount, manifest.liquidationsRuntime, true);
+    appendRuntimeHealth(out, "bookticker", manifest.bookTickerEnabled, manifest.bookTickerCount, manifest.bookTickerRuntime, true);
+    appendRuntimeHealth(out, "orderbook", manifest.orderbookEnabled, manifest.depthCount, manifest.depthRuntime, true);
+    appendRuntimeHealth(out, "mark_price", manifest.markPriceEnabled, manifest.markPriceCount, manifest.markPriceRuntime, true);
+    appendRuntimeHealth(out, "index_price", manifest.indexPriceEnabled, manifest.indexPriceCount, manifest.indexPriceRuntime, true);
+    appendRuntimeHealth(out, "funding", manifest.fundingEnabled, manifest.fundingCount, manifest.fundingRuntime, true);
+    appendRuntimeHealth(out, "price_limit", manifest.priceLimitEnabled, manifest.priceLimitCount, manifest.priceLimitRuntime, false);
     out << "  }\n";
     out << "}\n";
     return out.str();

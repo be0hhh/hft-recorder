@@ -318,6 +318,7 @@ bool parseAggTradeCsvLine(std::string_view line,
     out.market = identity.market;
     out.captureSeq = sequence;
     out.ingestSeq = sequence;
+    out.arrival.flags = replay::EventArrivalHistoricalBackfill;
     out.isBuyerMaker = buyerMaker ? 1u : 0u;
     out.sideBuy = buyerMaker ? 0u : 1u;
     out.side = static_cast<std::int64_t>(out.sideBuy);
@@ -362,7 +363,6 @@ bool parseBookTickerCsvLine(std::string_view line,
         error = "failed to parse event_time";
         return false;
     }
-    (void)updateId;
     if (!msToNs(eventTimeMs, out.tsNs)) {
         error = "bookTicker event_time is out of supported numeric range";
         return false;
@@ -370,8 +370,10 @@ bool parseBookTickerCsvLine(std::string_view line,
     out.symbol = identity.symbol;
     out.exchange = identity.exchange;
     out.market = identity.market;
+    out.eventId = updateId;
     out.captureSeq = sequence;
     out.ingestSeq = sequence;
+    out.arrival.flags = replay::EventArrivalHistoricalBackfill;
     return true;
 }
 

@@ -54,8 +54,6 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString profileName READ profileName WRITE setProfileName NOTIFY profileChanged)
     Q_PROPERTY(QString pingLatencyUs READ pingLatencyUs WRITE setPingLatencyUs NOTIFY latencyChanged)
     Q_PROPERTY(QString latencySeed READ latencySeed WRITE setLatencySeed NOTIFY latencyChanged)
-    Q_PROPERTY(QString marketDataLatencyUs READ marketDataLatencyUs WRITE setMarketDataLatencyUs NOTIFY latencyChanged)
-    Q_PROPERTY(QString marketDataJitterUs READ marketDataJitterUs WRITE setMarketDataJitterUs NOTIFY latencyChanged)
     Q_PROPERTY(QString marketOrderLatencyUs READ marketOrderLatencyUs WRITE setMarketOrderLatencyUs NOTIFY latencyChanged)
     Q_PROPERTY(QString marketOrderJitterUs READ marketOrderJitterUs WRITE setMarketOrderJitterUs NOTIFY latencyChanged)
     Q_PROPERTY(QString limitOrderLatencyUs READ limitOrderLatencyUs WRITE setLimitOrderLatencyUs NOTIFY latencyChanged)
@@ -177,8 +175,6 @@ class BacktestViewModel : public QObject {
     QString profileName() const { return profileName_; }
     QString pingLatencyUs() const { return pingLatencyUs_; }
     QString latencySeed() const { return latencySeed_; }
-    QString marketDataLatencyUs() const { return marketDataLatencyUs_; }
-    QString marketDataJitterUs() const { return marketDataJitterUs_; }
     QString marketOrderLatencyUs() const { return marketOrderLatencyUs_; }
     QString marketOrderJitterUs() const { return marketOrderJitterUs_; }
     QString limitOrderLatencyUs() const { return limitOrderLatencyUs_; }
@@ -287,8 +283,6 @@ class BacktestViewModel : public QObject {
     Q_INVOKABLE void setProfileName(const QString& profileName);
     Q_INVOKABLE void setPingLatencyUs(const QString& value);
     Q_INVOKABLE void setLatencySeed(const QString& value);
-    Q_INVOKABLE void setMarketDataLatencyUs(const QString& value);
-    Q_INVOKABLE void setMarketDataJitterUs(const QString& value);
     Q_INVOKABLE void setMarketOrderLatencyUs(const QString& value);
     Q_INVOKABLE void setMarketOrderJitterUs(const QString& value);
     Q_INVOKABLE void setLimitOrderLatencyUs(const QString& value);
@@ -505,6 +499,7 @@ class BacktestViewModel : public QObject {
     void applyLoadedSessions_(std::uint64_t generation, QVariantList sessions);
     void stopWorker_();
     static void configureWorkerThreadStack_() noexcept;
+    static bool backtestApiCompatible_() noexcept;
     QString runId_() const;
     QString runIdForSymbol_(const QString& symbol) const;
     QString displayName_() const;
@@ -550,6 +545,7 @@ class BacktestViewModel : public QObject {
     int selectedPrimaryLegIndexForPaths_(const QStringList& paths) const;
     bool normalizeSelectedPrimaryLeg_();
     QStringList batchUniverseSessionPaths_() const;
+    bool selectedSessionsBacktestCompatible_() const;
     bool strategySupportsSelectedSessionCount_() const;
     bool ensureSelectedStrategySupportsSessionCount_();
     qint64 decimalE8Value_(const QString& value, qint64 fallback) const noexcept;
@@ -589,8 +585,6 @@ class BacktestViewModel : public QObject {
     QString profileName_{QStringLiteral("default")};
     QString pingLatencyUs_{QStringLiteral("1000")};
     QString latencySeed_{QStringLiteral("0")};
-    QString marketDataLatencyUs_{QStringLiteral("0")};
-    QString marketDataJitterUs_{QStringLiteral("0")};
     QString marketOrderLatencyUs_{QStringLiteral("2500")};
     QString marketOrderJitterUs_{QStringLiteral("1000")};
     QString limitOrderLatencyUs_{QStringLiteral("1800")};

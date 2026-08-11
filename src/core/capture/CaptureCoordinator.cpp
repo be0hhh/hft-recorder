@@ -16,6 +16,7 @@
 #include "core/replay/SessionReplay.hpp"
 
 #include <algorithm>
+#include <limits>
 
 namespace hftrec::capture {
 
@@ -38,6 +39,57 @@ bool hasCapturedRows(const SessionManifest& manifest) noexcept {
         || manifest.depthCount != 0u
         || manifest.candlesCount != 0u
         || manifest.candles2Count != 0u;
+}
+
+std::uint64_t canonicalRowCount(const SessionManifest& manifest) noexcept {
+    std::uint64_t total = 0u;
+    const auto add = [&](std::uint64_t count) noexcept {
+        if (count > std::numeric_limits<std::uint64_t>::max() - total)
+            total = std::numeric_limits<std::uint64_t>::max();
+        else
+            total += count;
+    };
+    add(manifest.tradesCount);
+    add(manifest.liquidationsCount);
+    add(manifest.bookTickerCount);
+    add(manifest.markPriceCount);
+    add(manifest.indexPriceCount);
+    add(manifest.fundingCount);
+    add(manifest.priceLimitCount);
+    add(manifest.depthCount);
+    add(manifest.candlesCount);
+    add(manifest.candles2Count);
+    return total;
+}
+
+bool arrivalAccountedRowCount(const ArrivalClockSummary& arrival,
+                              std::uint64_t& total) noexcept {
+    total = arrival.capturedRows;
+    if (arrival.historicalRows >
+        std::numeric_limits<std::uint64_t>::max() - total) return false;
+    total += arrival.historicalRows;
+    if (arrival.unavailableRows >
+        std::numeric_limits<std::uint64_t>::max() - total) return false;
+    total += arrival.unavailableRows;
+    return true;
+}
+
+bool arrivalContractDegraded(const SessionManifest& manifest) noexcept {
+    const auto& arrival = manifest.arrivalClock;
+    const std::uint64_t canonical = canonicalRowCount(manifest);
+    if (canonical == 0u) return false;
+    if (arrival.capturedRows > std::numeric_limits<std::uint64_t>::max() -
+            arrival.historicalRows) {
+        return true;
+    }
+    const std::uint64_t known = arrival.capturedRows + arrival.historicalRows;
+    if (known > std::numeric_limits<std::uint64_t>::max() -
+            arrival.unavailableRows) {
+        return true;
+    }
+    const std::uint64_t accounted = known + arrival.unavailableRows;
+    return accounted != canonical || arrival.unavailableRows != 0u ||
+        arrival.capturedRows == 0u;
 }
 
 bool runtimeHealthDegraded(const ChannelRuntimeHealth& health) noexcept {
@@ -225,20 +277,56 @@ void CaptureCoordinator::noteExternalRow_(ChannelRuntimeHealth& health, std::int
     health.state = "live";
 }
 
+void CaptureCoordinator::noteArrival_(const replay::EventArrival& arrival,
+                                      std::int64_t exchangeTsNs) noexcept {
+    auto increment = [](std::uint64_t& value) noexcept {
+        if (value != std::numeric_limits<std::uint64_t>::max()) ++value;
+    };
+    auto& summary = manifest_.arrivalClock;
+    if (replay::hasCapturedApplicationArrival(arrival)) {
+        increment(summary.capturedRows);
+        if (summary.firstReceiveRealtimeNs == 0)
+            summary.firstReceiveRealtimeNs = arrival.receiveRealtimeNs;
+        summary.lastReceiveRealtimeNs = arrival.receiveRealtimeNs;
+        if (summary.firstReceiveMonotonicNs == 0u)
+            summary.firstReceiveMonotonicNs = arrival.receiveMonotonicNs;
+        summary.lastReceiveMonotonicNs = arrival.receiveMonotonicNs;
+    } else if (replay::isHistoricalBackfill(arrival)) {
+        increment(summary.historicalRows);
+    } else {
+        increment(summary.unavailableRows);
+    }
+    if ((arrival.flags & replay::EventArrivalRealtimeRegression) != 0u)
+        increment(summary.realtimeRegressions);
+    if ((arrival.flags & replay::EventArrivalMonotonicNonIncreasing) != 0u)
+        increment(summary.monotonicNonIncreasing);
+    if ((arrival.flags & replay::EventArrivalExchangeAheadOfReceive) != 0u ||
+        (arrival.receiveRealtimeNs > 0 && exchangeTsNs > arrival.receiveRealtimeNs))
+        increment(summary.exchangeAheadOfReceive);
+    if ((arrival.flags & replay::EventArrivalExchangeTimestampMissing) != 0u ||
+        exchangeTsNs <= 0)
+        increment(summary.exchangeTimestampMissing);
+}
+
 Status CaptureCoordinator::accountExternalAppend_(Status status,
                                                   ChannelRuntimeHealth& health,
                                                   std::atomic<std::uint64_t>& counter,
                                                   std::int64_t tsNs,
+                                                  const replay::EventArrival& arrival,
                                                   std::string_view channel) noexcept {
     if (isOk(status)) {
         counter.fetch_add(1u, std::memory_order_acq_rel);
         noteExternalRow_(health, tsNs);
+        noteArrival_(arrival, tsNs);
         return status;
     }
     ++health.droppedEventCount;
     health.state = "degraded";
     if (health.lastError.empty()) {
-        health.lastError = std::string{channel} + ": canonical storage append failed";
+        health.lastError = std::string{channel};
+        health.lastError += replay::hasCapturedApplicationArrival(arrival)
+            ? ": canonical storage append failed"
+            : ": parser application-frame arrival is missing or invalid";
         if (!lastError_.empty()) lastError_ += " | ";
         lastError_ += health.lastError;
     }
@@ -246,43 +334,67 @@ Status CaptureCoordinator::accountExternalAppend_(Status status,
 }
 
 Status CaptureCoordinator::appendExternalTrade(const replay::TradeRow& row) noexcept {
-    const auto status = jsonSink_.appendTradeLine(row, renderTradeJsonLine(row, config_.tradesAliases));
-    return accountExternalAppend_(status, manifest_.tradesRuntime, tradesCount_, row.tsNs, "trades");
+    if (!replay::hasCapturedApplicationArrival(row.arrival))
+        return accountExternalAppend_(Status::InvalidArgument, manifest_.tradesRuntime,
+                                      tradesCount_, row.tsNs, row.arrival, "trades");
+    const auto status = jsonSink_.appendTradeLine(row, renderTradeJsonLine(row));
+    return accountExternalAppend_(status, manifest_.tradesRuntime, tradesCount_, row.tsNs, row.arrival, "trades");
 }
 
 Status CaptureCoordinator::appendExternalLiquidation(const replay::LiquidationRow& row) noexcept {
-    const auto status = jsonSink_.appendLiquidationLine(row, renderLiquidationJsonLine(row, config_.liquidationAliases));
-    return accountExternalAppend_(status, manifest_.liquidationsRuntime, liquidationsCount_, row.tsNs, "liquidations");
+    if (!replay::hasCapturedApplicationArrival(row.arrival))
+        return accountExternalAppend_(Status::InvalidArgument, manifest_.liquidationsRuntime,
+                                      liquidationsCount_, row.tsNs, row.arrival, "liquidations");
+    const auto status = jsonSink_.appendLiquidationLine(row, renderLiquidationJsonLine(row));
+    return accountExternalAppend_(status, manifest_.liquidationsRuntime, liquidationsCount_, row.tsNs, row.arrival, "liquidations");
 }
 
 Status CaptureCoordinator::appendExternalBookTicker(const replay::BookTickerRow& row) noexcept {
+    if (!replay::hasCapturedApplicationArrival(row.arrival))
+        return accountExternalAppend_(Status::InvalidArgument, manifest_.bookTickerRuntime,
+                                      bookTickerCount_, row.tsNs, row.arrival, "bookticker");
     const auto status = jsonSink_.appendBookTickerLine(row, renderBookTickerJsonLine(row, config_.bookTickerAliases));
-    return accountExternalAppend_(status, manifest_.bookTickerRuntime, bookTickerCount_, row.tsNs, "bookticker");
+    return accountExternalAppend_(status, manifest_.bookTickerRuntime, bookTickerCount_, row.tsNs, row.arrival, "bookticker");
 }
 
 Status CaptureCoordinator::appendExternalMarkPrice(const replay::MarkPriceRow& row) noexcept {
+    if (!replay::hasCapturedApplicationArrival(row.arrival))
+        return accountExternalAppend_(Status::InvalidArgument, manifest_.markPriceRuntime,
+                                      markPriceCount_, row.tsNs, row.arrival, "mark_price");
     const auto status = jsonSink_.appendMarkPriceLine(row, renderMarkPriceJsonLine(row));
-    return accountExternalAppend_(status, manifest_.markPriceRuntime, markPriceCount_, row.tsNs, "mark_price");
+    return accountExternalAppend_(status, manifest_.markPriceRuntime, markPriceCount_, row.tsNs, row.arrival, "mark_price");
 }
 
 Status CaptureCoordinator::appendExternalIndexPrice(const replay::IndexPriceRow& row) noexcept {
+    if (!replay::hasCapturedApplicationArrival(row.arrival))
+        return accountExternalAppend_(Status::InvalidArgument, manifest_.indexPriceRuntime,
+                                      indexPriceCount_, row.tsNs, row.arrival, "index_price");
     const auto status = jsonSink_.appendIndexPriceLine(row, renderIndexPriceJsonLine(row));
-    return accountExternalAppend_(status, manifest_.indexPriceRuntime, indexPriceCount_, row.tsNs, "index_price");
+    return accountExternalAppend_(status, manifest_.indexPriceRuntime, indexPriceCount_, row.tsNs, row.arrival, "index_price");
 }
 
 Status CaptureCoordinator::appendExternalFunding(const replay::FundingRow& row) noexcept {
+    if (!replay::hasCapturedApplicationArrival(row.arrival))
+        return accountExternalAppend_(Status::InvalidArgument, manifest_.fundingRuntime,
+                                      fundingCount_, row.tsNs, row.arrival, "funding");
     const auto status = jsonSink_.appendFundingLine(row, renderFundingJsonLine(row));
-    return accountExternalAppend_(status, manifest_.fundingRuntime, fundingCount_, row.tsNs, "funding");
+    return accountExternalAppend_(status, manifest_.fundingRuntime, fundingCount_, row.tsNs, row.arrival, "funding");
 }
 
 Status CaptureCoordinator::appendExternalPriceLimit(const replay::PriceLimitRow& row) noexcept {
+    if (!replay::hasCapturedApplicationArrival(row.arrival))
+        return accountExternalAppend_(Status::InvalidArgument, manifest_.priceLimitRuntime,
+                                      priceLimitCount_, row.tsNs, row.arrival, "price_limit");
     const auto status = jsonSink_.appendPriceLimitLine(row, renderPriceLimitJsonLine(row));
-    return accountExternalAppend_(status, manifest_.priceLimitRuntime, priceLimitCount_, row.tsNs, "price_limit");
+    return accountExternalAppend_(status, manifest_.priceLimitRuntime, priceLimitCount_, row.tsNs, row.arrival, "price_limit");
 }
 
 Status CaptureCoordinator::appendExternalDepth(const replay::DepthRow& row) noexcept {
+    if (!replay::hasCapturedApplicationArrival(row.arrival))
+        return accountExternalAppend_(Status::InvalidArgument, manifest_.depthRuntime,
+                                      depthCount_, row.tsNs, row.arrival, "depth");
     const auto status = jsonSink_.appendDepthTapeSidecarLines(row, renderDepthTapeJsonLine(row), renderDepthRleSidecarJsonLine(row));
-    return accountExternalAppend_(status, manifest_.depthRuntime, depthCount_, row.tsNs, "depth");
+    return accountExternalAppend_(status, manifest_.depthRuntime, depthCount_, row.tsNs, row.arrival, "depth");
 }
 
 void CaptureCoordinator::noteExternalChannelError(std::string_view channel, std::string_view error) noexcept {
@@ -398,14 +510,17 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
     manifest_.fundingPath = std::string{channelJsonlRelativePath(ChannelKind::Funding)};
     manifest_.priceLimitPath = std::string{channelJsonlRelativePath(ChannelKind::PriceLimit)};
     manifest_.canonicalArtifacts = {"manifest.json", manifest_.instrumentMetadataPath};
-    manifest_.captureContractVersion = "hftrec.strict_canonical_rows_json.v2";
-    manifest_.tradesRowSchema = "cxet_trade_strict_v1";
-    manifest_.liquidationsRowSchema = "cxet_liquidation_alias_first_v1";
-    manifest_.captureContractVersion = "hftrec.runtime_event_id_rows_json.v3";
-    manifest_.bookTickerRowSchema = "cxet_bookticker_event_id_v2";
-    manifest_.depthRowSchema = "cxet_orderbook_tape_rle_sidecar_event_id_v2";
-    manifest_.candlesRowSchema = "cxet_candle_lite_tiered_v1";
-    manifest_.candles2RowSchema = "cxet_ohlcv_numeric_v3";
+    manifest_.captureContractVersion = kCaptureContractVersionCurrent;
+    manifest_.tradesRowSchema = kTradesRowSchemaCurrent;
+    manifest_.liquidationsRowSchema = kLiquidationsRowSchemaCurrent;
+    manifest_.bookTickerRowSchema = kBookTickerRowSchemaCurrent;
+    manifest_.depthRowSchema = kDepthRowSchemaCurrent;
+    manifest_.candlesRowSchema = kCandlesRowSchemaCurrent;
+    manifest_.candles2RowSchema = kCandlesRowSchemaCurrent;
+    manifest_.markPriceRowSchema = kMarkPriceRowSchemaCurrent;
+    manifest_.indexPriceRowSchema = kIndexPriceRowSchemaCurrent;
+    manifest_.fundingRowSchema = kFundingRowSchemaCurrent;
+    manifest_.priceLimitRowSchema = kPriceLimitRowSchemaCurrent;
     manifest_.sessionStatus = "recording";
 
     sessionDir_ = normalizedConfig.outputDir / manifest_.sessionId;
@@ -481,6 +596,12 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
+    const std::uint64_t totalRows = canonicalRowCount(manifest_);
+    std::uint64_t accountedRows = 0u;
+    if (arrivalAccountedRowCount(manifest_.arrivalClock, accountedRows) &&
+        accountedRows < totalRows) {
+        manifest_.arrivalClock.unavailableRows += totalRows - accountedRows;
+    }
     manifest_.warningSummary = lastError_;
     manifest_.structuralBlockers.clear();
     manifest_.structurallyLoadable = true;
@@ -497,7 +618,6 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     noteCloseStatus(bookTickerWriter_.close(), "bookticker writer close failed");
     noteCloseStatus(candlesWriter_.close(), "candles writer close failed");
     noteCloseStatus(candles2Writer_.close(), "candles2 writer close failed");
-    noteCloseStatus(depthWriter_.close(), "depth writer close failed");
     manifest_.warningSummary = lastError_;
 
     if (!hasCapturedRows(manifest_)) {
@@ -533,13 +653,19 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     syncManifestIntegrityFromReplay_();
 
     const bool degradedRuntime = runtimeHealthDegraded(manifest_);
-    if (degradedRuntime) {
+    const bool degradedArrival = arrivalContractDegraded(manifest_);
+    if (degradedRuntime || degradedArrival) {
         manifest_.sessionHealth = SessionHealth::Degraded;
         manifest_.exactReplayEligible = false;
         if (!manifest_.warningSummary.empty()) manifest_.warningSummary += " | ";
-        manifest_.warningSummary += "required runtime channel was missing, reconnected, or degraded";
+        if (degradedRuntime)
+            manifest_.warningSummary += "required runtime channel was missing, reconnected, or degraded";
+        if (degradedRuntime && degradedArrival) manifest_.warningSummary += " | ";
+        if (degradedArrival)
+            manifest_.warningSummary += "captured application-frame arrival is missing for canonical rows";
     }
-    manifest_.sessionStatus = degradedRuntime ? "complete_degraded" : "complete";
+    manifest_.sessionStatus = (degradedRuntime || degradedArrival)
+        ? "complete_degraded" : "complete";
 
     if (const auto supportStatus = writeSupportArtifacts(); !isOk(supportStatus)) {
         lastError_ = "failed to write support artifacts";
@@ -648,7 +774,6 @@ void CaptureCoordinator::resetSessionState() noexcept {
     (void)bookTickerWriter_.close();
     (void)candlesWriter_.close();
     (void)candles2Writer_.close();
-    (void)depthWriter_.close();
     liveStore_.clear();
     eventSink_.clearSinks();
     liveCacheEnabled_.store(false, std::memory_order_release);
@@ -674,6 +799,12 @@ void CaptureCoordinator::refreshRecordingManifestLocked_(std::int64_t nowNs) noe
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
+    const std::uint64_t totalRows = canonicalRowCount(manifest_);
+    std::uint64_t accountedRows = 0u;
+    if (arrivalAccountedRowCount(manifest_.arrivalClock, accountedRows) &&
+        accountedRows < totalRows) {
+        manifest_.arrivalClock.unavailableRows += totalRows - accountedRows;
+    }
     manifest_.warningSummary = lastError_;
     manifest_.structuralBlockers.clear();
     manifest_.structurallyLoadable = true;

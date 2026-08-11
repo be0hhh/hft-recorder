@@ -30,6 +30,7 @@
 #include <vector>
 
 #if defined(__linux__)
+#include <dlfcn.h>
 #include <pthread.h>
 #endif
 
@@ -149,6 +150,18 @@ void BacktestViewModel::configureWorkerThreadStack_() noexcept {
         }
         (void)pthread_attr_destroy(&attr);
     });
+#endif
+}
+
+bool BacktestViewModel::backtestApiCompatible_() noexcept {
+#if defined(__linux__)
+    using VersionFn = std::uint32_t (*)() noexcept;
+    auto* symbol = dlsym(RTLD_DEFAULT, "hft_backtest_api_version");
+    if (symbol == nullptr) return false;
+    const auto versionFn = reinterpret_cast<VersionFn>(symbol);
+    return versionFn() == hft_backtest::kBacktestApiVersion;
+#else
+    return false;
 #endif
 }
 
@@ -604,8 +617,6 @@ QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths
                    exchangeExecutionPresetSummary(exchange,
                                                   market,
                                                   rateLimitsEnabled_));
-        row.insert(QStringLiteral("marketDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_));
-        row.insert(QStringLiteral("marketDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_));
         row.insert(QStringLiteral("marketOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_));
         row.insert(QStringLiteral("marketOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_));
         row.insert(QStringLiteral("limitOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_));
@@ -672,8 +683,6 @@ QVariantMap BacktestViewModel::venueExecutionRow_(const QString& exchange,
     row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
     if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
     if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);
-    row.insert(QStringLiteral("marketDataLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_));
-    row.insert(QStringLiteral("marketDataJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_));
     row.insert(QStringLiteral("marketOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_));
     row.insert(QStringLiteral("marketOrderJitterUs"), venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_));
     row.insert(QStringLiteral("limitOrderLatencyUs"), venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_));
@@ -804,8 +813,6 @@ BacktestExecutionPolicy BacktestViewModel::executionPolicyForSessions_(
     const std::vector<BacktestPreparedSession>& sessions,
     bool includeExecutionLatency) const {
     const quint64 pingLatency = latencyValue_(pingLatencyUs_, 1000);
-    const quint64 marketDataLatency = latencyValue_(marketDataLatencyUs_, 0);
-    const quint64 marketDataJitter = latencyValue_(marketDataJitterUs_, 0);
     const quint64 marketOrderLatency = latencyValue_(marketOrderLatencyUs_, pingLatency);
     const quint64 marketOrderJitter = latencyValue_(marketOrderJitterUs_, 0);
     const quint64 limitOrderLatency = latencyValue_(limitOrderLatencyUs_, pingLatency);
@@ -817,7 +824,6 @@ BacktestExecutionPolicy BacktestViewModel::executionPolicyForSessions_(
 
     BacktestExecutionPolicy policy{};
     policy.latencySeed = latencyValue_(latencySeed_, 0);
-    policy.marketDataLatency = {marketDataLatency, marketDataJitter};
     policy.marketOrderLatency = {marketOrderLatency, marketOrderJitter};
     policy.limitOrderLatency = {limitOrderLatency, limitOrderJitter};
     policy.cancelOrderLatency = {cancelOrderLatency, cancelOrderJitter};
@@ -854,8 +860,6 @@ BacktestExecutionPolicy BacktestViewModel::executionPolicyForSessions_(
             hft_backtest::BacktestLatencySchedule latency{};
             latency.exchange = exchange.toStdString();
             latency.market = market.toStdString();
-            latency.marketData.baseUs = latencyValue_(row.value(QStringLiteral("marketDataLatencyUs")).toString(), marketDataLatency);
-            latency.marketData.jitterUs = latencyValue_(row.value(QStringLiteral("marketDataJitterUs")).toString(), marketDataJitter);
             latency.marketOrder.baseUs = latencyValue_(row.value(QStringLiteral("marketOrderLatencyUs")).toString(), marketOrderLatency);
             latency.marketOrder.jitterUs = latencyValue_(row.value(QStringLiteral("marketOrderJitterUs")).toString(), marketOrderJitter);
             latency.limitOrder.baseUs = latencyValue_(row.value(QStringLiteral("limitOrderLatencyUs")).toString(), limitOrderLatency);
@@ -1035,8 +1039,18 @@ QVariantList BacktestViewModel::runs() const {
 }
 
 bool BacktestViewModel::canRun() const {
-    return !running_ && !selectedSessionPaths_().empty() &&
-           !selectedStrategy_.trimmed().isEmpty() && strategySupportsSelectedSessionCount_();
+    return backtestApiCompatible_() && !running_ && !selectedSessionPaths_().empty() &&
+           selectedSessionsBacktestCompatible_() && !selectedStrategy_.trimmed().isEmpty() &&
+           strategySupportsSelectedSessionCount_();
+}
+
+bool BacktestViewModel::selectedSessionsBacktestCompatible_() const {
+    const QStringList paths = selectedSessionPaths_();
+    if (paths.empty()) return false;
+    for (const QString& path : paths) {
+        if (!sessionSupportsCurrentBacktestContract(path)) return false;
+    }
+    return true;
 }
 
 void BacktestViewModel::startBacktest() {
@@ -1044,6 +1058,17 @@ void BacktestViewModel::startBacktest() {
 }
 
 void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix) {
+    if (!backtestApiCompatible_()) {
+        setStatusText_(QStringLiteral("Backtest library API mismatch; rebuild hft-backtest and hft-recorder together"));
+        return;
+    }
+    QString compatibilityError;
+    for (const QString& path : selectedSessionPaths_()) {
+        if (!sessionSupportsCurrentBacktestContract(path, &compatibilityError)) {
+            setStatusText_(compatibilityError);
+            return;
+        }
+    }
     if (!canRun()) return;
     stopWorker_();
     cancelRequested_.store(false, std::memory_order_release);
@@ -1147,6 +1172,17 @@ void BacktestViewModel::startExecutionLatencySweep() {
 }
 
 void BacktestViewModel::startSweep_(bool includeExecutionLatency) {
+    if (!backtestApiCompatible_()) {
+        setStatusText_(QStringLiteral("Backtest library API mismatch; rebuild hft-backtest and hft-recorder together"));
+        return;
+    }
+    QString compatibilityError;
+    for (const QString& path : selectedSessionPaths_()) {
+        if (!sessionSupportsCurrentBacktestContract(path, &compatibilityError)) {
+            setStatusText_(compatibilityError);
+            return;
+        }
+    }
     if (!canRun()) return;
 
     std::vector<hft_backtest::BacktestSweepParamRange> ranges;

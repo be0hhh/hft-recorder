@@ -140,6 +140,7 @@ target_link_libraries(hft-recorder-gui
         hftrec_support
         hft_compressor_core
         hft_backtest_core
+        ${CMAKE_DL_LIBS}
 )
 
 target_compile_features(hft-recorder-gui PRIVATE cxx_std_23)

@@ -70,15 +70,7 @@ Status sampleGroundTruthBookFrames(const corpus::SessionCorpus& corpus,
 
     replay::BookState book{};
 
-    std::vector<replay::DepthRow> depths;
-    depths.reserve(corpus.depthLines.size());
-    for (const auto& line : corpus.depthLines) {
-        if (line.empty()) continue;
-        replay::DepthRow row{};
-        const auto st = replay::parseDepthLine(line, row);
-        if (!isOk(st)) return st;
-        depths.push_back(std::move(row));
-    }
+    const auto& depths = corpus.depthRows;
 
     std::vector<replay::BookTickerRow> tickers;
     tickers.reserve(corpus.bookTickerLines.size());

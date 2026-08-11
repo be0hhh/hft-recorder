@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "CapturedArrivalTestData.hpp"
 #include "core/capture/JsonSerializers.hpp"
 #include "core/replay/EventRows.hpp"
 #include "core/replay/JsonLineParser.hpp"
@@ -19,7 +20,6 @@ using hftrec::replay::PriceLimitRow;
 using hftrec::replay::SnapshotDocument;
 using hftrec::replay::TradeRow;
 using hftrec::replay::parseBookTickerLine;
-using hftrec::replay::parseDepthLine;
 using hftrec::replay::parseDepthTapeSidecarLine;
 using hftrec::replay::parseFundingLine;
 using hftrec::replay::parseIndexPriceLine;
@@ -27,6 +27,7 @@ using hftrec::replay::parseMarkPriceLine;
 using hftrec::replay::parsePriceLimitLine;
 using hftrec::replay::parseSnapshotDocument;
 using hftrec::replay::parseTradeLine;
+namespace captured = hftrec::test_support;
 
 TEST(JsonLineParser, TradeLineRoundTrip) {
     TradeRow ev{};
@@ -40,6 +41,7 @@ TEST(JsonLineParser, TradeLineRoundTrip) {
     ev.side = 1;
     ev.captureSeq = 7;
     ev.ingestSeq = 11;
+    ev.arrival = captured::applicationArrival(11, ev.tsNs);
 
     TradeRow row{};
     ASSERT_EQ(parseTradeLine(hftrec::capture::renderTradeJsonLine(ev), row), Status::Ok);
@@ -59,6 +61,7 @@ TEST(JsonLineParser, TradeLineSellSide) {
     ev.side = 0;
     ev.captureSeq = 8;
     ev.ingestSeq = 12;
+    ev.arrival = captured::applicationArrival(12, ev.tsNs);
 
     TradeRow row{};
     ASSERT_EQ(parseTradeLine(hftrec::capture::renderTradeJsonLine(ev), row), Status::Ok);
@@ -67,6 +70,7 @@ TEST(JsonLineParser, TradeLineSellSide) {
 
 TEST(JsonLineParser, BookTickerLineRoundTrip) {
     BookTickerRow ev{};
+    ev.eventId = 17;
     ev.symbol = "ETH_USDT";
     ev.exchange = "binance";
     ev.market = "futures_usd";
@@ -77,9 +81,11 @@ TEST(JsonLineParser, BookTickerLineRoundTrip) {
     ev.tsNs = 1'713'168'000'500'000'000LL;
     ev.captureSeq = 3;
     ev.ingestSeq = 13;
+    ev.arrival = captured::applicationArrival(13, ev.tsNs);
 
     BookTickerRow row{};
     ASSERT_EQ(parseBookTickerLine(hftrec::capture::renderBookTickerJsonLine(ev), row), Status::Ok);
+    EXPECT_EQ(row.eventId, 17u);
     EXPECT_EQ(row.tsNs, 1'713'168'000'500'000'000LL);
     EXPECT_EQ(row.bidPriceE8, 200'000'000'000LL);
     EXPECT_EQ(row.bidQtyE8, 50'000'000LL);
@@ -91,22 +97,34 @@ TEST(JsonLineParser, ReferenceChannelLinesRoundTrip) {
     MarkPriceRow markPrice{};
     markPrice.tsNs = 1'713'168'000'500'000'000LL;
     markPrice.markPriceE8 = 3'000'100'000'000LL;
+    markPrice.captureSeq = 1;
+    markPrice.ingestSeq = 1;
+    markPrice.arrival = captured::applicationArrival(1, markPrice.tsNs);
 
     IndexPriceRow indexPrice{};
     indexPrice.tsNs = 1'713'168'000'600'000'000LL;
     indexPrice.indexPriceE8 = 3'000'000'000'000LL;
+    indexPrice.captureSeq = 2;
+    indexPrice.ingestSeq = 2;
+    indexPrice.arrival = captured::applicationArrival(2, indexPrice.tsNs);
 
     FundingRow funding{};
     funding.tsNs = 1'713'168'000'700'000'000LL;
     funding.fundingRateE8 = 12500LL;
     funding.fundingTsNs = 1'713'168'000'000'000'000LL;
     funding.nextFundingTsNs = 1'713'196'800'000'000'000LL;
+    funding.captureSeq = 3;
+    funding.ingestSeq = 3;
+    funding.arrival = captured::applicationArrival(3, funding.tsNs);
 
     PriceLimitRow priceLimit{};
     priceLimit.tsNs = 1'713'168'000'800'000'000LL;
     priceLimit.buyLimitE8 = 3'100'000'000'000LL;
     priceLimit.sellLimitE8 = 2'900'000'000'000LL;
     priceLimit.enabled = 1u;
+    priceLimit.captureSeq = 4;
+    priceLimit.ingestSeq = 4;
+    priceLimit.arrival = captured::applicationArrival(4, priceLimit.tsNs);
 
     MarkPriceRow parsedMarkPrice{};
     ASSERT_EQ(parseMarkPriceLine(hftrec::capture::renderMarkPriceJsonLine(markPrice), parsedMarkPrice), Status::Ok);
@@ -133,47 +151,21 @@ TEST(JsonLineParser, ReferenceChannelLinesRoundTrip) {
     EXPECT_EQ(parsedPriceLimit.enabled, 1u);
 }
 
-TEST(JsonLineParser, DepthLineRoundTrip) {
-    DepthRow delta{};
-    delta.tsNs = 1'713'168'000'750'000'000LL;
-    delta.levels = {
-        PricePair{3'000'000'000'000LL, 25'000'000LL, 0},
-        PricePair{2'999'900'000'000LL, 0LL, 0},
-        PricePair{3'000'100'000'000LL, 15'000'000LL, 1},
-    };
-
-    DepthRow row{};
-    ASSERT_EQ(parseDepthLine(hftrec::capture::renderDepthJsonLine(delta), row), Status::Ok);
-    EXPECT_EQ(row.tsNs, 1'713'168'000'750'000'000LL);
-    ASSERT_EQ(row.levels.size(), 3u);
-    EXPECT_EQ(row.levels[0].priceE8, 3'000'000'000'000LL);
-    EXPECT_EQ(row.levels[0].qtyE8, 25'000'000LL);
-    EXPECT_EQ(row.levels[0].side, 0);
-    EXPECT_EQ(row.levels[1].priceE8, 2'999'900'000'000LL);
-    EXPECT_EQ(row.levels[1].qtyE8, 0LL);
-    EXPECT_EQ(row.levels[1].side, 0);
-    EXPECT_EQ(row.levels[2].priceE8, 3'000'100'000'000LL);
-    EXPECT_EQ(row.levels[2].qtyE8, 15'000'000LL);
-    EXPECT_EQ(row.levels[2].side, 1);
-}
-
-TEST(JsonLineParser, DepthLineEmptyAskArray) {
-    DepthRow delta{};
-    delta.levels = {
-        PricePair{100LL, 200LL, 0},
-    };
-
-    DepthRow row{};
-    ASSERT_EQ(parseDepthLine(hftrec::capture::renderDepthJsonLine(delta), row), Status::Ok);
-    EXPECT_EQ(row.levels.size(), 1u);
-}
-
 TEST(JsonLineParser, DepthTapeSidecarRoundTrip) {
-    const std::string tape = "[10936540037604775808,3000000000000,25000000,3000100000000,15000000]";
-    const std::string sidecar = "[10936540037604775808,0,1,1,1]";
+    DepthRow encoded{};
+    encoded.eventId = 41;
+    encoded.tsNs = 1'713'168'000'750'000'000LL;
+    encoded.captureSeq = 1;
+    encoded.ingestSeq = 1;
+    encoded.arrival = captured::applicationArrival(1, encoded.tsNs);
+    encoded.levels = {{3'000'000'000'000LL, 25'000'000LL, 0},
+                      {3'000'100'000'000LL, 15'000'000LL, 1}};
+    const std::string tape = hftrec::capture::renderDepthTapeJsonLine(encoded);
+    const std::string sidecar = hftrec::capture::renderDepthRleSidecarJsonLine(encoded);
 
     DepthRow row{};
     ASSERT_EQ(parseDepthTapeSidecarLine(tape, sidecar, row), Status::Ok);
+    EXPECT_EQ(row.eventId, 41u);
     EXPECT_EQ(row.tsNs, 1'713'168'000'750'000'000LL);
     ASSERT_EQ(row.levels.size(), 2u);
     EXPECT_EQ(row.levels[0].side, 0);
@@ -181,8 +173,16 @@ TEST(JsonLineParser, DepthTapeSidecarRoundTrip) {
 }
 
 TEST(JsonLineParser, DepthTapeRleSidecarMixedRunsRoundTrip) {
-    const std::string tape = "[10936540037604775808,1,10,2,20,3,30,4,40,5,50]";
-    const std::string sidecar = "[10936540037604775808,0,2,1,2,0,1]";
+    DepthRow encoded{};
+    encoded.eventId = 42;
+    encoded.tsNs = 1'713'168'000'750'000'000LL;
+    encoded.captureSeq = 2;
+    encoded.ingestSeq = 2;
+    encoded.arrival = captured::applicationArrival(2, encoded.tsNs);
+    encoded.levels = {{1, 10, 0}, {2, 20, 0}, {3, 30, 1},
+                      {4, 40, 1}, {5, 50, 0}};
+    const std::string tape = hftrec::capture::renderDepthTapeJsonLine(encoded);
+    const std::string sidecar = hftrec::capture::renderDepthRleSidecarJsonLine(encoded);
 
     DepthRow row{};
     ASSERT_EQ(parseDepthTapeSidecarLine(tape, sidecar, row), Status::Ok);
@@ -195,16 +195,30 @@ TEST(JsonLineParser, DepthTapeRleSidecarMixedRunsRoundTrip) {
 }
 
 TEST(JsonLineParser, RejectsDepthTapeSidecarCountMismatch) {
-    const std::string tape = "[10936540037604775808,3000000000001,25000000]";
-    const std::string sidecar = "[10936540037604775808,0,2]";
+    DepthRow encoded{};
+    encoded.eventId = 43;
+    encoded.tsNs = 1'713'168'000'750'000'000LL;
+    encoded.captureSeq = 3;
+    encoded.ingestSeq = 3;
+    encoded.arrival = captured::applicationArrival(3, encoded.tsNs);
+    encoded.levels = {{3'000'000'000'001LL, 25'000'000LL, 0}};
+    const std::string tape = hftrec::capture::renderDepthTapeJsonLine(encoded);
+    const std::string sidecar = "[43,10936540037604775808,0,2]";
 
     DepthRow row{};
     EXPECT_EQ(parseDepthTapeSidecarLine(tape, sidecar, row), Status::CorruptData);
 }
 
 TEST(JsonLineParser, RejectsDepthTapeSidecarTimestampMismatch) {
-    const std::string tape = "[10936540037604775808,3000000000001,25000000]";
-    const std::string sidecar = "[10936540037604775809,0,1]";
+    DepthRow encoded{};
+    encoded.eventId = 44;
+    encoded.tsNs = 1'713'168'000'750'000'000LL;
+    encoded.captureSeq = 4;
+    encoded.ingestSeq = 4;
+    encoded.arrival = captured::applicationArrival(4, encoded.tsNs);
+    encoded.levels = {{3'000'000'000'001LL, 25'000'000LL, 0}};
+    const std::string tape = hftrec::capture::renderDepthTapeJsonLine(encoded);
+    const std::string sidecar = "[44,10936540037604775809,0,1]";
 
     DepthRow row{};
     EXPECT_EQ(parseDepthTapeSidecarLine(tape, sidecar, row), Status::CorruptData);
@@ -240,21 +254,6 @@ TEST(JsonLineParser, RejectsShortBookTickerArray) {
     EXPECT_EQ(parseBookTickerLine("[0,456,0]", row), Status::CorruptData);
 }
 
-TEST(JsonLineParser, RejectsDepthCountMismatch) {
-    DepthRow row{};
-    EXPECT_EQ(parseDepthLine("[0,11,11,123,2,0,3,5,[[1,2,0]],[]]", row), Status::CorruptData);
-}
-
-TEST(JsonLineParser, RejectsLegacyDepthLevelIdField) {
-    DepthRow row{};
-    EXPECT_EQ(parseDepthLine("[[1,2,0,0],123]", row), Status::CorruptData);
-}
-
-TEST(JsonLineParser, RejectsMissingDepthSideField) {
-    DepthRow row{};
-    EXPECT_EQ(parseDepthLine("[[1,2],123]", row), Status::CorruptData);
-}
-
 TEST(JsonLineParser, RejectsTradeSideString) {
     TradeRow row{};
     EXPECT_EQ(parseTradeLine("[0,0,2,3]", row), Status::CorruptData);
@@ -270,12 +269,10 @@ TEST(JsonLineParser, RejectsLeadingZeroInteger) {
     EXPECT_EQ(parseTradeLine("[0,0,0123,3]", row), Status::CorruptData);
 }
 
-TEST(JsonLineParser, AcceptsLegacyExtendedTradeLine) {
+TEST(JsonLineParser, RejectsTradeLineWithoutArrivalTail) {
     TradeRow row{};
-    EXPECT_EQ(parseTradeLine("[1,2,1,100,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]", row), Status::Ok);
-    EXPECT_EQ(row.symbol, "BTCUSDT");
-    EXPECT_EQ(row.exchange, "binance");
-    EXPECT_EQ(row.market, "futures_usd");
+    EXPECT_EQ(parseTradeLine("[1,2,1,100,0,0,0,0,0,\"BTCUSDT\",\"binance\",\"futures_usd\",1,1]", row),
+              Status::CorruptData);
 }
 
 TEST(JsonLineParser, RejectsLegacyExtendedBookTickerLine) {

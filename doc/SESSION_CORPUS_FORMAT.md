@@ -36,8 +36,8 @@ Example:
 
 ```text
 manifest.json
-trades.jsonl
-bookticker.jsonl
+jsonl/trades.jsonl
+jsonl/bookticker.jsonl
 jsonl/depth_tape.jsonl
 jsonl/depth_sidecar.jsonl
 ```
@@ -67,12 +67,16 @@ reports/loader_diagnostics.json
 Current canonical top-level groups:
 - `manifest_schema_version`
 - `corpus_schema_version`
+- `capture_contract_version`
 - `session_status`
 - `identity`
 - `capture`
+- `arrival_clock`
 - `replay`
 - `channels`
 - `artifacts`
+- `runtime_health`
+- `integrity`
 - `summary`
 
 For each entry under `channels`, metadata must make source quality explicit:
@@ -85,27 +89,70 @@ For each entry under `channels`, metadata must make source quality explicit:
 - `sequence_policy` and `timestamp_policy`
 
 Important implemented rules:
-- new-format sessions declare schema versions explicitly
+- current sessions declare schema versions explicitly
 - loader validates manifest first, then loads channel files by manifest-declared
   paths
 - unknown top-level optional fields in a supported manifest version are ignored
 - unsupported schema versions fail deterministically
-- older flat manifests remain loadable as `legacy_v0`
+- there is one current writer and one current reader; older recorder corpora are
+  rejected rather than silently migrated or interpreted
 
-Current `legacy_v0` compatibility path covers older manifests with flat fields:
-- `session_id`
-- `exchange`
-- `market`
-- `symbols`
-- `selected_parent_dir`
-- `started_at_ns`
-- `ended_at_ns`
-- `target_duration_sec`
-- `actual_duration_sec`
-- `snapshot_interval_sec`
-- `channel_status`
-- `event_counts`
-- `warning_summary`
+The offline backtest boundary is intentionally narrower than viewer/replay
+compatibility. New backtests accept only:
+
+- `manifest_schema_version = 3`
+- `corpus_schema_version = 3`
+- `capture_contract_version = hftrec.captured_arrival_rows_json.v4`
+- finalized `complete` sessions with clean integrity and
+  `exact_replay_eligible = true`
+- manifest-declared current row schemas and paths
+- a complete `arrival_clock` summary whose accounted row count equals the
+  canonical row count
+- at least one application-frame arrival and no row with unavailable arrival
+
+The backtest loader does not search fallback filenames or accept an older
+layout. Required strategy channels must be non-empty and have clean runtime
+health. Clock anomalies are retained as evidence and do not by themselves make
+a corpus unreadable.
+
+Subscription aliases control which upstream fields are requested. They do not
+change durable column order: canonical JSON rows always follow the
+manifest-declared recorder row schema.
+
+### Arrival tail
+
+Every canonical market row ends with the same fields, in this order:
+
+1. `receive_realtime_ns` from `CLOCK_REALTIME`
+2. `receive_monotonic_ns` from `CLOCK_MONOTONIC`
+3. `producer_epoch`
+4. `source_generation`
+5. `session_epoch`
+6. `frame_sequence`
+7. `shard_sequence`
+8. `source_id`
+9. `shard_id`
+10. `event_ordinal`
+11. `arrival_flags`
+
+The sampling boundary is
+`hft-parser.application-frame-ready`: the complete application message is
+available to the registered parser callback. The two clocks describe the same
+arrival boundary. Exchange time remains a separate event field and must never
+be substituted for either receive clock.
+
+Arrival flag bits are:
+
+- `1`: application-frame arrival
+- `2`: historical REST/archive backfill; seed-only, never a live delivery
+- `4`: realtime clock regression
+- `8`: monotonic clock did not advance
+- `16`: exchange timestamp is ahead of local realtime receive time
+- `32`: exchange timestamp is missing
+
+Application arrivals require all identity fields except `event_ordinal` to be
+non-zero. Historical rows have zero receive/identity fields and the historical
+flag. Application and historical flags are mutually exclusive.
 
 ## Channel files
 
@@ -118,16 +165,11 @@ say whether the source is `feed_kind=raw_trade`, `feed_kind=agg_trade`, or an
 exchange-specific trade kind. Binance FAPI `aggTrade` is
 `canonical_available_but_aggregated`, not raw executions.
 
-Current implemented fields (v3 optional-tail schema):
-- `tsNs`
-- `captureSeq`
-- `ingestSeq`
-- `priceE8`
-- `qtyE8`
-- `sideBuy`
+Current row schema is `cxet_trade_captured_arrival_v1`:
 
-The richer normalized trade schema described in older docs is not yet what the
-recorder writes today.
+`[price_e8, qty_e8, side, exchange_ts_ns, trade_id, first_trade_id,
+last_trade_id, quote_qty_e8, is_buyer_maker, symbol, exchange, market,
+capture_seq, ingest_seq, <arrival tail>]`
 
 ### `bookticker.jsonl`
 
@@ -137,38 +179,25 @@ Level-1 BBO channels are observational overlays. If the source is throttled or
 bucketed BBO, it must be labelled `degraded` for exact fill/microstructure
 claims.
 
-Current implemented fields (v3 optional-tail schema):
-- `tsNs`
-- `captureSeq`
-- `ingestSeq`
-- `bidPriceE8`
-- `bidQtyE8`
-- `askPriceE8`
-- `askQtyE8`
+Current row schema is `cxet_bookticker_captured_arrival_v1`:
 
-### `depth.jsonl`
+`[event_id, bid_price_e8, bid_qty_e8, ask_price_e8, ask_qty_e8,
+exchange_ts_ns, symbol, exchange, market, capture_seq, ingest_seq,
+<arrival tail>]`
 
-Legacy one-line-per-normalized-orderbook delta event file. Current sessions use
-`jsonl/depth_tape.jsonl` plus `jsonl/depth_sidecar.jsonl`.
+### `depth_tape.jsonl` and `depth_sidecar.jsonl`
 
-Current implemented fields (v3 optional-tail schema):
-- `tsNs`
-- `captureSeq`
-- `ingestSeq`
-- `bids`
-- `asks`
-- `exchangeId`
-- optional tail: `updateId`, `firstUpdateId`
+Current row schema is `cxet_orderbook_tape_rle_captured_arrival_v1`.
 
-Each `bids` / `asks` item:
-- `price_i64`
-- `qty_i64`
+Tape row:
 
-These sequence ids are the current replay integrity seam for orderbook gap
-validation.
+`[event_id, tagged_exchange_ts_ns, capture_seq, ingest_seq, <arrival tail>,
+price_e8, qty_e8, ...]`
 
-The initial full-book snapshot, when available, is represented as a depth row in
-the depth stream instead of a standalone artifact.
+The sidecar has the same `event_id` and tagged exchange timestamp followed by
+RLE `(side, count)` pairs. A tape/sidecar mismatch is corruption. Partial or
+resynchronized depth recovery is not exact replay and fails closed in the
+backtest loader.
 
 `captureSeq` is per-channel and strictly increasing within one persisted channel
 file.
@@ -177,28 +206,9 @@ file.
 and snapshots. It exists to support deterministic replay ordering when multiple
 rows share the same `tsNs`.
 
-### `snapshot_NNN.json`
-
-One file per full normalized snapshot.
-
-Current implemented fields (v3 optional-tail schema):
-- `tsNs`
-- `captureSeq`
-- `ingestSeq`
-- `sourceTsNs`
-- `ingestTsNs`
-- `trustedReplayAnchor`
-- `bids`
-- `asks`
-- `exchangeId`
-- optional tail: `updateId`, `firstUpdateId`, `anchorUpdateId`, `anchorFirstUpdateId`
-
-Each `bids` / `asks` item:
-- `price_i64`
-- `qty_i64`
-
-Snapshot provenance fields make replay anchoring explicit rather than inferred
-only from filename or directory traversal order.
+The same arrival tail is used by liquidation, mark-price, index-price, funding,
+price-limit and candle schemas declared in `manifest.json`. Candles fetched via
+REST/archive are historical seed rows and include an explicit duration.
 
 ## Numeric representation
 
@@ -267,18 +277,30 @@ A session is structurally loadable only if:
 - every manifest-declared required artifact exists
 - disabled channels are not treated as missing required artifacts
 
-This document intentionally defines only structural validity for the current
-phase. Richer integrity, gap, and degraded/corrupt semantics are separate
-follow-up work.
+Structural validity alone is not backtest eligibility. The stricter exact gate
+also requires finalized clean integrity, complete arrival accounting, no
+unavailable arrivals and every strategy-required channel in clean runtime
+health.
 
 ## Replay ordering rule
 
-The canonical replay timestamp is `tsNs`.
+There are two explicit time planes:
 
-The canonical merged replay unit is a timestamp bucket:
-- every row with the same `tsNs` belongs to one replay bucket
-- `seek(tsNs)` applies all buckets with `bucket.tsNs <= tsNs`
-- equal-timestamp rows do not imply visible channel precedence
+- venue plane: `exchange_ts_ns`, projected onto the replay monotonic coordinate
+  and never scheduled after its captured arrival
+- strategy delivery plane: `receive_monotonic_ns`, normalized with the session
+  realtime/monotonic anchor
+
+Strategy-visible market data is ordered by captured delivery time and then by
+`producer_epoch`, `shard_id`, `shard_sequence`, `event_ordinal`, source/session
+identity and deterministic channel/index tails. No synthetic market-data
+latency is added. Order, cancel and user-data latency remain independently
+synthetic execution settings.
+
+Realtime regressions and equal/non-increasing monotonic samples are preserved;
+the recorder does not fabricate forward timestamps. Stable capture identity is
+the tie-breaker. Result artifacts report both captured clock ranges and replay
+coordinate ranges.
 
 Exact book reconstruction semantics:
 - exact L2 replay depends on trusted `snapshot` data plus valid `depth` deltas
@@ -287,11 +309,12 @@ Exact book reconstruction semantics:
 
 ## CXET boundary rule
 
-`CXETCPP` callback payloads are a live capture interface, not the durable corpus
-contract. Recorder code should translate them into recorder-owned normalized
-capture rows before writing canonical JSON.
+`CXETCPP` callback payloads are a live parser interface, not the durable corpus
+contract. The parser-owned application-frame capture feed preserves bounded
+native payloads plus both arrival clocks; recorder owns disk I/O and sealing of
+the binary corpus. Recorder JSON capture rows remain a separate recorder-owned
+durable contract.
 
-Future SBE/binary capture may materialize into the same normalized JSON rows,
-but the session metadata must still preserve the original `source_format`,
-`origin`, and `feed_kind`. JSON and SBE rows must not be merged as one anonymous
-canonical stream.
+Binary and JSON corpora must preserve `source_format`, `origin`, `feed_kind` and
+exact channel compatibility. They must not be merged as one anonymous stream or
+used as silent fallbacks for one another.

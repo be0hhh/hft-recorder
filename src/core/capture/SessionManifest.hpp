@@ -10,8 +10,28 @@
 
 namespace hftrec::capture {
 
-inline constexpr std::int32_t kManifestSchemaVersionCurrent = 2;
-inline constexpr std::int32_t kCorpusSchemaVersionCurrent = 2;
+inline constexpr std::int32_t kManifestSchemaVersionCurrent = 3;
+inline constexpr std::int32_t kCorpusSchemaVersionCurrent = 3;
+inline constexpr std::string_view kCaptureContractVersionCurrent =
+    "hftrec.captured_arrival_rows_json.v4";
+inline constexpr std::string_view kTradesRowSchemaCurrent =
+    "cxet_trade_captured_arrival_v1";
+inline constexpr std::string_view kLiquidationsRowSchemaCurrent =
+    "cxet_liquidation_captured_arrival_v1";
+inline constexpr std::string_view kBookTickerRowSchemaCurrent =
+    "cxet_bookticker_captured_arrival_v1";
+inline constexpr std::string_view kDepthRowSchemaCurrent =
+    "cxet_orderbook_tape_rle_captured_arrival_v1";
+inline constexpr std::string_view kCandlesRowSchemaCurrent =
+    "cxet_candle_captured_arrival_v1";
+inline constexpr std::string_view kMarkPriceRowSchemaCurrent =
+    "cxet_mark_price_captured_arrival_v1";
+inline constexpr std::string_view kIndexPriceRowSchemaCurrent =
+    "cxet_index_price_captured_arrival_v1";
+inline constexpr std::string_view kFundingRowSchemaCurrent =
+    "cxet_funding_captured_arrival_v1";
+inline constexpr std::string_view kPriceLimitRowSchemaCurrent =
+    "cxet_price_limit_captured_arrival_v1";
 
 struct ChannelRuntimeHealth {
     std::string state{"not_requested"};
@@ -24,15 +44,32 @@ struct ChannelRuntimeHealth {
     std::string lastError{};
 };
 
+struct ArrivalClockSummary {
+    std::string boundary{"hft-parser.application-frame-ready"};
+    std::string realtimeClock{"CLOCK_REALTIME"};
+    std::string monotonicClock{"CLOCK_MONOTONIC"};
+    std::uint64_t capturedRows{0};
+    std::uint64_t historicalRows{0};
+    std::uint64_t unavailableRows{0};
+    std::uint64_t realtimeRegressions{0};
+    std::uint64_t monotonicNonIncreasing{0};
+    std::uint64_t exchangeAheadOfReceive{0};
+    std::uint64_t exchangeTimestampMissing{0};
+    std::int64_t firstReceiveRealtimeNs{0};
+    std::int64_t lastReceiveRealtimeNs{0};
+    std::uint64_t firstReceiveMonotonicNs{0};
+    std::uint64_t lastReceiveMonotonicNs{0};
+};
+
 struct SessionManifest {
     std::string sessionId;
     std::string exchange;
     std::string market;
     std::vector<std::string> symbols;
     std::string storageSymbol;
-    std::int32_t manifestSchemaVersion{1};
+    std::int32_t manifestSchemaVersion{kManifestSchemaVersionCurrent};
     std::int32_t corpusSchemaVersion{kCorpusSchemaVersionCurrent};
-    std::string captureContractVersion{"hftrec.runtime_event_id_rows_json.v3"};
+    std::string captureContractVersion{kCaptureContractVersionCurrent};
     std::string sessionStatus{"complete"};
     std::string selectedParentDir;
     std::string instrumentMetadataPath{"instrument_metadata.json"};
@@ -77,16 +114,16 @@ struct SessionManifest {
     std::string indexPricePath{"jsonl/index_price.jsonl"};
     std::string fundingPath{"jsonl/funding.jsonl"};
     std::string priceLimitPath{"jsonl/price_limit.jsonl"};
-    std::string tradesRowSchema{"cxet_trade_strict_v1"};
-    std::string liquidationsRowSchema{"cxet_liquidation_alias_first_v1"};
-    std::string bookTickerRowSchema{"cxet_bookticker_event_id_v2"};
-    std::string depthRowSchema{"cxet_orderbook_tape_rle_sidecar_event_id_v2"};
-    std::string candlesRowSchema{"cxet_candle_lite_tiered_v1"};
-    std::string candles2RowSchema{"cxet_ohlcv_numeric_v3"};
-    std::string markPriceRowSchema{"cxet_mark_price_ref_v1"};
-    std::string indexPriceRowSchema{"cxet_index_price_ref_v1"};
-    std::string fundingRowSchema{"cxet_funding_ref_dedup_v1"};
-    std::string priceLimitRowSchema{"cxet_price_limit_ref_v1"};
+    std::string tradesRowSchema{kTradesRowSchemaCurrent};
+    std::string liquidationsRowSchema{kLiquidationsRowSchemaCurrent};
+    std::string bookTickerRowSchema{kBookTickerRowSchemaCurrent};
+    std::string depthRowSchema{kDepthRowSchemaCurrent};
+    std::string candlesRowSchema{kCandlesRowSchemaCurrent};
+    std::string candles2RowSchema{kCandlesRowSchemaCurrent};
+    std::string markPriceRowSchema{kMarkPriceRowSchemaCurrent};
+    std::string indexPriceRowSchema{kIndexPriceRowSchemaCurrent};
+    std::string fundingRowSchema{kFundingRowSchemaCurrent};
+    std::string priceLimitRowSchema{kPriceLimitRowSchemaCurrent};
     std::vector<std::string> canonicalArtifacts{};
     std::vector<std::string> supportArtifacts{};
     std::uint64_t tradesCount{0};
@@ -107,6 +144,7 @@ struct SessionManifest {
     ChannelRuntimeHealth indexPriceRuntime{};
     ChannelRuntimeHealth fundingRuntime{};
     ChannelRuntimeHealth priceLimitRuntime{};
+    ArrivalClockSummary arrivalClock{};
     std::int64_t tradesHistoryWarmupSec{0};
     std::int64_t tradesHistoryRequestedStartNs{0};
     std::int64_t tradesHistoryRequestedEndNs{0};

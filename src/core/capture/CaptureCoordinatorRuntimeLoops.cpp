@@ -87,7 +87,7 @@ void CaptureCoordinator::liquidationsLoop_(CaptureConfig config) noexcept {
             if (!internal::primaryIdentitySymbolText(config).empty()) {
                 row.symbol = std::string{internal::primaryIdentitySymbolText(config)};
             }
-            const auto jsonLine = renderLiquidationJsonLine(row, config.liquidationAliases);
+            const auto jsonLine = renderLiquidationJsonLine(row);
             const auto fileStatus = jsonSink_.appendLiquidationLine(row, jsonLine);
             if (!isOk(fileStatus)) {
                 metrics::recordCaptureWriteError("liquidations");
@@ -596,7 +596,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
             marketDataStop_.store(true, std::memory_order_release);
             return false;
         }
-        const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
+        const auto jsonLine = renderTradeJsonLine(row);
         tradesCount_.fetch_add(1, std::memory_order_acq_rel);
         metrics::recordCaptureEvent(kTradesText,
                                     static_cast<std::uint64_t>(row.tsNs > 0 ? row.tsNs : 0),
@@ -607,7 +607,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
 
     auto appendTradeRowToFileOnly = [&](const replay::TradeRow& row) -> bool {
         static constexpr char kTradesText[] = {'t', 'r', 'a', 'd', 'e', 's', '\0'};
-        const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
+        const auto jsonLine = renderTradeJsonLine(row);
         const auto fileStatus = jsonSink_.appendTradeLine(row, jsonLine);
         if (!isOk(fileStatus)) {
             metrics::recordCaptureWriteError(kTradesText);
@@ -615,6 +615,10 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
             lastError_ = kTradesText;
             marketDataStop_.store(true, std::memory_order_release);
             return false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            noteArrival_(row.arrival, row.tsNs);
         }
         return true;
     };
@@ -864,7 +868,7 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderBridgeMaterialize, bridgeStartTsc, captureMetrics);
                 TscTick jsonRenderStartTsc{};
                 if (captureMetrics) jsonRenderStartTsc = cxet::probes::captureTsc();
-                const auto jsonLine = renderTradeJsonLine(row, config.tradesAliases);
+                const auto jsonLine = renderTradeJsonLine(row);
                 recordCxetLatencyIfEnabled(cxet::metrics::recorderJsonRender, jsonRenderStartTsc, captureMetrics);
                 if (tradesWarmup.started.load(std::memory_order_acquire)
                     && !tradesWarmupFlushed) {

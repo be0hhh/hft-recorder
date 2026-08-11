@@ -30,10 +30,6 @@ Status parseMarkPriceLine(std::string_view line, MarkPriceRow& out) noexcept;
 Status parseIndexPriceLine(std::string_view line, IndexPriceRow& out) noexcept;
 Status parseFundingLine(std::string_view line, FundingRow& out) noexcept;
 Status parsePriceLimitLine(std::string_view line, PriceLimitRow& out) noexcept;
-Status parseDepthLine(std::string_view line, DepthRow& out) noexcept;
-Status parseDepthLine(std::string_view line,
-                      DepthRow& out,
-                      const std::vector<std::string>& aliases) noexcept;
 Status parseDepthTapeSidecarLine(std::string_view tapeLine,
                                  std::string_view sidecarLine,
                                  DepthRow& out) noexcept;

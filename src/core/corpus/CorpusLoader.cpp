@@ -1,9 +1,9 @@
 #include "core/corpus/CorpusLoader.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <system_error>
 #include <unordered_map>
@@ -45,10 +45,6 @@ Status parseFundingCanonicalLine(std::string_view line, hftrec::replay::FundingR
 
 Status parsePriceLimitCanonicalLine(std::string_view line, hftrec::replay::PriceLimitRow& row) noexcept {
     return hftrec::replay::parsePriceLimitLine(line, row);
-}
-
-Status parseDepthCanonicalLine(std::string_view line, hftrec::replay::DepthRow& row) noexcept {
-    return hftrec::replay::parseDepthLine(line, row);
 }
 
 constexpr std::int64_t kSeekIndexVersionCurrent = 1;
@@ -94,70 +90,66 @@ bool regularFileExists(const std::filesystem::path& path) noexcept {
     return std::filesystem::is_regular_file(path, ec) && !ec;
 }
 
-template <typename Int>
-void appendInt(std::string& out, Int value) {
-    char buf[32];
-    const auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), value);
-    if (ec == std::errc{}) out.append(buf, ptr);
+std::filesystem::path declaredChannelPath(
+    const std::filesystem::path& sessionDir,
+    const std::string& manifestPath) {
+    return manifestPath.empty()
+        ? std::filesystem::path{}
+        : sessionDir / std::filesystem::path{manifestPath};
 }
 
-std::string renderDepthCanonicalLine(const hftrec::replay::DepthRow& row) {
-    std::string out;
-    out.reserve(64 + row.levels.size() * 48);
-    out.push_back('[');
-    for (std::size_t i = 0; i < row.levels.size(); ++i) {
-        if (i != 0u) out.push_back(',');
-        out.push_back('[');
-        appendInt(out, row.levels[i].priceE8);
-        out.push_back(',');
-        appendInt(out, row.levels[i].qtyE8);
-        out.push_back(',');
-        appendInt(out, row.levels[i].side);
-        out.push_back(']');
+bool currentChannelSchemas(const capture::SessionManifest& manifest) noexcept {
+    return manifest.tradesRowSchema == capture::kTradesRowSchemaCurrent &&
+        manifest.liquidationsRowSchema ==
+            capture::kLiquidationsRowSchemaCurrent &&
+        manifest.bookTickerRowSchema ==
+            capture::kBookTickerRowSchemaCurrent &&
+        manifest.depthRowSchema == capture::kDepthRowSchemaCurrent &&
+        manifest.candlesRowSchema == capture::kCandlesRowSchemaCurrent &&
+        manifest.candles2RowSchema == capture::kCandlesRowSchemaCurrent &&
+        manifest.markPriceRowSchema == capture::kMarkPriceRowSchemaCurrent &&
+        manifest.indexPriceRowSchema == capture::kIndexPriceRowSchemaCurrent &&
+        manifest.fundingRowSchema == capture::kFundingRowSchemaCurrent &&
+        manifest.priceLimitRowSchema == capture::kPriceLimitRowSchemaCurrent;
+}
+
+bool addRowCount(std::uint64_t value, std::uint64_t& total) noexcept {
+    if (value > std::numeric_limits<std::uint64_t>::max() - total) return false;
+    total += value;
+    return true;
+}
+
+bool finalizedSession(std::string_view status) noexcept {
+    return status == "complete" || status == "complete_degraded";
+}
+
+bool arrivalSummaryMatchesDeclaredRows(
+    const capture::SessionManifest& manifest) noexcept {
+    std::uint64_t declared = 0u;
+    if (!addRowCount(manifest.tradesCount, declared) ||
+        !addRowCount(manifest.liquidationsCount, declared) ||
+        !addRowCount(manifest.bookTickerCount, declared) ||
+        !addRowCount(manifest.markPriceCount, declared) ||
+        !addRowCount(manifest.indexPriceCount, declared) ||
+        !addRowCount(manifest.fundingCount, declared) ||
+        !addRowCount(manifest.priceLimitCount, declared) ||
+        !addRowCount(manifest.depthCount, declared) ||
+        !addRowCount(manifest.candlesCount, declared) ||
+        !addRowCount(manifest.candles2Count, declared)) {
+        return false;
     }
-    if (!row.levels.empty()) out.push_back(',');
-    appendInt(out, row.tsNs);
-    out.push_back(']');
-    return out;
-}
-
-bool isDepthTapePackagePath(const std::filesystem::path& path) noexcept {
-    return path.filename() == "depth_tape.jsonl" || path.filename() == "depth_sidecar.jsonl";
-}
-
-std::filesystem::path depthTapePathFor(const std::filesystem::path& path) {
-    return path.filename() == "depth_tape.jsonl" ? path : path.parent_path() / "depth_tape.jsonl";
-}
-
-std::filesystem::path depthSidecarPathFor(const std::filesystem::path& path) {
-    return path.filename() == "depth_sidecar.jsonl" ? path : path.parent_path() / "depth_sidecar.jsonl";
-}
-
-std::filesystem::path resolveChannelPath(const std::filesystem::path& sessionDir,
-                                        bool manifestPresent,
-                                        const std::string& manifestPath,
-                                        const char* legacyFileName) noexcept {
-    std::vector<std::filesystem::path> candidates;
-    if (manifestPresent && !manifestPath.empty()) candidates.push_back(sessionDir / manifestPath);
-    candidates.push_back(sessionDir / "jsonl" / legacyFileName);
-    candidates.push_back(sessionDir / legacyFileName);
-    for (const auto& candidate : candidates) {
-        std::error_code ec;
-        if (std::filesystem::exists(candidate, ec) && !ec) return candidate;
+    std::uint64_t accounted = 0u;
+    if (!addRowCount(manifest.arrivalClock.capturedRows, accounted) ||
+        !addRowCount(manifest.arrivalClock.historicalRows, accounted) ||
+        !addRowCount(manifest.arrivalClock.unavailableRows, accounted) ||
+        accounted != declared) {
+        return false;
     }
-    return candidates.empty() ? std::filesystem::path{} : candidates.front();
-}
-
-std::filesystem::path resolveDepthPath(const std::filesystem::path& sessionDir,
-                                       bool manifestPresent,
-                                       const std::string& manifestPath) noexcept {
-    const std::filesystem::path legacy = resolveChannelPath(sessionDir, manifestPresent, manifestPath, "depth.jsonl");
-    if (regularFileExists(legacy)) return legacy;
-    const std::filesystem::path base = legacy.parent_path();
-    const std::filesystem::path tape = base / "depth_tape.jsonl";
-    const std::filesystem::path sidecar = base / "depth_sidecar.jsonl";
-    if (regularFileExists(tape) && regularFileExists(sidecar)) return tape;
-    return legacy;
+    if (manifest.arrivalClock.capturedRows == 0u) return true;
+    return manifest.arrivalClock.firstReceiveRealtimeNs > 0 &&
+        manifest.arrivalClock.lastReceiveRealtimeNs > 0 &&
+        manifest.arrivalClock.firstReceiveMonotonicNs != 0u &&
+        manifest.arrivalClock.lastReceiveMonotonicNs != 0u;
 }
 
 void addIssue(LoadReport& report,
@@ -337,7 +329,9 @@ Status loadJsonLines(const std::filesystem::path& path,
 
 Status loadDepthTapeSidecarLines(const std::filesystem::path& tapePath,
                                  const std::filesystem::path& sidecarPath,
-                                 std::vector<std::string>& out,
+                                 std::vector<hftrec::replay::DepthRow>& rows,
+                                 std::vector<std::string>& tapeLines,
+                                 std::vector<std::string>& sidecarLines,
                                  LoadReport& report,
                                  bool required,
                                  ChannelLoadState& channelState) noexcept {
@@ -423,7 +417,9 @@ Status loadDepthTapeSidecarLines(const std::filesystem::path& tapePath,
                      "failed to parse depth tape package line " + std::to_string(lineNumber));
             return Status::CorruptData;
         }
-        out.push_back(renderDepthCanonicalLine(row));
+        tapeLines.push_back(tapeLine);
+        sidecarLines.push_back(sidecarLine);
+        rows.push_back(std::move(row));
     }
     return Status::Ok;
 }
@@ -467,7 +463,7 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
         return;
     }
 
-    if (version > kSeekIndexVersionCurrent) {
+    if (version != kSeekIndexVersionCurrent) {
         report.seekIndexState = ChannelLoadState::Corrupt;
         addIssue(report,
                  LoadIssueCode::UnsupportedSchemaVersion,
@@ -476,14 +472,14 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
                  "seek_index",
                  "seek_index.json",
                  0,
-                 "seek index version is newer than supported");
+                 "seek index version does not match the current contract");
         return;
     }
 
     const SourceArtifactInfo depthSource{fileSizeOrZero(sessionDir / corpus.manifest.depthPath),
-                                         static_cast<std::uint64_t>(corpus.depthLines.size())};
+                                         static_cast<std::uint64_t>(corpus.depthRows.size())};
     const SourceArtifactInfo depthSidecarSource{fileSizeOrZero(sessionDir / corpus.manifest.depthSidecarPath),
-                                                static_cast<std::uint64_t>(corpus.depthLines.size())};
+                                                static_cast<std::uint64_t>(corpus.depthRows.size())};
     const std::unordered_map<std::string, SourceArtifactInfo> currentSources{
         {"trades.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.tradesPath), static_cast<std::uint64_t>(corpus.tradeLines.size())}},
         {"liquidations.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.liquidationsPath), static_cast<std::uint64_t>(corpus.liquidationLines.size())}},
@@ -494,7 +490,6 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
         {"price_limit.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.priceLimitPath), static_cast<std::uint64_t>(corpus.priceLimitLines.size())}},
         {"candles.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candlesPath), static_cast<std::uint64_t>(corpus.candleLines.size())}},
         {"candles2.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candles2Path), static_cast<std::uint64_t>(corpus.candle2Lines.size())}},
-        {"depth.jsonl", depthSource},
         {"depth_tape.jsonl", depthSource},
         {"depth_sidecar.jsonl", depthSidecarSource},
     };
@@ -545,15 +540,17 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
 
     const auto manifestPath = sessionDir / "manifest.json";
     if (!std::filesystem::exists(manifestPath)) {
-        report.manifestState = ChannelLoadState::Warning;
+        report.manifestState = ChannelLoadState::Corrupt;
         addIssue(report,
                  LoadIssueCode::MissingManifest,
-                 LoadIssueSeverity::Warning,
-                 Status::Ok,
+                 LoadIssueSeverity::Fatal,
+                 Status::CorruptData,
                  "manifest",
                  "manifest.json",
                  0,
-                 "manifest.json is absent; treating session as legacy corpus");
+                 "current captured-arrival manifest.json is required");
+        out.report = report;
+        return report.finalStatus;
     } else {
         std::string manifestDocument;
         if (!readWholeFile(manifestPath, manifestDocument)) {
@@ -598,6 +595,38 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
             out.report = report;
             return report.finalStatus;
         }
+        if (out.manifest.captureContractVersion !=
+                capture::kCaptureContractVersionCurrent ||
+            !currentChannelSchemas(out.manifest) ||
+            (out.manifest.orderbookEnabled &&
+             (out.manifest.depthPath.empty() ||
+              out.manifest.depthSidecarPath.empty()))) {
+            report.manifestState = ChannelLoadState::Corrupt;
+            addIssue(report,
+                     LoadIssueCode::UnsupportedSchemaVersion,
+                     LoadIssueSeverity::Fatal,
+                     Status::CorruptData,
+                     "manifest",
+                     "manifest.json",
+                     0,
+                     "manifest does not declare the current captured-arrival row contract");
+            out.report = report;
+            return report.finalStatus;
+        }
+        if (finalizedSession(out.manifest.sessionStatus) &&
+            !arrivalSummaryMatchesDeclaredRows(out.manifest)) {
+            report.manifestState = ChannelLoadState::Corrupt;
+            addIssue(report,
+                     LoadIssueCode::InvalidManifest,
+                     LoadIssueSeverity::Fatal,
+                     Status::CorruptData,
+                     "manifest",
+                     "manifest.json",
+                     0,
+                     "arrival_clock summary does not match finalized declared rows");
+            out.report = report;
+            return report.finalStatus;
+        }
         report.manifestState = ChannelLoadState::Clean;
     }
 
@@ -612,16 +641,34 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     const bool requireCandles2 = report.manifestPresent ? (out.manifest.candles2Enabled && out.manifest.candles2RequiredWhenEnabled) : false;
     const bool requireDepth = report.manifestPresent ? (out.manifest.orderbookEnabled && out.manifest.orderbookRequiredWhenEnabled) : false;
 
-    const auto tradesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.tradesPath, "trades.jsonl");
-    const auto liquidationsPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.liquidationsPath, "liquidations.jsonl");
-    const auto bookTickerPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.bookTickerPath, "bookticker.jsonl");
-    const auto markPricePath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.markPricePath, "mark_price.jsonl");
-    const auto indexPricePath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.indexPricePath, "index_price.jsonl");
-    const auto fundingPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.fundingPath, "funding.jsonl");
-    const auto priceLimitPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.priceLimitPath, "price_limit.jsonl");
-    const auto candlesPath = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.candlesPath, "candles.jsonl");
-    const auto candles2Path = resolveChannelPath(sessionDir, report.manifestPresent, out.manifest.candles2Path, "candles2.jsonl");
-    const auto depthPath = resolveDepthPath(sessionDir, report.manifestPresent, out.manifest.depthPath);
+    const auto tradesPath = out.manifest.tradesEnabled
+        ? declaredChannelPath(sessionDir, out.manifest.tradesPath)
+        : std::filesystem::path{};
+    const auto liquidationsPath = out.manifest.liquidationsEnabled
+        ? declaredChannelPath(sessionDir, out.manifest.liquidationsPath)
+        : std::filesystem::path{};
+    const auto bookTickerPath = out.manifest.bookTickerEnabled
+        ? declaredChannelPath(sessionDir, out.manifest.bookTickerPath)
+        : std::filesystem::path{};
+    const auto markPricePath = out.manifest.markPriceEnabled
+        ? declaredChannelPath(sessionDir, out.manifest.markPricePath)
+        : std::filesystem::path{};
+    const auto indexPricePath = out.manifest.indexPriceEnabled
+        ? declaredChannelPath(sessionDir, out.manifest.indexPricePath)
+        : std::filesystem::path{};
+    const auto fundingPath = out.manifest.fundingEnabled
+        ? declaredChannelPath(sessionDir, out.manifest.fundingPath)
+        : std::filesystem::path{};
+    const auto priceLimitPath = out.manifest.priceLimitEnabled
+        ? declaredChannelPath(sessionDir, out.manifest.priceLimitPath)
+        : std::filesystem::path{};
+    const auto candlesPath = out.manifest.candlesEnabled
+        ? declaredChannelPath(sessionDir, out.manifest.candlesPath)
+        : std::filesystem::path{};
+    const auto candles2Path = out.manifest.candles2Enabled
+        ? declaredChannelPath(sessionDir, out.manifest.candles2Path)
+        : std::filesystem::path{};
+    const auto depthPath = declaredChannelPath(sessionDir, out.manifest.depthPath);
 
     if (!isOk(loadJsonLines<decltype(&parseTradeCanonicalLine), hftrec::replay::TradeRow>(
                             tradesPath,
@@ -732,27 +779,75 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         out.report = report;
         return report.finalStatus;
     }
-    if (isDepthTapePackagePath(depthPath)) {
-        if (!isOk(loadDepthTapeSidecarLines(depthTapePathFor(depthPath),
-                                            depthSidecarPathFor(depthPath),
-                                            out.depthLines,
-                                            report,
-                                            requireDepth,
-                                            report.depthState))) {
+    if (out.manifest.orderbookEnabled) {
+        if (!isOk(loadDepthTapeSidecarLines(
+                      depthPath,
+                      declaredChannelPath(
+                          sessionDir, out.manifest.depthSidecarPath),
+                      out.depthRows,
+                      out.depthTapeLines,
+                      out.depthSidecarLines,
+                      report,
+                      requireDepth,
+                      report.depthState))) {
             out.report = report;
             return report.finalStatus;
         }
-    } else if (!isOk(loadJsonLines<decltype(&parseDepthCanonicalLine), hftrec::replay::DepthRow>(
-                                   depthPath,
-                                   out.depthLines,
-                                   parseDepthCanonicalLine,
-                                   report,
-                                   "depth",
-                                   depthPath.filename().string(),
-                                   requireDepth,
-                                   report.depthState))) {
-        out.report = report;
-        return report.finalStatus;
+    } else {
+        report.depthState = ChannelLoadState::NotCaptured;
+    }
+
+    if (finalizedSession(out.manifest.sessionStatus)) {
+        const auto requireDeclaredCount = [&](bool enabled,
+                                              std::uint64_t declared,
+                                              std::size_t actual,
+                                              std::string_view channel) {
+            if (!enabled || declared == static_cast<std::uint64_t>(actual)) {
+                return true;
+            }
+            addIssue(report,
+                     LoadIssueCode::InvalidManifest,
+                     LoadIssueSeverity::Fatal,
+                     Status::CorruptData,
+                     std::string{channel},
+                     "manifest.json",
+                     0,
+                     "finalized manifest declared_event_count does not match the captured artifact");
+            return false;
+        };
+        if (!requireDeclaredCount(out.manifest.tradesEnabled,
+                                  out.manifest.tradesCount,
+                                  out.tradeLines.size(), "trades") ||
+            !requireDeclaredCount(out.manifest.liquidationsEnabled,
+                                  out.manifest.liquidationsCount,
+                                  out.liquidationLines.size(), "liquidations") ||
+            !requireDeclaredCount(out.manifest.bookTickerEnabled,
+                                  out.manifest.bookTickerCount,
+                                  out.bookTickerLines.size(), "bookticker") ||
+            !requireDeclaredCount(out.manifest.markPriceEnabled,
+                                  out.manifest.markPriceCount,
+                                  out.markPriceLines.size(), "mark_price") ||
+            !requireDeclaredCount(out.manifest.indexPriceEnabled,
+                                  out.manifest.indexPriceCount,
+                                  out.indexPriceLines.size(), "index_price") ||
+            !requireDeclaredCount(out.manifest.fundingEnabled,
+                                  out.manifest.fundingCount,
+                                  out.fundingLines.size(), "funding") ||
+            !requireDeclaredCount(out.manifest.priceLimitEnabled,
+                                  out.manifest.priceLimitCount,
+                                  out.priceLimitLines.size(), "price_limit") ||
+            !requireDeclaredCount(out.manifest.candlesEnabled,
+                                  out.manifest.candlesCount,
+                                  out.candleLines.size(), "candles") ||
+            !requireDeclaredCount(out.manifest.candles2Enabled,
+                                  out.manifest.candles2Count,
+                                  out.candle2Lines.size(), "candles2") ||
+            !requireDeclaredCount(out.manifest.orderbookEnabled,
+                                  out.manifest.depthCount,
+                                  out.depthRows.size(), "depth")) {
+            out.report = report;
+            return report.finalStatus;
+        }
     }
 
     report.snapshotState = ChannelLoadState::NotCaptured;
@@ -786,7 +881,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
             }
             out.instrumentMetadata = std::move(metadata);
         }
-        if (out.manifest.sessionStatus == "complete") {
+        if (finalizedSession(out.manifest.sessionStatus)) {
             if (!readWholeFileOptional(sessionDir / out.manifest.sessionAuditPath, out.sessionAuditDocument)
                 || !readWholeFileOptional(sessionDir / out.manifest.integrityReportPath, out.integrityReportDocument)
                 || !readWholeFileOptional(sessionDir / out.manifest.loaderDiagnosticsPath, out.loaderDiagnosticsDocument)) {

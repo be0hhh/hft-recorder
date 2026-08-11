@@ -230,14 +230,14 @@ void appendSyntheticEquityPoint(QVariantList& out,
 
 BacktestRunSummary decodeBacktestRunSummary(const QJsonObject& root) {
     BacktestRunSummary out;
-    out.runResultV2 = root.value(QStringLiteral("type")).toString() ==
-        QStringLiteral("run.result.v2");
-    if (out.runResultV2) {
+    out.canonicalRunResult = root.value(QStringLiteral("type")).toString() ==
+        QStringLiteral("run.result.v3");
+    if (out.canonicalRunResult) {
         const QJsonValue schemaVersion = root.value(QStringLiteral("schema_version"));
         if (!schemaVersion.isUndefined() &&
-            (!schemaVersion.isDouble() || schemaVersion.toInteger() != 2)) {
+            (!schemaVersion.isDouble() || schemaVersion.toInteger() != 3)) {
             out.status = BacktestRunSummaryStatus::UnsupportedSchema;
-            out.error = QStringLiteral("run.result.v2 has unsupported schema_version");
+            out.error = QStringLiteral("run.result.v3 has unsupported schema_version");
             return out;
         }
     }
@@ -271,11 +271,11 @@ BacktestRunSummary decodeBacktestRunSummary(const QJsonObject& root) {
         return true;
     };
 
-    if (out.runResultV2) {
+    if (out.canonicalRunResult) {
         if (!acceptTotal(out.values.value(QStringLiteral("total_pnl_e8")),
                          QStringLiteral("total_pnl_e8"))) {
             out.status = BacktestRunSummaryStatus::MissingTotalPnl;
-            out.error = QStringLiteral("run.result.v2 summary has no total_pnl_e8");
+            out.error = QStringLiteral("run.result.v3 summary has no total_pnl_e8");
         }
         return out;
     }

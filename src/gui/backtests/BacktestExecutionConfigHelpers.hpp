@@ -15,7 +15,6 @@ class SessionManifestSnapshot;
 
 struct BacktestExecutionPolicy {
     std::uint64_t latencySeed{0};
-    hft_backtest::BacktestLatencyProfile marketDataLatency{};
     hft_backtest::BacktestLatencyProfile marketOrderLatency{};
     hft_backtest::BacktestLatencyProfile limitOrderLatency{};
     hft_backtest::BacktestLatencyProfile cancelOrderLatency{};

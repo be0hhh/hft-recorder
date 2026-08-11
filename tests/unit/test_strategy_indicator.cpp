@@ -27,7 +27,7 @@ void writeFile(const fs::path& path, const std::string& data) {
 TEST(StrategyIndicator, LoadsManifestMetadataAndCompactRows) {
     const fs::path dir = makeTmpDir();
     writeFile(dir / "manifest.json",
-              "{\"type\":\"run.result.v2\",\"streams\":{\"strategy_indicator\":{"
+              "{\"type\":\"run.result.v3\",\"streams\":{\"strategy_indicator\":{"
               "\"path\":\"strategy_indicator.jsonl\",\"profile\":\"trend_score\","
               "\"title\":\"Trend score\",\"value_label\":\"Score\",\"aux_label\":\"Raw\","
               "\"unit\":\"score\",\"rows\":2}}}\n");
@@ -55,7 +55,7 @@ TEST(StrategyIndicator, LoadsManifestMetadataAndCompactRows) {
 TEST(StrategyIndicator, LoadsRowsWithFeatureColumns) {
     const fs::path dir = makeTmpDir();
     writeFile(dir / "manifest.json",
-              "{\"type\":\"run.result.v2\",\"streams\":{\"strategy_indicator\":{"
+              "{\"type\":\"run.result.v3\",\"streams\":{\"strategy_indicator\":{"
               "\"path\":\"strategy_indicator.jsonl\",\"profile\":\"toxic_flow\","
               "\"title\":\"Toxic flow\",\"value_label\":\"Score\",\"aux_label\":\"Raw\","
               "\"unit\":\"score\",\"rows\":1}}}\n");
@@ -73,7 +73,7 @@ TEST(StrategyIndicator, LoadsRowsWithFeatureColumns) {
 
 TEST(StrategyIndicator, MissingStreamIsEmptyNotFailure) {
     const fs::path dir = makeTmpDir();
-    writeFile(dir / "manifest.json", "{\"type\":\"run.result.v2\",\"streams\":{}}\n");
+    writeFile(dir / "manifest.json", "{\"type\":\"run.result.v3\",\"streams\":{}}\n");
 
     hftrec::gui::viewer::StrategyIndicatorData data;
     std::string error;

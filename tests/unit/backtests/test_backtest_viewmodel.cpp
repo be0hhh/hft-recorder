@@ -64,6 +64,8 @@ void writeRecordingManifest(const QString& sessionDir,
                             qint64 startedAtNs) {
     QDir().mkpath(sessionDir);
     hftrec::capture::SessionManifest manifest{};
+    manifest.manifestSchemaVersion = hftrec::capture::kManifestSchemaVersionCurrent;
+    manifest.corpusSchemaVersion = hftrec::capture::kCorpusSchemaVersionCurrent;
     manifest.sessionId = sessionId.toStdString();
     manifest.exchange = exchange.toStdString();
     manifest.market = market.toStdString();
@@ -222,7 +224,7 @@ TEST(BacktestViewModel, LoadsValidResultAndSummary) {
     isolateSettings(QStringLiteral("valid"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-a"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-a",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -246,7 +248,7 @@ TEST(BacktestViewModel, DeletesSelectedRunDirectoryAndKeepsOtherRuns) {
     isolateSettings(QStringLiteral("delete_selected"));
     const QString session = makeTempSessionDir();
     const QString runA = makeRunDir(session, QStringLiteral("run-a"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-a",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -254,7 +256,7 @@ TEST(BacktestViewModel, DeletesSelectedRunDirectoryAndKeepsOtherRuns) {
       "errors":[]
     })json");
     const QString runB = makeRunDir(session, QStringLiteral("run-b"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-b",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -279,7 +281,7 @@ TEST(BacktestViewModel, FormatsSummaryE8FieldsForDisplayOnly) {
     isolateSettings(QStringLiteral("human_summary"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-human"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-human",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -316,7 +318,7 @@ TEST(BacktestViewModel, ExposesBacktestDiagnosticsAsMetrics) {
     isolateSettings(QStringLiteral("diagnostics_metrics"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-diagnostics"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-diagnostics",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -356,7 +358,7 @@ TEST(BacktestViewModel, FallsBackToFileNameWhenRunIdMissing) {
     isolateSettings(QStringLiteral("fallback"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("demo-run"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "status":"complete",
       "summary":{},
       "errors":[]
@@ -383,7 +385,7 @@ TEST(BacktestViewModel, UsesConfigMetadataForRunListLabels) {
 type=spread_maker1and2
 )ini");
     const QByteArray json = QByteArrayLiteral(R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"spread_maker1and2-BTC_USDT-fixed-20260524-183012",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -442,11 +444,11 @@ TEST(BacktestViewModel, IgnoresLooseLegacyJsonResultFiles) {
     EXPECT_TRUE(vm.selectedRunId().isEmpty());
 }
 
-TEST(BacktestViewModel, ExposesV2ResultWithMissingAuthoritativeTotalAsInvalid) {
+TEST(BacktestViewModel, ExposesCanonicalResultWithMissingAuthoritativeTotalAsInvalid) {
     isolateSettings(QStringLiteral("missing_total"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-missing-total"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-missing-total",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -468,7 +470,7 @@ TEST(BacktestViewModel, DefersEquityPointsUntilDetailsLoadButExposesSummaryMetri
     isolateSettings(QStringLiteral("equity_points"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-equity"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-equity",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -515,7 +517,7 @@ TEST(BacktestViewModel, ExposesPortfolioAndLegResultScopes) {
     isolateSettings(QStringLiteral("result_scopes"));
     const QString session = makeTempSessionDir();
     const QString runDir = makeRunDir(session, QStringLiteral("run-legs"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-legs",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -566,7 +568,7 @@ TEST(BacktestViewModel, SynthesizesPortfolioEquityFromLegStreamsWhenAggregateHas
     isolateSettings(QStringLiteral("portfolio_from_legs"));
     const QString session = makeTempSessionDir();
     const QString runDir = makeRunDir(session, QStringLiteral("run-leg-series"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-leg-series",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -607,7 +609,7 @@ TEST(BacktestViewModel, ClearsLoadedDetailsWhenRunChanges) {
     isolateSettings(QStringLiteral("clear_details"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-a"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-a",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -616,7 +618,7 @@ TEST(BacktestViewModel, ClearsLoadedDetailsWhenRunChanges) {
       "errors":[]
     })json", QByteArrayLiteral("[100,0,0,0,100000000,100000000,100000000,0,100000000000,0,0]\n"));
     makeRunDir(session, QStringLiteral("run-b"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-b",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -644,7 +646,7 @@ TEST(BacktestViewModel, ExposesPerformanceAndDepthExecutionTelemetry) {
     isolateSettings(QStringLiteral("execution_telemetry"));
     const QString session = makeTempSessionDir();
     makeRunDir(session, QStringLiteral("run-telemetry"), R"json({
-      "type":"run.result.v2",
+      "type":"run.result.v3",
       "run_id":"run-telemetry",
       "status":"complete",
       "strategy":"spread_maker1and2",
@@ -908,7 +910,7 @@ TEST(BacktestViewModel, SessionRowsAreCachedUntilExplicitReload) {
     QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-without-manifest")));
     QDir().mkpath(QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-a")));
     writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/run-a/manifest.json")),
-              QByteArray(QStringLiteral("{\"type\":\"run.result.v2\",\"session_path\":\"%1\"}").arg(session).toUtf8()));
+              QByteArray(QStringLiteral("{\"type\":\"run.result.v3\",\"session_path\":\"%1\"}").arg(session).toUtf8()));
     writeFile(QDir(session).absoluteFilePath(QStringLiteral("backtests/sweeps/sweep-a/manifest.json")),
               QByteArray(QStringLiteral("{\"type\":\"sweep.result.v1\",\"session_path\":\"%1\"}").arg(session).toUtf8()));
 
@@ -1227,12 +1229,10 @@ TEST(BacktestViewModel, AllowsStatArbBandLadderOnlyForTwoSessions) {
                                     .arg(std::rand());
     const QString primary = QDir(vm.recordingsRoot()).absoluteFilePath(primaryId);
     const QString secondary = QDir(vm.recordingsRoot()).absoluteFilePath(secondaryId);
-    QDir().mkpath(primary);
-    QDir().mkpath(secondary);
-    writeFile(QDir(primary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"binance\",\"market\":\"futures\",\"symbols\":\"BTC_USDT\"}"));
-    writeFile(QDir(secondary).absoluteFilePath(QStringLiteral("manifest.json")),
-              QByteArrayLiteral("{\"exchange\":\"okx\",\"market\":\"futures\",\"symbols\":\"ETH_USDT\"}"));
+    writeRecordingManifest(primary, primaryId, QStringLiteral("binance"), QStringLiteral("futures"),
+                           QStringLiteral("BTC_USDT"), 1'700'000'000'000'000'000LL);
+    writeRecordingManifest(secondary, secondaryId, QStringLiteral("okx"), QStringLiteral("futures"),
+                           QStringLiteral("ETH_USDT"), 1'700'000'000'001'000'000LL);
 
     setSessionPathAndWait(vm, primary);
 
@@ -1425,8 +1425,8 @@ TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetS
 
     setSessionPathAndWait(*vm, primary);
     vm->setExtraSessionIds(secondary);
-    vm->setVenueExecutionValue(0, QStringLiteral("market_data_latency_us"), QStringLiteral("111"));
-    vm->setVenueExecutionValue(1, QStringLiteral("market_data_latency_us"), QStringLiteral("333"));
+    vm->setVenueExecutionValue(0, QStringLiteral("market_order_latency_us"), QStringLiteral("111"));
+    vm->setVenueExecutionValue(1, QStringLiteral("market_order_latency_us"), QStringLiteral("333"));
 
     QVariantList rows = vm->selectedSessionLegs();
     ASSERT_EQ(rows.size(), 2);
@@ -1434,12 +1434,12 @@ TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetS
     EXPECT_FALSE(rows.at(0).toMap().contains(QStringLiteral("makerFeeBps")));
     EXPECT_FALSE(rows.at(0).toMap().contains(QStringLiteral("takerFeeBps")));
     EXPECT_TRUE(rows.at(0).toMap().value(QStringLiteral("executionPresetSummary")).toString().contains(QStringLiteral("Fees M/T")));
-    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("111"));
+    EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("marketOrderLatencyUs")).toString(), QStringLiteral("111"));
     EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("exchange")).toString(), QStringLiteral("bybit"));
     EXPECT_FALSE(rows.at(1).toMap().contains(QStringLiteral("makerFeeBps")));
     EXPECT_FALSE(rows.at(1).toMap().contains(QStringLiteral("takerFeeBps")));
     EXPECT_TRUE(rows.at(1).toMap().value(QStringLiteral("executionPresetSummary")).toString().contains(QStringLiteral("RL")));
-    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
+    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketOrderLatencyUs")).toString(), QStringLiteral("333"));
 
     vm->setVenueExecutionValue(0, QStringLiteral("maker_fee_bps"), QStringLiteral("0.7"));
     vm->setVenueExecutionValue(0, QStringLiteral("taker_fee_bps"), QStringLiteral("1.1"));
@@ -1455,7 +1455,7 @@ TEST(BacktestViewModel, StoresVenueLatencyValuesPerExchangeMarketAndShowsPresetS
     restored.setExtraSessionIds(secondary);
     rows = restored.selectedSessionLegs();
     ASSERT_EQ(rows.size(), 2);
-    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketDataLatencyUs")).toString(), QStringLiteral("333"));
+    EXPECT_EQ(rows.at(1).toMap().value(QStringLiteral("marketOrderLatencyUs")).toString(), QStringLiteral("333"));
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("makerFeeBps")).toString(), QStringLiteral("0.7"));
     EXPECT_EQ(rows.at(0).toMap().value(QStringLiteral("takerFeeBps")).toString(), QStringLiteral("1.1"));
 
@@ -1558,8 +1558,6 @@ TEST(BacktestViewModel, PersistsConfigButNotSession) {
         vm.setConfigMode(QStringLiteral("natr"));
         vm.setPingLatencyUs(QStringLiteral("2500"));
         vm.setLatencySeed(QStringLiteral("42"));
-        vm.setMarketDataLatencyUs(QStringLiteral("250"));
-        vm.setMarketDataJitterUs(QStringLiteral("100"));
         vm.setMarketOrderLatencyUs(QStringLiteral("2500"));
         vm.setMarketOrderJitterUs(QStringLiteral("1000"));
         vm.setLimitOrderLatencyUs(QStringLiteral("1800"));
@@ -1573,8 +1571,6 @@ TEST(BacktestViewModel, PersistsConfigButNotSession) {
     EXPECT_EQ(restored.configMode(), QStringLiteral("fixed"));
     EXPECT_EQ(restored.pingLatencyUs(), QStringLiteral("2500"));
     EXPECT_EQ(restored.latencySeed(), QStringLiteral("42"));
-    EXPECT_EQ(restored.marketDataLatencyUs(), QStringLiteral("250"));
-    EXPECT_EQ(restored.marketDataJitterUs(), QStringLiteral("100"));
     EXPECT_EQ(restored.marketOrderLatencyUs(), QStringLiteral("2500"));
     EXPECT_EQ(restored.marketOrderJitterUs(), QStringLiteral("1000"));
     EXPECT_EQ(restored.limitOrderLatencyUs(), QStringLiteral("1800"));

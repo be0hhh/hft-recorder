@@ -51,7 +51,8 @@ class SessionReplay {
     Status open(const std::filesystem::path& sessionDir) noexcept;
 
     // Individual-file loaders. Useful from the GUI when the user wants to
-    // pick trades.jsonl, bookticker.jsonl, depth_tape.jsonl/depth_sidecar.jsonl or depth.jsonl
+    // pick current captured-arrival JSON rows. Depth always requires the
+    // paired depth_tape.jsonl/depth_sidecar.jsonl package.
     // from unrelated paths. Call reset() first, then any combination of
     // addXxx(), then finalize(). Each addXxx() may be called multiple times
     // to merge files.
@@ -130,9 +131,21 @@ class SessionReplay {
         bool present{false};
         std::string exchange{};
         bool tradesEnabled{true};
+        bool tradesRequired{true};
         bool liquidationsEnabled{true};
+        bool liquidationsRequired{false};
         bool bookTickerEnabled{true};
+        bool bookTickerRequired{true};
         bool orderbookEnabled{true};
+        bool orderbookRequired{true};
+        bool markPriceEnabled{false};
+        bool markPriceRequired{false};
+        bool indexPriceEnabled{false};
+        bool indexPriceRequired{false};
+        bool fundingEnabled{false};
+        bool fundingRequired{false};
+        bool priceLimitEnabled{false};
+        bool priceLimitRequired{false};
         std::int64_t endedAtNs{0};
     };
 

@@ -89,7 +89,7 @@ QJsonObject readManifestObject(const QString& manifestPath) {
 
 bool isBacktestResultManifest(const QJsonObject& manifest) {
     const QString type = manifest.value(QStringLiteral("type")).toString();
-    return type == QStringLiteral("run.result.v2") || type == QStringLiteral("sweep.result.v1");
+    return type == QStringLiteral("run.result.v3") || type == QStringLiteral("sweep.result.v1");
 }
 
 void addLegCount(QHash<QString, BacktestLegCounts>& counts, const QString& sessionId, int legIndex) {

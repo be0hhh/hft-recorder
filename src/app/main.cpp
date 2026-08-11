@@ -14,6 +14,7 @@ int runReportExport(int argc, char** argv);
 int runRecordings(int argc, char** argv);
 int runPresetRunner(int argc, char** argv);
 int runShardRun(int argc, char** argv);
+int runParserCapture(int argc, char** argv);
 
 }  // namespace hftrec::app
 
@@ -31,6 +32,7 @@ void printUsage() {
     std::puts("  run-preset noninteractive preset runner for shard workers");
     std::puts("  shard-run run one preset through multiple worker processes");
     std::puts("  recordings organize recorded session folders");
+    std::puts("  parser-capture record parserd's connected normalized market channels");
     std::puts("  analyze   inspect a captured session or derived artifact");
     std::puts("  report    export benchmark and ranking data");
     std::puts("  --version print version and exit");
@@ -57,6 +59,7 @@ int main(int argc, char** argv) {
     if (sub == "run-preset") return hftrec::app::runPresetRunner(argc - 1, argv + 1);
     if (sub == "shard-run") return hftrec::app::runShardRun(argc - 1, argv + 1);
     if (sub == "recordings") return hftrec::app::runRecordings(argc - 1, argv + 1);
+    if (sub == "parser-capture") return hftrec::app::runParserCapture(argc - 1, argv + 1);
     if (sub == "analyze")  return hftrec::app::runAnalyze(argc - 1, argv + 1);
     if (sub == "report")   return hftrec::app::runReportExport(argc - 1, argv + 1);
 

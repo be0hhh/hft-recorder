@@ -36,8 +36,16 @@ set(HFT_TRADER_SHARED_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/libhf
 set(HFT_TRADER_CXET_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/include" CACHE PATH "Path to hft-trader bundled CXETCPP headers")
 set(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR "${HFT_TRADER_CXET_INCLUDE_DIR}/exchanges" CACHE PATH "Path to hft-trader bundled CXETCPP exchange-owned public headers")
 set(HFT_TRADER_CXET_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/lib" CACHE PATH "Path to hft-trader bundled CXETCPP libraries")
+set(HFT_PARSER_CONTRACT_INCLUDE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../hft-parser/contracts/include"
+    CACHE PATH "Path to hft-parser app-to-app protocol headers")
 set(HFTREC_CXET_MODE "AUTO" CACHE STRING "CXET integration mode: AUTO, ON, or OFF")
 set_property(CACHE HFTREC_CXET_MODE PROPERTY STRINGS AUTO ON OFF)
+
+if(NOT EXISTS "${HFT_PARSER_CONTRACT_INCLUDE_DIR}/hft_parser/ipc/MarketCaptureProtocol.hpp")
+    message(FATAL_ERROR
+        "hft-recorder: hft-parser market-capture contract is missing: ${HFT_PARSER_CONTRACT_INCLUDE_DIR}")
+endif()
 option(HFTREC_HOTPATH_METRICS_DEFAULT "Enable hft-recorder/CXET hot-path metrics by default" ON)
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     set(HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS ON)
@@ -283,6 +291,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
+add_subdirectory(corpus-contract)
 add_subdirectory(src)
 if(HFTREC_BUILD_TESTS)
     add_subdirectory(tests)

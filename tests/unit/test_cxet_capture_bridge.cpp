@@ -23,7 +23,7 @@ TEST(CxetCaptureBridge, RuntimeTradeMatchesCompatibilityTradeCapture) {
     runtime.side = Side::Buy();
 
     const auto runtimeRow = hftrec::cxet_bridge::CxetCaptureBridge::captureTrade(runtime, meta);
-    const auto publicTrade = cxet::composite::compat::materializeTradePublicV1(runtime, meta);
+    const auto publicTrade = cxet::composite::compat::materializeTradePublic(runtime, meta);
 
     EXPECT_EQ(runtimeRow.symbol, publicTrade.symbol.data);
     EXPECT_EQ(runtimeRow.tsNs, static_cast<std::uint64_t>(publicTrade.ts.raw));
@@ -45,7 +45,7 @@ TEST(CxetCaptureBridge, RuntimeBookTickerMatchesCompatibilityBookTickerCapture) 
     runtime.ask.qty.raw = 60'000'000LL;
 
     const auto runtimeRow = hftrec::cxet_bridge::CxetCaptureBridge::captureBookTicker(runtime, meta);
-    const auto publicBookTicker = cxet::composite::compat::materializeBookTickerDataV1(runtime, meta);
+    const auto publicBookTicker = cxet::composite::compat::materializeBookTickerData(runtime, meta);
 
     EXPECT_EQ(runtimeRow.symbol, publicBookTicker.symbol.data);
     EXPECT_EQ(runtimeRow.tsNs, static_cast<std::uint64_t>(publicBookTicker.ts.raw));

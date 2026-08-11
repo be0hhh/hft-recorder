@@ -34,7 +34,7 @@ fs::path makeRunResult(const fs::path& parent,
                        const std::string& fillsJsonl) {
     const fs::path resultPath = parent / runId;
     fs::create_directories(resultPath);
-    writeFile(resultPath / "manifest.json", std::string{"{\"type\":\"run.result.v2\",\"run_id\":\""} + runId + "\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
+    writeFile(resultPath / "manifest.json", std::string{"{\"type\":\"run.result.v3\",\"run_id\":\""} + runId + "\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
     writeFile(resultPath / "order_lifetimes.jsonl", lifetimesJsonl);
     writeFile(resultPath / "fills.jsonl", fillsJsonl);
     writeFile(resultPath / "equity.jsonl", "");
@@ -46,7 +46,7 @@ fs::path makeRunResultWithoutLifetimes(const fs::path& parent,
                                        const std::string& fillsJsonl) {
     const fs::path resultPath = parent / runId;
     fs::create_directories(resultPath);
-    writeFile(resultPath / "manifest.json", std::string{"{\"type\":\"run.result.v2\",\"run_id\":\""} + runId + "\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
+    writeFile(resultPath / "manifest.json", std::string{"{\"type\":\"run.result.v3\",\"run_id\":\""} + runId + "\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
     writeFile(resultPath / "fills.jsonl", fillsJsonl);
     writeFile(resultPath / "equity.jsonl", "");
     return resultPath;
@@ -60,7 +60,7 @@ TEST(StrategyOverlay, AcceptsRunManifestWithUint64LatencySeed) {
     fs::create_directories(resultPath);
     writeFile(resultPath / "manifest.json",
               "{\n"
-              "  \"type\": \"run.result.v2\",\n"
+              "  \"type\": \"run.result.v3\",\n"
               "  \"run_id\": \"spread-seed\",\n"
               "  \"status\": \"complete\",\n"
               "  \"strategy\": \"spread_maker1and2\",\n"
@@ -340,7 +340,7 @@ TEST(StrategyOverlay, MaterializesLegacyOrdersWhenLifetimesAreMissing) {
     const fs::path resultPath = dir / "run-legacy-orders";
     fs::create_directories(resultPath);
     writeFile(resultPath / "manifest.json",
-              "{\"type\":\"run.result.v2\",\"run_id\":\"run-legacy-orders\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
+              "{\"type\":\"run.result.v3\",\"run_id\":\"run-legacy-orders\",\"strategy\":\"spread_maker1and2\",\"session_path\":\"/tmp/session-a\",\"summary\":{},\"errors\":[]}");
     writeFile(resultPath / "orders.jsonl",
               "[10,0,900,1000,1000,1,1,1,2,9900000000,100000000,0,0]\n"
               "[11,10,1900,2000,2000,3,0,0,2,0,0,0,0]\n"

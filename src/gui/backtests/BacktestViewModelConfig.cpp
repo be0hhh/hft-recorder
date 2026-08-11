@@ -288,22 +288,6 @@ void BacktestViewModel::setLatencySeed(const QString& value) {
     emit latencyChanged();
 }
 
-void BacktestViewModel::setMarketDataLatencyUs(const QString& value) {
-    const QString next = value.trimmed();
-    if (marketDataLatencyUs_ == next) return;
-    marketDataLatencyUs_ = next;
-    savePersistentConfig_();
-    emit latencyChanged();
-}
-
-void BacktestViewModel::setMarketDataJitterUs(const QString& value) {
-    const QString next = value.trimmed();
-    if (marketDataJitterUs_ == next) return;
-    marketDataJitterUs_ = next;
-    savePersistentConfig_();
-    emit latencyChanged();
-}
-
 void BacktestViewModel::setMarketOrderLatencyUs(const QString& value) {
     const QString next = value.trimmed();
     if (marketOrderLatencyUs_ == next) return;
@@ -571,8 +555,6 @@ void BacktestViewModel::saveProfile() {
     QTextStream out(&file);
     out << "[backtest]\n";
     out << "latency_seed=" << latencySeed_ << "\n";
-    out << "market_data_latency_us=" << marketDataLatencyUs_ << "\n";
-    out << "market_data_jitter_us=" << marketDataJitterUs_ << "\n";
     out << "market_order_latency_us=" << marketOrderLatencyUs_ << "\n";
     out << "market_order_jitter_us=" << marketOrderJitterUs_ << "\n";
     out << "limit_order_latency_us=" << limitOrderLatencyUs_ << "\n";
@@ -609,8 +591,6 @@ void BacktestViewModel::saveProfile() {
         out << "initial_balance_usdt=" << venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_) << "\n";
         writeOptional(QStringLiteral("maker_fee_bps"), venueExecutionValue_(venueKey, QStringLiteral("maker_fee_bps"), QString{}));
         writeOptional(QStringLiteral("taker_fee_bps"), venueExecutionValue_(venueKey, QStringLiteral("taker_fee_bps"), QString{}));
-        out << "market_data_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_data_latency_us"), marketDataLatencyUs_) << "\n";
-        out << "market_data_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_data_jitter_us"), marketDataJitterUs_) << "\n";
         out << "market_order_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_order_latency_us"), marketOrderLatencyUs_) << "\n";
         out << "market_order_jitter_us=" << venueExecutionValue_(venueKey, QStringLiteral("market_order_jitter_us"), marketOrderJitterUs_) << "\n";
         out << "limit_order_latency_us=" << venueExecutionValue_(venueKey, QStringLiteral("limit_order_latency_us"), limitOrderLatencyUs_) << "\n";
@@ -654,8 +634,6 @@ void BacktestViewModel::loadProfile() {
     if (text.isEmpty()) return;
     const QString orderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("order_latency_us"));
     const QString latencySeed = iniValue(text, QStringLiteral("backtest"), QStringLiteral("latency_seed"));
-    const QString marketDataLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_data_latency_us"));
-    const QString marketDataJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_data_jitter_us"));
     const QString marketOrderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_order_latency_us"));
     const QString marketOrderJitter = iniValue(text, QStringLiteral("backtest"), QStringLiteral("market_order_jitter_us"));
     const QString limitOrderLatency = iniValue(text, QStringLiteral("backtest"), QStringLiteral("limit_order_latency_us"));
@@ -682,8 +660,6 @@ void BacktestViewModel::loadProfile() {
     const QString mode = iniValue(text, QStringLiteral("backtest"), QStringLiteral("config_mode"));
     if (!orderLatency.isEmpty()) pingLatencyUs_ = orderLatency;
     if (!latencySeed.isEmpty()) latencySeed_ = latencySeed;
-    if (!marketDataLatency.isEmpty()) marketDataLatencyUs_ = marketDataLatency;
-    if (!marketDataJitter.isEmpty()) marketDataJitterUs_ = marketDataJitter;
     if (!marketOrderLatency.isEmpty()) marketOrderLatencyUs_ = marketOrderLatency;
     else if (!orderLatency.isEmpty()) marketOrderLatencyUs_ = orderLatency;
     if (!marketOrderJitter.isEmpty()) marketOrderJitterUs_ = marketOrderJitter;
@@ -884,10 +860,6 @@ void BacktestViewModel::loadPersistentConfig_() {
     if (pingLatencyUs_.isEmpty()) pingLatencyUs_ = QStringLiteral("1000");
     latencySeed_ = settings_.value(QStringLiteral("backtests/latency_seed"), latencySeed_).toString().trimmed();
     if (latencySeed_.isEmpty()) latencySeed_ = QStringLiteral("0");
-    marketDataLatencyUs_ = settings_.value(QStringLiteral("backtests/market_data_latency_us"), marketDataLatencyUs_).toString().trimmed();
-    if (marketDataLatencyUs_.isEmpty()) marketDataLatencyUs_ = QStringLiteral("0");
-    marketDataJitterUs_ = settings_.value(QStringLiteral("backtests/market_data_jitter_us"), marketDataJitterUs_).toString().trimmed();
-    if (marketDataJitterUs_.isEmpty()) marketDataJitterUs_ = QStringLiteral("0");
     if (settings_.contains(QStringLiteral("backtests/market_order_latency_us"))) marketOrderLatencyUs_ = settings_.value(QStringLiteral("backtests/market_order_latency_us"), marketOrderLatencyUs_).toString().trimmed();
     else if (hasLegacyPingLatency) marketOrderLatencyUs_ = pingLatencyUs_;
     if (marketOrderLatencyUs_.isEmpty()) marketOrderLatencyUs_ = QStringLiteral("2500");
@@ -985,8 +957,6 @@ void BacktestViewModel::savePersistentConfig_() {
     settings_.setValue(QStringLiteral("backtests/indicator_profile/%1").arg(selectedStrategy_), selectedIndicatorProfile_);
     settings_.setValue(QStringLiteral("backtests/ping_latency_us"), pingLatencyUs_);
     settings_.setValue(QStringLiteral("backtests/latency_seed"), latencySeed_);
-    settings_.setValue(QStringLiteral("backtests/market_data_latency_us"), marketDataLatencyUs_);
-    settings_.setValue(QStringLiteral("backtests/market_data_jitter_us"), marketDataJitterUs_);
     settings_.setValue(QStringLiteral("backtests/market_order_latency_us"), marketOrderLatencyUs_);
     settings_.setValue(QStringLiteral("backtests/market_order_jitter_us"), marketOrderJitterUs_);
     settings_.setValue(QStringLiteral("backtests/limit_order_latency_us"), limitOrderLatencyUs_);

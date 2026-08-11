@@ -1,7 +1,6 @@
-Clean canonical session with stale seek index sidecar.
+Retired pre-captured-arrival fixture. It remains only as explicit legacy input;
+the active stale-index test copies `clean_full` and mutates its current seek
+index.
 
 Expected:
-- loader status = Ok
-- stale seek index is ignored
-- seek index state = degraded
-
+- current loader status = CorruptData due to the old corpus contract

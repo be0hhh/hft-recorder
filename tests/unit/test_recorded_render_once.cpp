@@ -7,11 +7,14 @@
 
 #include <QString>
 
+#include "CapturedArrivalTestData.hpp"
 #include "gui/viewer/ChartController.hpp"
 
 namespace fs = std::filesystem;
 
 namespace {
+
+namespace captured = hftrec::test_support;
 
 fs::path fixtureDir(const char* name) {
     return fs::path(HFTRREC_SOURCE_DIR) / "tests" / "fixtures" / "session_corpus" / name;
@@ -29,8 +32,8 @@ void writeFile(const fs::path& path, const std::string& data) {
 }
 
 std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8) {
-    return "[" + std::to_string(priceE8)
-        + ",100000000,1," + std::to_string(tsNs) + "]\n";
+    return captured::tradeRow(priceE8, 100000000, 1, tsNs,
+                              static_cast<std::uint64_t>(tsNs));
 }
 
 class CountingLiveDataProvider final : public hftrec::gui::viewer::ILiveDataProvider {
@@ -106,8 +109,10 @@ TEST(LiveTailProvider, PollHotPublishesDepthTapeAfterStart) {
     EXPECT_EQ(provider.stats().snapshotsTotal, 0u);
     EXPECT_TRUE(provider.pollHot(1u).batch.depths.empty());
 
-    writeFile(dir / "jsonl" / "depth_tape.jsonl", "[9223372036854775908,9900000000,100000000]\n");
-    writeFile(dir / "jsonl" / "depth_sidecar.jsonl", "[9223372036854775908,1,1]\n");
+    writeFile(dir / "jsonl" / "depth_tape.jsonl",
+              captured::depthTapeRow(100, 1, {{9900000000LL, 100000000LL, 1}}));
+    writeFile(dir / "jsonl" / "depth_sidecar.jsonl",
+              captured::depthSidecarRow(100, 1, {{9900000000LL, 100000000LL, 1}}));
     const auto poll = provider.pollHot(2u);
     ASSERT_EQ(poll.batch.depths.size(), 1u);
     EXPECT_EQ(poll.batch.depths.front().tsNs, 100);
@@ -151,7 +156,7 @@ TEST(ViewerBacktestResults, DiscoversRunDirectoriesAndVisibleSweepsOnly) {
     fs::create_directories(session / "backtests");
     fs::create_directories(session / "backtests" / "run-a");
     fs::create_directories(session / "backtests" / "sweeps" / "sweep-a");
-    writeFile(session / "backtests" / "run-a" / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","summary":{},"errors":[]})json");
+    writeFile(session / "backtests" / "run-a" / "manifest.json", R"json({"type":"run.result.v3","run_id":"run-a","summary":{},"errors":[]})json");
     writeFile(session / "backtests" / "sweeps" / "sweep-a" / "manifest.json", R"json({"type":"sweep.result.v1","sweep_id":"sweep-a","summary":{},"errors":[]})json");
     writeFile(session / "backtests" / "legacy.json", R"json({"type":"run.result","run_id":"legacy","orders":[],"fills":[],"summary":{},"errors":[]})json");
 
@@ -178,7 +183,7 @@ TEST(ViewerBacktestResults, DiscoversTwoLegRunWhenSelectedSessionsAreSwapped) {
     const auto runDir = sessionA / "backtests" / "run-ab";
     fs::create_directories(runDir);
     const QString manifest = QStringLiteral(R"json({
-        "type":"run.result.v2",
+        "type":"run.result.v3",
         "run_id":"run-ab",
         "strategy":"stat_arb_band_ladder",
         "summary":{},
@@ -273,7 +278,7 @@ TEST(ViewerBacktestResults, HidesTwoLegSiblingRunUntilBothSessionsAreSelected) {
     const auto runDir = sessionA / "backtests" / "run-ab";
     fs::create_directories(runDir);
     const QString manifest = QStringLiteral(R"json({
-        "type":"run.result.v2",
+        "type":"run.result.v3",
         "run_id":"run-ab",
         "strategy":"stat_arb_band_ladder",
         "summary":{},
@@ -308,7 +313,7 @@ TEST(ViewerBacktestResults, DiscoversSingleLegRunUnderSelectedRecordingSession) 
     const auto runDir = session / "backtests" / "run-a";
     fs::create_directories(runDir);
     const QString manifest = QStringLiteral(R"json({
-        "type":"run.result.v2",
+        "type":"run.result.v3",
         "run_id":"run-a",
         "strategy":"spread_maker1and2",
         "session_path":"%1",
@@ -335,7 +340,7 @@ TEST(ViewerBacktestResults, SelectsDiscoveredRunResultWithoutTreatingSweepAsRun)
     const auto sweepDir = session / "backtests" / "sweeps" / "sweep-a";
     fs::create_directories(runDir);
     fs::create_directories(sweepDir);
-    writeFile(runDir / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a","strategy":"spread_maker1and2","session_path":"/tmp/session-a","summary":{},"errors":[]})json");
+    writeFile(runDir / "manifest.json", R"json({"type":"run.result.v3","run_id":"run-a","strategy":"spread_maker1and2","session_path":"/tmp/session-a","summary":{},"errors":[]})json");
     writeFile(runDir / "order_lifetimes.jsonl", "[1000,1100,9900000000,100000000,1,0,0]\n");
     writeFile(runDir / "fills.jsonl", "[10,1000,1100,1,9900000000,100000000,0,0,0]\n");
     writeFile(sweepDir / "manifest.json", R"json({"type":"sweep.result.v1","sweep_id":"sweep-a","summary":{},"errors":[]})json");
@@ -361,7 +366,7 @@ TEST(ViewerBacktestResults, SelectingDetailRunReportsLoadedOverlay) {
     const auto session = makeTmpDir("hftrec_viewer_backtest_select_detail");
     const auto runDir = session / "backtests" / "run-a-detail";
     fs::create_directories(runDir);
-    writeFile(runDir / "manifest.json", R"json({"type":"run.result.v2","run_id":"run-a-detail","strategy":"spread_maker1and2","session_path":"/tmp/session-a","summary":{},"errors":[]})json");
+    writeFile(runDir / "manifest.json", R"json({"type":"run.result.v3","run_id":"run-a-detail","strategy":"spread_maker1and2","session_path":"/tmp/session-a","summary":{},"errors":[]})json");
     writeFile(runDir / "order_lifetimes.jsonl", "[1000,1100,9900000000,100000000,1,0,0]\n");
     writeFile(runDir / "fills.jsonl", "[10,1000,1100,1,9900000000,100000000,0,0,0]\n");
 

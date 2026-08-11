@@ -6,8 +6,10 @@
 #include <sstream>
 #include <string>
 
+#include "CapturedArrivalTestData.hpp"
 #include "core/storage/EventStorage.hpp"
 #include "core/storage/JsonSessionStorage.hpp"
+#include "core/replay/JsonLineParser.hpp"
 #include "gui/viewer/LiveDataProvider.hpp"
 
 namespace fs = std::filesystem;
@@ -39,12 +41,18 @@ hftrec::replay::TradeRow tradeRow(std::int64_t tsNs, std::int64_t captureSeq, st
     row.qtyE8 = 10;
     row.side = 1;
     row.sideBuy = 1u;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(ingestSeq), tsNs);
     return row;
 }
 
 hftrec::replay::DepthRow depthRow(std::int64_t tsNs) {
     hftrec::replay::DepthRow row{};
+    row.eventId = 7u;
     row.tsNs = tsNs;
+    row.captureSeq = 7;
+    row.ingestSeq = 7;
+    row.arrival = hftrec::test_support::applicationArrival(7, tsNs);
     row.levels = {
         hftrec::replay::PricePair{30000, 10, 0},
         hftrec::replay::PricePair{30001, 20, 1},
@@ -56,6 +64,10 @@ hftrec::replay::MarkPriceRow markPriceRow(std::int64_t tsNs) {
     hftrec::replay::MarkPriceRow row{};
     row.tsNs = tsNs;
     row.markPriceE8 = 30000;
+    row.captureSeq = tsNs;
+    row.ingestSeq = tsNs;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(tsNs), tsNs);
     return row;
 }
 
@@ -63,6 +75,10 @@ hftrec::replay::IndexPriceRow indexPriceRow(std::int64_t tsNs) {
     hftrec::replay::IndexPriceRow row{};
     row.tsNs = tsNs;
     row.indexPriceE8 = 29990;
+    row.captureSeq = tsNs;
+    row.ingestSeq = tsNs;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(tsNs), tsNs);
     return row;
 }
 
@@ -72,6 +88,10 @@ hftrec::replay::FundingRow fundingRow(std::int64_t tsNs) {
     row.fundingRateE8 = 125;
     row.fundingTsNs = tsNs - 100;
     row.nextFundingTsNs = tsNs + 100;
+    row.captureSeq = tsNs;
+    row.ingestSeq = tsNs;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(tsNs), tsNs);
     return row;
 }
 
@@ -81,6 +101,10 @@ hftrec::replay::PriceLimitRow priceLimitRow(std::int64_t tsNs) {
     row.buyLimitE8 = 31000;
     row.sellLimitE8 = 29000;
     row.enabled = 1u;
+    row.captureSeq = tsNs;
+    row.ingestSeq = tsNs;
+    row.arrival = hftrec::test_support::applicationArrival(
+        static_cast<std::uint64_t>(tsNs), tsNs);
     return row;
 }
 
@@ -205,7 +229,11 @@ TEST(EventStorage, JsonSessionSinkWritesCurrentTradeSchema) {
     ASSERT_EQ(sink.close(), hftrec::Status::Ok);
 
     const auto text = readFile(dir / "jsonl" / "trades.jsonl");
-    EXPECT_NE(text.find("[30000,10,1,100]"), std::string::npos);
+    hftrec::replay::TradeRow decoded{};
+    ASSERT_EQ(hftrec::replay::parseTradeLine(text, decoded), hftrec::Status::Ok);
+    EXPECT_EQ(decoded.priceE8, 30000);
+    EXPECT_EQ(decoded.arrival.receiveMonotonicNs,
+              hftrec::test_support::applicationArrival(7, 100).receiveMonotonicNs);
 
     EXPECT_STREQ(sink.backendId(), kJsonSessionId);
     EXPECT_EQ(stats.tradesTotal, 1u);
@@ -224,8 +252,13 @@ TEST(EventStorage, JsonSessionSinkWritesDepthTapePackageOnly) {
 
     const auto tapeText = readFile(dir / "jsonl" / "depth_tape.jsonl");
     const auto sidecarText = readFile(dir / "jsonl" / "depth_sidecar.jsonl");
-    EXPECT_NE(tapeText.find("[9223372036854775931,30000,10,30001,20]"), std::string::npos);
-    EXPECT_NE(sidecarText.find("[9223372036854775931,0,1,1,1]"), std::string::npos);
+    hftrec::replay::DepthRow decoded{};
+    ASSERT_EQ(hftrec::replay::parseDepthTapeSidecarLine(
+                  tapeText, sidecarText, decoded), hftrec::Status::Ok);
+    EXPECT_EQ(decoded.eventId, 7u);
+    EXPECT_EQ(decoded.arrival.receiveMonotonicNs,
+              hftrec::test_support::applicationArrival(7, 123).receiveMonotonicNs);
+    ASSERT_EQ(decoded.levels.size(), 2u);
     EXPECT_FALSE(fs::exists(dir / "jsonl" / "depth.jsonl"));
     EXPECT_EQ(stats.depthsTotal, 1u);
 
@@ -244,10 +277,22 @@ TEST(EventStorage, JsonSessionSinkWritesReferenceChannelsAndStats) {
     const auto stats = sink.stats();
     ASSERT_EQ(sink.close(), hftrec::Status::Ok);
 
-    EXPECT_NE(readFile(dir / "jsonl" / "mark_price.jsonl").find("[100,30000]"), std::string::npos);
-    EXPECT_NE(readFile(dir / "jsonl" / "index_price.jsonl").find("[110,29990]"), std::string::npos);
-    EXPECT_NE(readFile(dir / "jsonl" / "funding.jsonl").find("[120,125,20,220]"), std::string::npos);
-    EXPECT_NE(readFile(dir / "jsonl" / "price_limit.jsonl").find("[130,31000,29000,1]"), std::string::npos);
+    hftrec::replay::MarkPriceRow decodedMark{};
+    hftrec::replay::IndexPriceRow decodedIndex{};
+    hftrec::replay::FundingRow decodedFunding{};
+    hftrec::replay::PriceLimitRow decodedLimit{};
+    EXPECT_EQ(hftrec::replay::parseMarkPriceLine(
+                  readFile(dir / "jsonl" / "mark_price.jsonl"), decodedMark),
+              hftrec::Status::Ok);
+    EXPECT_EQ(hftrec::replay::parseIndexPriceLine(
+                  readFile(dir / "jsonl" / "index_price.jsonl"), decodedIndex),
+              hftrec::Status::Ok);
+    EXPECT_EQ(hftrec::replay::parseFundingLine(
+                  readFile(dir / "jsonl" / "funding.jsonl"), decodedFunding),
+              hftrec::Status::Ok);
+    EXPECT_EQ(hftrec::replay::parsePriceLimitLine(
+                  readFile(dir / "jsonl" / "price_limit.jsonl"), decodedLimit),
+              hftrec::Status::Ok);
     EXPECT_EQ(stats.markPricesTotal, 1u);
     EXPECT_EQ(stats.indexPricesTotal, 1u);
     EXPECT_EQ(stats.fundingsTotal, 1u);

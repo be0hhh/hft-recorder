@@ -1,340 +1,229 @@
-# План простой интеграции backtest engine
+# Текущий контракт backtest и captured-arrival replay
 
-Документ для внешнего C++ разработчика. Цель - сделать простой offline
-backtester, который берёт данные recorder-сессии, прогоняет неизменённую
-стратегию из `hft-trader`, сам считает торговый результат и в конце одним
-результатом отдаёт GUI всё, что надо показать.
+Этот документ описывает один текущий путь market data от `hft-parser` до
+стратегии в offline backtest. Старые recorder-сессии, плоский `depth.jsonl` и
+симуляция задержки получения market data не поддерживаются.
 
-Главное правило: backtester считает fills, fees, positions, PnL и equity. GUI
-ничего из этого не пересчитывает, а только отображает результат.
+Главное правило: биржевое время отвечает за состояние площадки, локальное время
+получения отвечает за то, когда данные стали доступны стратегии. Эти две оси
+нельзя подменять друг другом.
 
-## Что нужно сделать в v1
+## Граница capture
 
-V1 - это не live simulation и не streaming replay. V1 работает так:
+Для live market data точка arrival определяется как
+`hft-parser.application-frame-ready`: полный application frame уже принят,
+разобран и принят зарегистрированным parser callback.
 
-1. Recorder отправляет backtester-у запрос `run.start`.
-2. Backtester загружает нужные данные из recorder session в ОЗУ.
-3. Backtester запускает выбранную стратегию из `apps/hft-trader/strategy` через
-   существующий `StrategyDescriptor` / generated registry.
-4. Backtester собирает `OrderIntent`, `CancelIntent`.
-5. Backtester симулирует заявки, fills, cancels, fees, positions, PnL и equity.
-6. Backtester возвращает один final batch `run.result`.
-7. Recorder показывает orders, fills, входы/выходы, equity/PnL и summary.
+В этой точке, только при подключённом recorder consumer, `hft-parser` подряд
+снимает:
 
-Progress/live stream можно добавить позже, но это не часть v1.
+- `CLOCK_REALTIME` в наносекундах;
+- `CLOCK_MONOTONIC` в наносекундах.
 
-## Что уже есть
+Каждая запись сохраняет обе метки и детерминированную идентичность:
 
-### В hft-recorder
+- producer epoch;
+- source generation;
+- session epoch;
+- frame sequence;
+- shard sequence;
+- source/shard id;
+- event ordinal внутри frame.
 
-Recorder пишет canonical corpus в `/mnt/d/recordings`.
-Основные файлы сессии:
-- `manifest.json`
-- `candles.jsonl`
-- `trades.jsonl`
-- `bookticker.jsonl`
-- `depth.jsonl`
+Одна метка arrival применяется ко всем событиям, полученным из одного frame.
+Несколько depth chunks одного frame также имеют одну пару часов и различаются
+порядковыми полями. Время disk write, queue drain или recorder callback не
+считается временем получения market data.
 
-Полезный код как reference:
+Если системные часы недоступны, timestamp не подставляется. Parser публикует
+loss-ledger gap с неизвестным receive range (`0/0`); такой gap пересекает любой
+выбранный интервал данного source/channel и делает exact backtest невозможным.
 
-- `src/core/replay/SessionReplay.*`
-- `src/core/replay/EventRows.hpp`
-- `src/core/replay/BookState.*`
-- `src/core/replay/JsonLineParser.*`
-- `src/core/execution/ExecutionVenue.hpp`
-`ExecutionEvent` уже содержит нужные поля для GUI/backtester boundary:
+## Два формата текущего corpus
 
-- `symbol`
-- `orderId`
-- `clientOrderId`
-- `execId`
-- `sideRaw`
-- `typeRaw`
-- `statusRaw`
-- `quantityRaw`
-- `priceRaw`
-- `fillPriceE8`
-- `filledQtyRaw`
-- `feeRaw`
-- `realizedPnlRaw`
-- `positionQtyRaw`
-- `avgEntryPriceE8`
-- `walletBalanceRaw`
-- `availableBalanceRaw`
-- `equityRaw`
-- `tsNs`
-- `success`
+### Parser binary corpus
 
-### В hft-trader
+Live parser feed передаётся через bounded shared-memory rings, а recorder владеет
+disk I/O и sealed binary corpus. ABI/schema/version, CRC, source directory,
+segments, index и gap ledger проверяются fail-closed.
 
-Стратегии уже устроены правильно для backtest. Их менять нельзя.
+Текущие binary guards: market-capture record schema `2`, corpus schema `3` и
+binary record schema `2`. Несовпадение любого guard запрещает attach/load;
+совместимый fallback отсутствует.
 
-Важные файлы:
+Текущий protocol перечисляет каналы:
 
-- `apps/hft-trader/strategy/<name>/Strategy.hpp`
-- `apps/hft-trader/include/hft_trader/runtime/StrategyDescriptor.hpp`
-- `apps/hft-trader/include/hft_trader/core/StrategyContract.hpp`
-- `apps/hft-trader/include/hft_trader/core/Intent.hpp`
-- `apps/hft-trader/include/hft_trader/core/StrategyInputs.hpp`
-- `apps/hft-trader/include/hft_trader/core/MarketView.hpp`
+- bookticker;
+- trades;
+- depth;
+- liquidations;
+- mark price;
+- index price;
+- funding;
+- price limit.
 
-Стратегия запускается через `StrategyDescriptor::runCycle()` и получает
-`StrategyContext`. На выходе она пишет только локальные intents:
+Наличие enum или payload не доказывает готовность канала. На текущем исходном
+пути parser реально объявляет и публикует только bookticker, trades и depth.
+Стратегия, требующая отсутствующий канал, должна получить явную ошибку загрузки,
+а не пустой или синтетический stream.
 
-- `OrderIntent`
-- `CancelIntent`
+Depth записывается не из сырого входного frame, а из транзакции, уже принятой
+`DepthSharedPublisher`. Обычная delta является одной транзакцией. Rebase
+содержит snapshot первым и затем все buffered replay-delta; каждый logical part
+несёт `transactionPartIndex/Count`, исходные source receive/freshness clocks и
+одну общую application-arrival пару транзакции. Backtest проверяет полноту,
+publication sequence, sequence alignment и непрерывность shard records, затем
+применяет все части атомарно и вызывает стратегию только после последней.
 
-Стратегия не должна знать, что она в backtest. Никаких `isBacktest` branches в
-strategy code. Strategy-local replace/amend helpers must lower to cancel plus
-new order before intents leave `StrategyIo`.
+Переход Depth в `Gap`, в том числе transport/recovery gap без входного market
+frame, сохраняется отдельной recorded-only state-записью. Она помечена
+degraded/sequence-gap и не может быть допущена как replay event.
 
-## Архитектура v1
+Trade с `Unknown` aggressor side также сохраняется, но только как
+`RecordedOnly`: PublicMarket V2 умеет честно выразить неизвестную сторону, а
+текущий trader `TradeRuntimeV1` — только бинарные Buy/Sell. Recorder не
+выдумывает сторону; любой exact-интервал, пересекающий такую запись, отвергается.
 
-```text
-/mnt/d/recordings/<session>
-        |
-        v
-Backtest loader
-        |
-        v
-Typed arrays in RAM
-        |
-        v
-Strategy runner через StrategyDescriptor
-        |
-        v
-Simulated venue / accounting
-        |
-        v
-Final JSON result
-        |
-        v
-hft-recorder GUI
-```
+`ExactTraderReplay` в binary directory доказывает представимость captured
+parser event в текущих trader runtime primitives. Равенство фактического числа
+live strategy cycles для составных side-tape событий остаётся отдельным
+differential runtime gate и не выводится из одного ABI/schema совпадения.
 
-Backtester - отдельный C++ module/library/executable. Он не должен зависеть от
-QML или GUI. Recorder вызывает его через внутреннее local JSON API.
+### Recorder JSON corpus
 
-## Правило загрузки данных
+Текущий JSON-контракт:
 
-Backtester не должен грузить все каналы на всякий случай.
+- `manifest_schema_version = 3`;
+- `corpus_schema_version = 3`;
+- `capture_contract_version = hftrec.captured_arrival_rows_json.v4`;
+- manifest-declared current row schemas;
+- paired `jsonl/depth_tape.jsonl` + `jsonl/depth_sidecar.jsonl`.
 
-Он должен смотреть требования выбранной стратегии:
+Каждая live row содержит captured-arrival tail. Archive/REST history помечается
+как historical backfill, имеет нулевые live-arrival/identity поля и используется
+только для seed/warmup. Historical candles и trades не становятся live market
+deliveries.
 
-- если стратегии нужен только `bookticker`, грузить только `bookticker.jsonl`;
-- если нужны trades + bookticker, грузить только эти каналы;
-- если нужен orderbook/depth, грузить `depth.jsonl` и snapshots;
-- если стратегия имеет `StrategyDescriptor::seedHistory`, грузить candle history;
-- лишние каналы не парсить и не держать в RAM.
+Плоский `depth.jsonl`, fallback filenames и старые manifest/corpus schemas
+отвергаются без migration reader.
 
-Это важно для скорости, памяти и будущих больших прогонов.
+## Допуск сессии к backtest
 
-## Свечи / TieredCandleHistory
+JSON-сессия допускается только если одновременно выполнены условия:
 
-Некоторые стратегии требуют свечную историю до запуска основной логики. Это уже
-есть в `hft-trader` через `StrategyDescriptor::seedHistory`.
+- status ровно `complete`;
+- `structurally_loadable = true`;
+- clean integrity;
+- `exact_replay_eligible = true`;
+- arrival boundary равен `hft-parser.application-frame-ready`;
+- `captured_rows > 0`, `unavailable_rows = 0`;
+- arrival summary точно покрывает все объявленные canonical rows;
+- все требуемые стратегией каналы существуют, не пусты и clean;
+- depth tape и sidecar образуют точные пары.
 
-Факт из CXETCPP:
+Для binary corpus дополнительно обязательны sealed manifest, точный ABI/schema,
+CRC всех таблиц/segments, отсутствие capture/source gaps, stale/degraded replay
+records и пересечения source generations в выбранном интервале.
 
-- тип: `cxet::composite::TieredCandleHistory`;
-- capacity: `kTieredCandleHistoryCapacity = 512`;
-- tiers:
-  - `m1[512]`
-  - `m15[512]`
-  - `d1[512]`
-- свеча для стратегии - `CandleLite`, не полный OHLCV;
-- поля `CandleLite`:
-  - `tier` M1/M15/D1
-  - `ts` ns
-  - `high` E8
-  - `low` E8
-  - `quoteAmount` E8
+Optional channel может отсутствовать с явным warning. Required channel никогда
+не заменяется другим каналом и не фабрикуется.
 
-В live runtime `hft-trader` загружает это как 512 свечей `1m`, потом более
-старые 512 свечей `15m`, потом более старые 512 свечей `1d`.
+## Replay clock
 
-Правила для backtester v1:
+Backtest строит две координаты для каждого market event.
 
-- если `descriptor->seedHistory == nullptr`, свечи не нужны и не грузятся;
-- если `descriptor->seedHistory != nullptr`, backtester должен найти candle
-  artifact в recorder session и собрать `TieredCandleHistory`;
-- путь к candle artifact должен браться из `manifest.json`, а не быть жёстко
-  захардкожен;
-- рабочее имя файла может быть `candles` / `candle_history`, но точное имя решает
-  manifest;
-- если стратегия требует свечи, а artifact отсутствует или повреждён, run должен
-  завершиться понятной ошибкой;
-- если стратегия не требует свечи, отсутствие candle artifact не является
-  ошибкой.
+### Strategy delivery plane
 
-Свечи нужны не всем стратегиям. Например, стратегии на bookticker/spread не
-должны требовать candle history, если их descriptor не имеет `seedHistory`.
+Captured `receive_monotonic_ns` проецируется на replay coordinate через одну
+session anchor-пару realtime/monotonic. Market events сортируются по этой
+координате, затем по producer/shard/frame identity и event ordinal.
 
-## Внутреннее JSON API v1
+Стратегия видит snapshot и получает market-driven `runCycle` только в этой
+точке. Дополнительная synthetic market-data latency отсутствует.
 
-V1 API можно сделать минимальным.
+Equal-sequence BBO freshness для уже установленного состояния является только
+application-plane liveness: обновляет captured receive clocks, не создаёт
+venue event/fill и не вызывает немедленный `runCycle`. Первый такой full-payload
+record в выбранном интервале сам устанавливает BBO state.
 
-### Request: run.start
+### Venue execution plane
 
-Recorder отправляет backtester-у:
+Exchange timestamp проецируется на ту же replay coordinate с использованием
+наблюдавшегося transit. Venue event никогда не планируется позже captured
+delivery. Если exchange timestamp отсутствует или не даёт допустимую
+координату, venue schedule явно корректируется до delivery и это попадает в
+result evidence.
 
-```json
-{
-  "type": "run.start",
-  "request_id": "req-001",
-  "session_path": "/mnt/d/recordings/SESSION_ID",
-  "strategy": "spread_maker1and2",
-  "config_path": "C:/.../apps/hft-trader/1and2.ini",
-  "result_mode": "final_batch"
-}
-```
+Venue plane обновляет только venue snapshot/order book и обслуживает fills,
+stops и execution state. Он не делает market data видимой стратегии раньше
+captured arrival.
 
-Обязательные поля:
+Rebase является локальной recovery-транзакцией, а не новым биржевым событием,
+поэтому venue plane применяет её целиком в captured application-arrival. Это
+сохраняет исходные exchange timestamps как evidence, но не позволяет
+переставить snapshot и replay-delta по разным биржевым временам.
 
-- `type`
-- `request_id`
-- `session_path`
-- `strategy`
-- `config_path`
-- `result_mode = final_batch`
+Order submit/cancel/user-data latency остаётся отдельной синтетической моделью
+исполнения. Она не должна смешиваться с наблюдённой задержкой market data.
 
-Желательно сразу поддержать `run_id`. Если recorder его не передал, backtester
-генерирует сам.
+## Clock anomalies
 
-### Response: run.result
+Recorder не исправляет и не отбрасывает по умолчанию:
 
-Backtester возвращает один JSON результат после полного прогона:
+- regression `CLOCK_REALTIME`;
+- равный или не возрастающий `CLOCK_MONOTONIC` sample;
+- exchange timestamp впереди локального realtime;
+- отсутствующий exchange timestamp.
 
-```json
-{
-  "type": "run.result",
-  "request_id": "req-001",
-  "run_id": "run-001",
-  "status": "complete",
-  "orders": [],
-  "fills": [],
-  "equity_points": [],
-  "summary": {},
-  "errors": []
-}
-```
+Аномалии сохраняются флагами и счётчиками. Детерминированный identity tail
+разрешает ties. Result содержит исходные clock ranges, replay delivery ranges,
+venue ranges и число скорректированных venue events.
 
-Минимальные секции результата:
+## Strategy и accounting boundary
 
-- `orders`: заявки, которые стратегия пыталась поставить/отменить;
-- `fills`: реальные simulated fills;
-- `equity_points`: точки equity/PnL для графика;
-- `summary`: финальная статистика прогона;
-- `errors`: ошибки, если run не completed.
+Стратегия остаётся неизменённой и запускается через generated registry и
+`StrategyDescriptor`. Она получает обычный `StrategyContext` и выпускает
+`OrderIntent`/`CancelIntent`.
 
-GUI должен отрисовать эти данные как есть. GUI не пересчитывает PnL.
+Backtest владеет:
 
-## Что должен считать backtester
-
-Backtester владеет всей торговой математикой:
-
-- order acceptance / reject;
-- market order fills;
-- resting limit orders;
-- cancel handling;
-- fill price;
-- partial/full fill status;
+- order acceptance/reject/cancel state machine;
+- market и limit fills;
 - fees;
-- realized PnL;
-- unrealized PnL;
-- position qty;
-- average entry price;
-- wallet balance;
-- available balance;
-- equity;
-- final summary metrics.
+- positions и average entry;
+- realized/unrealized PnL;
+- balance/equity;
+- rate/risk state;
+- final artifacts.
 
-Начальные fill rules могут быть простыми и детерминированными. Главное - они
-должны быть внутри backtester-а, а не в GUI.
+GUI только отображает результат и не пересчитывает торговую математику.
 
-## Что делает GUI
+## Result contract
 
-GUI только отображает final batch:
+Текущий final artifact имеет `type = run.result.v3`. В нём replay-clock evidence
+должен явно указывать:
 
-- точки входа/выхода;
-- limit/market order markers;
-- fills;
-- rejected orders;
-- equity/PnL curve;
-- summary panel;
-- таблицу orders/fills, если нужно.
+- `arrival_boundary = hft-parser.application-frame-ready`;
+- `market_data_delivery = captured_application_frame_arrival`;
+- `venue_schedule = exchange_projected_not_after_delivery`;
+- captured/replay/venue ranges и anomaly counters.
 
-`ExecutionChartAdapter` сейчас можно использовать как reference, но для backtest
-result, вероятно, нужен отдельный adapter/controller, который принимает
-`run.result` и раскладывает данные по viewer objects.
-
-## План работ для внешнего C++ разработчика
-
-1. Сделать skeleton backtest module.
-   - Отдельный C++ module/library/executable.
-   - Без зависимости от QML/GUI.
-   - С доступом к нужным public/core contracts `hft-trader` и recorder corpus.
-
-2. Сделать loader recorder session.
-   - Читать `manifest.json`.
-   - Определять доступные channels и artifacts.
-   - Грузить только нужные выбранной стратегии данные.
-   - Конвертировать rows в typed arrays в ОЗУ.
-
-3. Поддержать candle history.
-   - Если `descriptor->seedHistory != nullptr`, найти candle artifact через
-     manifest.
-   - Собрать `cxet::composite::TieredCandleHistory`.
-   - Вызвать `descriptor->seedHistory(...)`.
-   - Если свечи нужны, но их нет, вернуть error в `run.result`.
-
-4. Сделать strategy runtime adapter.
-   - Найти стратегию по имени через generated registry.
-   - Загрузить обычный `hft-trader` config.
-   - Вызвать `resolveParams` и `initState`.
-   - На market events строить `StrategyContext`.
-   - Вызывать `runCycle`.
-   - Собирать `OrderIntent`, `CancelIntent`.
-
-5. Сделать simulated venue/accounting.
-   - Превращать intents в simulated orders.
-   - Делать ack/reject/fill/cancel state machine.
-   - Считать fees, positions, PnL, balance, equity.
-   - Сохранять orders/fills/equity_points/summary.
-
-6. Сделать JSON boundary для recorder.
-   - Принять `run.start`.
-   - Вернуть `run.result`.
-   - Ошибки отдавать структурно через `status = error` и `errors`.
-
-7. Подключить GUI отображение.
-   - Recorder принимает final batch.
-   - Viewer рисует markers и curves.
-   - GUI не считает торговый результат.
+Финальный watermark берётся из максимальной реально обработанной replay
+координаты и не может откатиться к последнему exchange timestamp.
 
 ## Acceptance criteria
 
-Реализация готова, если:
+Реализация считается подтверждённой только после отдельных доказательств:
 
-- стратегия из `apps/hft-trader/strategy/<name>/Strategy.hpp` не менялась;
-- backtester запускает стратегию через descriptor/registry;
-- загружаются только нужные стратегии channels;
-- стратегия без `seedHistory` запускается без candle artifact;
-- стратегия с `seedHistory` получает `TieredCandleHistory` из session artifact;
-- если нужных свечей нет, backtester возвращает понятную ошибку;
-- fills, fees, PnL, positions и equity считает backtester;
-- recorder показывает final result и не пересчитывает его;
-- одинаковые session/config/strategy дают одинаковый результат.
+- parser/recorder protocol и все consumers собираются на одном ABI;
+- loss-ledger тест покрывает известный receive range и неизвестный `0/0` range;
+- every-row arrival identity и paired depth проходят corpus tests;
+- legacy JSON/depth paths детерминированно отвергаются;
+- backtest test доказывает, что стратегия не видит event до captured delivery;
+- venue fills могут происходить до local visibility, но не ретроактивно для
+  ещё не активированной заявки;
+- market-data latency knobs отсутствуют, execution latency остаётся;
+- одинаковые corpus/config/strategy дают одинаковый result.
 
-## Не входит в v1
-
-- Live simulation.
-- Progressive streaming / live drawing during run.
-- Monte Carlo.
-- Подключение к реальной бирже.
-- PnL calculation на стороне GUI.
-- Изменение strategy code под backtest.
-- Загрузка всех каналов без необходимости.
-
-Будущие расширения можно добавить позже: streaming progress, много прогонов,
-Monte Carlo, multi-venue arbitrage/spread analysis, разные fill/latency models.
+Сборка, unit tests, runtime capture и live exchange proof являются разными
+уровнями evidence и не заменяют друг друга.

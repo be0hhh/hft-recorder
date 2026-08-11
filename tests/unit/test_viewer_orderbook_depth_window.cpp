@@ -10,6 +10,8 @@
 #include <QPointF>
 #include <QString>
 
+#include "CapturedArrivalTestData.hpp"
+#include "core/capture/JsonSerializers.hpp"
 #include "gui/viewer/ChartController.hpp"
 #include "gui/viewer/hit_test/HoverDetection.hpp"
 
@@ -22,6 +24,7 @@ using hftrec::gui::viewer::ChartController;
 using hftrec::gui::viewer::HoverInfo;
 using hftrec::gui::viewer::RenderSnapshot;
 using hftrec::gui::viewer::SnapshotInputs;
+namespace captured = hftrec::test_support;
 
 constexpr std::int64_t kScaleE8 = 100000000ll;
 
@@ -41,48 +44,15 @@ void writeFile(const fs::path& path, const std::string& data) {
     out << data;
 }
 
-std::string level(std::int64_t priceE8, std::int64_t qtyE8, std::int64_t side) {
-    return "[" + std::to_string(priceE8) + "," + std::to_string(qtyE8) + "," + std::to_string(side) + "]";
-}
-
-std::string depthLine(std::int64_t tsNs,
-                      std::int64_t,
-                      const std::vector<BookLevel>& bids,
-                      const std::vector<BookLevel>& asks) {
-    std::string out = "[";
-    bool first = true;
-    for (std::size_t i = 0; i < bids.size(); ++i) {
-        if (!first) out += ",";
-        out += level(bids[i].priceE8, bids[i].qtyE8, 0);
-        first = false;
-    }
-    for (std::size_t i = 0; i < asks.size(); ++i) {
-        if (!first) out += ",";
-        out += level(asks[i].priceE8, asks[i].qtyE8, 1);
-        first = false;
-    }
-    if (!first) out += ",";
-    out += std::to_string(tsNs) + "]\n";
-    return out;
-}
-
 std::string bookTickerLine(std::int64_t tsNs,
                            std::int64_t bidPriceE8,
                            std::int64_t askPriceE8) {
-    return "[" + std::to_string(bidPriceE8)
-        + "," + std::to_string(e8(2))
-        + "," + std::to_string(askPriceE8)
-        + "," + std::to_string(e8(2))
-        + "," + std::to_string(tsNs)
-        + "]\n";
+    return captured::bookTickerRow(bidPriceE8, e8(2), askPriceE8,
+                                   e8(2), tsNs, 3);
 }
 
 std::string tradeLine(std::int64_t tsNs, std::int64_t priceE8) {
-    return "[" + std::to_string(priceE8)
-        + "," + std::to_string(e8(1))
-        + ",1"
-        + "," + std::to_string(tsNs)
-        + "]\n";
+    return captured::tradeRow(priceE8, e8(1), 1, tsNs, 2);
 }
 
 SnapshotInputs orderbookInputs(qreal depthWindowPct) {
@@ -101,16 +71,29 @@ RenderSnapshot buildSnapshot(const std::vector<BookLevel>& bids,
                              const std::vector<BookLevel>& asks,
                              std::string bookTickerJson,
                              qreal depthWindowPct,
-                             qreal heightPx = 800.0) {
+    qreal heightPx = 800.0) {
     const auto dir = makeTmpDir();
-    writeFile(dir / "depth.jsonl", depthLine(1000, 1, bids, asks));
+    hftrec::replay::DepthRow depth{};
+    depth.eventId = 1;
+    depth.tsNs = 1000;
+    depth.captureSeq = 1;
+    depth.ingestSeq = 1;
+    depth.arrival = captured::applicationArrival(1, depth.tsNs);
+    for (const auto& bid : bids)
+        depth.levels.push_back({bid.priceE8, bid.qtyE8, 0});
+    for (const auto& ask : asks)
+        depth.levels.push_back({ask.priceE8, ask.qtyE8, 1});
+    writeFile(dir / "depth_tape.jsonl",
+              hftrec::capture::renderDepthTapeJsonLine(depth) + "\n");
+    writeFile(dir / "depth_sidecar.jsonl",
+              hftrec::capture::renderDepthRleSidecarJsonLine(depth) + "\n");
     writeFile(dir / "trades.jsonl", tradeLine(2000, e8(10000)));
     if (!bookTickerJson.empty()) {
         writeFile(dir / "bookticker.jsonl", bookTickerJson);
     }
 
     ChartController chart;
-    EXPECT_TRUE(chart.addDepthFile(QString::fromStdString((dir / "depth.jsonl").string())));
+    EXPECT_TRUE(chart.addDepthFile(QString::fromStdString((dir / "depth_tape.jsonl").string())));
     EXPECT_TRUE(chart.addTradesFile(QString::fromStdString((dir / "trades.jsonl").string())));
     if (!bookTickerJson.empty()) {
         EXPECT_TRUE(chart.addBookTickerFile(QString::fromStdString((dir / "bookticker.jsonl").string())));

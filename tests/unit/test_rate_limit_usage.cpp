@@ -27,7 +27,7 @@ void writeFile(const fs::path& path, const std::string& data) {
 TEST(RateLimitUsage, LoadsManifestStreamAndSortsRows) {
     const fs::path dir = makeTmpDir();
     writeFile(dir / "manifest.json",
-              "{\"type\":\"run.result.v2\",\"streams\":{\"rate_limit_usage\":{"
+              "{\"type\":\"run.result.v3\",\"streams\":{\"rate_limit_usage\":{"
               "\"path\":\"rate_limit_usage.jsonl\",\"rows\":3}}}\n");
     writeFile(dir / "rate_limit_usage.jsonl",
               "[2000,1,500000,5,10,2,10000000000,0]\n"
@@ -50,7 +50,7 @@ TEST(RateLimitUsage, LoadsManifestStreamAndSortsRows) {
 
 TEST(RateLimitUsage, MissingStreamIsEmptyNotFailure) {
     const fs::path dir = makeTmpDir();
-    writeFile(dir / "manifest.json", "{\"type\":\"run.result.v2\",\"streams\":{}}\n");
+    writeFile(dir / "manifest.json", "{\"type\":\"run.result.v3\",\"streams\":{}}\n");
 
     hftrec::gui::viewer::RateLimitUsageData data;
     std::string error;

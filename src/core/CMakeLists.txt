@@ -6,9 +6,9 @@ set(HFTREC_CORE_SOURCES
     arbitrage/BookTickerSpreadMean.cpp
     arbitrage/CandleSpread.cpp
     capture/SessionId.cpp
-    capture/SessionManifest.cpp
     capture/Candles2BulkState.cpp
     capture/ChannelJsonWriter.cpp
+    capture/ParserMarketCaptureClient.cpp
     capture/CaptureChannelSupport.cpp
     capture/CaptureCoordinatorInternal.cpp
     capture/CaptureCoordinator.cpp
@@ -16,7 +16,6 @@ set(HFTREC_CORE_SOURCES
     capture/SupportArtifacts.cpp
     common/Log.cpp
     codec/VarInt.cpp
-    codec/Crc32c.cpp
     corpus/CorpusLoader.cpp
     corpus/InstrumentMetadata.cpp
     execution/ExecutionVenue.cpp
@@ -32,7 +31,6 @@ set(HFTREC_CORE_SOURCES
     lab/RankingEngine.cpp
     metrics/Metrics.cpp
     recorder_api.cpp
-    replay/JsonLineParser.cpp
     replay/BookState.cpp
     replay/CxetReplaySessionLoader.cpp
     replay/SessionReplay.cpp
@@ -75,10 +73,13 @@ target_include_directories(hftrec_core
     PUBLIC
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/src
+    PRIVATE
+        ${HFT_PARSER_CONTRACT_INCLUDE_DIR}
 )
 
 target_link_libraries(hftrec_core
     PUBLIC
+        hftrec_corpus_contract
         Threads::Threads
         absl::flat_hash_map
         spdlog::spdlog

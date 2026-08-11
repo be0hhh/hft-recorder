@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -53,6 +54,18 @@ std::int64_t candleTierFromTimeframe(std::string_view timeframe) noexcept {
     if (timeframe == "1m") return 1;
     if (timeframe == "10m" || timeframe == "15m") return 2;
     if (timeframe == "1d") return 3;
+    return 0;
+}
+
+std::int64_t candleDurationNs(std::string_view timeframe,
+                              std::int64_t tier) noexcept {
+    if (timeframe == "1m") return 60LL * 1'000'000'000LL;
+    if (timeframe == "10m") return 10LL * 60LL * 1'000'000'000LL;
+    if (timeframe == "15m") return 15LL * 60LL * 1'000'000'000LL;
+    if (timeframe == "1d") return 24LL * 60LL * 60LL * 1'000'000'000LL;
+    if (tier == 1) return 60LL * 1'000'000'000LL;
+    if (tier == 2) return 15LL * 60LL * 1'000'000'000LL;
+    if (tier == 3) return 24LL * 60LL * 60LL * 1'000'000'000LL;
     return 0;
 }
 
@@ -107,6 +120,7 @@ replay::CandleRow makeDetailedCandleRow(const CaptureConfig& config,
     row.market = config.market;
     row.symbol = std::string{internal::primaryIdentitySymbolText(config)};
     row.timeframe = std::string{timeframe};
+    row.durationNs = candleDurationNs(timeframe, candleTier);
     row.tsNs = static_cast<std::int64_t>(candle.ts.raw);
     row.openE8 = static_cast<std::int64_t>(candle.open.raw);
     row.highE8 = static_cast<std::int64_t>(candle.high.raw);
@@ -115,6 +129,7 @@ replay::CandleRow makeDetailedCandleRow(const CaptureConfig& config,
     row.volumeE8 = static_cast<std::int64_t>(candle.amount.raw);
     row.quoteAmountE8 = static_cast<std::int64_t>(candle.quoteAmount.raw);
     row.hasOhlc = true;
+    row.arrival.flags = replay::EventArrivalHistoricalBackfill;
     return row;
 }
 
@@ -125,6 +140,12 @@ replay::CandleRow makeLegacyCandleRow(const replay::CandleRow& row) noexcept {
     lite.highE8 = row.highE8;
     lite.lowE8 = row.lowE8;
     lite.quoteAmountE8 = row.quoteAmountE8;
+    lite.exchange = row.exchange;
+    lite.market = row.market;
+    lite.symbol = row.symbol;
+    lite.timeframe = row.timeframe;
+    lite.durationNs = row.durationNs;
+    lite.arrival = row.arrival;
     return lite;
 }
 
@@ -415,6 +436,14 @@ Status CaptureCoordinator::captureDetailedCandlesBulk(const CaptureConfig& confi
         manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
         pushUnique(manifest_.canonicalArtifacts, manifest_.candlesPath);
     }
+    const auto addHistoricalRows = [&](std::uint64_t count) noexcept {
+        auto& value = manifest_.arrivalClock.historicalRows;
+        value = count > std::numeric_limits<std::uint64_t>::max() - value
+            ? std::numeric_limits<std::uint64_t>::max()
+            : value + count;
+    };
+    addHistoricalRows(state.rowsWritten);
+    addHistoricalRows(context.legacyWritten);
     if (state.status != "complete") {
         std::string warning = "candles2_bulk " + state.status +
                               " rows=" + std::to_string(state.rowsWritten) +
