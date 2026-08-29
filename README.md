@@ -1,126 +1,80 @@
 # hft-recorder
 
-`hft-recorder` is a standalone desktop application and research lab on top of
-`CXETCPP`.
+hft-recorder is the GUI-first capture, corpus, validation and compression-lab
+product in the CXET source family.
 
-Current truth:
-- GUI-first product: `Qt 6 + QML`
-- first milestone: capture clean normalized market data, replay it, validate it,
-  and visualize it
-- canonical direct-recorder format: JSON corpus per session
-- canonical parser-wide format: sealed sharded binary corpus
-- compression research happens on top of that corpus
+## Current product contract
 
-Current Phase-1 capture target:
-- fixed source: `Binance FAPI / ETHUSDT`
-- one shared session folder under a user-selected parent directory
-- three independent GUI buttons:
-  - `Trades`
-  - `BookTicker`
-  - `Orderbook`
-- orderbook contract:
-  - write the initial full book as the first depth row when REST seed is available
-  - then append WS deltas into `depth_tape.jsonl` + `depth_sidecar.jsonl`
+- Qt 6 + QML desktop workflow;
+- normalized JSON session corpus for direct Recorder capture;
+- sealed sharded binary corpus for Parser-wide capture;
+- replay, validation and charts over canonical corpus data;
+- baseline and custom compression experiments over the same corpus;
+- active WSL recordings under "/mnt/d/recordings" when that directory exists.
 
-User build/run entrypoints:
-- `./compile.sh`
-  - builds `CXETCPP` shared library if needed
-  - installs it into `~/.local/cxet`
-  - configures and builds `hft-recorder`
-- `./compile.sh --force-cxet`
-  - forcibly rebuilds and reinstalls `CXETCPP` before building `hft-recorder`
-  - use this when public headers in `~/.local/cxet` became stale relative to the current repo
-- `./compile.sh --force clang`
-  - rebuilds hft-compressor, CXETCPP, and hft-recorder with Clang, replacing the active `~/.local/cxet` install and `build/` app binaries
-- `./compile.sh --force gcc`
-  - same flow with GCC, intended for back-to-back metric comparisons
-- `./build/start`
-  - launches the Qt GUI in CPU-safe software mode
-  - does not open the metrics or chart API ports by default
-  - set `HFTREC_METRICS_MODE=full` to expose `http://127.0.0.1:8080/metrics`
-  - set `HFTREC_API_MODE=on` to expose the local chart API on `127.0.0.1:18080`
-- `./build/start --gpu`
-  - launches the Qt GUI requesting the Qt Quick OpenGL backend
-  - intended for real Linux desktop GPU validation, e.g. Ubuntu 24 on the laptop
+Recorder owns captured corpus files. It does not own exchange endpoint/wire
+grammar, Trader execution, Backtest fills or Parser public topology.
 
-Current runtime truth:
-- default runtime is intentionally software-safe
-- `--gpu` enables a hardware-backed Qt Quick/OpenGL setup for validation
-- the active viewer path is still `ChartItem` (`QQuickPaintedItem`)
-- this means current `--gpu` is hardware-backed compositing, not yet a separate GPU-native chart renderer
-- `./build/start` exports `HFTREC_METRICS_PORT=8080`, but leaves metrics disabled unless `HFTREC_METRICS_MODE` is set to `full`, `sampled`, or `counters`; `/metrics` includes `hftrec_build_info{compiler="..."}` so Prometheus/Grafana can separate Clang and GCC runs when metrics are enabled
+## Source and build boundary
 
-Parser-wide market capture:
+The CXET root is the only canonical family build graph. Recorder compiles as a
+direct source target and consumes the already-defined public "cxet::cxet_lib",
+Parser producer-client, compressor and corpus-contract targets.
 
-1. Start `hft-parserd` normally. Recorder attaches to its dedicated same-UID
-   `market-capture.sock`; it does not start, replace, or configure parserd.
-2. Inspect the frozen source/channel directory:
-   `./build/bin/hft-recorder parser-capture catalog --runtime-dir PATH`.
-3. Check attach, ABI/schema, arena and directory:
-   `./build/bin/hft-recorder parser-capture doctor --runtime-dir PATH`.
-4. Capture every exposed source/channel into a new directory, normally below
-   `/mnt/d/recordings`:
-   `./build/bin/hft-recorder parser-capture capture --runtime-dir PATH --output /mnt/d/recordings/SESSION --duration-sec N --max-bytes N`.
-   `tui` uses the same contract with a terminal dashboard.
+Recorder does not:
 
-Duration and byte quota are both hard stops; the first one reached wins. The
-writer never deletes an existing session to satisfy quota. Stop freezes the
-producer boundary, drains committed ring records within the pre-reserved final
-budget, imports the loss ledger and seals the corpus.
+- compile CXET implementation sources;
+- include CXET "network/", "parse/" or "exchanges/" internals;
+- copy or stage a sibling SDK;
+- import a sibling shared library as a family fallback;
+- download a missing family dependency.
 
-Binary backtest selection is explicit and half-open in receive realtime:
-`hft-backtest --corpus DIR --source exchange:market:canonical_symbol --from-receive-ns BEGIN --to-receive-ns END --config INI`.
-Required channels are derived from the selected strategy descriptor. Missing,
-recorded-only, stale, degraded, gapped or generation-crossing input fails
-closed; it is never replaced with another stream.
-Trades whose PublicMarket V2 aggressor side is `Unknown` are retained as
-recorded-only evidence because the current trader `TradeRuntimeV1` cannot
-represent that tri-state value without fabricating Buy or Sell.
+A standalone Recorder configure may fail with a clear message when the family
+graph is absent.
 
-Primary user workflow:
-1. Open the GUI.
-2. Select exchange / market / symbols / duration.
-3. Capture a session into normalized JSON files.
-4. Open that session in validation and chart views.
-5. Run baseline and custom compression pipelines in the lab.
-6. Compare ratio, encode speed, decode speed, and lossless accuracy inside the GUI.
+## Capture modes
 
-Dependency contract:
-- `hft-recorder` does not compile `CXETCPP` sources
-- `hft-recorder` links only against a prebuilt shared library such as `build/libcxet_lib.so`
-- `hft-recorder` includes only the public API surface needed to consume `CXETCPP`
-- no `add_subdirectory(..)` on the parent project
-- no dependency on `network/`, `parse/`, `exchanges/`, or runtime internals
+### Direct GUI capture
 
-Public contract freeze:
-- recorder-visible event meaning for trades, bookticker, and orderbook must stay stable
-- `TradePublic`, `BookTickerData`, and `OrderBookSnapshot` are the compatibility/output contracts
-- internal runtime payloads may change in memory/layout, but only behind the explicit compatibility bridge
-- `hft-recorder` is allowed to consume `TradeRuntimeV1` / `BookTickerRuntimeV1` only at the capture boundary where they are immediately materialized into stable recorder rows
-- `hft-recorder` must not depend on internal parser/layout details beyond that bridge
+The first direct capture milestone records normalized Binance FAPI streams into
+one user-selected session directory:
 
-Laptop transfer note:
-- code moves by normal git branch workflow
-- `/mnt/d/recordings` is the default local corpus root and should be transferred separately from the repo
-- if a ready `libcxet_lib.so` and matching public headers are already available, copy the installed `~/.local/cxet/` tree to the laptop before running `./compile.sh`
-- if that copied install is incompatible on Ubuntu 24, rerun `./compile.sh --force-cxet` on the laptop to rebuild and reinstall `CXETCPP`
+- Trades;
+- BookTicker;
+- Orderbook, seeded by an initial snapshot and followed by bounded deltas.
 
-Repository layout:
-- `doc/` - source-of-truth architecture, corpus, GUI, and lab docs
-- `src/gui/` - Qt/QML app shell, models, and viewmodels
-- `src/core/` - capture, corpus, validation, ranking, and lab backend
-- `src/variants/` - custom compression candidates
-- `src/support/` - wrappers around baseline compression libraries
-- `scripts/python_lab/` - offline exploration and reports
+The session JSON files are the canonical input for validation, charts and the
+compression lab.
 
-Reading order:
-1. `doc/OVERVIEW.md`
-2. `doc/SESSION_CORPUS_FORMAT.md`
-3. `doc/GUI_PRODUCT.md`
-4. `doc/IMPLEMENTATION_PLAN.md`
-5. `doc/ARCHITECTURE.md`
-6. `doc/VALIDATION_AND_RANKING.md`
-7. `doc/STREAMS.md`
-8. `doc/CONFIG_AND_CLI.md`
-9. `doc/TESTING_CONTRACT.md`
-10. `doc/BUILD_AND_ISOLATION.md`
+### Parser-wide capture
+
+Recorder attaches to Parser's same-UID capture contract. It does not launch,
+replace or configure parserd. A capture has explicit duration and byte limits;
+the first limit reached stops admission, drains committed records within the
+reserved final budget, imports loss evidence and seals the corpus.
+
+Backtest selection over the sealed corpus is explicit by source, receive-time
+range and strategy-required channels. Missing, stale, degraded, gapped or
+generation-crossing input fails closed.
+
+## User workflow
+
+1. Choose an output directory, normally below "/mnt/d/recordings".
+2. Select exchange, market, symbols, logical streams and limits.
+3. Capture a session.
+4. Validate the corpus and inspect charts.
+5. Run baseline and custom compression pipelines.
+6. Compare ratio, encode/decode speed and lossless verification per stream
+   family.
+
+## Repository map
+
+- "src/core/capture/" — capture lifecycle and normalized sinks;
+- "src/core/corpus/" — canonical corpus readers/writers;
+- "src/core/validation/" — integrity and semantic validation;
+- "src/core/lab/" — compression experiments and reports;
+- "src/gui/" — Qt/QML product;
+- "corpus-contract/" — directly compiled shared corpus contract;
+- "doc/" — product and research documentation.
+
+Start with [doc/README.md](doc/README.md).

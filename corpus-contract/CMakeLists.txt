@@ -13,15 +13,8 @@ set_target_properties(hftrec_corpus_contract PROPERTIES POSITION_INDEPENDENT_COD
 
 target_include_directories(hftrec_corpus_contract
     PUBLIC
-        ${CMAKE_CURRENT_LIST_DIR}/../include
+        ${CMAKE_CURRENT_LIST_DIR}/include
+    PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/../src
 )
 target_compile_features(hftrec_corpus_contract PUBLIC cxx_std_23)
-
-if(TARGET cxet_lib)
-    target_link_libraries(hftrec_corpus_contract PUBLIC cxet_lib)
-elseif(TARGET hft_trader_cxet_lib)
-    target_link_libraries(hftrec_corpus_contract PUBLIC hft_trader_cxet_lib)
-elseif(TARGET hft_trader_runtime)
-    target_link_libraries(hftrec_corpus_contract PUBLIC hft_trader_runtime)
-endif()

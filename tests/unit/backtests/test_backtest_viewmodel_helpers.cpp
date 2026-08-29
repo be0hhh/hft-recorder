@@ -326,19 +326,19 @@ TEST(BacktestExecutionConfigHelpers, BuildsRateLimitScheduleFromVenueRow) {
     ASSERT_EQ(schedule.exchange, "binance");
     ASSERT_EQ(schedule.market, "futures_usdt");
     ASSERT_EQ(schedule.buckets.size(), 2u);
-    EXPECT_EQ(schedule.buckets[0].kind, hft_trader::core::RateLimitBucketKind::Orders);
+    EXPECT_EQ(schedule.buckets[0].kind, trading_core::RateLimitBucketKind::Orders);
     EXPECT_EQ(schedule.buckets[0].limit, 1200);
     EXPECT_EQ(schedule.buckets[0].intervalNs, 60'000'000'000ull);
-    EXPECT_EQ(schedule.buckets[1].kind, hft_trader::core::RateLimitBucketKind::CancelOrders);
+    EXPECT_EQ(schedule.buckets[1].kind, trading_core::RateLimitBucketKind::CancelOrders);
 
     ASSERT_EQ(schedule.actions.size(), 3u);
-    EXPECT_EQ(schedule.actions[0].action, hft_trader::core::RateLimitActionKind::LimitOrder);
-    EXPECT_EQ(schedule.actions[0].costs[0].bucket, hft_trader::core::RateLimitBucketKind::Orders);
+    EXPECT_EQ(schedule.actions[0].action, trading_core::RateLimitActionKind::LimitOrder);
+    EXPECT_EQ(schedule.actions[0].costs[0].bucket, trading_core::RateLimitBucketKind::Orders);
     EXPECT_EQ(schedule.actions[0].costs[0].cost, 1);
-    EXPECT_EQ(schedule.actions[1].action, hft_trader::core::RateLimitActionKind::MarketOrder);
+    EXPECT_EQ(schedule.actions[1].action, trading_core::RateLimitActionKind::MarketOrder);
     EXPECT_EQ(schedule.actions[1].costs[0].cost, 2);
-    EXPECT_EQ(schedule.actions[2].action, hft_trader::core::RateLimitActionKind::CancelOrder);
-    EXPECT_EQ(schedule.actions[2].costs[0].bucket, hft_trader::core::RateLimitBucketKind::CancelOrders);
+    EXPECT_EQ(schedule.actions[2].action, trading_core::RateLimitActionKind::CancelOrder);
+    EXPECT_EQ(schedule.actions[2].costs[0].bucket, trading_core::RateLimitBucketKind::CancelOrders);
 }
 
 TEST(BacktestExecutionConfigHelpers, AppliesTypedExecutionPolicyAndGatesStrictRejects) {

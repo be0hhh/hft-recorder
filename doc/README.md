@@ -1,34 +1,30 @@
-# hft-recorder docs
+# hft-recorder documentation
 
-The documentation below reflects the current GUI-first truth of `hft-recorder`.
+These documents describe the current GUI-first Recorder and its canonical
+corpus workflow.
 
-Primary reading order:
-1. `OVERVIEW.md`
-2. `SESSION_CORPUS_FORMAT.md`
-3. `GUI_PRODUCT.md`
-4. `IMPLEMENTATION_PLAN.md`
-5. `ARCHITECTURE.md`
-6. `VALIDATION_AND_RANKING.md`
-7. `COMPRESSED_REPLAY_FLOW.md`
-8. `STREAMS.md`
-9. `CONFIG_AND_CLI.md`
-10. `TESTING_CONTRACT.md`
-11. `BUILD_AND_ISOLATION.md`
+## Reading order
 
-Secondary / supporting material:
-- `CUSTOM_IDEA_CATALOG.md`
-- `COMPARISON_MATRIX.md`
-- `BENCHMARK_PLAN.md`
-- `ORDERBOOK_REPRESENTATION_EXPERIMENTS.md`
-- `MARKET_MAKING_SIMULATION_NOTES.md`
-- `SOURCE_LAYOUT_AND_VARIANTS.md`
+1. [OVERVIEW.md](OVERVIEW.md)
+2. [SESSION_CORPUS_FORMAT.md](SESSION_CORPUS_FORMAT.md)
+3. [GUI_PRODUCT.md](GUI_PRODUCT.md)
+4. [ARCHITECTURE.md](ARCHITECTURE.md)
+5. [CAPTURE_WORKFLOW.md](CAPTURE_WORKFLOW.md)
+6. [VALIDATION_AND_RANKING.md](VALIDATION_AND_RANKING.md)
+7. [COMPRESSED_REPLAY_FLOW.md](COMPRESSED_REPLAY_FLOW.md)
+8. [STREAMS.md](STREAMS.md)
+9. [CONFIG_AND_CLI.md](CONFIG_AND_CLI.md)
+10. [TESTING_CONTRACT.md](TESTING_CONTRACT.md)
+11. [BUILD_AND_ISOLATION.md](BUILD_AND_ISOLATION.md)
 
-Historical / scaffold-era material:
-- `FILE_FORMAT.md`
-- `DELTA_ENCODING.md`
-- `ARITHMETIC_CODING.md`
-- `ENCODE_WALKTHROUGH.md`
+## Supporting research
 
-Those historical docs describe an earlier `.cxrec`/CLI-first direction. They may
-still contain useful ideas, but they are not the current source of truth unless
-explicitly referenced by a newer document.
+- [CUSTOM_IDEA_CATALOG.md](CUSTOM_IDEA_CATALOG.md)
+- [COMPARISON_MATRIX.md](COMPARISON_MATRIX.md)
+- [BENCHMARK_PLAN.md](BENCHMARK_PLAN.md)
+- [ORDERBOOK_REPRESENTATION_EXPERIMENTS.md](ORDERBOOK_REPRESENTATION_EXPERIMENTS.md)
+- [MARKET_MAKING_SIMULATION_NOTES.md](MARKET_MAKING_SIMULATION_NOTES.md)
+- [SOURCE_LAYOUT_AND_VARIANTS.md](SOURCE_LAYOUT_AND_VARIANTS.md)
+
+Research and implementation plans are noncanonical when they conflict with
+code, the nearest "AGENTS.md", current corpus contracts or a schema-v4 plan.

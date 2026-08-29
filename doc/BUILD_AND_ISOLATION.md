@@ -1,107 +1,50 @@
-# hft-recorder - build and isolation
+# hft-recorder build and isolation
 
-## Core rule
+## Canonical build
 
-`hft-recorder` is a standalone application over `CXETCPP`.
+The CXET root owns the only supported family configure. Recorder is added as a
+source subdirectory and links already-defined public family targets directly.
+Repository separation does not change that dependency direction.
 
-It must consume the library as an already-built dependency:
-- shared library: `libcxet_lib.so`
-- public headers: only the API surface required by the recorder
+The root graph supplies:
 
-It must not:
-- compile the parent `CXETCPP` source tree
-- call `add_subdirectory(..)` on the parent repo
-- depend on `network/`, `parse/`, `exchanges/`, or runtime internals as implementation dependencies
+- "cxet::cxet_lib";
+- the required Parser producer-client target;
+- hft-compressor targets;
+- "hftrec" corpus-contract targets.
 
-## Allowed include surface
+Recorder must not replace these edges with:
 
-The intended include surface is the public recorder-facing API only, for example:
+- sibling "find_package" discovery;
+- copied or staged headers and libraries;
+- an imported sibling ".so";
+- duplicated contract sources;
+- downloads or network fallback.
 
-```cpp
-#include "cxet.hpp"
-#include "api/stream/CxetStream.hpp"
-#include "primitives/composite/Trade.hpp"
-#include "primitives/composite/BookTickerData.hpp"
-#include "primitives/composite/FundingRateInfo.hpp"
-#include "primitives/composite/OrderBookSnapshot.hpp"
-```
+## Standalone behavior
 
-Avoid includes that tie the recorder to internals, for example:
+Recorder may remain independently versioned and may be opened as its own source
+repository. A standalone CMake configure is allowed to fail clearly when the
+CXET family targets are absent. It must not silently assemble a second family
+graph.
 
-```cpp
-#include "network/ws/WsClient.hpp"   // forbidden
-#include "exchanges/binance/..."     // forbidden
-#include "parse/..."                 // forbidden
-#include "runtime/..."               // forbidden
-```
+## Include boundary
 
-## Current repo contract
+Allowed dependencies are public normalized CXET types and explicitly linked
+producer/corpus targets. Recorder code must not include CXET implementation
+directories such as:
 
-`apps/hft-recorder/` is its own nested repo and owns:
-- `doc/`
-- `src/`
-- `include/`
-- `tests/`
-- `bench/`
-- `scripts/`
+- "network/";
+- "parse/";
+- "exchanges/";
+- private/user/order runtime internals.
 
-The parent `CXETCPP` repo owns:
-- library implementation
-- exchange integrations
-- transport/runtime internals
-- library build pipeline
+## Output isolation
 
-## Baseline CMake shape
+Build output stays outside source contracts and does not become a dependency
+input for sibling products. Corpus output is user data, normally below
+"/mnt/d/recordings" in WSL, and is transferred separately from source.
 
-The recorder CMake should import a prebuilt shared library instead of rebuilding the parent project.
-
-```cmake
-cmake_minimum_required(VERSION 3.20)
-project(hft-recorder LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-set(CXET_PUBLIC_INCLUDE_DIR "" CACHE PATH "Path to CXETCPP public headers")
-set(CXET_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_lib shared library")
-
-add_library(cxet_lib SHARED IMPORTED GLOBAL)
-set_target_properties(cxet_lib PROPERTIES
-    IMPORTED_LOCATION "${CXET_SHARED_LIB}"
-)
-
-add_executable(hft-recorder
-    src/main.cpp
-)
-
-target_include_directories(hft-recorder PRIVATE
-    ${CXET_PUBLIC_INCLUDE_DIR}
-    include
-    src
-)
-
-target_link_libraries(hft-recorder PRIVATE
-    cxet_lib
-)
-```
-
-## Runtime note
-
-Executable runtime lookup for `libcxet_lib.so` is intentionally external at this stage.
-Use either:
-- `RPATH`
-- `LD_LIBRARY_PATH`
-
-when the real executable is introduced.
-
-## Why this isolation matters
-
-This keeps the recorder independent from:
-- internal file moves inside `CXETCPP`
-- parent compile graph churn
-- accidental coupling to unfinished runtime/network internals
-
-It also preserves the intended long-term model:
-- `CXETCPP` evolves as a reusable library
-- `hft-recorder` remains one client application on top of it
+No build, test, benchmark, runtime or capture command is implied by a
+documentation edit. Agent workflows may execute only the exact declared gate
+authorized by the current user prompt.

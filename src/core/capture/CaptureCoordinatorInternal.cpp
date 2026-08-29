@@ -247,7 +247,8 @@ bool enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
                                                                    marketTypeFromConfig(exchange, config.market),
                                                                    makeSymbol(primaryRouteSymbolText(config)),
                                                                    result,
-                                                                   normalizedApiSlot(config));
+                                                                   normalizedApiSlot(config),
+                                                                   ApiProtocolProfile{});
     if (!ok) {
         metadata.metadataWarning = std::string{"hft_trader_metadata_failed:"} + (result.error.empty() ? "unknown" : result.error);
         return false;

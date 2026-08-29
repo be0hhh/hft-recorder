@@ -2,9 +2,9 @@
 
 #include "gui/backtests/BacktestSessionHelpers.hpp"
 
-#include "hft_trader/core/fees/FeePresets.hpp"
-#include "hft_trader/core/rate_limit/RateLimit.hpp"
-#include "hft_trader/core/rate_limit/RateLimitPresets.hpp"
+#include "trading_core/core/fees/FeePresets.hpp"
+#include "trading_core/core/rate_limit/RateLimit.hpp"
+#include "trading_core/core/rate_limit/RateLimitPresets.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -39,12 +39,12 @@ void addRateLimitBucket(hft_backtest::BacktestRateLimitSchedule& schedule,
                         const QVariantMap& row,
                         const QString& limitKey,
                         const QString& intervalKey,
-                        hft_trader::core::RateLimitBucketKind kind) {
+                        trading_core::RateLimitBucketKind kind) {
     const std::int64_t limit = positiveInt64Value(row, limitKey);
     const std::uint64_t intervalMs = positiveUInt64Value(row, intervalKey);
     constexpr std::uint64_t kNsPerMs = 1000000ull;
     if (limit <= 0 || intervalMs == 0u || intervalMs > (std::numeric_limits<std::uint64_t>::max() / kNsPerMs)) return;
-    hft_trader::core::RateLimitBucketConfig bucket{};
+    trading_core::RateLimitBucketConfig bucket{};
     bucket.kind = kind;
     bucket.limit = limit;
     bucket.intervalNs = intervalMs * kNsPerMs;
@@ -55,20 +55,20 @@ void addRateLimitBucket(hft_backtest::BacktestRateLimitSchedule& schedule,
 void addRateLimitActionCost(hft_backtest::BacktestRateLimitSchedule& schedule,
                             const QVariantMap& row,
                             const QString& costKey,
-                            hft_trader::core::RateLimitActionKind action,
-                            hft_trader::core::RateLimitBucketKind bucket) {
+                            trading_core::RateLimitActionKind action,
+                            trading_core::RateLimitBucketKind bucket) {
     std::int64_t cost = 0;
     if (!nonNegativeInt64Value(row, costKey, cost)) return;
-    for (hft_trader::core::RateLimitActionConfig& existing : schedule.actions) {
+    for (trading_core::RateLimitActionConfig& existing : schedule.actions) {
         if (existing.action != action) continue;
         if (cost == 0) return;
         if (existing.costCount >= existing.costs.size()) return;
-        hft_trader::core::RateLimitCost& slot = existing.costs[existing.costCount++];
+        trading_core::RateLimitCost& slot = existing.costs[existing.costCount++];
         slot.bucket = bucket;
         slot.cost = cost;
         return;
     }
-    hft_trader::core::RateLimitActionConfig config{};
+    trading_core::RateLimitActionConfig config{};
     config.action = action;
     config.enabled = true;
     if (cost > 0) {
@@ -157,8 +157,8 @@ QString formatBpsE8(std::int64_t bpsE8) {
     return out;
 }
 
-QString bucketKindName(hft_trader::core::RateLimitBucketKind kind) {
-    using hft_trader::core::RateLimitBucketKind;
+QString bucketKindName(trading_core::RateLimitBucketKind kind) {
+    using trading_core::RateLimitBucketKind;
     switch (kind) {
         case RateLimitBucketKind::RequestWeight: return QStringLiteral("weight");
         case RateLimitBucketKind::Orders: return QStringLiteral("orders");
@@ -169,8 +169,8 @@ QString bucketKindName(hft_trader::core::RateLimitBucketKind kind) {
     }
 }
 
-QString actionKindName(hft_trader::core::RateLimitActionKind kind) {
-    using hft_trader::core::RateLimitActionKind;
+QString actionKindName(trading_core::RateLimitActionKind kind) {
+    using trading_core::RateLimitActionKind;
     switch (kind) {
         case RateLimitActionKind::LimitOrder: return QStringLiteral("limit");
         case RateLimitActionKind::MarketOrder: return QStringLiteral("market");
@@ -199,7 +199,7 @@ QString intervalText(std::uint64_t intervalNs) {
     return QStringLiteral("%1ns").arg(static_cast<qulonglong>(intervalNs));
 }
 
-QString costSummary(const hft_trader::core::RateLimitActionConfig& action) {
+QString costSummary(const trading_core::RateLimitActionConfig& action) {
     if (!action.enabled || action.costCount == 0u) return {};
     QStringList costs;
     for (std::uint8_t i = 0u; i < action.costCount && i < action.costs.size(); ++i) {
@@ -289,11 +289,11 @@ bool isVenueExecutionField(const QString& field) {
 QString exchangeExecutionPresetSummary(const QString& exchange, const QString& market, bool rateLimitsEnabled) {
     const ExchangeId exchangeId = exchangeFromText(exchange);
     const canon::MarketType marketType = marketFromText(market);
-    const hft_trader::core::ExchangeFeePreset fee =
-        hft_trader::core::defaultExchangeFeePreset(exchangeId, marketType);
-    hft_trader::core::RateLimitPreset rate =
-        hft_trader::core::defaultExchangeRateLimitPreset(exchangeId, marketType);
-    (void)hft_trader::core::addDefaultRateLimitActions(rate);
+    const trading_core::ExchangeFeePreset fee =
+        trading_core::defaultExchangeFeePreset(exchangeId, marketType);
+    trading_core::RateLimitPreset rate =
+        trading_core::defaultExchangeRateLimitPreset(exchangeId, marketType);
+    (void)trading_core::addDefaultRateLimitActions(rate);
 
     QStringList parts;
     if (fee.available) {
@@ -335,8 +335,8 @@ hft_backtest::BacktestFeeSchedule feeScheduleFromVenueRow(const QVariantMap& row
     const QString market = row.value(QStringLiteral("market")).toString();
     schedule.exchange = exchange.toStdString();
     schedule.market = market.toStdString();
-    const hft_trader::core::ExchangeFeePreset preset =
-        hft_trader::core::defaultExchangeFeePreset(exchangeFromText(exchange), marketFromText(market));
+    const trading_core::ExchangeFeePreset preset =
+        trading_core::defaultExchangeFeePreset(exchangeFromText(exchange), marketFromText(market));
     if (preset.available) {
         schedule.makerFeeBpsE8 = preset.makerFeeBpsE8;
         schedule.takerFeeBpsE8 = preset.takerFeeBpsE8;
@@ -358,17 +358,17 @@ hft_backtest::BacktestRateLimitSchedule rateLimitScheduleFromVenueRow(const QVar
                        row,
                        QStringLiteral("rateLimitOrdersLimit"),
                        QStringLiteral("rateLimitOrdersIntervalMs"),
-                       hft_trader::core::RateLimitBucketKind::Orders);
+                       trading_core::RateLimitBucketKind::Orders);
     addRateLimitBucket(schedule,
                        row,
                        QStringLiteral("rateLimitCancelOrdersLimit"),
                        QStringLiteral("rateLimitCancelOrdersIntervalMs"),
-                       hft_trader::core::RateLimitBucketKind::CancelOrders);
+                       trading_core::RateLimitBucketKind::CancelOrders);
     addRateLimitBucket(schedule,
                        row,
                        QStringLiteral("rateLimitReduceOnlyOrdersLimit"),
                        QStringLiteral("rateLimitReduceOnlyOrdersIntervalMs"),
-                       hft_trader::core::RateLimitBucketKind::ReduceOnlyOrders);
+                       trading_core::RateLimitBucketKind::ReduceOnlyOrders);
 
     const bool hasOrdersBucket = rowHasPositiveValue(row, QStringLiteral("rateLimitOrdersLimit"));
     const bool hasCancelBucket = rowHasPositiveValue(row, QStringLiteral("rateLimitCancelOrdersLimit"));
@@ -377,34 +377,34 @@ hft_backtest::BacktestRateLimitSchedule rateLimitScheduleFromVenueRow(const QVar
         addRateLimitActionCost(schedule,
                                row,
                                QStringLiteral("rateLimitLimitOrderCost"),
-                               hft_trader::core::RateLimitActionKind::LimitOrder,
-                               hft_trader::core::RateLimitBucketKind::Orders);
+                               trading_core::RateLimitActionKind::LimitOrder,
+                               trading_core::RateLimitBucketKind::Orders);
         addRateLimitActionCost(schedule,
                                row,
                                QStringLiteral("rateLimitMarketOrderCost"),
-                               hft_trader::core::RateLimitActionKind::MarketOrder,
-                               hft_trader::core::RateLimitBucketKind::Orders);
+                               trading_core::RateLimitActionKind::MarketOrder,
+                               trading_core::RateLimitBucketKind::Orders);
     }
     if (hasCancelBucket || hasOrdersBucket) {
         addRateLimitActionCost(schedule,
                                row,
                                QStringLiteral("rateLimitCancelOrderCost"),
-                               hft_trader::core::RateLimitActionKind::CancelOrder,
-                               hasCancelBucket ? hft_trader::core::RateLimitBucketKind::CancelOrders
-                                               : hft_trader::core::RateLimitBucketKind::Orders);
+                               trading_core::RateLimitActionKind::CancelOrder,
+                               hasCancelBucket ? trading_core::RateLimitBucketKind::CancelOrders
+                                               : trading_core::RateLimitBucketKind::Orders);
     }
     if (hasReduceOnlyBucket || hasOrdersBucket) {
-        const auto bucket = hasReduceOnlyBucket ? hft_trader::core::RateLimitBucketKind::ReduceOnlyOrders
-                                                : hft_trader::core::RateLimitBucketKind::Orders;
+        const auto bucket = hasReduceOnlyBucket ? trading_core::RateLimitBucketKind::ReduceOnlyOrders
+                                                : trading_core::RateLimitBucketKind::Orders;
         addRateLimitActionCost(schedule,
                                row,
                                QStringLiteral("rateLimitReduceOnlyLimitOrderCost"),
-                               hft_trader::core::RateLimitActionKind::ReduceOnlyLimitOrder,
+                               trading_core::RateLimitActionKind::ReduceOnlyLimitOrder,
                                bucket);
         addRateLimitActionCost(schedule,
                                row,
                                QStringLiteral("rateLimitReduceOnlyMarketOrderCost"),
-                               hft_trader::core::RateLimitActionKind::ReduceOnlyMarketOrder,
+                               trading_core::RateLimitActionKind::ReduceOnlyMarketOrder,
                                bucket);
     }
     return schedule;

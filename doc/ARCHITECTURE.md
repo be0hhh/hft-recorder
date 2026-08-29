@@ -1,133 +1,66 @@
-# hft-recorder - architecture
+# hft-recorder architecture
 
-## Top-level model
+## Ownership
 
-`hft-recorder` has four domain layers and two support layers.
+Recorder owns capture sessions, canonical corpus files, validation, replay
+views and compression-lab results. It consumes exchange-normalized public data;
+it does not own venue wire grammar, Parser topology, trading execution or
+Backtest accounting.
 
-### Domain layers
+## Direct source graph
 
-1. `Storage / Corpus`
-2. `Market data ingress / Replay / Validation`
-3. `Execution venue`
-4. `Compression Lab + Dashboard / Presentation`
+The CXET root composes Recorder with direct target edges:
 
-### Support layers
+~~~text
+cxet::cxet_lib ────────────────> hft-recorder
+Parser producer-owned client ──> hft-recorder
+hft-compressor targets ────────> hft-recorder
+hftrec corpus contract ────────> hft-recorder / hft-backtest
+~~~
 
-1. `CXETCPP bridge`
-2. `Qt/QML presentation`
+These are compile-time source/target dependencies. They are not installed SDKs,
+copied headers, imported sibling binaries or runtime network hops.
 
-## Storage / corpus layer
+## Layers
 
-The storage layer owns the canonical session truth:
-- append sinks for normalized rows
-- hot in-memory cache over the same row schema
-- backend-specific durable writers such as JSON session storage
+### Capture
 
-Current thin seams:
-- `storage::IHotEventCache`
-- `storage::IStorageBackend`
-- `storage::LiveEventStore`
-- `storage::JsonSessionSink`
+- owns session lifecycle and hard duration/byte limits;
+- receives normalized events through public CXET or Parser-owned contracts;
+- materializes Recorder-owned rows;
+- writes canonical session/corpus outputs;
+- records gaps, drops and terminal seal evidence.
 
-Hot memory is a front-cache, not a separate schema.
+### Corpus
 
-## Capture layer
+- direct Recorder capture uses normalized JSON session files;
+- Parser-wide capture uses the sealed sharded binary corpus;
+- "/mnt/d/recordings" is the active WSL source of truth when present;
+- hot cache and durable storage retain the same event meaning.
 
-The capture layer owns:
-- session lifecycle
-- file creation
-- channel writers
-- manifest accumulation
-- interaction with `CXETCPP`
+### Replay and validation
 
-The capture layer writes only canonical JSON corpus files.
+Readers reconstruct ordered normalized streams for validation, charts,
+compression and Backtest adapters. Missing or inconsistent required input fails
+closed; it is not replaced with a similar stream.
 
-It does not write experimental compressed formats directly.
+### Compression lab
 
-Capture is also the first `market_data::IMarketDataIngress` implementation:
-- it owns CXET callbacks
-- it maps them into recorder-owned normalized rows
-- it exposes a hot event source for presentation without binding the UI to file tailing
+The lab compares zstd, lz4, brotli and xz/lzma baselines with stream-specific
+custom variants. Rankings are per stream family. Every candidate must decode
+losslessly to the canonical corpus meaning.
 
-## Replay and validation layer
+### GUI
 
-This layer loads the canonical corpus and reconstructs ordered normalized event
-streams.
+C++ owns capture, corpus I/O, validation, lab execution and models. QML owns
+presentation and operator interaction; it does not own file or exchange logic.
 
-It is used by:
-- validation views
-- charts
-- compression benchmarks
-- accuracy checks
-- future backtest adapters
+## Public boundary
 
-## Compression lab layer
+Recorder may consume public normalized CXET contracts and the directly compiled
+producer/corpus targets declared by the root graph. It must not include CXET
+"network/", "parse/", "exchanges/" or private runtime internals.
 
-The lab layer runs:
-- baseline compression pipelines
-- custom C++ variants
-- optional Python-side research outputs imported back into reports
-
-The lab layer does not replace the canonical corpus.
-It consumes it.
-
-## Execution layer
-
-Execution and backtest simulation are separate domains from market-data capture.
-
-Current thin seams:
-- `execution::IExecutionVenue`
-- `execution::IExecutionEventSink`
-- `execution::IExecutionEventSource`
-
-Implementations may publish normalized execution events into recorder-owned
-stores without exposing engine internals upstream.
-
-## Qt/QML boundary
-
-The application boundary is:
-- C++ backend for data and logic
-- QML frontend for UI and charts
-
-QML talks to:
-- viewmodels
-- models
-- controller facades
-
-QML never owns:
-- capture logic
-- file I/O
-- benchmark execution
-- ranking logic
-
-## CXETCPP boundary
-
-`hft-recorder` uses only:
-- prebuilt `libcxet_lib.so`
-- public headers
-- public request / stream / run APIs
-
-It must not include:
-- `network/`
-- `parse/`
-- `exchanges/`
-- `runtime/`
-
-## Source tree direction
-
-```text
-src/
-  gui/
-  core/
-    capture/
-    corpus/
-    validation/
-    lab/
-    cxet_bridge/
-    common/
-    metrics/
-  support/
-  variants/
-```
-
-Old CLI-first files remain transitional until fully migrated or deleted.
+Logical streams remain explicit. A live trade stream is not silently replaced
+with a historical aggregate-trade stream, and tri-state/unknown event meaning
+is never fabricated to fit a narrower consumer.

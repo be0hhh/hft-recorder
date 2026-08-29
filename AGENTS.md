@@ -1,6 +1,6 @@
 # Agent rules - hft-recorder
 
-`hft-recorder` is a standalone GUI-first application and research lab over CXETCPP.
+`hft-recorder` is a standalone GUI-first application and research lab over CXET.
 
 ## Project-owned versioning
 
@@ -24,11 +24,15 @@
 
 ## Core contract
 
-- `hft-recorder` is not part of the core CXETCPP library.
-- It consumes CXETCPP as a prebuilt dependency: shared library plus public headers.
-- Do not compile CXETCPP sources inside this repo.
-- Do not use `add_subdirectory(..)` or vendor the parent library source tree here.
-- Do not depend on CXETCPP `network/`, `parse/`, `exchanges/`, or other library internals.
+- `hft-recorder` is not part of the core CXET library.
+- In the CXET superproject it consumes the already-defined public
+  `cxet::cxet_lib`, Parser producer-client, compressor and corpus-contract
+  targets through direct target edges.
+- A standalone Recorder configure may fail with a clear message when the CXET
+  family graph is absent; it must not download, vendor, copy or import sibling
+  family artifacts as a fallback.
+- Do not compile CXET implementation sources inside Recorder or depend on CXET
+  `network/`, `parse/`, `exchanges/`, or other library internals.
 
 ## Current truth
 
@@ -52,7 +56,7 @@
 - Never assume live `trade` equals historical/cold `aggTrade`.
 - Binance FAPI realtime trade capture is a separate logical live stream; historical warmup may use `aggTrade` when that is the configured history source.
 - Keep that distinction explicit in filenames, schema, and benchmark labels.
-- Recorder UI/CLI asks for logical streams only. CXETCPP must choose the real exchange route and fan out one wire message into all requested logical streams when needed.
+- Recorder UI/CLI asks for logical streams only. CXET must choose the real exchange route and fan out one wire message into all requested logical streams when needed.
 - Do not hardcode exchange-specific wire routing in recorder.
 
 ## Research priorities
