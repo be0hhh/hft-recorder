@@ -18,3 +18,19 @@ target_include_directories(hftrec_corpus_contract
         ${CMAKE_CURRENT_LIST_DIR}/../src
 )
 target_compile_features(hftrec_corpus_contract PUBLIC cxx_std_23)
+
+if(CXET_SANITIZER_PROFILE STREQUAL "address-undefined")
+    target_compile_options(hftrec_corpus_contract PRIVATE
+        -O2 -g3 -fsanitize=address,undefined
+        -fsanitize-address-use-after-scope -fno-omit-frame-pointer
+        -fno-optimize-sibling-calls -fno-sanitize-recover=all)
+    target_link_options(hftrec_corpus_contract PRIVATE
+        -fsanitize=address,undefined -fno-omit-frame-pointer
+        -fno-sanitize-recover=all)
+elseif(CXET_SANITIZER_PROFILE STREQUAL "thread")
+    target_compile_options(hftrec_corpus_contract PRIVATE
+        -O2 -g3 -fsanitize=thread -fno-omit-frame-pointer
+        -fno-optimize-sibling-calls)
+    target_link_options(hftrec_corpus_contract PRIVATE
+        -fsanitize=thread -fno-omit-frame-pointer)
+endif()
