@@ -1,0 +1,114 @@
+name: corpus-contract
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PATH: /usr/bin:/bin:/usr/sbin:/sbin
+
+jobs:
+  recorder-corpus-contract:
+    name: recorder-corpus-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Require private CXETCPP checkout key
+        env:
+          CI_CXETCPP_SSH_KEY: ${{ secrets.CI_CXETCPP_SSH_KEY }}
+        run: |
+          if [ -z "$CI_CXETCPP_SSH_KEY" ]; then
+            {
+              echo "### Private root checkout unavailable"
+              echo "CI_CXETCPP_SSH_KEY is required to verify the Recorder corpus contract in the CXETCPP root graph."
+              echo "Pull requests from forks do not receive this secret, so this run cannot provide a passing contract result."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::CI_CXETCPP_SSH_KEY is required for the private CXETCPP root checkout"
+            exit 1
+          fi
+
+      - name: Checkout CXETCPP root and pinned dependencies
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: main
+          ssh-key: ${{ secrets.CI_CXETCPP_SSH_KEY }}
+          submodules: true
+          path: source/CXETCPP
+          persist-credentials: false
+
+      - name: Overlay triggering hft-recorder revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: source/CXETCPP/apps/hft-recorder
+          persist-credentials: false
+
+      - name: Record source revisions
+        run: |
+          root_sha="$(git -C source/CXETCPP rev-parse HEAD)"
+          app_sha="$(git -C source/CXETCPP/apps/hft-recorder rev-parse HEAD)"
+          printf 'CXETCPP root: %s\nhft-recorder overlay: %s\n' "$root_sha" "$app_sha"
+          {
+            echo "### Source revisions"
+            echo "| Source | Commit |"
+            echo "| --- | --- |"
+            printf '| CXETCPP root | %s |\n' "$root_sha"
+            printf '| hft-recorder overlay | %s |\n' "$app_sha"
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '```text'
+            git -C source/CXETCPP submodule status
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install root-graph build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential \
+            clang \
+            cmake \
+            libssl-dev \
+            pkg-config \
+            python3 \
+            ripgrep
+
+      - name: Report CMake and CTest binaries
+        run: |
+          /usr/bin/cmake --version
+          /usr/bin/ctest --version
+
+      - name: Configure portable family graph
+        working-directory: source/CXETCPP
+        run: /usr/bin/cmake --preset clang-ci-family
+
+      - name: Build Recorder corpus consumer contract
+        working-directory: source/CXETCPP
+        run: >-
+          /usr/bin/cmake
+          --build build/modes/clang-ci-family
+          --target hft-backtest-session-loader-tests
+          --parallel "$(nproc)"
+
+      - name: Run Recorder corpus consumer contract
+        working-directory: source/CXETCPP
+        run: >-
+          /usr/bin/ctest
+          --test-dir build/modes/clang-ci-family
+          -R '^hft-backtest-session-loader-tests$'
+          --output-on-failure
+          --no-tests=error
+          --timeout 180

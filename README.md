@@ -1,5 +1,7 @@
 # hft-recorder
 
+[![corpus-contract](https://github.com/be0hhh/hft-recorder/actions/workflows/cpp.yml/badge.svg?branch=main)](https://github.com/be0hhh/hft-recorder/actions/workflows/cpp.yml?query=branch%3Amain)
+
 hft-recorder is the GUI-first capture, corpus, validation and compression-lab
 product in the CXET source family.
 
@@ -78,3 +80,15 @@ generation-crossing input fails closed.
 - "doc/" — product and research documentation.
 
 Start with [doc/README.md](doc/README.md).
+
+## CI coverage
+
+The `corpus-contract` workflow overlays the triggering Recorder revision into
+the private CXETCPP root graph, builds the exact
+`hft-backtest-session-loader-tests` consumer target and runs only that CTest.
+This checks the Recorder-owned corpus contract through its Backtest consumer.
+It does not configure, build or test the full Recorder Qt/QML GUI product.
+
+The root checkout requires the repository secret `CI_CXETCPP_SSH_KEY`. Fork
+pull requests without that secret fail explicitly before checkout and do not
+provide a passing corpus-contract result.
