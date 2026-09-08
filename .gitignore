@@ -20,5 +20,6 @@ build-offline/
 build-offline/
 .env
 .env.*
+!.env.example
 Private_key.env
 Public_key.env
