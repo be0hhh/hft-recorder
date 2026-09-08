@@ -21,7 +21,7 @@ jobs:
   recorder-corpus-contract:
     name: recorder-corpus-contract
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
       - name: Require private CXETCPP checkout key
@@ -81,10 +81,17 @@ jobs:
             build-essential \
             clang \
             cmake \
+            curl \
+            ninja-build \
             libssl-dev \
             pkg-config \
             python3 \
             ripgrep
+
+      - name: Set up pinned LLVM
+        uses: ./source/CXETCPP/.github/actions/setup-toolchain
+        with:
+          source-root: source/CXETCPP
 
       - name: Report CMake and CTest binaries
         run: |

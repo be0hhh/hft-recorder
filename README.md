@@ -71,15 +71,16 @@ generation-crossing input fails closed.
 
 ## Repository map
 
-- "src/core/capture/" — capture lifecycle and normalized sinks;
-- "src/core/corpus/" — canonical corpus readers/writers;
-- "src/core/validation/" — integrity and semantic validation;
-- "src/core/lab/" — compression experiments and reports;
-- "src/gui/" — Qt/QML product;
-- "corpus-contract/" — directly compiled shared corpus contract;
-- "doc/" — product and research documentation.
+- "src/Runtime/include/hftrec/" — Recorder public API;
+- "src/Runtime/src/Capture/" — capture lifecycle and normalized sinks;
+- "src/Runtime/src/corpus/" — canonical corpus readers/writers;
+- "src/Runtime/src/Validation/" — integrity and semantic validation;
+- "src/Lab/src/" — compression experiments and reports;
+- "src/Gui/src/" — Qt/QML product;
+- "src/Contracts/" — directly compiled shared corpus contract;
+- "docs/" — current product documentation; "doc/" retains historical plans and research.
 
-Start with [doc/README.md](doc/README.md).
+Start with [docs/README.md](docs/README.md).
 
 ## CI coverage
 

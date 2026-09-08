@@ -1,0 +1,309 @@
+#include "InstrumentMetadata.hpp"
+
+#include <array>
+#include <limits>
+#include <sstream>
+
+#include "../Common/JsonString.hpp"
+#include "../Common/MiniJsonParser.hpp"
+
+namespace hftrec::corpus {
+
+namespace {
+
+std::optional<std::string> inferQuoteAsset(std::string_view symbol) noexcept {
+    const auto localSep = symbol.rfind('_');
+    if (localSep != std::string_view::npos && localSep + 1u < symbol.size()) {
+        return std::string{symbol.substr(localSep + 1u)};
+    }
+    const auto legacySep = symbol.rfind(':');
+    if (legacySep != std::string_view::npos && legacySep + 1u < symbol.size()) {
+        return std::string{symbol.substr(legacySep + 1u)};
+    }
+    constexpr std::array<std::string_view, 4> kQuotes{
+        "USDT", "USDC", "BUSD", "USD"
+    };
+    for (const auto quote : kQuotes) {
+        if (symbol.size() <= quote.size()) continue;
+        if (symbol.substr(symbol.size() - quote.size()) == quote) {
+            return std::string{quote};
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> inferBaseAsset(std::string_view symbol,
+                                          std::string_view quoteAsset) noexcept {
+    const auto lastSep = symbol.rfind('_');
+    if (lastSep != std::string_view::npos) {
+        const auto firstSep = symbol.find('_');
+        const std::size_t baseBegin = firstSep == lastSep ? 0u : firstSep + 1u;
+        if (baseBegin < lastSep) return std::string{symbol.substr(baseBegin, lastSep - baseBegin)};
+    }
+    const auto lastLegacySep = symbol.rfind(':');
+    if (lastLegacySep != std::string_view::npos) {
+        const auto firstLegacySep = symbol.find(':');
+        const std::size_t baseBegin = firstLegacySep == lastLegacySep ? 0u : firstLegacySep + 1u;
+        if (baseBegin < lastLegacySep) return std::string{symbol.substr(baseBegin, lastLegacySep - baseBegin)};
+    }
+    if (symbol.size() <= quoteAsset.size()) return std::nullopt;
+    return std::string{symbol.substr(0, symbol.size() - quoteAsset.size())};
+}
+
+std::int64_t inferCanonicalBaseMultiplier(std::string_view symbol) noexcept {
+    const auto first = symbol.find('_');
+    if (first == std::string_view::npos ||
+        symbol.find('_', first + 1u) == std::string_view::npos) {
+        return 1;
+    }
+    std::int64_t value = 0;
+    for (std::size_t index = 0u; index < first; ++index) {
+        const char ch = symbol[index];
+        if (ch < '0' || ch > '9' ||
+            value > (std::numeric_limits<std::int64_t>::max() -
+                     static_cast<std::int64_t>(ch - '0')) / 10) {
+            return 1;
+        }
+        value = value * 10 + static_cast<std::int64_t>(ch - '0');
+    }
+    return value > 1 ? value : 1;
+}
+
+std::string inferInstrumentType(std::string_view market) {
+    if (market == "futures" || market == "futures_usd" || market == "swap") return "perpetual_linear_future";
+    if (market == "inverse") return "perpetual_inverse_future";
+    if (market == "spot") return "spot";
+    if (market == "margin") return "margin";
+    return "unknown";
+}
+
+void appendOptionalString(std::ostringstream& out,
+                          std::string_view key,
+                          const std::optional<std::string>& value,
+                          bool trailingComma = true) {
+    out << "  \"" << key << "\": ";
+    if (value.has_value()) out << json::quote(*value);
+    else out << "null";
+    if (trailingComma) out << ',';
+    out << '\n';
+}
+
+void appendOptionalI64(std::ostringstream& out,
+                       std::string_view key,
+                       const std::optional<std::int64_t>& value,
+                       bool trailingComma = true) {
+    out << "  \"" << key << "\": ";
+    if (value.has_value()) out << *value;
+    else out << "null";
+    if (trailingComma) out << ',';
+    out << '\n';
+}
+
+bool parseOptionalString(json::MiniJsonParser& parser, std::optional<std::string>& out) noexcept {
+    if (parser.peek('n')) {
+        if (!parser.skipValue()) return false;
+        out.reset();
+        return true;
+    }
+    std::string value;
+    if (!parser.parseString(value)) return false;
+    out = std::move(value);
+    return true;
+}
+
+bool parseOptionalI64(json::MiniJsonParser& parser, std::optional<std::int64_t>& out) noexcept {
+    if (parser.peek('n')) {
+        if (!parser.skipValue()) return false;
+        out.reset();
+        return true;
+    }
+    std::int64_t value = 0;
+    if (!parser.parseInt64(value)) return false;
+    out = value;
+    return true;
+}
+
+}  // namespace
+
+InstrumentMetadata makeInstrumentMetadata(std::string_view exchange,
+                                          std::string_view market,
+                                          std::string_view symbol) noexcept {
+    InstrumentMetadata metadata{};
+    metadata.exchange = std::string{exchange};
+    metadata.exchangeSource = "capture_config";
+    metadata.market = std::string{market};
+    metadata.marketSource = "capture_config";
+    metadata.symbol = std::string{symbol};
+    metadata.symbolSource = "capture_config";
+    metadata.instrumentType = inferInstrumentType(market);
+    metadata.instrumentTypeSource = "recorder_inference";
+    metadata.priceScaleDigits = 8;
+    metadata.priceScaleDigitsSource = "recorder_default";
+    metadata.qtyScaleDigits = 8;
+    metadata.qtyScaleDigitsSource = "recorder_default";
+    metadata.canonicalBaseMultiplier = inferCanonicalBaseMultiplier(symbol);
+    metadata.nativeBaseMultiplier = 1;
+    metadata.pricePowerOfTenAdjustment = 0;
+    metadata.spotQuantityPowerOfTenAdjustment = 0;
+    metadata.denominationSource = "identity_default";
+
+    const auto quote = inferQuoteAsset(symbol);
+    const auto base = quote.has_value() ? inferBaseAsset(symbol, *quote) : std::nullopt;
+    metadata.quoteAsset = quote;
+    metadata.quoteAssetSource = quote.has_value() ? "symbol_inference" : "unknown";
+    metadata.baseAsset = base;
+    metadata.baseAssetSource = base.has_value() ? "symbol_inference" : "unknown";
+    if ((market == "futures" || market == "futures_usd" || market == "swap" || market == "inverse") && quote.has_value()) {
+        metadata.settlementAsset = quote;
+        metadata.settlementAssetSource = "market_inference";
+    }
+    return metadata;
+}
+
+std::string renderInstrumentMetadataJson(const InstrumentMetadata& metadata) {
+    std::ostringstream out;
+    out << "{\n";
+    out << "  \"schema_version\": " << json::quote(metadata.schemaVersion) << ",\n";
+    out << "  \"exchange\": " << json::quote(metadata.exchange) << ",\n";
+    out << "  \"exchange_source\": " << json::quote(metadata.exchangeSource) << ",\n";
+    out << "  \"market\": " << json::quote(metadata.market) << ",\n";
+    out << "  \"market_source\": " << json::quote(metadata.marketSource) << ",\n";
+    out << "  \"symbol\": " << json::quote(metadata.symbol) << ",\n";
+    out << "  \"symbol_source\": " << json::quote(metadata.symbolSource) << ",\n";
+    out << "  \"instrument_type\": " << json::quote(metadata.instrumentType) << ",\n";
+    out << "  \"instrument_type_source\": " << json::quote(metadata.instrumentTypeSource) << ",\n";
+    appendOptionalString(out, "base_asset", metadata.baseAsset);
+    out << "  \"base_asset_source\": " << json::quote(metadata.baseAssetSource) << ",\n";
+    appendOptionalString(out, "quote_asset", metadata.quoteAsset);
+    out << "  \"quote_asset_source\": " << json::quote(metadata.quoteAssetSource) << ",\n";
+    appendOptionalString(out, "settlement_asset", metadata.settlementAsset);
+    out << "  \"settlement_asset_source\": " << json::quote(metadata.settlementAssetSource) << ",\n";
+    appendOptionalI64(out, "price_scale_digits", metadata.priceScaleDigits);
+    out << "  \"price_scale_digits_source\": " << json::quote(metadata.priceScaleDigitsSource) << ",\n";
+    appendOptionalI64(out, "qty_scale_digits", metadata.qtyScaleDigits);
+    out << "  \"qty_scale_digits_source\": " << json::quote(metadata.qtyScaleDigitsSource) << ",\n";
+    appendOptionalI64(out, "canonical_base_multiplier", metadata.canonicalBaseMultiplier);
+    appendOptionalI64(out, "native_base_multiplier", metadata.nativeBaseMultiplier);
+    appendOptionalI64(out, "price_power_of_ten_adjustment", metadata.pricePowerOfTenAdjustment);
+    appendOptionalI64(out, "spot_quantity_power_of_ten_adjustment", metadata.spotQuantityPowerOfTenAdjustment);
+    appendOptionalI64(out, "denomination_generation", metadata.denominationGeneration);
+    appendOptionalString(out, "denomination_catalog_digest", metadata.denominationCatalogDigest);
+    out << "  \"denomination_source\": " << json::quote(metadata.denominationSource) << ",\n";
+    appendOptionalI64(out, "tick_size_e8", metadata.tickSizeE8);
+    out << "  \"tick_size_source\": " << json::quote(metadata.tickSizeSource) << ",\n";
+    appendOptionalI64(out, "lot_size_e8", metadata.lotSizeE8);
+    out << "  \"lot_size_source\": " << json::quote(metadata.lotSizeSource) << ",\n";
+    appendOptionalI64(out, "contract_base_qty_e8", metadata.contractBaseQtyE8);
+    out << "  \"contract_base_qty_source\": " << json::quote(metadata.contractBaseQtySource) << ",\n";
+    appendOptionalI64(out, "price_basis_qty_e8", metadata.priceBasisQtyE8);
+    out << "  \"price_basis_qty_source\": " << json::quote(metadata.priceBasisQtySource) << ",\n";
+    appendOptionalI64(out, "expiry_utc_ns", metadata.expiryUtcNs);
+    out << "  \"expiry_utc_ns_source\": " << json::quote(metadata.expiryUtcNsSource) << ",\n";
+    appendOptionalString(out, "instrument_status", metadata.instrumentStatus);
+    out << "  \"instrument_status_source\": " << json::quote(metadata.instrumentStatusSource) << ",\n";
+    out << "  \"metadata_source\": " << json::quote(metadata.metadataSource) << ",\n";
+    appendOptionalString(out, "metadata_warning", metadata.metadataWarning, false);
+    out << "}\n";
+    return out.str();
+}
+
+Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata& out) noexcept {
+    json::MiniJsonParser parser{document};
+    InstrumentMetadata parsed{};
+    if (!parser.parseObjectStart()) return Status::CorruptData;
+    if (!parser.peek('}')) {
+        std::string key;
+        do {
+            if (!parser.parseKey(key)) return Status::CorruptData;
+            if (key == "schema_version") {
+                if (!parser.parseString(parsed.schemaVersion)) return Status::CorruptData;
+            } else if (key == "exchange") {
+                if (!parser.parseString(parsed.exchange)) return Status::CorruptData;
+            } else if (key == "exchange_source") {
+                if (!parser.parseString(parsed.exchangeSource)) return Status::CorruptData;
+            } else if (key == "market") {
+                if (!parser.parseString(parsed.market)) return Status::CorruptData;
+            } else if (key == "market_source") {
+                if (!parser.parseString(parsed.marketSource)) return Status::CorruptData;
+            } else if (key == "symbol") {
+                if (!parser.parseString(parsed.symbol)) return Status::CorruptData;
+            } else if (key == "symbol_source") {
+                if (!parser.parseString(parsed.symbolSource)) return Status::CorruptData;
+            } else if (key == "instrument_type") {
+                if (!parser.parseString(parsed.instrumentType)) return Status::CorruptData;
+            } else if (key == "instrument_type_source") {
+                if (!parser.parseString(parsed.instrumentTypeSource)) return Status::CorruptData;
+            } else if (key == "base_asset") {
+                if (!parseOptionalString(parser, parsed.baseAsset)) return Status::CorruptData;
+            } else if (key == "base_asset_source") {
+                if (!parser.parseString(parsed.baseAssetSource)) return Status::CorruptData;
+            } else if (key == "quote_asset") {
+                if (!parseOptionalString(parser, parsed.quoteAsset)) return Status::CorruptData;
+            } else if (key == "quote_asset_source") {
+                if (!parser.parseString(parsed.quoteAssetSource)) return Status::CorruptData;
+            } else if (key == "settlement_asset") {
+                if (!parseOptionalString(parser, parsed.settlementAsset)) return Status::CorruptData;
+            } else if (key == "settlement_asset_source") {
+                if (!parser.parseString(parsed.settlementAssetSource)) return Status::CorruptData;
+            } else if (key == "price_scale_digits") {
+                if (!parseOptionalI64(parser, parsed.priceScaleDigits)) return Status::CorruptData;
+            } else if (key == "price_scale_digits_source") {
+                if (!parser.parseString(parsed.priceScaleDigitsSource)) return Status::CorruptData;
+            } else if (key == "qty_scale_digits") {
+                if (!parseOptionalI64(parser, parsed.qtyScaleDigits)) return Status::CorruptData;
+            } else if (key == "qty_scale_digits_source") {
+                if (!parser.parseString(parsed.qtyScaleDigitsSource)) return Status::CorruptData;
+            } else if (key == "canonical_base_multiplier") {
+                if (!parseOptionalI64(parser, parsed.canonicalBaseMultiplier)) return Status::CorruptData;
+            } else if (key == "native_base_multiplier") {
+                if (!parseOptionalI64(parser, parsed.nativeBaseMultiplier)) return Status::CorruptData;
+            } else if (key == "price_power_of_ten_adjustment") {
+                if (!parseOptionalI64(parser, parsed.pricePowerOfTenAdjustment)) return Status::CorruptData;
+            } else if (key == "spot_quantity_power_of_ten_adjustment") {
+                if (!parseOptionalI64(parser, parsed.spotQuantityPowerOfTenAdjustment)) return Status::CorruptData;
+            } else if (key == "denomination_generation") {
+                if (!parseOptionalI64(parser, parsed.denominationGeneration)) return Status::CorruptData;
+            } else if (key == "denomination_catalog_digest") {
+                if (!parseOptionalString(parser, parsed.denominationCatalogDigest)) return Status::CorruptData;
+            } else if (key == "denomination_source") {
+                if (!parser.parseString(parsed.denominationSource)) return Status::CorruptData;
+            } else if (key == "tick_size_e8") {
+                if (!parseOptionalI64(parser, parsed.tickSizeE8)) return Status::CorruptData;
+            } else if (key == "tick_size_source") {
+                if (!parser.parseString(parsed.tickSizeSource)) return Status::CorruptData;
+            } else if (key == "lot_size_e8") {
+                if (!parseOptionalI64(parser, parsed.lotSizeE8)) return Status::CorruptData;
+            } else if (key == "lot_size_source") {
+                if (!parser.parseString(parsed.lotSizeSource)) return Status::CorruptData;
+            } else if (key == "contract_base_qty_e8") {
+                if (!parseOptionalI64(parser, parsed.contractBaseQtyE8)) return Status::CorruptData;
+            } else if (key == "contract_base_qty_source") {
+                if (!parser.parseString(parsed.contractBaseQtySource)) return Status::CorruptData;
+            } else if (key == "price_basis_qty_e8") {
+                if (!parseOptionalI64(parser, parsed.priceBasisQtyE8)) return Status::CorruptData;
+            } else if (key == "price_basis_qty_source") {
+                if (!parser.parseString(parsed.priceBasisQtySource)) return Status::CorruptData;
+            } else if (key == "expiry_utc_ns") {
+                if (!parseOptionalI64(parser, parsed.expiryUtcNs)) return Status::CorruptData;
+            } else if (key == "expiry_utc_ns_source") {
+                if (!parser.parseString(parsed.expiryUtcNsSource)) return Status::CorruptData;
+            } else if (key == "instrument_status") {
+                if (!parseOptionalString(parser, parsed.instrumentStatus)) return Status::CorruptData;
+            } else if (key == "instrument_status_source") {
+                if (!parser.parseString(parsed.instrumentStatusSource)) return Status::CorruptData;
+            } else if (key == "metadata_source") {
+                if (!parser.parseString(parsed.metadataSource)) return Status::CorruptData;
+            } else if (key == "metadata_warning") {
+                if (!parseOptionalString(parser, parsed.metadataWarning)) return Status::CorruptData;
+            } else {
+                if (!parser.skipValue()) return Status::CorruptData;
+            }
+            if (parser.peek('}')) break;
+        } while (parser.parseComma());
+    }
+    if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
+    out = std::move(parsed);
+    return Status::Ok;
+}
+
+}  // namespace hftrec::corpus

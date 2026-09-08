@@ -1,0 +1,97 @@
+#include <gtest/gtest.h>
+
+#include "../../src/Runtime/src/Capture/Bridge/CxetCaptureBridge.hpp"
+#include "cxet/Primitives/Composite/BookTickerData.hpp"
+#include "cxet/Primitives/Composite/BookTickerRuntimeV1.hpp"
+#include "cxet/Primitives/Composite/OrderBookTapeRuntimeV1.hpp"
+#include "cxet/Primitives/Composite/RuntimeCompatibility.hpp"
+#include "cxet/Primitives/Composite/StreamMeta.hpp"
+#include "cxet/Primitives/Composite/Trade.hpp"
+#include "cxet/Primitives/Composite/TradeRuntimeV1.hpp"
+
+namespace {
+
+TEST(CxetCaptureBridge, RuntimeTradeMatchesCompatibilityTradeCapture) {
+    cxet::composite::StreamMeta meta{};
+    meta.exchangeId.raw = 1u;
+    meta.symbol.copyFrom("BTC_USDT");
+
+    cxet::composite::TradeRuntimeV1 runtime{};
+    runtime.ts.raw = 1'713'168'000'000'000'123ULL;
+    runtime.price.raw = 3'000'100'000'000LL;
+    runtime.qty.raw = 15'000'000LL;
+    runtime.side = Side::Buy();
+
+    const auto runtimeRow = hftrec::cxet_bridge::CxetCaptureBridge::captureTrade(runtime, meta);
+    const auto publicTrade = cxet::composite::compat::materializeTradePublic(runtime, meta);
+
+    EXPECT_EQ(runtimeRow.symbol, publicTrade.symbol.data);
+    EXPECT_EQ(runtimeRow.tsNs, static_cast<std::uint64_t>(publicTrade.ts.raw));
+    EXPECT_EQ(runtimeRow.priceE8, static_cast<std::int64_t>(publicTrade.price.raw));
+    EXPECT_EQ(runtimeRow.qtyE8, static_cast<std::int64_t>(publicTrade.amount.raw));
+    EXPECT_EQ(runtimeRow.sideBuy, static_cast<std::uint8_t>(publicTrade.side.raw) == 1u);
+}
+
+TEST(CxetCaptureBridge, RuntimeBookTickerMatchesCompatibilityBookTickerCapture) {
+    cxet::composite::StreamMeta meta{};
+    meta.exchangeId.raw = 2u;
+    meta.symbol.copyFrom("ETH_USDT");
+
+    cxet::composite::BookTickerRuntimeV1 runtime{};
+    runtime.ts.raw = 1'713'168'000'500'000'456ULL;
+    runtime.bid.px.raw = 200'000'000'000LL;
+    runtime.bid.qty.raw = 50'000'000LL;
+    runtime.ask.px.raw = 200'010'000'000LL;
+    runtime.ask.qty.raw = 60'000'000LL;
+
+    const auto runtimeRow = hftrec::cxet_bridge::CxetCaptureBridge::captureBookTicker(runtime, meta);
+    const auto publicBookTicker = cxet::composite::compat::materializeBookTickerData(runtime, meta);
+
+    EXPECT_EQ(runtimeRow.symbol, publicBookTicker.symbol.data);
+    EXPECT_EQ(runtimeRow.tsNs, static_cast<std::uint64_t>(publicBookTicker.ts.raw));
+    EXPECT_EQ(runtimeRow.bidPriceE8, static_cast<std::int64_t>(publicBookTicker.bidPrice.raw));
+    EXPECT_EQ(runtimeRow.askPriceE8, static_cast<std::int64_t>(publicBookTicker.askPrice.raw));
+    EXPECT_EQ(runtimeRow.bidQtyE8, static_cast<std::int64_t>(publicBookTicker.bidAmount.raw));
+    EXPECT_EQ(runtimeRow.askQtyE8, static_cast<std::int64_t>(publicBookTicker.askAmount.raw));
+    EXPECT_TRUE(runtimeRow.includeBidQty);
+    EXPECT_TRUE(runtimeRow.includeAskQty);
+}
+
+TEST(CxetCaptureBridge, RuntimeOrderBookRestoresRecorderLevelSemantics) {
+    cxet::composite::StreamMeta meta{};
+    meta.exchangeId.raw = 1u;
+    meta.symbol.copyFrom("BTC_USDT");
+
+    cxet::composite::OrderBookTapeRuntimeV1 tape{};
+    cxet::composite::OrderBookTapeSidesRuntimeV1 sides{};
+    TimeNs ts{};
+    ts.raw = 1'713'168'001'000'000'000ULL;
+    Price bidPrice{};
+    bidPrice.raw = 3'000'000'000'000LL;
+    Amount bidQty{};
+    bidQty.raw = 0LL;
+    Price askPrice0{};
+    askPrice0.raw = 3'000'100'000'000LL;
+    Amount askQty0{};
+    askQty0.raw = 15'000'000LL;
+    Price askPrice1{};
+    askPrice1.raw = 3'000'200'000'000LL;
+    Amount askQty1{};
+    askQty1.raw = 25'000'000LL;
+    ASSERT_TRUE(cxet::composite::appendOrderBookTapeTimestamp(tape, ts));
+    ASSERT_TRUE(cxet::composite::appendOrderBookTapePriceQtyWithSide(tape, sides, bidPrice, bidQty, Side::Buy()));
+    ASSERT_TRUE(cxet::composite::appendOrderBookTapePriceQtyWithSide(tape, sides, askPrice0, askQty0, Side::Sell()));
+    ASSERT_TRUE(cxet::composite::appendOrderBookTapePriceQtyWithSide(tape, sides, askPrice1, askQty1, Side::Sell()));
+
+    const auto row = hftrec::cxet_bridge::CxetCaptureBridge::captureOrderBook(tape, sides, meta);
+
+    EXPECT_EQ(row.tsNs, 1'713'168'001'000'000'000ULL);
+    ASSERT_EQ(row.bids.size(), 1u);
+    ASSERT_EQ(row.asks.size(), 2u);
+    EXPECT_EQ(row.bids[0].priceI64, 3'000'000'000'000LL);
+    EXPECT_EQ(row.bids[0].qtyI64, 0LL);
+    EXPECT_EQ(row.bids[0].side, 0);
+    EXPECT_EQ(row.asks[1].side, 1);
+}
+
+}  // namespace

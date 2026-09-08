@@ -89,8 +89,16 @@ done
 _select_compiler() {
     case "$COMPILER" in
         clang)
-            C_COMPILER="$(command -v clang || true)"
-            CXX_COMPILER="$(command -v clang++ || true)"
+            local selected_paths
+            local -a selected_compilers
+            selected_paths="$(cmake -P "$CXETCPP/cmake/CxetToolchain.cmake")" || exit 2
+            mapfile -t selected_compilers <<< "$selected_paths"
+            if [[ ${#selected_compilers[@]} -ne 2 ]]; then
+                echo "ERROR: canonical CXET compiler selector returned an invalid pair." >&2
+                exit 2
+            fi
+            C_COMPILER="${selected_compilers[0]}"
+            CXX_COMPILER="${selected_compilers[1]}"
             ;;
         *)
             echo "ERROR: unsupported compiler '$COMPILER' (expected: clang)" >&2
@@ -139,7 +147,19 @@ _reset_build_dir_for_explicit_compiler() {
     esac
 
     echo ">>> Compiler changed to '$COMPILER' ($CXX_COMPILER); removing $label CMake cache: $resolved"
-    rm -rf "$resolved"
+    if [[ "$resolved" == "$CXETCPP/build" ]]; then
+        # The selected compiler and isolated comparisons live below this root.
+        # A compiler migration must not delete its own driver or another build.
+        if [[ -L "$resolved" ]]; then
+            echo "ERROR: refusing to clean a symlinked CXET build directory." >&2
+            exit 2
+        fi
+        find "$resolved" -mindepth 1 -maxdepth 1 \
+            ! -name toolchains ! -name modes ! -name compiler-baseline \
+            ! -name compiler-candidate ! -name toolchain-evidence -exec rm -rf -- {} +
+    else
+        rm -rf "$resolved"
+    fi
 }
 
 _clear_stale_cmake_cache() {
@@ -214,10 +234,6 @@ _require_linux_build_env() {
     fi
     if ! command -v cmake >/dev/null 2>&1; then
         echo "ERROR: cmake is not installed in the active Linux environment." >&2
-        exit 2
-    fi
-    if ! command -v clang++ >/dev/null 2>&1; then
-        echo "ERROR: clang++ is not installed in the active Linux environment." >&2
         exit 2
     fi
 }
@@ -407,7 +423,7 @@ _install_cxet_force() {
 }
 
 _resolve_cxet_paths() {
-    CXET_INCLUDE="$INSTALL_DIR/include/cxet"
+    CXET_INCLUDE="$INSTALL_DIR/include"
     CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so"
     if ! _valid_shared_lib_file "$CXET_LIB" && _valid_shared_lib_file "$INSTALL_DIR/lib/libcxet_lib.so.5"; then
         CXET_LIB="$INSTALL_DIR/lib/libcxet_lib.so.5"

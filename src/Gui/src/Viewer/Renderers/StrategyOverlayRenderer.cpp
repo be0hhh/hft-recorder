@@ -1,0 +1,68 @@
+#include "StrategyOverlayRenderer.hpp"
+
+#include <algorithm>
+#include <cmath>
+
+#include <QColor>
+#include <QPainter>
+#include <QPen>
+#include <QPointF>
+#include <QPolygonF>
+
+#include "../ColorScheme.hpp"
+#include "../RenderContext.hpp"
+#include "../RenderSnapshot.hpp"
+
+namespace hftrec::gui::viewer::renderers {
+
+void renderStrategyOverlay(const RenderContext& ctx) {
+    if (ctx.s.strategyOrderSegments.empty() && ctx.s.strategyFillMarkers.empty()) return;
+
+    const auto& vp = ctx.s.vp;
+    ctx.p->save();
+
+    ctx.p->setRenderHint(QPainter::Antialiasing, false);
+    for (const auto& segment : ctx.s.strategyOrderSegments) {
+        const qreal y = vp.toY(segment.priceE8);
+        if (y < -2.0 || y > vp.h + 2.0) continue;
+        const qreal x0 = std::clamp(vp.toX(segment.tsStartNs), -8.0, vp.w + 8.0);
+        const qreal x1 = std::clamp(vp.toX(segment.tsEndNs), -8.0, vp.w + 8.0);
+        if (std::abs(x1 - x0) < 1.0) continue;
+
+        QColor color = segment.orderType == kStrategyOrderTypeStopMarket
+            ? stopMarketOrderColor()
+            : (segment.sideBuy ? tradeBuyColor() : tradeSellColor());
+        color.setAlpha(230);
+        QPen pen(color);
+        pen.setWidth(2);
+        pen.setCapStyle(Qt::SquareCap);
+        ctx.p->setPen(pen);
+        ctx.p->drawLine(QPointF{x0, y}, QPointF{x1, y});
+    }
+
+    ctx.p->setRenderHint(QPainter::Antialiasing, true);
+    QPen markerOutline(QColor(0x08, 0x08, 0x08, 0xE0));
+    markerOutline.setWidth(2);
+    markerOutline.setCosmetic(true);
+    ctx.p->setPen(markerOutline);
+    for (const auto& marker : ctx.s.strategyFillMarkers) {
+        const qreal x = vp.toX(marker.tsNs);
+        const qreal y = vp.toY(marker.priceE8);
+        if (x < -12.0 || x > vp.w + 12.0 || y < -12.0 || y > vp.h + 12.0) continue;
+
+        QColor fill = marker.sideBuy ? QColor(0xFF, 0xE6, 0x6D) : QColor(0xC8, 0x5A, 0x12);
+        fill.setAlpha(255);
+        ctx.p->setBrush(fill);
+        QPolygonF triangle;
+        if (marker.sideBuy) {
+            triangle << QPointF{x, y} << QPointF{x - 5.0, y + 9.0} << QPointF{x + 5.0, y + 9.0};
+        } else {
+            triangle << QPointF{x, y} << QPointF{x - 5.0, y - 9.0} << QPointF{x + 5.0, y - 9.0};
+        }
+        ctx.p->drawPolygon(triangle);
+    }
+
+    ctx.p->restore();
+}
+
+}  // namespace hftrec::gui::viewer::renderers

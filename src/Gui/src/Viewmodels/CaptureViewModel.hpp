@@ -1,0 +1,337 @@
+#pragma once
+
+#include <QObject>
+#include <QSettings>
+#include <QString>
+#include <QStringList>
+#include <QTimer>
+#include <QVariantList>
+#include <memory>
+#include <vector>
+
+#include "../../../Runtime/src/Capture/CaptureCoordinator.hpp"
+
+namespace hftrec::gui {
+
+class CaptureViewModel;
+
+namespace detail {
+enum class CaptureRefreshMode;
+struct CaptureBatchSnapshot;
+CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, CaptureRefreshMode mode);
+}
+
+class CaptureViewModel : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QString outputDirectory READ outputDirectory WRITE setOutputDirectory NOTIFY outputDirectoryChanged)
+    Q_PROPERTY(QString envPath READ envPath WRITE setEnvPath NOTIFY envSettingsChanged)
+    Q_PROPERTY(int apiSlot READ apiSlot WRITE setApiSlot NOTIFY envSettingsChanged)
+    Q_PROPERTY(QStringList selectedVenueKeys READ selectedVenueKeys NOTIFY venueChanged)
+    Q_PROPERTY(QVariantList venueChoices READ venueChoices CONSTANT)
+    Q_PROPERTY(QVariantList detailedCandlesVenueChoices READ detailedCandlesVenueChoices CONSTANT)
+    Q_PROPERTY(QString symbolsText READ symbolsText WRITE setSymbolsText NOTIFY symbolsTextChanged)
+    Q_PROPERTY(QString normalizedSymbolsText READ normalizedSymbolsText NOTIFY symbolsTextChanged)
+    Q_PROPERTY(int tradesHistoryWarmupSec READ tradesHistoryWarmupSec WRITE setTradesHistoryWarmupSec NOTIFY tradesHistoryWarmupSecChanged)
+    Q_PROPERTY(QStringList tradesAvailableAliases READ tradesAvailableAliases NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QStringList liquidationsAvailableAliases READ liquidationsAvailableAliases NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QStringList bookTickerAvailableAliases READ bookTickerAvailableAliases NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QStringList orderbookAvailableAliases READ orderbookAvailableAliases NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString tradesRequestPreview READ tradesRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString liquidationsRequestPreview READ liquidationsRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString bookTickerRequestPreview READ bookTickerRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString orderbookRequestPreview READ orderbookRequestPreview NOTIFY requestBuilderChanged)
+    Q_PROPERTY(QString detailedCandlesVenueKey READ detailedCandlesVenueKey WRITE setDetailedCandlesVenueKey NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesExchange READ detailedCandlesExchange WRITE setDetailedCandlesExchange NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesMarket READ detailedCandlesMarket WRITE setDetailedCandlesMarket NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesSymbolsText READ detailedCandlesSymbolsText WRITE setDetailedCandlesSymbolsText NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesLeg1VenueKey READ detailedCandlesLeg1VenueKey WRITE setDetailedCandlesLeg1VenueKey NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesLeg1SymbolsText READ detailedCandlesLeg1SymbolsText WRITE setDetailedCandlesLeg1SymbolsText NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesLeg2VenueKey READ detailedCandlesLeg2VenueKey WRITE setDetailedCandlesLeg2VenueKey NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesLeg2SymbolsText READ detailedCandlesLeg2SymbolsText WRITE setDetailedCandlesLeg2SymbolsText NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesTimeframe READ detailedCandlesTimeframe WRITE setDetailedCandlesTimeframe NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(int detailedCandlesLimit READ detailedCandlesLimit WRITE setDetailedCandlesLimit NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesMode READ detailedCandlesMode WRITE setDetailedCandlesMode NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QVariantList detailedCandlesModeChoices READ detailedCandlesModeChoices CONSTANT)
+    Q_PROPERTY(int detailedCandlesBasisMaxFutures READ detailedCandlesBasisMaxFutures WRITE setDetailedCandlesBasisMaxFutures NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QVariantList detailedCandlesBasisCandidateRows READ detailedCandlesBasisCandidateRows NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesBasisStatus READ detailedCandlesBasisStatus NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesEndMode READ detailedCandlesEndMode WRITE setDetailedCandlesEndMode NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesEndUtcText READ detailedCandlesEndUtcText WRITE setDetailedCandlesEndUtcText NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QVariantList detailedCandlesEndModeChoices READ detailedCandlesEndModeChoices NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesResolvedEndText READ detailedCandlesResolvedEndText NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QVariantList detailedCandlesTimeframeChoices READ detailedCandlesTimeframeChoices NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesLimitHint READ detailedCandlesLimitHint NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesLimitWarning READ detailedCandlesLimitWarning NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString detailedCandlesRequestPreview READ detailedCandlesRequestPreview NOTIFY detailedCandlesChanged)
+    Q_PROPERTY(QString sessionId READ sessionId NOTIFY sessionStateChanged)
+    Q_PROPERTY(QString sessionPath READ sessionPath NOTIFY sessionStateChanged)
+    Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
+    Q_PROPERTY(QVariantList activeLiveSources READ activeLiveSources NOTIFY activeLiveSourcesChanged)
+    Q_PROPERTY(bool captureAvailable READ captureAvailable CONSTANT)
+    Q_PROPERTY(QString captureUnavailableReason READ captureUnavailableReason CONSTANT)
+    Q_PROPERTY(bool sessionOpen READ sessionOpen NOTIFY sessionStateChanged)
+    Q_PROPERTY(bool tradesRunning READ tradesRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(bool liquidationsRunning READ liquidationsRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(bool bookTickerRunning READ bookTickerRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(bool orderbookRunning READ orderbookRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(bool markPriceRunning READ markPriceRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(bool indexPriceRunning READ indexPriceRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(bool fundingRunning READ fundingRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(bool priceLimitRunning READ priceLimitRunning NOTIFY channelStateChanged)
+    Q_PROPERTY(qulonglong tradesCount READ tradesCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong liquidationsCount READ liquidationsCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong bookTickerCount READ bookTickerCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong markPriceCount READ markPriceCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong indexPriceCount READ indexPriceCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong fundingCount READ fundingCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong priceLimitCount READ priceLimitCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong candlesCount READ candlesCount NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong candles2Count READ candles2Count NOTIFY countersChanged)
+    Q_PROPERTY(qulonglong depthCount READ depthCount NOTIFY countersChanged)
+
+  public:
+    explicit CaptureViewModel(QObject* parent = nullptr);
+
+    QString outputDirectory() const;
+    QString envPath() const;
+    int apiSlot() const noexcept;
+    QStringList selectedVenueKeys() const;
+    QVariantList venueChoices() const;
+    QVariantList detailedCandlesVenueChoices() const;
+    QString symbolsText() const;
+    QString normalizedSymbolsText() const;
+    int tradesHistoryWarmupSec() const noexcept;
+    QStringList tradesAvailableAliases() const;
+    QStringList liquidationsAvailableAliases() const;
+    QStringList bookTickerAvailableAliases() const;
+    QStringList orderbookAvailableAliases() const;
+    QString tradesRequestPreview() const;
+    QString liquidationsRequestPreview() const;
+    QString bookTickerRequestPreview() const;
+    QString orderbookRequestPreview() const;
+    QString detailedCandlesVenueKey() const;
+    QString detailedCandlesExchange() const;
+    QString detailedCandlesMarket() const;
+    QString detailedCandlesSymbolsText() const;
+    QString detailedCandlesLeg1VenueKey() const;
+    QString detailedCandlesLeg1SymbolsText() const;
+    QString detailedCandlesLeg2VenueKey() const;
+    QString detailedCandlesLeg2SymbolsText() const;
+    QString detailedCandlesTimeframe() const;
+    int detailedCandlesLimit() const noexcept;
+    QString detailedCandlesMode() const;
+    QVariantList detailedCandlesModeChoices() const;
+    int detailedCandlesBasisMaxFutures() const noexcept;
+    QVariantList detailedCandlesBasisCandidateRows() const;
+    QString detailedCandlesBasisStatus() const;
+    QString detailedCandlesEndMode() const;
+    QString detailedCandlesEndUtcText() const;
+    QVariantList detailedCandlesEndModeChoices() const;
+    QString detailedCandlesResolvedEndText() const;
+    QVariantList detailedCandlesTimeframeChoices() const;
+    QString detailedCandlesLimitHint() const;
+    QString detailedCandlesLimitWarning() const;
+    QString detailedCandlesRequestPreview() const;
+    QString sessionId() const;
+    QString sessionPath() const;
+    QString statusText() const;
+    QVariantList activeLiveSources() const;
+    bool captureAvailable() const noexcept;
+    QString captureUnavailableReason() const;
+    bool sessionOpen() const;
+    bool tradesRunning() const;
+    bool liquidationsRunning() const;
+    bool bookTickerRunning() const;
+    bool orderbookRunning() const;
+    bool markPriceRunning() const;
+    bool indexPriceRunning() const;
+    bool fundingRunning() const;
+    bool priceLimitRunning() const;
+    qulonglong tradesCount() const;
+    qulonglong liquidationsCount() const;
+    qulonglong bookTickerCount() const;
+    qulonglong markPriceCount() const;
+    qulonglong indexPriceCount() const;
+    qulonglong fundingCount() const;
+    qulonglong priceLimitCount() const;
+    qulonglong candlesCount() const;
+    qulonglong candles2Count() const;
+    qulonglong depthCount() const;
+
+    Q_INVOKABLE void setOutputDirectory(const QString& outputDirectory);
+    Q_INVOKABLE void setEnvPath(const QString& envPath);
+    Q_INVOKABLE void setApiSlot(int apiSlot);
+    Q_INVOKABLE void toggleVenue(const QString& venueKey);
+    Q_INVOKABLE bool isVenueSelected(const QString& venueKey) const;
+    Q_INVOKABLE QString venueSymbolsText(const QString& venueKey) const;
+    Q_INVOKABLE void setVenueSymbolsText(const QString& venueKey, const QString& symbolsText);
+    Q_INVOKABLE QString venueSymbolPlaceholder(const QString& venueKey) const;
+    Q_INVOKABLE void setSymbolsText(const QString& symbolsText);
+    Q_INVOKABLE void applyGlobalSymbolsToVenues();
+    Q_INVOKABLE void setTradesHistoryWarmupSec(int seconds);
+    Q_INVOKABLE void setDetailedCandlesVenueKey(const QString& venueKey);
+    Q_INVOKABLE void setDetailedCandlesExchange(const QString& exchange);
+    Q_INVOKABLE void setDetailedCandlesMarket(const QString& market);
+    Q_INVOKABLE void setDetailedCandlesSymbolsText(const QString& symbolsText);
+    Q_INVOKABLE void setDetailedCandlesLeg1VenueKey(const QString& venueKey);
+    Q_INVOKABLE void setDetailedCandlesLeg1SymbolsText(const QString& symbolsText);
+    Q_INVOKABLE void setDetailedCandlesLeg2VenueKey(const QString& venueKey);
+    Q_INVOKABLE void setDetailedCandlesLeg2SymbolsText(const QString& symbolsText);
+    Q_INVOKABLE void setDetailedCandlesTimeframe(const QString& timeframe);
+    Q_INVOKABLE void setDetailedCandlesLimit(int limit);
+    Q_INVOKABLE void setDetailedCandlesMode(const QString& mode);
+    Q_INVOKABLE void setDetailedCandlesBasisMaxFutures(int maxFutures);
+    Q_INVOKABLE void refreshDetailedCandlesBasisCandidates();
+    Q_INVOKABLE void setDetailedCandlesBasisCandidateEnabled(int index, bool enabled);
+    Q_INVOKABLE void setDetailedCandlesEndMode(const QString& mode);
+    Q_INVOKABLE void setDetailedCandlesEndUtcText(const QString& text);
+    Q_INVOKABLE QVariantList detailedCandlesSymbolSuggestions(const QString& venueKey,
+                                                              const QString& query,
+                                                              const QString& anchorVenueKey,
+                                                              const QString& anchorSymbolText) const;
+    Q_INVOKABLE void applyDetailedCandlesSymbolSuggestion(int leg, const QString& symbol);
+    Q_INVOKABLE void toggleAlias(const QString& channel, const QString& alias);
+    Q_INVOKABLE bool isAliasSelected(const QString& channel, const QString& alias) const;
+    Q_INVOKABLE bool isRequiredAlias(const QString& channel, const QString& alias) const;
+    Q_INVOKABLE QString aliasDisplayText(const QString& channel, const QString& alias) const;
+    Q_INVOKABLE QString channelWeightSummary(const QString& channel) const;
+    Q_INVOKABLE bool startTrades();
+    Q_INVOKABLE void stopTrades();
+    Q_INVOKABLE bool startTradesHistory();
+    Q_INVOKABLE bool startLiquidations();
+    Q_INVOKABLE void stopLiquidations();
+    Q_INVOKABLE bool startBookTicker();
+    Q_INVOKABLE void stopBookTicker();
+    Q_INVOKABLE bool startCandles();
+    Q_INVOKABLE bool startDetailedCandles();
+    Q_INVOKABLE bool startDetailedCandlesBasisChain();
+    Q_INVOKABLE bool startOrderbook();
+    Q_INVOKABLE void stopOrderbook();
+    Q_INVOKABLE bool startMarkPrice();
+    Q_INVOKABLE void stopMarkPrice();
+    Q_INVOKABLE bool startIndexPrice();
+    Q_INVOKABLE void stopIndexPrice();
+    Q_INVOKABLE bool startFunding();
+    Q_INVOKABLE void stopFunding();
+    Q_INVOKABLE bool startPriceLimit();
+    Q_INVOKABLE void stopPriceLimit();
+    Q_INVOKABLE bool startOpenInterest();
+    Q_INVOKABLE bool startAllChannels();
+    Q_INVOKABLE void stopAllChannels();
+    Q_INVOKABLE void finalizeSession();
+    Q_INVOKABLE void refreshStats();
+
+  signals:
+    void outputDirectoryChanged();
+    void envSettingsChanged();
+    void venueChanged();
+    void symbolsTextChanged();
+    void tradesHistoryWarmupSecChanged();
+    void requestBuilderChanged();
+    void detailedCandlesChanged();
+    void sessionStateChanged();
+    void statusTextChanged();
+    void activeLiveSourcesChanged();
+    void channelStateChanged();
+    void countersChanged();
+
+  private:
+    friend detail::CaptureBatchSnapshot detail::collectBatchSnapshot(const CaptureViewModel& viewModel, detail::CaptureRefreshMode mode);
+
+    struct CoordinatorEntry {
+        capture::CaptureConfig config{};
+        std::unique_ptr<capture::CaptureCoordinator> coordinator{};
+    };
+
+    std::vector<capture::CaptureConfig> makeConfigs() const;
+    QStringList* selectedAliasesForChannel_(const QString& channel);
+    const QStringList* selectedAliasesForChannel_(const QString& channel) const;
+    const QStringList* availableAliasesForChannel_(const QString& channel) const;
+    bool ensureCoordinatorBatch_();
+    bool reconcileCoordinatorBatch_();
+    void reconcileActiveChannels_();
+    void registerLiveSources_();
+    void abortCoordinatorBatch_(const QString& fallbackStatus);
+    void clearCoordinatorBatch_();
+    bool anyChannelRunning_() const noexcept;
+    void refreshState(detail::CaptureRefreshMode mode);
+    void setStatusText(const QString& statusText);
+    void setStatusFromStatus(hftrec::Status status, const QString& okText);
+    QString joinCoordinatorErrors_() const;
+    void publishActiveLiveSources_();
+    void loadSettings_();
+    void saveSettings_();
+
+    std::vector<CoordinatorEntry> coordinators_{};
+    QTimer refreshTimer_{};
+    QString outputDirectory_{QStringLiteral("/mnt/d/recordings")};
+    QString envPath_{"./.env"};
+    int apiSlot_{1};
+    QStringList selectedVenueKeys_{
+        QStringLiteral("binance_futures"),
+        QStringLiteral("binance_spot"),
+        QStringLiteral("bybit_futures"),
+        QStringLiteral("kucoin_futures"),
+        QStringLiteral("gate_futures"),
+        QStringLiteral("bitget_futures"),
+    };
+    QStringList venueSymbolsTexts_{};
+    QString symbolsText_{"ETH_USDT"};
+    int tradesHistoryWarmupSec_{300};
+    QString detailedCandlesVenueKey_{"binance_futures"};
+    QString detailedCandlesExchange_{"binance"};
+    QString detailedCandlesMarket_{"futures"};
+    QString detailedCandlesSymbolsText_{"BTC_USDT"};
+    QString detailedCandlesLeg2VenueKey_{"binance_spot"};
+    QString detailedCandlesLeg2SymbolsText_{};
+    QString detailedCandlesTimeframe_{"1m"};
+    int detailedCandlesLimit_{5000};
+    QString detailedCandlesMode_{"pair"};
+    int detailedCandlesBasisMaxFutures_{10};
+    QVariantList detailedCandlesBasisCandidateRows_{};
+    QString detailedCandlesBasisStatus_{};
+    QString detailedCandlesEndMode_{"smart"};
+    QString detailedCandlesEndUtcText_{"2026-06-19 20:45:00Z"};
+    QStringList tradesAvailableAliases_{};
+    QStringList liquidationsAvailableAliases_{};
+    QStringList bookTickerAvailableAliases_{};
+    QStringList orderbookAvailableAliases_{};
+    QStringList selectedTradesAliases_{};
+    QStringList selectedLiquidationsAliases_{};
+    QStringList selectedBookTickerAliases_{};
+    QStringList selectedOrderbookAliases_{};
+    QString statusText_{"Ready to capture symbols into canonical JSON session folders"};
+    QString lastSkippedChannelsSummary_{};
+    QVariantList activeLiveSources_{};
+    QString lastSessionId_{};
+    QString lastSessionPath_{};
+    bool lastTradesRunning_{false};
+    bool lastLiquidationsRunning_{false};
+    bool lastBookTickerRunning_{false};
+    bool lastOrderbookRunning_{false};
+    bool lastMarkPriceRunning_{false};
+    bool lastIndexPriceRunning_{false};
+    bool lastFundingRunning_{false};
+    bool lastPriceLimitRunning_{false};
+    bool desiredTradesRunning_{false};
+    bool desiredLiquidationsRunning_{false};
+    bool desiredBookTickerRunning_{false};
+    bool desiredOrderbookRunning_{false};
+    bool desiredMarkPriceRunning_{false};
+    bool desiredIndexPriceRunning_{false};
+    bool desiredFundingRunning_{false};
+    bool desiredPriceLimitRunning_{false};
+    qulonglong lastTradesCount_{0};
+    qulonglong lastLiquidationsCount_{0};
+    qulonglong lastBookTickerCount_{0};
+    qulonglong lastMarkPriceCount_{0};
+    qulonglong lastIndexPriceCount_{0};
+    qulonglong lastFundingCount_{0};
+    qulonglong lastPriceLimitCount_{0};
+    qulonglong lastCandlesCount_{0};
+    qulonglong lastCandles2Count_{0};
+    qulonglong lastDepthCount_{0};
+    QSettings settings_{};
+};
+
+}  // namespace hftrec::gui

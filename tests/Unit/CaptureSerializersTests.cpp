@@ -1,0 +1,108 @@
+#include <gtest/gtest.h>
+
+#include <string>
+
+#include "CapturedArrivalTestData.hpp"
+#include "../../src/Runtime/src/Capture/JsonSerializers.hpp"
+#include "../../src/Runtime/src/Replay/EventRows.hpp"
+
+namespace {
+
+using hftrec::capture::renderBookTickerJsonLine;
+using hftrec::capture::renderDepthRleSidecarJsonLine;
+using hftrec::capture::renderDepthTapeJsonLine;
+using hftrec::capture::renderSnapshotJson;
+using hftrec::capture::renderTradeJsonLine;
+using hftrec::replay::BookTickerRow;
+using hftrec::replay::DepthRow;
+using hftrec::replay::PricePair;
+using hftrec::replay::SnapshotDocument;
+using hftrec::replay::TradeRow;
+namespace captured = hftrec::test_support;
+
+TEST(CaptureSerializers, TradeLineContainsKeyFields) {
+    TradeRow ev{};
+    ev.symbol = "BTC_USDT";
+    ev.exchange = "binance";
+    ev.market = "futures_usd";
+    ev.priceE8 = 3'000'100'000'000LL;
+    ev.qtyE8 = 10'000'000LL;
+    ev.quoteQtyE8 = 30'001'000'000LL;
+    ev.side = 1;
+    ev.tsNs = 1'713'168'000'000'000'000LL;
+    ev.captureSeq = 7;
+    ev.ingestSeq = 11;
+    ev.arrival = captured::applicationArrival(11, ev.tsNs);
+
+    EXPECT_EQ(renderTradeJsonLine(ev),
+              "[3000100000000,10000000,1,1713168000000000000,0,0,0,30001000000,0,\"BTC_USDT\",\"binance\",\"futures_usd\",7,11," +
+                  captured::arrivalTail(11, ev.tsNs) + "]");
+}
+
+TEST(CaptureSerializers, BookTickerLineContainsKeyFields) {
+    BookTickerRow ev{};
+    ev.eventId = 17;
+    ev.symbol = "ETH_USDT";
+    ev.exchange = "binance";
+    ev.market = "futures_usd";
+    ev.bidPriceE8 = 200'000'000'000LL;
+    ev.bidQtyE8 = 50'000'000LL;
+    ev.askPriceE8 = 200'010'000'000LL;
+    ev.askQtyE8 = 60'000'000LL;
+    ev.tsNs = 1'713'168'000'500'000'000LL;
+    ev.captureSeq = 3;
+    ev.ingestSeq = 12;
+    ev.arrival = captured::applicationArrival(12, ev.tsNs);
+
+    EXPECT_EQ(renderBookTickerJsonLine(ev),
+              "[17,200000000000,50000000,200010000000,60000000,1713168000500000000,\"ETH_USDT\",\"binance\",\"futures_usd\",3,12," +
+                  captured::arrivalTail(12, ev.tsNs) + "]");
+}
+
+TEST(CaptureSerializers, DepthTapeLineContainsTaggedTimestampAndPriceQtyWords) {
+    DepthRow delta{};
+    delta.eventId = 23;
+    delta.tsNs = 1'713'168'000'750'000'000LL;
+    delta.captureSeq = 3;
+    delta.ingestSeq = 12;
+    delta.arrival = captured::applicationArrival(12, delta.tsNs);
+    delta.levels = {
+        PricePair{3'000'000'000'000LL, 25'000'000LL, 0},
+        PricePair{3'000'100'000'000LL, 15'000'000LL, 1},
+    };
+
+    EXPECT_EQ(renderDepthTapeJsonLine(delta),
+              "[23,10936540037604775808,3,12," +
+                  captured::arrivalTail(12, delta.tsNs) +
+                  ",3000000000000,25000000,3000100000000,15000000]");
+}
+
+TEST(CaptureSerializers, DepthRleSidecarContainsOnlyTaggedTimestampAndSideRuns) {
+    DepthRow delta{};
+    delta.eventId = 23;
+    delta.tsNs = 1'713'168'000'750'000'000LL;
+    delta.levels = {
+        PricePair{3'000'000'000'000LL, 25'000'000LL, 0},
+        PricePair{2'999'900'000'000LL, 10'000'000LL, 0},
+        PricePair{3'000'100'000'000LL, 15'000'000LL, 1},
+        PricePair{3'000'200'000'000LL, 12'000'000LL, 1},
+        PricePair{2'999'800'000'000LL, 7'000'000LL, 0},
+    };
+
+    EXPECT_EQ(renderDepthRleSidecarJsonLine(delta),
+              "[23,10936540037604775808,0,2,1,2,0,1]");
+}
+
+TEST(CaptureSerializers, SnapshotJsonContainsOnlyLevelsAndTimestamp) {
+    SnapshotDocument snap{};
+    snap.tsNs = 1'713'168'000'000'000'000LL;
+    snap.levels = {
+        PricePair{3'000'000'000'000LL, 100'000'000LL, 0},
+        PricePair{3'000'100'000'000LL, 80'000'000LL, 1},
+    };
+
+    EXPECT_EQ(renderSnapshotJson(snap),
+              "[[3000000000000,100000000,0],[3000100000000,80000000,1],1713168000000000000]\n");
+}
+
+}  // namespace

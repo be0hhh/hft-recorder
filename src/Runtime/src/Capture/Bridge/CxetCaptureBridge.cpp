@@ -1,0 +1,167 @@
+#include "CxetCaptureBridge.hpp"
+
+#include "cxet/Primitives/Composite/BookTickerData.hpp"
+#include "cxet/Primitives/Composite/BookTickerRuntimeV1.hpp"
+#include "cxet/Primitives/Composite/LiquidationEvent.hpp"
+#include "cxet/Primitives/Composite/OrderBookSnapshot.hpp"
+#include "cxet/Primitives/Composite/OrderBookTapeRuntimeV1.hpp"
+#include "cxet/Primitives/Composite/RuntimeCompatibility.hpp"
+#include "cxet/Primitives/Composite/StreamMeta.hpp"
+#include "cxet/Primitives/Composite/Trade.hpp"
+#include "cxet/Primitives/Composite/TradeRuntimeV1.hpp"
+
+namespace hftrec::cxet_bridge {
+
+namespace {
+
+CapturedTradeRow makeCapturedTradeRow(const cxet::composite::TradePublic& trade) {
+    CapturedTradeRow row{};
+    row.symbol = trade.symbol.data;
+    row.exchangeId = static_cast<std::uint64_t>(trade.exchangeId.raw);
+    row.tradeId = static_cast<std::uint64_t>(trade.id.raw);
+    row.tsNs = static_cast<std::uint64_t>(trade.ts.raw);
+    row.priceE8 = static_cast<std::int64_t>(trade.price.raw);
+    row.qtyE8 = static_cast<std::int64_t>(trade.amount.raw);
+    row.firstTradeId = static_cast<std::uint64_t>(trade.firstTradeId.raw);
+    row.lastTradeId = static_cast<std::uint64_t>(trade.lastTradeId.raw);
+    row.quoteQtyE8 = static_cast<std::int64_t>(trade.quoteAmount.raw);
+    row.side = static_cast<std::int64_t>(trade.side.raw);
+    row.isBuyerMaker = trade.isBuyerMaker == canon::TriState::True;
+    row.sideBuy = static_cast<std::uint8_t>(trade.side.raw) == 1u;
+    return row;
+}
+
+CapturedBookTickerRow makeCapturedBookTickerRow(const cxet::composite::BookTickerData& bookTicker,
+                                                bool includeBidQty,
+                                                bool includeAskQty) {
+    CapturedBookTickerRow row{};
+    row.symbol = bookTicker.symbol.data;
+    row.exchangeId = static_cast<std::uint64_t>(bookTicker.exchangeId.raw);
+    row.tsNs = static_cast<std::uint64_t>(bookTicker.ts.raw);
+    row.bidPriceE8 = static_cast<std::int64_t>(bookTicker.bidPrice.raw);
+    row.askPriceE8 = static_cast<std::int64_t>(bookTicker.askPrice.raw);
+    row.bidQtyE8 = static_cast<std::int64_t>(bookTicker.bidAmount.raw);
+    row.askQtyE8 = static_cast<std::int64_t>(bookTicker.askAmount.raw);
+    row.includeBidQty = includeBidQty;
+    row.includeAskQty = includeAskQty;
+    return row;
+}
+
+}  // namespace
+
+Status CxetCaptureBridge::initialize() noexcept {
+    return Status::Ok;
+}
+
+CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::composite::TradeRuntimeV1& trade,
+                                                 const cxet::composite::StreamMeta& meta) {
+    CapturedTradeRow row = makeCapturedTradeRow(cxet::composite::compat::materializeTradePublic(trade, meta));
+    row.tradeId = trade.eventId.raw;
+    return row;
+}
+
+CapturedBookTickerRow CxetCaptureBridge::captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
+                                                           const cxet::composite::StreamMeta& meta) {
+    CapturedBookTickerRow row = makeCapturedBookTickerRow(
+        cxet::composite::compat::materializeBookTickerData(bookTicker, meta),
+        true,
+        true);
+    row.eventId = bookTicker.eventId.raw;
+    return row;
+}
+
+CapturedLiquidationRow CxetCaptureBridge::captureLiquidation(const cxet::composite::LiquidationEvent& event) {
+    CapturedLiquidationRow row{};
+    row.symbol = event.symbol.data;
+    row.exchangeId = static_cast<std::uint64_t>(event.exchangeId.raw);
+    row.tsNs = static_cast<std::uint64_t>(event.ts.raw);
+    row.priceE8 = static_cast<std::int64_t>(event.price.raw);
+    row.qtyE8 = static_cast<std::int64_t>(event.amount.raw);
+    row.avgPriceE8 = static_cast<std::int64_t>(event.avgPrice.raw);
+    row.filledQtyE8 = static_cast<std::int64_t>(event.filledAmount.raw);
+    row.side = static_cast<std::int64_t>(event.side.raw);
+    row.sideBuy = static_cast<std::uint8_t>(event.side.raw) == 1u;
+    row.orderType = static_cast<std::int64_t>(event.orderType);
+    row.timeInForce = static_cast<std::int64_t>(event.timeInForce);
+    row.status = static_cast<std::int64_t>(event.orderStatus);
+    row.sourceMode = static_cast<std::int64_t>(event.sourceMode);
+    return row;
+}
+
+CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot) {
+    CapturedOrderBookRow row{};
+    row.tsNs = static_cast<std::uint64_t>(snapshot.ts.raw);
+    row.bids.reserve(snapshot.levelCount.raw);
+    row.asks.reserve(snapshot.levelCount.raw);
+    for (std::uint32_t i = 0; i < snapshot.levelCount.raw; ++i) {
+        const auto& level = snapshot.levels[i];
+        if (static_cast<std::uint8_t>(level.side.raw) == 1u) {
+            row.bids.push_back(CapturedLevel{
+                static_cast<std::int64_t>(level.price.raw),
+                static_cast<std::int64_t>(level.qty.raw),
+                0
+            });
+        } else {
+            row.asks.push_back(CapturedLevel{
+                static_cast<std::int64_t>(level.price.raw),
+                static_cast<std::int64_t>(level.qty.raw),
+                1
+            });
+        }
+    }
+    return row;
+}
+
+CapturedOrderBookRow CxetCaptureBridge::captureOrderBook(const cxet::composite::OrderBookTapeRuntimeV1& tape,
+                                                          const cxet::composite::OrderBookTapeSidesRuntimeV1& sides,
+                                                          const cxet::composite::StreamMeta& meta) {
+    (void)meta;
+    CapturedOrderBookRow row{};
+    row.eventId = tape.eventId.raw;
+    row.tsNs = static_cast<std::uint64_t>(cxet::composite::orderBookTapeTimestamp(tape).raw);
+    const std::uint32_t wordCount = tape.wordCount.raw < cxet::composite::kMaxOrderBookTapeWords
+        ? tape.wordCount.raw
+        : static_cast<std::uint32_t>(cxet::composite::kMaxOrderBookTapeWords);
+    const std::uint32_t sideCapacity = static_cast<std::uint32_t>(sides.sides.size());
+    const std::uint32_t sideCount = sides.sideCount.raw < sideCapacity
+        ? sides.sideCount.raw
+        : sideCapacity;
+    row.bids.reserve(sideCount);
+    row.asks.reserve(sideCount);
+    std::uint32_t sideIndex = 0u;
+    for (std::uint32_t wordIndex = 0u; wordIndex + 1u < wordCount && sideIndex < sideCount;) {
+        const std::uint64_t priceWord = tape.words[wordIndex++];
+        if (cxet::composite::isOrderBookTapeTimestampWord(priceWord)) continue;
+        const std::uint64_t qtyWord = tape.words[wordIndex++];
+        if (cxet::composite::isOrderBookTapeTimestampWord(qtyWord)) continue;
+        const auto side = sides.sides[sideIndex++];
+        if (side == 1u) {
+            row.bids.push_back(CapturedLevel{
+                static_cast<std::int64_t>(priceWord),
+                static_cast<std::int64_t>(qtyWord),
+                0
+            });
+        } else {
+            row.asks.push_back(CapturedLevel{
+                static_cast<std::int64_t>(priceWord),
+                static_cast<std::int64_t>(qtyWord),
+                1
+            });
+        }
+    }
+    return row;
+}
+
+CaptureFailureEvent CxetCaptureBridge::makeFailure(CaptureFailureKind kind,
+                                                   std::string channel,
+                                                   std::string detail,
+                                                   bool recoverable) noexcept {
+    CaptureFailureEvent event{};
+    event.kind = kind;
+    event.channel = std::move(channel);
+    event.detail = std::move(detail);
+    event.recoverable = recoverable;
+    return event;
+}
+
+}  // namespace hftrec::cxet_bridge

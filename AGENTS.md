@@ -44,12 +44,12 @@
 
 ## Current work priorities
 
-1. `src/core/capture/`
-2. `src/core/corpus/`
-3. `src/core/validation/`
-4. `src/gui/`
-5. `src/core/lab/`
-6. `src/variants/`
+1. `src/Runtime/src/Capture/`
+2. `src/Runtime/src/corpus/`
+3. `src/Runtime/src/Validation/`
+4. `src/Gui/src/`
+5. `src/Lab/src/`
+6. `src/Lab/Variants/`
 
 ## Stream semantics
 

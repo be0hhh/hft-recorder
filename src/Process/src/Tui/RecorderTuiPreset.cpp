@@ -1,0 +1,492 @@
+#include "RecorderTuiPreset.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <charconv>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+#include <system_error>
+
+#if HFTREC_WITH_CXET
+#include "cxet/Api/Resolve/LocalSymbolValidation.hpp"
+#endif
+
+namespace hftrec::tui {
+
+namespace {
+
+std::string trim(std::string_view text) {
+    std::size_t begin = 0;
+    while (begin < text.size() && std::isspace(static_cast<unsigned char>(text[begin]))) ++begin;
+    std::size_t end = text.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(text[end - 1u]))) --end;
+    return std::string{text.substr(begin, end - begin)};
+}
+
+std::string lower(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (char ch : text) {
+        out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+    return out;
+}
+
+bool parseInt64(std::string_view text, std::int64_t& out) noexcept {
+    const auto* first = text.data();
+    const auto* last = text.data() + text.size();
+    std::int64_t value = 0;
+    const auto result = std::from_chars(first, last, value);
+    if (result.ec != std::errc{} || result.ptr != last) return false;
+    out = value;
+    return true;
+}
+
+bool parseInt(std::string_view text, int& out) noexcept {
+    const auto* first = text.data();
+    const auto* last = text.data() + text.size();
+    int value = 0;
+    const auto result = std::from_chars(first, last, value);
+    if (result.ec != std::errc{} || result.ptr != last) return false;
+    out = value;
+    return true;
+}
+
+std::vector<std::string> splitCsv(std::string_view text) {
+    std::vector<std::string> out;
+    std::size_t pos = 0;
+    while (pos <= text.size()) {
+        const std::size_t comma = text.find(',', pos);
+        const std::size_t end = comma == std::string_view::npos ? text.size() : comma;
+        out.push_back(trim(text.substr(pos, end - pos)));
+        if (comma == std::string_view::npos) break;
+        pos = comma + 1u;
+    }
+    return out;
+}
+
+bool assignChannel(std::string_view raw, ChannelSelection& channels) {
+    const std::string name = lower(trim(raw));
+    if (name == "trades" || name == "trade") {
+        channels.trades = true;
+        return true;
+    }
+    if (name == "liquidations" || name == "liquidation" || name == "forceorder" || name == "force_order") {
+        channels.liquidations = true;
+        return true;
+    }
+    if (name == "bookticker" || name == "book_ticker" || name == "book-ticker" || name == "bbo") {
+        channels.bookTicker = true;
+        return true;
+    }
+    if (name == "orderbook" || name == "order_book" || name == "order-book" || name == "depth") {
+        channels.orderbook = true;
+        return true;
+    }
+    if (name == "mark_price" || name == "mark-price" || name == "markprice" || name == "mark") {
+        channels.markPrice = true;
+        return true;
+    }
+    if (name == "index_price" || name == "index-price" || name == "indexprice" || name == "index") {
+        channels.indexPrice = true;
+        return true;
+    }
+    if (name == "funding" || name == "funding_rate" || name == "funding-rate") {
+        channels.funding = true;
+        return true;
+    }
+    if (name == "price_limit" || name == "price-limit" || name == "pricelimit" || name == "limit" || name == "limits") {
+        channels.priceLimit = true;
+        return true;
+    }
+    return false;
+}
+
+bool localSymbolTextIsStrict(std::string_view raw) noexcept {
+    const std::string symbol = trim(raw);
+#if HFTREC_WITH_CXET
+    return cxet::api::isLocalCryptoSymbolText(symbol.c_str());
+#else
+    const std::size_t first = symbol.find('_');
+    if (first == std::string::npos || first == 0u || first + 1u >= symbol.size()) return false;
+    const std::size_t second = symbol.find('_', first + 1u);
+    if (second != std::string::npos && (second == first + 1u || second + 1u >= symbol.size())) return false;
+    if (second != std::string::npos && symbol.find('_', second + 1u) != std::string::npos) return false;
+    for (char ch : symbol) {
+        if (ch == '_') continue;
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) continue;
+        return false;
+    }
+    if (second != std::string::npos) {
+        if (first == 0u) return false;
+        unsigned multiplier = 0u;
+        for (std::size_t i = 0u; i < first; ++i) {
+            if (symbol[i] < '0' || symbol[i] > '9') return false;
+            multiplier = multiplier * 10u + static_cast<unsigned>(symbol[i] - '0');
+        }
+        return multiplier > 1u;
+    }
+    return true;
+#endif
+}
+
+void appendLine(std::string& out, std::string_view key, std::string_view value) {
+    out.append(key);
+    out.push_back('=');
+    out.append(value);
+    out.push_back('\n');
+}
+
+bool validateJob(const RecorderTuiJob& job, std::string& error) {
+    if (trim(job.name).empty()) {
+        error = "job name is required";
+        return false;
+    }
+    if (trim(job.exchange).empty()) {
+        error = "job " + job.name + ": exchange is required";
+        return false;
+    }
+    if (trim(job.market).empty()) {
+        error = "job " + job.name + ": market is required";
+        return false;
+    }
+    if (trim(job.symbol).empty()) {
+        error = "job " + job.name + ": symbol is required";
+        return false;
+    }
+    if (trim(job.symbol).find('@') == std::string::npos && !localSymbolTextIsStrict(job.symbol)) {
+        error = "job " + job.name + ": symbol must use local format BASE_QUOTE or N_BASE_QUOTE";
+        return false;
+    }
+    if (!job.routeSymbol.empty()) {
+        error = "job " + job.name + ": route_symbol is no longer supported; use symbol=BASE_QUOTE";
+        return false;
+    }
+    if (job.durationMin < 0) {
+        error = "job " + job.name + ": duration_min must be >= 0";
+        return false;
+    }
+    if (!anyChannelSelected(job.channels)) {
+        error = "job " + job.name + ": at least one live channel is required";
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+ChannelSelection allLiveChannels() noexcept {
+    return ChannelSelection{
+        .trades = true,
+        .liquidations = true,
+        .bookTicker = true,
+        .orderbook = true,
+        .markPrice = true,
+        .indexPrice = true,
+        .funding = true,
+        .priceLimit = true,
+    };
+}
+
+bool anyChannelSelected(const ChannelSelection& channels) noexcept {
+    return channels.trades || channels.liquidations || channels.bookTicker || channels.orderbook ||
+           channels.markPrice || channels.indexPrice || channels.funding || channels.priceLimit;
+}
+
+const char* recorderTuiExecutionModeName(RecorderTuiExecutionMode mode) noexcept {
+    return mode == RecorderTuiExecutionMode::VenueMultiplex ? "venue_multiplex" : "legacy";
+}
+
+bool parseRecorderTuiExecutionMode(std::string_view text, RecorderTuiExecutionMode& out) noexcept {
+    const std::string value = lower(trim(text));
+    if (value == "legacy") {
+        out = RecorderTuiExecutionMode::Legacy;
+        return true;
+    }
+    if (value == "venue_multiplex" || value == "venue-multiplex" || value == "venue") {
+        out = RecorderTuiExecutionMode::VenueMultiplex;
+        return true;
+    }
+    return false;
+}
+
+bool parseDurationMinutes(std::string_view text, std::int64_t& out, std::string& error) {
+    error.clear();
+    std::string value = lower(trim(text));
+    if (value.empty() || value == "none" || value == "indefinite" || value == "forever") {
+        out = 0;
+        return true;
+    }
+    if (!value.empty() && value.back() == 'm') value.pop_back();
+    value = trim(value);
+    std::int64_t parsed = 0;
+    if (!parseInt64(value, parsed) || parsed < 0) {
+        error = "duration_min must be a non-negative minute count or none";
+        return false;
+    }
+    out = parsed;
+    return true;
+}
+
+bool parseChannelSelection(std::string_view text, ChannelSelection& out, std::string& error) {
+    error.clear();
+    const std::string value = lower(trim(text));
+    if (value.empty() || value == "all") {
+        out = allLiveChannels();
+        return true;
+    }
+
+    ChannelSelection channels{};
+    for (const std::string& token : splitCsv(value)) {
+        if (token.empty()) continue;
+        if (!assignChannel(token, channels)) {
+            error = "unknown live channel: " + token;
+            return false;
+        }
+    }
+    if (!anyChannelSelected(channels)) {
+        error = "at least one live channel is required";
+        return false;
+    }
+    out = channels;
+    return true;
+}
+
+std::string renderChannelSelection(const ChannelSelection& channels) {
+    std::vector<std::string_view> names;
+    if (channels.trades) names.push_back("trades");
+    if (channels.liquidations) names.push_back("liquidations");
+    if (channels.bookTicker) names.push_back("bookticker");
+    if (channels.orderbook) names.push_back("orderbook");
+    if (channels.markPrice) names.push_back("mark_price");
+    if (channels.indexPrice) names.push_back("index_price");
+    if (channels.funding) names.push_back("funding");
+    if (channels.priceLimit) names.push_back("price_limit");
+
+    std::string out;
+    for (std::size_t i = 0; i < names.size(); ++i) {
+        if (i != 0u) out.push_back(',');
+        out.append(names[i]);
+    }
+    return out;
+}
+
+std::string routeSymbolForJob(const RecorderTuiJob& job) {
+    return trim(job.symbol);
+}
+
+bool parsePresetText(std::string_view text, RecorderTuiPreset& out, std::string& error) {
+    error.clear();
+    RecorderTuiPreset preset{};
+    RecorderTuiJob* currentJob = nullptr;
+
+    std::istringstream input{std::string{text}};
+    std::string line;
+    int lineNo = 0;
+    while (std::getline(input, line)) {
+        ++lineNo;
+        const std::size_t hash = line.find('#');
+        if (hash != std::string::npos) line.resize(hash);
+        line = trim(line);
+        if (line.empty()) continue;
+
+        if (line.front() == '[' && line.back() == ']') {
+            const std::string section = trim(std::string_view{line}.substr(1u, line.size() - 2u));
+            constexpr std::string_view kJobPrefix = "job ";
+            if (!section.starts_with(kJobPrefix)) {
+                error = "line " + std::to_string(lineNo) + ": unknown section [" + section + "]";
+                return false;
+            }
+            RecorderTuiJob job{};
+            job.name = trim(std::string_view{section}.substr(kJobPrefix.size()));
+            job.channels = allLiveChannels();
+            preset.jobs.push_back(std::move(job));
+            currentJob = &preset.jobs.back();
+            continue;
+        }
+
+        const std::size_t eq = line.find('=');
+        if (eq == std::string::npos) {
+            error = "line " + std::to_string(lineNo) + ": expected key=value";
+            return false;
+        }
+        const std::string key = lower(trim(std::string_view{line}.substr(0, eq)));
+        const std::string value = trim(std::string_view{line}.substr(eq + 1u));
+
+        if (currentJob == nullptr) {
+            if (key == "output_dir") {
+                if (value.empty()) {
+                    error = "line " + std::to_string(lineNo) + ": output_dir is empty";
+                    return false;
+                }
+                preset.outputDir = recordings::normalizeExplicitRecordingsPath(value);
+            } else if (key == "progress_sec") {
+                int progressSec = 0;
+                if (!parseInt(value, progressSec) || progressSec < 1 || progressSec > 3600) {
+                    error = "line " + std::to_string(lineNo) + ": progress_sec must be in [1,3600]";
+                    return false;
+                }
+                preset.progressSec = progressSec;
+            } else if (key == "launch_wave_size") {
+                int waveSize = 0;
+                if (!parseInt(value, waveSize) || waveSize < 1 || waveSize > 1024) {
+                    error = "line " + std::to_string(lineNo) + ": launch_wave_size must be in [1,1024]";
+                    return false;
+                }
+                preset.launchWaveSize = waveSize;
+            } else if (key == "launch_stagger_ms") {
+                int staggerMs = 0;
+                if (!parseInt(value, staggerMs) || staggerMs < 0 || staggerMs > 600000) {
+                    error = "line " + std::to_string(lineNo) + ": launch_stagger_ms must be in [0,600000]";
+                    return false;
+                }
+                preset.launchStaggerMs = staggerMs;
+            } else if (key == "same_exchange_cooldown_ms") {
+                int cooldownMs = 0;
+                if (!parseInt(value, cooldownMs) || cooldownMs < 0 || cooldownMs > 600000) {
+                    error = "line " + std::to_string(lineNo) + ": same_exchange_cooldown_ms must be in [0,600000]";
+                    return false;
+                }
+                preset.sameExchangeCooldownMs = cooldownMs;
+            } else if (key == "max_active_jobs") {
+                int maxActiveJobs = 0;
+                if (!parseInt(value, maxActiveJobs) || maxActiveJobs < 1 || maxActiveJobs > 1024) {
+                    error = "line " + std::to_string(lineNo) + ": max_active_jobs must be in [1,1024]";
+                    return false;
+                }
+                preset.maxActiveJobs = maxActiveJobs;
+            } else if (key == "memory_limit_mib") {
+                int memoryLimitMiB = 0;
+                if (!parseInt(value, memoryLimitMiB) || memoryLimitMiB < 512 || memoryLimitMiB > 262144) {
+                    error = "line " + std::to_string(lineNo) + ": memory_limit_mib must be in [512,262144]";
+                    return false;
+                }
+                preset.memoryLimitMiB = memoryLimitMiB;
+            } else if (key == "execution_mode") {
+                if (!parseRecorderTuiExecutionMode(value, preset.executionMode)) {
+                    error = "line " + std::to_string(lineNo) + ": execution_mode must be legacy or venue_multiplex";
+                    return false;
+                }
+            } else {
+                error = "line " + std::to_string(lineNo) + ": unknown global key " + key;
+                return false;
+            }
+            continue;
+        }
+
+        if (key == "exchange") currentJob->exchange = value;
+        else if (key == "market") currentJob->market = value;
+        else if (key == "symbol") currentJob->symbol = value;
+        else if (key == "route_symbol") {
+            error = "line " + std::to_string(lineNo) + ": route_symbol is no longer supported; use symbol=BASE_QUOTE";
+            return false;
+        }
+        else if (key == "duration_min") {
+            if (!parseDurationMinutes(value, currentJob->durationMin, error)) {
+                error = "line " + std::to_string(lineNo) + ": " + error;
+                return false;
+            }
+        } else if (key == "channels") {
+            if (!parseChannelSelection(value, currentJob->channels, error)) {
+                error = "line " + std::to_string(lineNo) + ": " + error;
+                return false;
+            }
+        } else {
+            error = "line " + std::to_string(lineNo) + ": unknown job key " + key;
+            return false;
+        }
+    }
+
+    if (preset.progressSec < 1) preset.progressSec = 10;
+    if (preset.launchWaveSize < 1) preset.launchWaveSize = 4;
+    if (preset.launchStaggerMs < 0) preset.launchStaggerMs = 250;
+    if (preset.sameExchangeCooldownMs < 0) preset.sameExchangeCooldownMs = 1500;
+    if (preset.maxActiveJobs < 1) preset.maxActiveJobs = 31;
+    if (preset.memoryLimitMiB < 512) preset.memoryLimitMiB = 18 * 1024;
+    if (preset.outputDir.empty()) preset.outputDir = recordings::defaultRecordingsRoot();
+    for (const RecorderTuiJob& job : preset.jobs) {
+        if (!validateJob(job, error)) return false;
+    }
+    out = std::move(preset);
+    return true;
+}
+
+std::string renderPresetText(const RecorderTuiPreset& preset) {
+    std::string out;
+    appendLine(out, "output_dir", preset.outputDir.string());
+    appendLine(out, "progress_sec", std::to_string(preset.progressSec));
+    appendLine(out, "launch_wave_size", std::to_string(preset.launchWaveSize));
+    appendLine(out, "launch_stagger_ms", std::to_string(preset.launchStaggerMs));
+    appendLine(out, "same_exchange_cooldown_ms", std::to_string(preset.sameExchangeCooldownMs));
+    appendLine(out, "max_active_jobs", std::to_string(preset.maxActiveJobs));
+    appendLine(out, "memory_limit_mib", std::to_string(preset.memoryLimitMiB));
+    appendLine(out, "execution_mode", recorderTuiExecutionModeName(preset.executionMode));
+    for (const RecorderTuiJob& job : preset.jobs) {
+        out.push_back('\n');
+        out.append("[job ");
+        out.append(job.name);
+        out.append("]\n");
+        appendLine(out, "exchange", job.exchange);
+        appendLine(out, "market", job.market);
+        appendLine(out, "symbol", job.symbol);
+        appendLine(out, "duration_min", std::to_string(job.durationMin));
+        appendLine(out, "channels", renderChannelSelection(job.channels));
+    }
+    return out;
+}
+
+bool loadPresetFile(const std::filesystem::path& path, RecorderTuiPreset& out, std::string& error) {
+    std::ifstream file(path);
+    if (!file) {
+        error = "failed to open preset: " + path.string();
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    return parsePresetText(buffer.str(), out, error);
+}
+
+bool savePresetFile(const std::filesystem::path& path, const RecorderTuiPreset& preset, std::string& error) {
+    std::error_code ec;
+    if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) {
+        error = "failed to create preset directory: " + path.parent_path().string();
+        return false;
+    }
+    std::ofstream file(path);
+    if (!file) {
+        error = "failed to write preset: " + path.string();
+        return false;
+    }
+    file << renderPresetText(preset);
+    if (!file) {
+        error = "failed to flush preset: " + path.string();
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
+std::filesystem::path presetConfigDir() {
+    return std::filesystem::path{"configs"};
+}
+
+std::filesystem::path resolvePresetPath(std::string_view text) {
+    const std::string value = trim(text);
+    if (value.empty()) return defaultPresetPath();
+
+    const bool explicitPath = value.front() == '.'
+        || value.find('/') != std::string::npos
+        || value.find('\\') != std::string::npos;
+    std::filesystem::path path{value};
+    if (path.is_absolute() || explicitPath) return path;
+    if (!path.has_extension()) path += ".ini";
+    return presetConfigDir() / path;
+}
+
+std::filesystem::path defaultPresetPath() {
+    return presetConfigDir() / "default.ini";
+}
+
+}  // namespace hftrec::tui

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(hft-recorder LANGUAGES CXX VERSION 0.1.0)
 
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    message(FATAL_ERROR "hft-recorder is Clang-only. Configure with -DCMAKE_CXX_COMPILER=clang++.")
+    message(FATAL_ERROR "hft-recorder requires the pinned compiler selected by the canonical CXET root.")
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -30,19 +30,19 @@ unset(_HFTREC_RELEASE_FLAGS)
 set(CXET_PUBLIC_INCLUDE_DIR "" CACHE PATH "Path to CXETCPP public headers")
 set(CXET_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_lib shared library")
 set(CXET_REPLAY_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_replay_core shared library")
-set(HFT_TRADER_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/include" CACHE PATH "Path to hft-trader public headers")
+set(HFT_TRADER_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/src/Core/include" CACHE PATH "Path to hft-trader public headers")
 set(HFT_TRADER_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/generated" CACHE PATH "Path to hft-trader generated headers")
 set(HFT_TRADER_SHARED_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/libhft_trader_runtime.so" CACHE FILEPATH "Path to prebuilt hft-trader runtime shared library")
 set(HFT_TRADER_CXET_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/include" CACHE PATH "Path to hft-trader bundled CXETCPP headers")
-set(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR "${HFT_TRADER_CXET_INCLUDE_DIR}/exchanges" CACHE PATH "Path to hft-trader bundled CXETCPP exchange-owned public headers")
+set(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR "${HFT_TRADER_CXET_INCLUDE_DIR}" CACHE PATH "Path to hft-trader bundled CXETCPP public header root for exchange-owned headers")
 set(HFT_TRADER_CXET_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/lib" CACHE PATH "Path to hft-trader bundled CXETCPP libraries")
 set(HFT_PARSER_CONTRACT_INCLUDE_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../hft-parser/contracts/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../hft-parser/src/Contracts/include"
     CACHE PATH "Path to hft-parser app-to-app protocol headers")
 set(HFTREC_CXET_MODE "AUTO" CACHE STRING "CXET integration mode: AUTO, ON, or OFF")
 set_property(CACHE HFTREC_CXET_MODE PROPERTY STRINGS AUTO ON OFF)
 
-if(NOT EXISTS "${HFT_PARSER_CONTRACT_INCLUDE_DIR}/hft_parser/ipc/MarketCaptureProtocol.hpp")
+if(NOT EXISTS "${HFT_PARSER_CONTRACT_INCLUDE_DIR}/hft_parser/Ipc/MarketCaptureProtocol.hpp")
     message(FATAL_ERROR
         "hft-recorder: hft-parser market-capture contract is missing: ${HFT_PARSER_CONTRACT_INCLUDE_DIR}")
 endif()
@@ -64,7 +64,7 @@ string(TOUPPER "${HFTREC_CXET_MODE}" HFTREC_CXET_MODE_NORMALIZED)
 
 set(HFTREC_WITH_TRADER_RUNTIME OFF)
 if(HFT_TRADER_PUBLIC_INCLUDE_DIR AND HFT_TRADER_SHARED_LIB
-        AND EXISTS "${HFT_TRADER_PUBLIC_INCLUDE_DIR}/hft_trader/runtime/market/MarketDataRuntime.hpp"
+        AND EXISTS "${HFT_TRADER_PUBLIC_INCLUDE_DIR}/hft_trader/Runtime/Market/MarketDataRuntime.hpp"
         AND EXISTS "${HFT_TRADER_SHARED_LIB}")
     set(HFTREC_WITH_TRADER_RUNTIME ON)
     get_filename_component(_hft_trader_lib_dir "${HFT_TRADER_SHARED_LIB}" DIRECTORY)
@@ -74,17 +74,14 @@ if(HFT_TRADER_PUBLIC_INCLUDE_DIR AND HFT_TRADER_SHARED_LIB
         list(APPEND _hft_trader_include_dirs "${HFT_TRADER_GENERATED_INCLUDE_DIR}")
     endif()
     set(_hft_trader_cxet_include_dirs "")
-    if(HFT_TRADER_CXET_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_INCLUDE_DIR}/cxet.hpp")
+    if(HFT_TRADER_CXET_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_INCLUDE_DIR}/cxet/Cxet.hpp")
         list(APPEND _hft_trader_cxet_include_dirs "${HFT_TRADER_CXET_INCLUDE_DIR}")
-        if(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}/composite/level_0/GetObject.hpp")
+        if(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}/cxet/Api/Object/GetObject.hpp")
             list(APPEND _hft_trader_cxet_include_dirs "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}")
         endif()
         list(APPEND _hft_trader_include_dirs ${_hft_trader_cxet_include_dirs})
-    elseif(CXET_PUBLIC_INCLUDE_DIR AND EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/cxet.hpp")
+    elseif(CXET_PUBLIC_INCLUDE_DIR AND EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/cxet/Cxet.hpp")
         list(APPEND _hft_trader_include_dirs "${CXET_PUBLIC_INCLUDE_DIR}")
-        if(EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/exchanges/composite/level_0/GetObject.hpp")
-            list(APPEND _hft_trader_include_dirs "${CXET_PUBLIC_INCLUDE_DIR}/exchanges")
-        endif()
     endif()
     set(_hft_trader_link_options "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_trader_lib_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${_hft_trader_lib_dir}>")
     set(_hft_trader_link_dirs "${_hft_trader_lib_dir}")
@@ -97,7 +94,7 @@ if(HFT_TRADER_PUBLIC_INCLUDE_DIR AND HFT_TRADER_SHARED_LIB
         add_library(hft_trader_cxet_lib SHARED IMPORTED GLOBAL)
         if(NOT _hft_trader_cxet_include_dirs)
             list(APPEND _hft_trader_cxet_include_dirs "${HFT_TRADER_CXET_INCLUDE_DIR}")
-            if(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}/composite/level_0/GetObject.hpp")
+            if(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}/cxet/Api/Object/GetObject.hpp")
                 list(APPEND _hft_trader_cxet_include_dirs "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}")
             endif()
         endif()
@@ -167,7 +164,7 @@ find_package(absl CONFIG REQUIRED)
 find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2 Network QUIET)
 
 if(HFTREC_BUILD_GUI OR HFTREC_BUILD_APP_TARGETS)
-set(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/include" CACHE PATH "Path to hft-compressor public headers")
+set(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/src/Api/include" CACHE PATH "Path to hft-compressor public headers")
 set(HFT_COMPRESSOR_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt hft-compressor shared/import library")
 set(HFT_COMPRESSOR_RUNTIME_LIB "" CACHE FILEPATH "Path to hft-compressor runtime library, usually DLL on Windows")
 if(NOT HFT_COMPRESSOR_SHARED_LIB)
@@ -191,7 +188,7 @@ if(NOT HFT_COMPRESSOR_RUNTIME_LIB AND HFT_COMPRESSOR_SHARED_LIB)
 endif()
 
 if(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR AND HFT_COMPRESSOR_SHARED_LIB
-        AND EXISTS "${HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR}/hft_compressor/compressor.hpp"
+        AND EXISTS "${HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR}/hft_compressor/Compressor.hpp"
         AND EXISTS "${HFT_COMPRESSOR_SHARED_LIB}")
     get_filename_component(_hft_compressor_lib_ext "${HFT_COMPRESSOR_SHARED_LIB}" EXT)
     if(WIN32 AND _hft_compressor_lib_ext STREQUAL ".lib")
@@ -215,11 +212,11 @@ else()
     message(FATAL_ERROR "hft-recorder GUI/bench compression features require prebuilt hft-compressor. Configure with HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR and HFT_COMPRESSOR_SHARED_LIB.")
 endif()
 
-set(HFT_BACKTEST_PUBLIC_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../hft-backtest/include CACHE PATH [[Path to hft-backtest public headers]])
+set(HFT_BACKTEST_PUBLIC_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../hft-backtest/src/Runtime/include CACHE PATH [[Path to hft-backtest public headers]])
 set(HFT_BACKTEST_SHARED_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../hft-backtest/build/libhft_backtest_core.so CACHE FILEPATH [[Path to prebuilt hft-backtest shared library]])
 
 if(HFT_BACKTEST_PUBLIC_INCLUDE_DIR AND HFT_BACKTEST_SHARED_LIB
-        AND EXISTS ${HFT_BACKTEST_PUBLIC_INCLUDE_DIR}/hft_backtest/backtest.hpp
+        AND EXISTS ${HFT_BACKTEST_PUBLIC_INCLUDE_DIR}/hft_backtest/Backtest.hpp
         AND EXISTS ${HFT_BACKTEST_SHARED_LIB})
     get_filename_component(_hft_backtest_lib_dir "${HFT_BACKTEST_SHARED_LIB}" DIRECTORY)
     set(_hft_trader_runtime_dir "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build")
@@ -291,7 +288,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
-add_subdirectory(corpus-contract)
+add_subdirectory(src/Contracts)
 add_subdirectory(src)
 if(HFTREC_BUILD_TESTS)
     add_subdirectory(tests)

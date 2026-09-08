@@ -1,0 +1,62 @@
+#pragma once
+
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+
+#include "../Common/Status.hpp"
+
+namespace hftrec::corpus {
+
+struct InstrumentMetadata {
+    std::string schemaVersion{"hftrec.instrument_metadata.v1"};
+    std::string exchange{};
+    std::string exchangeSource{"unknown"};
+    std::string market{};
+    std::string marketSource{"unknown"};
+    std::string symbol{};
+    std::string symbolSource{"unknown"};
+    std::string instrumentType{};
+    std::string instrumentTypeSource{"unknown"};
+    std::optional<std::string> baseAsset{};
+    std::string baseAssetSource{"unknown"};
+    std::optional<std::string> quoteAsset{};
+    std::string quoteAssetSource{"unknown"};
+    std::optional<std::string> settlementAsset{};
+    std::string settlementAssetSource{"unknown"};
+    std::optional<std::int64_t> priceScaleDigits{};
+    std::string priceScaleDigitsSource{"unknown"};
+    std::optional<std::int64_t> qtyScaleDigits{};
+    std::string qtyScaleDigitsSource{"unknown"};
+    std::optional<std::int64_t> canonicalBaseMultiplier{};
+    std::optional<std::int64_t> nativeBaseMultiplier{};
+    std::optional<std::int64_t> pricePowerOfTenAdjustment{};
+    std::optional<std::int64_t> spotQuantityPowerOfTenAdjustment{};
+    std::optional<std::int64_t> denominationGeneration{};
+    std::optional<std::string> denominationCatalogDigest{};
+    std::string denominationSource{"unknown"};
+    std::optional<std::int64_t> tickSizeE8{};
+    std::string tickSizeSource{"unknown"};
+    std::optional<std::int64_t> lotSizeE8{};
+    std::string lotSizeSource{"unknown"};
+    std::optional<std::int64_t> contractBaseQtyE8{};
+    std::string contractBaseQtySource{"unknown"};
+    std::optional<std::int64_t> priceBasisQtyE8{};
+    std::string priceBasisQtySource{"unknown"};
+    std::optional<std::int64_t> expiryUtcNs{};
+    std::string expiryUtcNsSource{"unknown"};
+    std::optional<std::string> instrumentStatus{};
+    std::string instrumentStatusSource{"unknown"};
+    std::string metadataSource{"recorder_inference"};
+    std::optional<std::string> metadataWarning{};
+};
+
+InstrumentMetadata makeInstrumentMetadata(std::string_view exchange,
+                                          std::string_view market,
+                                          std::string_view symbol) noexcept;
+
+std::string renderInstrumentMetadataJson(const InstrumentMetadata& metadata);
+Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata& out) noexcept;
+
+}  // namespace hftrec::corpus

@@ -1,0 +1,253 @@
+#include "ChartItem.hpp"
+
+#include <algorithm>
+
+#include "ChartController.hpp"
+#include "ChartItemInternal.hpp"
+#include "RenderSnapshot.hpp"
+#include "Detail/Formatters.hpp"
+
+namespace hftrec::gui::viewer {
+
+ChartItem::ChartItem(QQuickItem* parent) : QQuickPaintedItem(parent) {
+    setFlag(ItemHasContents, true);
+    setAntialiasing(false);
+    setRenderTarget(QQuickPaintedItem::Image);
+    setOpaquePainting(true);
+}
+
+ChartItem::~ChartItem() = default;
+
+void ChartItem::setController(ChartController* c) {
+    if (controller_ == c) return;
+    if (controller_) disconnect(controller_, nullptr, this, nullptr);
+    controller_ = c;
+    if (controller_) {
+        connect(controller_, &ChartController::viewportChanged, this, &ChartItem::requestRepaint);
+        connect(controller_, &ChartController::liveDataChanged, this, &ChartItem::requestLiveRepaint);
+        connect(controller_, &ChartController::sessionChanged, this, &ChartItem::requestSessionRepaint);
+        connect(controller_, &ChartController::markersChanged, this, &ChartItem::requestRepaint);
+        connect(controller_, &ChartController::renderWindowChanged, this, &ChartItem::requestSessionRepaint);
+    }
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    cachedLiveSnap_.reset();
+    cachedHitTestSnap_.reset();
+    emit controllerChanged();
+    update();
+}
+
+void ChartItem::setTradesVisible(bool value) {
+    if (tradesVisible_ == value) return;
+    tradesVisible_ = value;
+    if (!tradesVisible_) clearHover();
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit tradesVisibleChanged();
+    update();
+}
+
+void ChartItem::setLiquidationsVisible(bool value) {
+    if (liquidationsVisible_ == value) return;
+    liquidationsVisible_ = value;
+    if (!liquidationsVisible_) clearHover();
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit liquidationsVisibleChanged();
+    update();
+}
+
+void ChartItem::setCandlesVisible(bool value) {
+    if (candlesVisible_ == value) return;
+    candlesVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit candlesVisibleChanged();
+    update();
+}
+
+void ChartItem::setCandles2Visible(bool value) {
+    if (candles2Visible_ == value) return;
+    candles2Visible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit candles2VisibleChanged();
+    update();
+}
+void ChartItem::setOrderbookVisible(bool value) {
+    if (orderbookVisible_ == value) return;
+    orderbookVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    updateHover_();
+    emit orderbookVisibleChanged();
+    update();
+}
+
+void ChartItem::setBookTickerVisible(bool value) {
+    if (bookTickerVisible_ == value) return;
+    bookTickerVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    updateHover_();
+    emit bookTickerVisibleChanged();
+    update();
+}
+
+void ChartItem::setMarkPriceVisible(bool value) {
+    if (markPriceVisible_ == value) return;
+    markPriceVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit markPriceVisibleChanged();
+    update();
+}
+
+void ChartItem::setIndexPriceVisible(bool value) {
+    if (indexPriceVisible_ == value) return;
+    indexPriceVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit indexPriceVisibleChanged();
+    update();
+}
+
+void ChartItem::setFundingVisible(bool value) {
+    if (fundingVisible_ == value) return;
+    fundingVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit fundingVisibleChanged();
+    update();
+}
+
+void ChartItem::setPriceLimitVisible(bool value) {
+    if (priceLimitVisible_ == value) return;
+    priceLimitVisible_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit priceLimitVisibleChanged();
+    update();
+}
+
+void ChartItem::setTradeAmountScale(qreal value) {
+    value = detail::clampReal(value, 0.0, 1.0);
+    if (qFuzzyCompare(tradeAmountScale_ + 1.0, value + 1.0)) return;
+    tradeAmountScale_ = value;
+    if (cachedInteractiveSnap_) cachedInteractiveSnap_->tradeAmountScale = value;
+    if (cachedExactSnap_) cachedExactSnap_->tradeAmountScale = value;
+    if (cachedLiveSnap_) cachedLiveSnap_->tradeAmountScale = value;
+    if (cachedHitTestSnap_) cachedHitTestSnap_->tradeAmountScale = value;
+    invalidateTradesImage_();
+    emit tradeAmountScaleChanged();
+    update();
+}
+
+void ChartItem::setCandleWidthPx(qreal value) {
+    value = std::clamp<qreal>(value, 1.0, 80.0);
+    if (qFuzzyCompare(candleWidthPx_ + 1.0, value + 1.0)) return;
+    candleWidthPx_ = value;
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    emit candleWidthPxChanged();
+    update();
+}
+
+void ChartItem::setBookOpacityGain(qreal value) {
+    value = std::clamp<qreal>(value, 1000.0, 1000000.0);
+    if (qFuzzyCompare(bookOpacityGain_ + 1.0, value + 1.0)) return;
+    bookOpacityGain_ = value;
+    invalidateSnapshotCache_();
+    invalidateOrderbookImage_();
+    emit bookOpacityGainChanged();
+    update();
+}
+
+void ChartItem::setBookRenderDetail(qreal value) {
+    value = std::clamp<qreal>(value, 0.0, 1000000.0);
+    if (qFuzzyCompare(bookRenderDetail_ + 1.0, value + 1.0)) return;
+    bookRenderDetail_ = value;
+    invalidateSnapshotCache_();
+    invalidateOrderbookImage_();
+    emit bookRenderDetailChanged();
+    update();
+}
+
+void ChartItem::setBookDepthWindowPct(qreal value) {
+    value = std::clamp<qreal>(value, 1.0, 25.0);
+    if (qFuzzyCompare(bookDepthWindowPct_ + 1.0, value + 1.0)) return;
+    bookDepthWindowPct_ = value;
+    invalidateSnapshotCache_();
+    invalidateOrderbookImage_();
+    updateHover_();
+    emit bookDepthWindowPctChanged();
+    update();
+}
+
+void ChartItem::setInteractiveMode(bool value) {
+    if (interactiveMode_ == value) return;
+    interactiveMode_ = value;
+    if (interactiveMode_) {
+        cachedInteractiveSnap_.reset();
+        interactiveDirty_ = true;
+    } else {
+        cachedExactSnap_.reset();
+        cachedInteractiveSnap_.reset();
+        invalidateBaseImage_();
+        interactiveDirty_ = false;
+        exactDirty_ = true;
+    }
+    emit interactiveModeChanged();
+    update();
+}
+
+void ChartItem::setOverlayOnly(bool value) {
+    if (overlayOnly_ == value) return;
+    overlayOnly_ = value;
+    setOpaquePainting(!overlayOnly_);
+    emit overlayOnlyChanged();
+    update();
+}
+
+void ChartItem::requestSessionRepaint() {
+    invalidateSnapshotCache_();
+    invalidateBaseImage_();
+    cachedLiveSnap_.reset();
+    cachedHitTestSnap_.reset();
+    interactiveDirty_ = false;
+    exactDirty_ = false;
+    if (hoverActive_) updateHover_();
+    update();
+}
+
+}  // namespace hftrec::gui::viewer
+
+namespace hftrec::gui::viewer::detail {
+
+SnapshotInputs collectInputs(const ChartItem& item) {
+    return SnapshotInputs{
+        item.tradesVisible(),
+        item.liquidationsVisible(),
+        item.candlesVisible(),
+        item.candles2Visible(),
+        item.orderbookVisible(),
+        item.bookTickerVisible(),
+        item.interactiveMode(),
+        item.overlayOnly(),
+        false,
+        item.tradeAmountScale(),
+        item.candleWidthPx(),
+        item.bookOpacityGain(),
+        item.bookRenderDetail(),
+        item.bookDepthWindowPct(),
+        false,
+        item.markPriceVisible(),
+        item.indexPriceVisible(),
+        item.fundingVisible(),
+        item.priceLimitVisible(),
+    };
+}
+
+}  // namespace hftrec::gui::viewer::detail
+
+
