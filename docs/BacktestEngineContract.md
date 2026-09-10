@@ -1,5 +1,7 @@
 # Текущий контракт backtest и captured-arrival replay
 
+Status: implemented source contract, static-only evidence.
+
 Этот документ описывает один текущий путь market data от `hft-parser` до
 стратегии в offline backtest. Старые recorder-сессии, плоский `depth.jsonl` и
 симуляция задержки получения market data не поддерживаются.

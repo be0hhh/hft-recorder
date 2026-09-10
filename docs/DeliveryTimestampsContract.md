@@ -3,7 +3,7 @@
 Status: implemented source contract, static-only evidence.
 
 The canonical design is documented in
-[`BacktestEnginePlan.md`](BacktestEnginePlan.md) and the durable JSON
+[`BacktestEngineContract.md`](BacktestEngineContract.md) and the durable JSON
 layout is documented in [`SESSION_CORPUS_FORMAT.md`](../docs/SESSION_CORPUS_FORMAT.md).
 This file records the hard cut from the earlier recorder-callback proposal.
 
