@@ -293,9 +293,7 @@ jobs:
           ref: main
           token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           path: controller
-          sparse-checkout: |
-            tools/Ci/FamilyCiController.py
-            tools/Ci/family_ci_graph.json
+          sparse-checkout: tools/Ci
           persist-credentials: false
       - &publish
         name: Publish successful gates
