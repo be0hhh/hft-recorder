@@ -25,34 +25,53 @@ env:
   PATH: /usr/bin:/bin:/usr/sbin:/sbin
 
 jobs:
-  recorder-corpus-contract:
-    name: recorder-corpus-contract
-    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
-    timeout-minutes: 180
-
+  resolve-family-revisions:
+    name: resolve-family-revisions
+    runs-on: [self-hosted, linux, x64, wsl, benchmark, hft-bench, hft-recorder]
+    timeout-minutes: 10
+    outputs:
+      cxetcpp_sha: ${{ steps.snapshot.outputs.cxetcpp_sha }}
+      hft_compressor_sha: ${{ steps.snapshot.outputs.hft_compressor_sha }}
     steps:
-      - name: Require private CXETCPP checkout key
-        env:
-          CI_CXETCPP_SSH_KEY: ${{ secrets.CI_CXETCPP_SSH_KEY }}
-        run: |
-          if [ -z "$CI_CXETCPP_SSH_KEY" ]; then
-            {
-              echo "### Private root checkout unavailable"
-              echo "CI_CXETCPP_SSH_KEY is required to verify the Recorder corpus contract in the CXETCPP root graph."
-              echo "Pull requests from forks do not receive this secret, so this run cannot provide a passing contract result."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::CI_CXETCPP_SSH_KEY is required for the private CXETCPP root checkout"
-            exit 1
-          fi
-
-      - name: Checkout CXETCPP root and pinned dependencies
+      - name: Checkout revision resolver
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: be0hhh/CXETCPP
           ref: main
-          ssh-key: ${{ secrets.CI_CXETCPP_SSH_KEY }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          sparse-checkout: .github/actions/resolve-family-revisions
+          persist-credentials: false
+
+      - name: Snapshot family main revisions
+        id: snapshot
+        uses: ./.github/actions/resolve-family-revisions
+        with:
+          family-read-token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+
+  recorder-corpus-contract:
+    name: recorder-corpus-contract
+    needs: resolve-family-revisions
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout snapshotted CXETCPP root
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: ${{ needs.resolve-family-revisions.outputs.cxetcpp_sha }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           submodules: true
           path: source/CXETCPP
+          persist-credentials: false
+
+      - name: Overlay snapshotted hft-compressor revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/hft-compressor
+          ref: ${{ needs.resolve-family-revisions.outputs.hft_compressor_sha }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP/apps/hft-compressor
           persist-credentials: false
 
       - name: Overlay triggering hft-recorder revision
@@ -60,19 +79,22 @@ jobs:
         with:
           repository: ${{ github.repository }}
           ref: ${{ github.sha }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           path: source/CXETCPP/apps/hft-recorder
           persist-credentials: false
 
       - name: Record source revisions
         run: |
           root_sha="$(git -C source/CXETCPP rev-parse HEAD)"
+          compressor_sha="$(git -C source/CXETCPP/apps/hft-compressor rev-parse HEAD)"
           app_sha="$(git -C source/CXETCPP/apps/hft-recorder rev-parse HEAD)"
-          printf 'CXETCPP root: %s\nhft-recorder overlay: %s\n' "$root_sha" "$app_sha"
+          printf 'CXETCPP root: %s\nhft-compressor: %s\nhft-recorder overlay: %s\n' "$root_sha" "$compressor_sha" "$app_sha"
           {
             echo "### Source revisions"
             echo "| Source | Commit |"
             echo "| --- | --- |"
             printf '| CXETCPP root | %s |\n' "$root_sha"
+            printf '| hft-compressor snapshot | %s |\n' "$compressor_sha"
             printf '| hft-recorder overlay | %s |\n' "$app_sha"
           } >> "$GITHUB_STEP_SUMMARY"
           {
