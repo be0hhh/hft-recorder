@@ -108,6 +108,7 @@ jobs:
         uses: ./source/CXETCPP/.github/actions/setup-toolchain
         with:
           source-root: source/CXETCPP
+          local-cache-root: /home/gha-runner/github-actions/cache/toolchains/${{ runner.name }}
 
       - name: Report CMake and CTest binaries
         run: |
