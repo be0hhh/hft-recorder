@@ -1,5 +1,7 @@
 name: local-ci
 
+run-name: local-ci ${{ github.event.client_payload.snapshot_id || github.run_id }}
+
 on:
   repository_dispatch:
     types: [family-build]
@@ -274,12 +276,12 @@ jobs:
           --output-on-failure --no-tests=error --timeout 180
           -R '^hft-backtest-session-loader-tests$'
 
-  publish-ready:
-    name: publish-ready
+  publish-buildable-own:
+    name: publish-buildable
     if: >-
-      always() && needs.snapshot.outputs.mode == 'own' &&
-      needs.production-build.result == 'success' && needs.root-integration-build.result == 'success'
-    needs: [snapshot, production-build, root-integration-build]
+      always() && github.event_name == 'repository_dispatch' && needs.snapshot.outputs.mode == 'own' &&
+      needs.production-build.result == 'success'
+    needs: [snapshot, production-build]
     runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
     timeout-minutes: 10
     steps:
@@ -303,19 +305,64 @@ jobs:
           SNAPSHOT_ID: ${{ needs.snapshot.outputs.snapshot_id }}
           CI_MODE: ${{ needs.snapshot.outputs.mode }}
         run: >-
-          python3 controller/tools/Ci/FamilyCiController.py publish
+          python3 controller/tools/Ci/FamilyCiController.py publish-buildable
           --repository "$GITHUB_REPOSITORY" --snapshot-json "$SNAPSHOT_JSON"
           --snapshot-id "$SNAPSHOT_ID" --mode "$CI_MODE"
 
-  publish-ready-dependency:
+  publish-ready:
     name: publish-ready
     if: >-
-      always() && needs.snapshot.outputs.mode == 'dependency' &&
+      always() && github.event_name == 'repository_dispatch' &&
       needs.root-integration-build.result == 'success' &&
-      needs.corpus-contract-tests.result == 'success'
-    needs: [snapshot, root-integration-build, corpus-contract-tests]
+      needs.test-build.result == 'success' && needs.corpus-contract-tests.result == 'success' &&
+      ((needs.snapshot.outputs.mode == 'own' && needs.production-build.result == 'success') ||
+       needs.snapshot.outputs.mode == 'dependency')
+    needs: [snapshot, production-build, root-integration-build, test-build, corpus-contract-tests]
     runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
     timeout-minutes: 10
     steps:
       - *checkout_controller
       - *publish
+
+  publish-buildable-dependency:
+    name: publish-buildable-dependency
+    if: >-
+      always() && needs.snapshot.outputs.mode == 'dependency' &&
+      needs.root-integration-build.result == 'success'
+    needs: [snapshot, root-integration-build]
+    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
+    timeout-minutes: 10
+    steps:
+      - *checkout_controller
+      - name: Publish dependency buildability
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          SNAPSHOT_JSON: ${{ needs.snapshot.outputs.snapshot_json }}
+          SNAPSHOT_ID: ${{ needs.snapshot.outputs.snapshot_id }}
+          CI_MODE: ${{ needs.snapshot.outputs.mode }}
+        run: >-
+          python3 controller/tools/Ci/FamilyCiController.py publish-buildable
+          --repository "$GITHUB_REPOSITORY" --snapshot-json "$SNAPSHOT_JSON"
+          --snapshot-id "$SNAPSHOT_ID" --mode "$CI_MODE"
+
+  publish-failed:
+    name: publish-failed
+    if: >-
+      always() && github.event_name == 'repository_dispatch' && needs.snapshot.result == 'success' &&
+      (needs.production-build.result == 'failure' || needs.root-integration-build.result == 'failure' ||
+       needs.test-build.result == 'failure' || needs.corpus-contract-tests.result == 'failure')
+    needs: [snapshot, production-build, root-integration-build, test-build, corpus-contract-tests]
+    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
+    timeout-minutes: 10
+    steps:
+      - *checkout_controller
+      - name: Cancel stale consumers
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          SNAPSHOT_JSON: ${{ needs.snapshot.outputs.snapshot_json }}
+          SNAPSHOT_ID: ${{ needs.snapshot.outputs.snapshot_id }}
+          CI_MODE: ${{ needs.snapshot.outputs.mode }}
+        run: >-
+          python3 controller/tools/Ci/FamilyCiController.py publish-failed
+          --repository "$GITHUB_REPOSITORY" --snapshot-json "$SNAPSHOT_JSON"
+          --snapshot-id "$SNAPSHOT_ID" --mode "$CI_MODE"
