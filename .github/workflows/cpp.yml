@@ -20,17 +20,17 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Require private CXETCPP checkout key
+      - name: Require private CXETCPP checkout token
         env:
-          CI_CXETCPP_SSH_KEY: ${{ secrets.CI_CXETCPP_SSH_KEY }}
+          CI_FAMILY_READ_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
         run: |
-          if [ -z "$CI_CXETCPP_SSH_KEY" ]; then
+          if [ -z "$CI_FAMILY_READ_TOKEN" ]; then
             {
               echo "### Private root checkout unavailable"
-              echo "CI_CXETCPP_SSH_KEY is required to verify the Recorder corpus contract in the CXETCPP root graph."
+              echo "CI_FAMILY_READ_TOKEN is required to verify the Recorder corpus contract in the CXETCPP root graph."
               echo "Pull requests from forks do not receive this secret, so this run cannot provide a passing contract result."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::CI_CXETCPP_SSH_KEY is required for the private CXETCPP root checkout"
+            echo "::error::CI_FAMILY_READ_TOKEN is required for the private CXETCPP root checkout"
             exit 1
           fi
 
@@ -39,7 +39,7 @@ jobs:
         with:
           repository: be0hhh/CXETCPP
           ref: main
-          ssh-key: ${{ secrets.CI_CXETCPP_SSH_KEY }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           submodules: true
           path: source/CXETCPP
           persist-credentials: false
