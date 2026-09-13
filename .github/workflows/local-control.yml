@@ -1,0 +1,43 @@
+name: local-control
+
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [family-invalidated, family-ready]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orchestrate:
+    name: orchestrate-family-snapshot
+    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
+    timeout-minutes: 10
+    steps:
+      - name: Require family control token
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || {
+            echo '::error::CI_FAMILY_READ_TOKEN is required for family orchestration.'
+            exit 1
+          }
+      - name: Checkout canonical family controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: main
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          persist-credentials: false
+          clean: false
+          path: controller
+      - name: Process control event
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+        run: >-
+          python3 controller/tools/Ci/FamilyCiController.py control
+          --repository "$GITHUB_REPOSITORY"
+          --event-name "$GITHUB_EVENT_NAME"
+          --event-path "$GITHUB_EVENT_PATH"

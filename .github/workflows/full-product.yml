@@ -1,0 +1,61 @@
+name: full-product-manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      root_ref:
+        description: CXETCPP ref, tag, or SHA
+        required: true
+        default: main
+      recorder_ref:
+        description: hft-recorder ref, tag, or SHA
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: family-local-ci-hft-recorder
+  cancel-in-progress: true
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+  PATH: /usr/bin:/bin:/usr/sbin:/sbin
+
+jobs:
+  full-gui-tui-build:
+    name: full-gui-tui-build
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: /home/gha-runner/github-actions/bin/gha-heavy-shell {0}
+    steps:
+      - name: Checkout selected CXET family root
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: ${{ inputs.root_ref }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP
+          submodules: true
+          clean: false
+          persist-credentials: false
+      - name: Overlay selected Recorder revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.recorder_ref }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP/apps/hft-recorder
+          clean: false
+          persist-credentials: false
+      - name: Set up pinned LLVM
+        uses: ./source/CXETCPP/.github/actions/setup-toolchain
+        with:
+          source-root: source/CXETCPP
+          local-cache-root: /home/gha-runner/github-actions/cache/toolchains/wsl-ci-cxetcpp
+      - name: Build the complete GUI and TUI product through its canonical wrapper
+        working-directory: source/CXETCPP/apps/hft-recorder
+        run: ./compile.sh --force --portable -j 4

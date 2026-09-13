@@ -1,20 +1,21 @@
 name: local-ci
 
 on:
-  push:
-    branches:
-      - main
+  repository_dispatch:
+    types: [family-build]
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Build own revision or revalidate dependencies
+        type: choice
+        options: [own, dependency]
+        default: own
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    shell: /home/gha-runner/github-actions/bin/gha-heavy-shell {0}
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: local-ci-${{ github.repository }}-${{ github.event.client_payload.snapshot_id || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -25,114 +26,296 @@ env:
   PATH: /usr/bin:/bin:/usr/sbin:/sbin
 
 jobs:
-  resolve-family-revisions:
-    name: resolve-family-revisions
-    runs-on: [self-hosted, linux, x64, wsl, benchmark, hft-bench, hft-recorder]
+  snapshot:
+    name: snapshot
+    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
     timeout-minutes: 10
     outputs:
+      mode: ${{ steps.snapshot.outputs.mode }}
+      snapshot_id: ${{ steps.snapshot.outputs.snapshot_id }}
+      snapshot_json: ${{ steps.snapshot.outputs.snapshot_json }}
       cxetcpp_sha: ${{ steps.snapshot.outputs.cxetcpp_sha }}
+      hft_parser_sha: ${{ steps.snapshot.outputs.hft_parser_sha }}
       hft_compressor_sha: ${{ steps.snapshot.outputs.hft_compressor_sha }}
+      source_sha: ${{ steps.snapshot.outputs.source_sha }}
     steps:
-      - name: Checkout revision resolver
+      - name: Checkout family revision resolver
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: be0hhh/CXETCPP
           ref: main
           token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
-          sparse-checkout: .github/actions/resolve-family-revisions
+          path: controller
+          sparse-checkout: |
+            .github/actions/resolve-family-revisions
+            tools/Ci
           persist-credentials: false
-
-      - name: Snapshot family main revisions
-        id: snapshot
-        uses: ./.github/actions/resolve-family-revisions
+      - name: Resolve current family mains for a manual run
+        if: github.event_name == 'workflow_dispatch'
+        id: fallback
+        uses: ./controller/.github/actions/resolve-family-revisions
         with:
           family-read-token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+      - name: Validate immutable family snapshot
+        id: snapshot
+        env:
+          CLIENT_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+          MANUAL_MODE: ${{ inputs.mode }}
+          FALLBACK_JSON: >-
+            {"cxetcpp":"${{ steps.fallback.outputs.cxetcpp_sha }}","hft_parser":"${{ steps.fallback.outputs.hft_parser_sha }}","hft_compressor":"${{ steps.fallback.outputs.hft_compressor_sha }}","hft_recorder":"${{ steps.fallback.outputs.hft_recorder_sha }}","trading_core":"${{ steps.fallback.outputs.trading_core_sha }}","hft_trader":"${{ steps.fallback.outputs.hft_trader_sha }}","hft_backtest":"${{ steps.fallback.outputs.hft_backtest_sha }}","trader":"${{ steps.fallback.outputs.trader_sha }}","vetron":"${{ steps.fallback.outputs.vetron_sha }}","test_exchanges_helper":"${{ steps.fallback.outputs.test_exchanges_helper_sha }}"}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          keys = {"cxetcpp", "hft_parser", "hft_compressor", "hft_recorder", "trading_core", "hft_trader", "hft_backtest", "trader", "vetron", "test_exchanges_helper"}
+          repositories = {"CXETCPP", "TestExchangesHelper", "hft-compressor", "hft-recorder", "hft-parser", "trading-core", "hft-trader", "hft-backtest", "trader", "vetron"}
+          if os.environ["GITHUB_EVENT_NAME"] == "repository_dispatch":
+              payload = json.loads(os.environ["CLIENT_PAYLOAD"])
+              if payload.get("schema_version") != 1:
+                  raise SystemExit("family-build requires schema_version=1")
+              mode, snapshot, snapshot_id = payload.get("mode"), payload.get("snapshot"), payload.get("snapshot_id")
+              if payload.get("trigger_repo") not in repositories or not re.fullmatch(r"[0-9a-f]{40}", str(payload.get("trigger_sha", ""))):
+                  raise SystemExit("family-build contains an invalid trigger")
+          else:
+              mode, snapshot = os.environ.get("MANUAL_MODE") or "own", json.loads(os.environ["FALLBACK_JSON"])
+              relevant = {key: snapshot[key] for key in ("cxetcpp", "hft_parser", "hft_compressor", "hft_recorder")}
+              snapshot_id = hashlib.sha256(json.dumps(relevant, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
+          if mode not in {"own", "dependency"} or not isinstance(snapshot, dict) or set(snapshot) != keys:
+              raise SystemExit("invalid family-build mode or repository set")
+          if any(not isinstance(v, str) or not re.fullmatch(r"[0-9a-f]{40}", v) for v in snapshot.values()):
+              raise SystemExit("family-build contains an invalid SHA")
+          if not isinstance(snapshot_id, str) or not re.fullmatch(r"[0-9a-f]{16}", snapshot_id):
+              raise SystemExit("snapshot_id must be a 16-character lowercase digest")
+          compact = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              print(f"mode={mode}\nsnapshot_id={snapshot_id}\nsnapshot_json={compact}", file=out)
+              print(f"cxetcpp_sha={snapshot['cxetcpp']}\nhft_parser_sha={snapshot['hft_parser']}\nhft_compressor_sha={snapshot['hft_compressor']}\nsource_sha={snapshot['hft_recorder']}", file=out)
+          PY
+      - name: Claim current dispatched snapshot
+        if: github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          SNAPSHOT_JSON: ${{ steps.snapshot.outputs.snapshot_json }}
+          SNAPSHOT_ID: ${{ steps.snapshot.outputs.snapshot_id }}
+        run: >-
+          python3 controller/tools/Ci/FamilyCiController.py claim
+          --repository "$GITHUB_REPOSITORY" --snapshot-json "$SNAPSHOT_JSON"
+          --snapshot-id "$SNAPSHOT_ID"
 
-  recorder-corpus-contract:
-    name: recorder-corpus-contract
-    needs: resolve-family-revisions
+  prepare:
+    name: prepare-incremental-tree
+    needs: snapshot
     runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
-    timeout-minutes: 180
-
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: /home/gha-runner/github-actions/bin/gha-heavy-shell {0}
     steps:
-      - name: Checkout snapshotted CXETCPP root
+      - name: Checkout exact root snapshot without cleaning build outputs
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: be0hhh/CXETCPP
-          ref: ${{ needs.resolve-family-revisions.outputs.cxetcpp_sha }}
+          ref: ${{ needs.snapshot.outputs.cxetcpp_sha }}
           token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
-          submodules: true
           path: source/CXETCPP
+          submodules: true
+          clean: false
           persist-credentials: false
-
-      - name: Overlay snapshotted hft-compressor revision
+      - name: Overlay exact Parser contract snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/hft-parser
+          ref: ${{ needs.snapshot.outputs.hft_parser_sha }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP/apps/hft-parser
+          clean: false
+          persist-credentials: false
+      - name: Overlay exact compressor snapshot
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: be0hhh/hft-compressor
-          ref: ${{ needs.resolve-family-revisions.outputs.hft_compressor_sha }}
+          ref: ${{ needs.snapshot.outputs.hft_compressor_sha }}
           token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           path: source/CXETCPP/apps/hft-compressor
+          clean: false
           persist-credentials: false
-
-      - name: Overlay triggering hft-recorder revision
+      - name: Overlay exact Trading Core snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/trading-core
+          ref: ${{ fromJSON(needs.snapshot.outputs.snapshot_json).trading_core }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP/apps/trading-core
+          clean: false
+          persist-credentials: false
+      - name: Overlay exact HFT Trader snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/hft-trader
+          ref: ${{ fromJSON(needs.snapshot.outputs.snapshot_json).hft_trader }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP/apps/hft-trader
+          clean: false
+          persist-credentials: false
+      - name: Overlay exact HFT Backtest snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/hft-backtest
+          ref: ${{ fromJSON(needs.snapshot.outputs.snapshot_json).hft_backtest }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP/apps/hft-backtest
+          clean: false
+          persist-credentials: false
+      - name: Overlay exact Trader snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/trader
+          ref: ${{ fromJSON(needs.snapshot.outputs.snapshot_json).trader }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP/apps/trader
+          clean: false
+          persist-credentials: false
+      - name: Overlay exact Vetron snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/vetron
+          ref: ${{ fromJSON(needs.snapshot.outputs.snapshot_json).vetron }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: source/CXETCPP/apps/vetron
+          clean: false
+          persist-credentials: false
+      - name: Overlay exact Recorder snapshot
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.sha }}
+          ref: ${{ needs.snapshot.outputs.source_sha }}
           token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           path: source/CXETCPP/apps/hft-recorder
+          clean: false
           persist-credentials: false
-
-      - name: Record source revisions
-        run: |
-          root_sha="$(git -C source/CXETCPP rev-parse HEAD)"
-          compressor_sha="$(git -C source/CXETCPP/apps/hft-compressor rev-parse HEAD)"
-          app_sha="$(git -C source/CXETCPP/apps/hft-recorder rev-parse HEAD)"
-          printf 'CXETCPP root: %s\nhft-compressor: %s\nhft-recorder overlay: %s\n' "$root_sha" "$compressor_sha" "$app_sha"
-          {
-            echo "### Source revisions"
-            echo "| Source | Commit |"
-            echo "| --- | --- |"
-            printf '| CXETCPP root | %s |\n' "$root_sha"
-            printf '| hft-compressor snapshot | %s |\n' "$compressor_sha"
-            printf '| hft-recorder overlay | %s |\n' "$app_sha"
-          } >> "$GITHUB_STEP_SUMMARY"
-          {
-            echo '```text'
-            git -C source/CXETCPP submodule status
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-
       - name: Set up pinned LLVM
         uses: ./source/CXETCPP/.github/actions/setup-toolchain
         with:
           source-root: source/CXETCPP
           local-cache-root: /home/gha-runner/github-actions/cache/toolchains/wsl-ci-cxetcpp
-
-      - name: Report CMake and CTest binaries
-        run: |
-          /usr/bin/cmake --version
-          /usr/bin/ctest --version
-
-      - name: Configure portable family graph
+      - name: Configure canonical family graph
         working-directory: source/CXETCPP
-        run: /usr/bin/cmake --preset clang-ci-family
+        run: /usr/bin/cmake --preset clang-ci-family-incremental
 
-      - name: Build Recorder corpus consumer contract
+  production-build:
+    name: production-build / corpus-core
+    if: needs.snapshot.outputs.mode == 'own'
+    needs: [snapshot, prepare]
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 90
+    defaults: {run: {shell: "/home/gha-runner/github-actions/bin/gha-heavy-shell {0}"}}
+    steps:
+      - name: Build Recorder corpus contract only
+        working-directory: source/CXETCPP
+        run: /usr/bin/cmake --build build/modes/clang-ci-family-incremental --target hftrec_corpus_contract --parallel 4
+
+  root-integration-build:
+    name: root-integration-build / corpus-consumer
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      (needs.production-build.result == 'success' || needs.production-build.result == 'skipped')
+    needs: [snapshot, prepare, production-build]
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 120
+    defaults: {run: {shell: "/home/gha-runner/github-actions/bin/gha-heavy-shell {0}"}}
+    steps:
+      - name: Build the real Backtest consumer of the Recorder corpus contract
+        working-directory: source/CXETCPP
+        run: /usr/bin/cmake --build build/modes/clang-ci-family-incremental --target hft_backtest_core --parallel 4
+
+  test-build:
+    name: test-build / corpus-contract
+    needs: [snapshot, root-integration-build]
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 90
+    defaults: {run: {shell: "/home/gha-runner/github-actions/bin/gha-heavy-shell {0}"}}
+    steps:
+      - name: Build the corpus consumer contract test
+        working-directory: source/CXETCPP
+        run: /usr/bin/cmake --build build/modes/clang-ci-family-incremental --target hft-backtest-session-loader-tests --parallel 4
+
+  corpus-contract-tests:
+    name: tests / corpus-consumer-contract
+    needs: [snapshot, test-build]
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 30
+    defaults: {run: {shell: "/home/gha-runner/github-actions/bin/gha-heavy-shell {0}"}}
+    steps:
+      - name: Run only the real automatic Recorder contract test
         working-directory: source/CXETCPP
         run: >-
-          /usr/bin/cmake
-          --build build/modes/clang-ci-family
-          --target hft-backtest-session-loader-tests
-          --parallel 4
-
-      - name: Run Recorder corpus consumer contract
-        working-directory: source/CXETCPP
-        run: >-
-          /usr/bin/ctest
-          --test-dir build/modes/clang-ci-family
+          /usr/bin/ctest --test-dir build/modes/clang-ci-family-incremental
+          --output-on-failure --no-tests=error --timeout 180
           -R '^hft-backtest-session-loader-tests$'
-          --output-on-failure
-          --no-tests=error
-          --timeout 180
+
+  sanitizer-address-undefined:
+    name: sanitizer / address-undefined
+    if: needs.snapshot.outputs.mode == 'own'
+    needs: [snapshot, prepare]
+    continue-on-error: true
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 180
+    defaults: {run: {shell: "/home/gha-runner/github-actions/bin/gha-heavy-shell {0}"}}
+    steps:
+      - name: Configure the real family ASan and UBSan preset
+        working-directory: source/CXETCPP
+        run: /usr/bin/cmake --preset clang-ci-family-address-undefined-incremental
+      - name: Build the instrumented corpus consumer test
+        working-directory: source/CXETCPP
+        run: /usr/bin/cmake --build build/modes/clang-ci-family-address-undefined-incremental --target hft-backtest-session-loader-tests --parallel 4
+      - name: Run the instrumented corpus consumer contract
+        working-directory: source/CXETCPP
+        run: >-
+          /usr/bin/ctest --test-dir build/modes/clang-ci-family-address-undefined-incremental
+          --output-on-failure --no-tests=error --timeout 180
+          -R '^hft-backtest-session-loader-tests$'
+
+  publish-ready:
+    name: publish-ready
+    if: >-
+      always() && needs.snapshot.outputs.mode == 'own' &&
+      needs.production-build.result == 'success' && needs.root-integration-build.result == 'success'
+    needs: [snapshot, production-build, root-integration-build]
+    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
+    timeout-minutes: 10
+    steps:
+      - &checkout_controller
+        name: Checkout family CI controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: main
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          path: controller
+          sparse-checkout: |
+            tools/Ci/FamilyCiController.py
+            tools/Ci/family_ci_graph.json
+          persist-credentials: false
+      - &publish
+        name: Publish successful gates
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          SNAPSHOT_JSON: ${{ needs.snapshot.outputs.snapshot_json }}
+          SNAPSHOT_ID: ${{ needs.snapshot.outputs.snapshot_id }}
+          CI_MODE: ${{ needs.snapshot.outputs.mode }}
+        run: >-
+          python3 controller/tools/Ci/FamilyCiController.py publish
+          --repository "$GITHUB_REPOSITORY" --snapshot-json "$SNAPSHOT_JSON"
+          --snapshot-id "$SNAPSHOT_ID" --mode "$CI_MODE"
+
+  publish-ready-dependency:
+    name: publish-ready
+    if: >-
+      always() && needs.snapshot.outputs.mode == 'dependency' &&
+      needs.root-integration-build.result == 'success' &&
+      needs.corpus-contract-tests.result == 'success'
+    needs: [snapshot, root-integration-build, corpus-contract-tests]
+    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
+    timeout-minutes: 10
+    steps:
+      - *checkout_controller
+      - *publish
