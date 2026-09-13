@@ -73,14 +73,28 @@ while [ "$#" -gt 0 ]; do
         --force-back) MODE="app-with-backtest"; shift ;;
         --force)      MODE="all"; shift ;;
         --clean)      CLEAN=1; shift ;;
-        --compiler)   COMPILER="${2:-}"; shift 2 ;;
+        --compiler)
+            if [ "$#" -lt 2 ] || [ -z "${2:-}" ] || [[ "$2" == -* ]]; then
+                echo "ERROR: missing value for --compiler" >&2
+                exit 2
+            fi
+            COMPILER="$2"
+            shift 2
+            ;;
         --metrics-off) HOTPATH_METRICS_DEFAULT="OFF"; shift ;;
         secp-native|--secp-native|--secp256k1-native) SECP256K1_NATIVE_OPT="ON"; shift ;;
         portable|--portable|secp-portable|--secp-portable|--no-secp-native) PORTABLE_BUILD="ON"; SECP256K1_NATIVE_OPT="OFF"; shift ;;
         p|parallel|--parallel) FULL_PARALLEL=1; JOBS="$(nproc 2>/dev/null || echo 4)"; shift ;;
         clang)        COMPILER="$1"; shift ;;
         gcc)          echo "ERROR: GCC is not supported for CXETCPP/hft-trader builds; use clang." >&2; exit 2 ;;
-        -j)           JOBS="${2:-}"; shift 2 ;;
+        -j)
+            if [ "$#" -lt 2 ] || [ -z "${2:-}" ] || [[ "$2" == -* ]]; then
+                echo "ERROR: missing value for -j" >&2
+                exit 2
+            fi
+            JOBS="$2"
+            shift 2
+            ;;
         -h|--help)    usage; exit 0 ;;
         *) echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -269,8 +283,8 @@ _refuse_build_with_running_recorder() {
 }
 
 _require_compressor_tree() {
-    if [ ! -x "$COMPRESSOR/compile.sh" ]; then
-        echo "ERROR: hft-compressor compile script not found: $COMPRESSOR/compile.sh" >&2
+    if [ ! -r "$COMPRESSOR/compile.sh" ]; then
+        echo "ERROR: hft-compressor compile script not found or unreadable: $COMPRESSOR/compile.sh" >&2
         exit 2
     fi
 }
@@ -279,20 +293,20 @@ _build_compressor() {
     _require_compressor_tree
     _reset_build_dir_for_explicit_compiler "$COMPRESSOR/build" "hft-compressor"
     echo ">>> Building hft-compressor library"
-    (cd "$COMPRESSOR" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh)
+    (cd "$COMPRESSOR" && CC="$C_COMPILER" CXX="$CXX_COMPILER" bash ./compile.sh)
     RECORDER_DEPS_REFRESHED=1
 }
 
 _require_trader_tree() {
-    if [ ! -x "$TRADER/compile.sh" ]; then
-        echo "ERROR: hft-trader compile script not found: $TRADER/compile.sh" >&2
+    if [ ! -r "$TRADER/compile.sh" ]; then
+        echo "ERROR: hft-trader compile script not found or unreadable: $TRADER/compile.sh" >&2
         exit 2
     fi
 }
 
 _require_backtest_tree() {
-    if [ ! -x "$BACKTEST/compile.sh" ]; then
-        echo "ERROR: hft-backtest compile script not found: $BACKTEST/compile.sh" >&2
+    if [ ! -r "$BACKTEST/compile.sh" ]; then
+        echo "ERROR: hft-backtest compile script not found or unreadable: $BACKTEST/compile.sh" >&2
         exit 2
     fi
 }
@@ -325,7 +339,7 @@ _build_trader() {
     if [ "$FULL_PARALLEL" = "1" ]; then
         trader_args+=(p)
     fi
-    (cd "$TRADER" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh "${trader_args[@]}")
+    (cd "$TRADER" && CC="$C_COMPILER" CXX="$CXX_COMPILER" bash ./compile.sh "${trader_args[@]}")
     RECORDER_DEPS_REFRESHED=1
 }
 
@@ -335,7 +349,7 @@ _build_backtest() {
     _reset_build_dir_for_explicit_compiler "$BACKTEST/build" "hft-backtest"
     _resolve_trader_lib >/dev/null
     echo ">>> Building hft-backtest library"
-    (cd "$BACKTEST" && CC="$C_COMPILER" CXX="$CXX_COMPILER" ./compile.sh)
+    (cd "$BACKTEST" && CC="$C_COMPILER" CXX="$CXX_COMPILER" bash ./compile.sh)
     RECORDER_DEPS_REFRESHED=1
 }
 _resolve_compressor_lib() {
