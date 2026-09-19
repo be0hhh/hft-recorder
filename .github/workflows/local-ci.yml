@@ -128,9 +128,11 @@ jobs:
       - name: Restore pinned source graph without shallow history
         working-directory: source/CXETCPP
         env:
-          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_COUNT: 2
           GIT_CONFIG_KEY_0: 'url.https://x-access-token:${{ secrets.CI_FAMILY_READ_TOKEN }}@github.com/.insteadOf'
           GIT_CONFIG_VALUE_0: 'git@github.com:'
+          GIT_CONFIG_KEY_1: 'url.https://x-access-token:${{ secrets.CI_FAMILY_READ_TOKEN }}@github.com/.insteadOf'
+          GIT_CONFIG_VALUE_1: 'https://github.com/'
         run: |
           git submodule update --init -- tools/exchange_api_probe apps/hft-compressor apps/hft-recorder apps/hft-parser apps/trading-core apps/hft-trader apps/hft-backtest apps/trader apps/vetron extra/abseil-cpp extra/liburing extra/secp256k1 extra/wolfssl || {
             echo "::error::Pinned source revision is unavailable or checkout is incompatible; inspect the submodule error. No automatic cleanup or revision fallback is permitted."
