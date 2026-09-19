@@ -196,7 +196,7 @@ jobs:
   root-integration-build:
     name: root-integration-build / corpus-consumer
     if: >-
-      always() && needs.prepare.result == 'success' &&
+      !cancelled() && needs.prepare.result == 'success' &&
       (needs.production-build.result == 'success' || needs.production-build.result == 'skipped')
     needs: [snapshot, prepare, production-build]
     runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
