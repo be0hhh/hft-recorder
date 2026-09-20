@@ -134,10 +134,7 @@ jobs:
           GIT_CONFIG_KEY_1: 'url.https://x-access-token:${{ secrets.CI_FAMILY_READ_TOKEN }}@github.com/.insteadOf'
           GIT_CONFIG_VALUE_1: 'https://github.com/'
         run: |
-          git submodule update --init --force -- tools/exchange_api_probe apps/hft-compressor apps/hft-recorder apps/hft-parser apps/trading-core apps/hft-trader apps/hft-backtest apps/trader apps/vetron extra/abseil-cpp extra/liburing extra/secp256k1 extra/wolfssl || {
-            echo "::error::Pinned source revision is unavailable or checkout is incompatible; inspect the submodule error. No automatic cleanup or revision fallback is permitted."
-            exit 1
-          }
+          bash "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP/tools/Ci/RestoreFamilySubmodules.sh" tools/exchange_api_probe apps/hft-compressor apps/hft-recorder apps/hft-parser apps/trading-core apps/hft-trader apps/hft-backtest apps/trader apps/vetron extra/abseil-cpp extra/liburing extra/secp256k1 extra/wolfssl
       - name: Overlay exact hft-compressor snapshot
         uses: ./source/family-ci-v3/CXETCPP/.github/actions/overlay-family-revision
         with:
