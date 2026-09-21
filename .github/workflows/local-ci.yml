@@ -72,8 +72,8 @@ jobs:
           repositories = {"CXETCPP", "TestExchangesHelper", "hft-compressor", "hft-recorder", "hft-parser", "trading-core", "hft-trader", "hft-backtest", "trader", "vetron"}
           if os.environ["GITHUB_EVENT_NAME"] == "repository_dispatch":
               payload = json.loads(os.environ["CLIENT_PAYLOAD"])
-              if payload.get("schema_version") != 2:
-                  raise SystemExit("family-build requires schema_version=2")
+              if payload.get("schema_version") not in (2, 3):
+                  raise SystemExit("family-build requires schema_version=2 or 3")
               mode, snapshot, snapshot_id = payload.get("mode"), payload.get("snapshot"), payload.get("snapshot_id")
               if payload.get("trigger_repo") not in repositories or not re.fullmatch(r"[0-9a-f]{40}", str(payload.get("trigger_sha", ""))):
                   raise SystemExit("family-build contains an invalid trigger")

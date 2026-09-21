@@ -6,7 +6,7 @@ on:
   repository_dispatch:
     types: [family-invalidated, family-buildable, family-ready, family-failed]
   workflow_run:
-    workflows: [local-ci]
+    workflows: [local-ci, full-product-manual, family-reuse]
     types: [completed]
   workflow_dispatch:
 

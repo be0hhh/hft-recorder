@@ -1,0 +1,39 @@
+name: family-reuse
+run-name: family-reuse ${{ github.event.client_payload.snapshot_id }} ${{ github.event.client_payload.dispatch_id }}
+
+on:
+  repository_dispatch:
+    types: [family-reuse]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate-reused-build
+    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
+    timeout-minutes: 15
+    steps:
+      - name: Require family control token
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || {
+            echo '::error::CI_FAMILY_READ_TOKEN is required for family reuse.'
+            exit 1
+          }
+
+      - name: Checkout canonical family controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: main
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          persist-credentials: false
+          clean: false
+          path: controller
+
+      - name: Validate and publish exact reused component
+        uses: ./controller/.github/actions/family-reuse
+        with:
+          family-read-token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
