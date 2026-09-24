@@ -83,7 +83,11 @@ The GUI is part of the deliverable, not a thin CLI wrapper:
 
 ## Subagents
 
-Use GPT-5.6-sol high without fast mode for recorder subagents. GPT-5.6-terra high without fast mode is allowed for easy tasks. Use xhigh/max only when the user explicitly requests xhigh/max in the current message.
+Use GPT-6 Sol medium for substantive recorder work and high for complex work.
+Use GPT-6 Luna xhigh/max for mechanical edits, grep, and light checks. Use
+GPT-6 Astra medium for H0/H1, hot-path, cache-critical, strategy-quant, or
+trader-runtime reviews, or when explicitly requested. Fast and priority service
+tiers are forbidden.
 
 Read-only explorer and reviewer subagents may be used automatically for non-trivial recorder work. Editing worker subagents may be used automatically only after the current user message explicitly authorizes implementation, for example with `делай`, `implement`, or an equivalent direct instruction. Read-only requests such as `изучи`, `посмотри`, or `пока не делай` never authorize editing workers.
 
