@@ -211,6 +211,9 @@ jobs:
   test-build:
     name: test-build / corpus-contract
     needs: [snapshot, root-integration-build]
+    if: >-
+      !cancelled() && needs.snapshot.result == 'success' &&
+      needs.root-integration-build.result == 'success'
     runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
     timeout-minutes: 90
     defaults: {run: {shell: "/home/gha-runner/github-actions/bin/gha-heavy-shell {0}"}}
@@ -226,6 +229,9 @@ jobs:
   corpus-contract-tests:
     name: tests / corpus-consumer-contract
     needs: [snapshot, test-build]
+    if: >-
+      !cancelled() && needs.snapshot.result == 'success' &&
+      needs.test-build.result == 'success'
     runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
     timeout-minutes: 30
     defaults: {run: {shell: "/home/gha-runner/github-actions/bin/gha-heavy-shell {0}"}}
@@ -240,7 +246,9 @@ jobs:
 
   sanitizer-address-undefined:
     name: sanitizer-address-undefined
-    if: needs.root-integration-build.result == 'success'
+    if: >-
+      !cancelled() && needs.snapshot.result == 'success' &&
+      needs.root-integration-build.result == 'success'
     needs: [snapshot, root-integration-build]
     runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
     timeout-minutes: 180
