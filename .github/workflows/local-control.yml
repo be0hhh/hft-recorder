@@ -27,11 +27,71 @@ jobs:
             echo '::error::CI_FAMILY_READ_TOKEN is required for family orchestration.'
             exit 1
           }
+      - name: Resolve canonical family controller revision
+        id: controller_revision
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          def fail(message):
+              print(f"::error::{message}", file=sys.stderr)
+              raise SystemExit(1)
+
+          def require_sha(value, label):
+              if not isinstance(value, str) or re.fullmatch(r"[0-9a-fA-F]{40}", value) is None:
+                  fail(f"Invalid {label}.")
+              return value
+
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          repository = os.environ["GITHUB_REPOSITORY"]
+
+          if event_name == "repository_dispatch":
+              try:
+                  event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+              except (OSError, json.JSONDecodeError) as exc:
+                  fail(f"Cannot read repository_dispatch payload: {exc}")
+              if not isinstance(event, dict) or not isinstance(event.get("client_payload"), dict):
+                  fail("repository_dispatch client_payload is required.")
+              controller_ref = require_sha(event["client_payload"].get("controller_sha"), "controller_sha")
+          elif event_name == "workflow_run":
+              state_path = Path("/home/gha-runner/github-actions/state/family-ci/__family__.json")
+              try:
+                  state_text = state_path.read_text(encoding="utf-8")
+              except FileNotFoundError:
+                  controller_ref = "main"
+              except OSError as exc:
+                  fail(f"Cannot read family snapshot state: {exc}")
+              else:
+                  try:
+                      state = json.loads(state_text)
+                  except json.JSONDecodeError as exc:
+                      fail(f"Malformed family snapshot state: {exc}")
+                  if not isinstance(state, dict) or not isinstance(state.get("snapshot"), dict):
+                      fail("Malformed family snapshot state.")
+                  controller_ref = require_sha(state["snapshot"].get("cxetcpp"), "snapshot.cxetcpp")
+          elif event_name == "push":
+              if repository == "be0hhh/CXETCPP":
+                  controller_ref = require_sha(os.environ.get("GITHUB_SHA"), "root push SHA")
+              else:
+                  controller_ref = "main"
+          elif event_name == "workflow_dispatch":
+              controller_ref = "main"
+          else:
+              fail(f"Unsupported local-control event: {event_name}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"ref={controller_ref}\n")
+          PY
+
       - name: Checkout canonical family controller
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: be0hhh/CXETCPP
-          ref: main
+          ref: ${{ steps.controller_revision.outputs.ref }}
           token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           persist-credentials: false
           clean: false

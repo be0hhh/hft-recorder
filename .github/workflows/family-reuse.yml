@@ -23,11 +23,47 @@ jobs:
             exit 1
           }
 
+      - name: Validate family controller revision
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+          import os
+
+          def fail(message):
+              print(f"::error::{message}", file=sys.stderr)
+              raise SystemExit(1)
+
+          def require_sha(value, label):
+              if not isinstance(value, str) or re.fullmatch(r"[0-9a-fA-F]{40}", value) is None:
+                  fail(f"Invalid {label}.")
+              return value
+
+          try:
+              event = json.loads(Path(os.environ["EVENT_PATH"]).read_text(encoding="utf-8"))
+          except (OSError, json.JSONDecodeError) as exc:
+              fail(f"Cannot read family-reuse payload: {exc}")
+          if not isinstance(event, dict) or not isinstance(event.get("client_payload"), dict):
+              fail("family-reuse client_payload is required.")
+          payload = event["client_payload"]
+          controller_sha = require_sha(payload.get("controller_sha"), "controller_sha")
+          snapshot = payload.get("snapshot")
+          if not isinstance(snapshot, dict):
+              fail("family-reuse snapshot is required.")
+          snapshot_sha = require_sha(snapshot.get("cxetcpp"), "snapshot.cxetcpp")
+          if controller_sha != snapshot_sha:
+              fail("controller_sha differs from snapshot.cxetcpp.")
+          PY
+
       - name: Checkout canonical family controller
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: be0hhh/CXETCPP
-          ref: main
+          ref: ${{ github.event.client_payload.controller_sha }}
           token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           persist-credentials: false
           clean: false
