@@ -7,6 +7,11 @@ on:
     types: [family-build]
   workflow_dispatch:
     inputs:
+      profile:
+        description: Family CI composition
+        type: choice
+        options: [full]
+        default: full
       mode:
         description: Build own revision or revalidate dependencies
         type: choice
@@ -45,7 +50,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: be0hhh/CXETCPP
-          ref: main
+          ref: ${{ github.event.client_payload.snapshot.cxetcpp || 'main' }}
           token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
           path: controller
           sparse-checkout: |
@@ -58,36 +63,45 @@ jobs:
         uses: ./controller/.github/actions/resolve-family-revisions
         with:
           family-read-token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          profile: ${{ inputs.profile }}
       - name: Validate immutable family snapshot
         id: snapshot
         env:
           CLIENT_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
           MANUAL_MODE: ${{ inputs.mode }}
+          MANUAL_PROFILE: ${{ inputs.profile }}
           FALLBACK_JSON: >-
             {"cxetcpp":"${{ steps.fallback.outputs.cxetcpp_sha }}","hft_parser":"${{ steps.fallback.outputs.hft_parser_sha }}","hft_compressor":"${{ steps.fallback.outputs.hft_compressor_sha }}","hft_recorder":"${{ steps.fallback.outputs.hft_recorder_sha }}","trading_core":"${{ steps.fallback.outputs.trading_core_sha }}","hft_trader":"${{ steps.fallback.outputs.hft_trader_sha }}","hft_backtest":"${{ steps.fallback.outputs.hft_backtest_sha }}","trader":"${{ steps.fallback.outputs.trader_sha }}","vetron":"${{ steps.fallback.outputs.vetron_sha }}","test_exchanges_helper":"${{ steps.fallback.outputs.test_exchanges_helper_sha }}"}
         run: |
           python3 - <<'PY'
-          import hashlib, json, os, re
+          import json, os, re, subprocess
           keys = {"cxetcpp", "hft_parser", "hft_compressor", "hft_recorder", "trading_core", "hft_trader", "hft_backtest", "trader", "vetron", "test_exchanges_helper"}
           repositories = {"CXETCPP", "TestExchangesHelper", "hft-compressor", "hft-recorder", "hft-parser", "trading-core", "hft-trader", "hft-backtest", "trader", "vetron"}
           if os.environ["GITHUB_EVENT_NAME"] == "repository_dispatch":
               payload = json.loads(os.environ["CLIENT_PAYLOAD"])
-              if payload.get("schema_version") not in (2, 3):
-                  raise SystemExit("family-build requires schema_version=2 or 3")
+              if payload.get("schema_version") != 4:
+                  raise SystemExit("family-build requires schema_version=4")
               mode, snapshot, snapshot_id = payload.get("mode"), payload.get("snapshot"), payload.get("snapshot_id")
               if payload.get("trigger_repo") not in repositories or not re.fullmatch(r"[0-9a-f]{40}", str(payload.get("trigger_sha", ""))):
                   raise SystemExit("family-build contains an invalid trigger")
           else:
               mode, snapshot = os.environ.get("MANUAL_MODE") or "own", json.loads(os.environ["FALLBACK_JSON"])
-              relevant = {key: snapshot[key] for key in ("cxetcpp", "hft_parser", "hft_compressor", "hft_recorder")}
-              snapshot_id = hashlib.sha256(json.dumps(relevant, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
-          if mode not in {"own", "dependency"} or not isinstance(snapshot, dict) or set(snapshot) != keys:
+              snapshot["_profile"] = os.environ.get("MANUAL_PROFILE") or "full"
+              snapshot_id = None
+          if mode not in {"own", "dependency"} or not isinstance(snapshot, dict) or set(snapshot) != keys | {"_profile"}:
               raise SystemExit("invalid family-build mode or repository set")
-          if any(not isinstance(v, str) or not re.fullmatch(r"[0-9a-f]{40}", v) for v in snapshot.values()):
+          if snapshot["_profile"] not in {"essential", "full"}:
+              raise SystemExit("invalid family profile")
+          if snapshot["_profile"] != "full":
+              raise SystemExit("offline product requires full family profile")
+          if any(not isinstance(snapshot[key], str) or not re.fullmatch(r"[0-9a-f]{40}", snapshot[key]) for key in keys):
               raise SystemExit("family-build contains an invalid SHA")
-          if not isinstance(snapshot_id, str) or not re.fullmatch(r"[0-9a-f]{16}", snapshot_id):
-              raise SystemExit("snapshot_id must be a 16-character lowercase digest")
           compact = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+          expected_id = subprocess.check_output(["python3", "controller/tools/Ci/FamilyCiController.py", "snapshot-id", "--repository", os.environ["GITHUB_REPOSITORY"], "--snapshot-json", compact], text=True).strip()
+          if snapshot_id is None:
+              snapshot_id = expected_id
+          elif snapshot_id != expected_id:
+              raise SystemExit(f"snapshot_id mismatch: expected {expected_id}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               print(f"mode={mode}\nsnapshot_id={snapshot_id}\nsnapshot_json={compact}", file=out)
               print(f"cxetcpp_sha={snapshot['cxetcpp']}\nhft_parser_sha={snapshot['hft_parser']}\nhft_compressor_sha={snapshot['hft_compressor']}\nsource_sha={snapshot['hft_recorder']}", file=out)
@@ -168,7 +182,7 @@ jobs:
         working-directory: source/family-ci-v3/CXETCPP
         run: |
           python3 "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP/tools/Ci/FamilyCiWorkspace.py" source --root "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
-          /usr/bin/cmake --preset clang-ci-family-incremental
+          /usr/bin/cmake --preset clang-ci-family-incremental -DCXET_FAMILY_PROFILE="${{ fromJSON(needs.snapshot.outputs.snapshot_json)._profile }}"
           python3 "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP/tools/Ci/FamilyCiWorkspace.py" record --root "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON" --build-dir "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP/build/modes/clang-ci-family-incremental"
 
   production-build:
@@ -260,7 +274,7 @@ jobs:
         working-directory: source/family-ci-v3/CXETCPP
         run: |
           python3 "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP/tools/Ci/FamilyCiWorkspace.py" source --root "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
-          /usr/bin/cmake --preset clang-ci-family-address-undefined-incremental
+          /usr/bin/cmake --preset clang-ci-family-address-undefined-incremental -DCXET_FAMILY_PROFILE="${{ fromJSON(needs.snapshot.outputs.snapshot_json)._profile }}"
           python3 "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP/tools/Ci/FamilyCiWorkspace.py" record --root "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON" --build-dir "$GITHUB_WORKSPACE/source/family-ci-v3/CXETCPP/build/modes/clang-ci-family-address-undefined-incremental"
       - name: Build the instrumented corpus consumer test
         working-directory: source/family-ci-v3/CXETCPP
