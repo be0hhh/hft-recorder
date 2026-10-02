@@ -24,20 +24,10 @@ struct CaptureBatchSnapshot {
     QString sessionPath{};
     QString errorText{};
     bool tradesRunning{false};
-    bool liquidationsRunning{false};
     bool bookTickerRunning{false};
     bool orderbookRunning{false};
-    bool markPriceRunning{false};
-    bool indexPriceRunning{false};
-    bool fundingRunning{false};
-    bool priceLimitRunning{false};
     qulonglong tradesCount{0};
-    qulonglong liquidationsCount{0};
     qulonglong bookTickerCount{0};
-    qulonglong markPriceCount{0};
-    qulonglong indexPriceCount{0};
-    qulonglong fundingCount{0};
-    qulonglong priceLimitCount{0};
     qulonglong candlesCount{0};
     qulonglong candles2Count{0};
     qulonglong depthCount{0};
@@ -69,11 +59,9 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QStringList& venueSymbolsTexts,
                                                 const QString& symbolsText,
                                                 const QStringList& tradesAvailableAliases,
-                                                const QStringList& liquidationsAvailableAliases,
                                                 const QStringList& bookTickerAvailableAliases,
                                                 const QStringList& orderbookAvailableAliases,
                                                 const QStringList& selectedTradesAliases,
-                                                const QStringList& selectedLiquidationsAliases,
                                                 const QStringList& selectedBookTickerAliases,
                                                 const QStringList& selectedOrderbookAliases,
                                                 int tradesHistoryWarmupSec);

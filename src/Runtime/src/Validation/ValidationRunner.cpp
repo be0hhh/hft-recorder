@@ -2,13 +2,11 @@
 
 #include <chrono>
 
-#include "../Metrics/Metrics.hpp"
 
 namespace hftrec::validation {
 
 ValidationResult ValidationRunner::compare(const std::vector<std::string>& original,
                                            const std::vector<std::string>& decoded) const {
-    const auto startedAt = std::chrono::steady_clock::now();
     ValidationResult result{};
     result.eventsTotal = original.size();
     const auto common = original.size() < decoded.size() ? original.size() : decoded.size();
@@ -37,10 +35,6 @@ ValidationResult ValidationRunner::compare(const std::vector<std::string>& origi
         ? 1'000'000u
         : static_cast<std::uint64_t>((result.eventsExactMatch * 1'000'000ull) / result.eventsTotal);
     result.accuracyClass = result.eventsMismatch == 0 ? AccuracyClass::LosslessExact : AccuracyClass::Failed;
-    const auto runNs = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - startedAt).count());
-    metrics::recordValidationRun(result.eventsTotal, result.eventsExactMatch, result.eventsMismatch, runNs);
     return result;
 }
 

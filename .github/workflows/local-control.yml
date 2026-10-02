@@ -6,7 +6,7 @@ on:
   repository_dispatch:
     types: [family-invalidated, family-buildable, family-ready, family-failed]
   workflow_run:
-    workflows: [local-ci, full-product-manual, family-reuse]
+    workflows: [local-ci, family-reuse]
     types: [completed]
   workflow_dispatch:
 
@@ -56,6 +56,8 @@ jobs:
                   fail(f"Cannot read repository_dispatch payload: {exc}")
               if not isinstance(event, dict) or not isinstance(event.get("client_payload"), dict):
                   fail("repository_dispatch client_payload is required.")
+              if event["client_payload"].get("schema_version") != 5:
+                  fail("family control events require schema_version=5.")
               controller_ref = require_sha(event["client_payload"].get("controller_sha"), "controller_sha")
           elif event_name == "workflow_run":
               state_path = Path("/home/gha-runner/github-actions/state/family-ci/__family__.json")
@@ -70,9 +72,16 @@ jobs:
                       state = json.loads(state_text)
                   except json.JSONDecodeError as exc:
                       fail(f"Malformed family snapshot state: {exc}")
-                  if not isinstance(state, dict) or not isinstance(state.get("snapshot"), dict):
+                  if not isinstance(state, dict):
                       fail("Malformed family snapshot state.")
-                  controller_ref = require_sha(state["snapshot"].get("cxetcpp"), "snapshot.cxetcpp")
+                  # Refresh the controller at the generation cutover; old state
+                  # cannot select an old controller or satisfy current gates.
+                  if state.get("schema_version") != 5:
+                      controller_ref = "main"
+                  else:
+                      if not isinstance(state.get("snapshot"), dict):
+                          fail("Malformed family snapshot state.")
+                      controller_ref = require_sha(state["snapshot"].get("cxetcpp"), "snapshot.cxetcpp")
           elif event_name == "push":
               if repository == "be0hhh/CXETCPP":
                   controller_ref = require_sha(os.environ.get("GITHUB_SHA"), "root push SHA")

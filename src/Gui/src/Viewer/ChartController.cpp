@@ -9,7 +9,6 @@
 #include <chrono>
 #include <QUrl>
 
-#include "../../../Runtime/src/Metrics/Metrics.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -43,17 +42,7 @@ bool envForcesSoftwareRenderer() {
         || xcbIntegration == QStringLiteral("none");
 }
 
-QString formatNsAsMs(std::uint64_t ns) {
-    const std::uint64_t wholeMs = ns / 1000000ull;
-    const std::uint64_t hundredths = (ns % 1000000ull) / 10000ull;
-    return QStringLiteral("%1.%2ms")
-        .arg(static_cast<qulonglong>(wholeMs))
-        .arg(static_cast<int>(hundredths), 2, 10, QLatin1Char('0'));
-}
 
-std::uint64_t avgNs(std::uint64_t total, std::uint64_t count) noexcept {
-    return count == 0u ? 0u : total / count;
-}
 
 template <typename Row>
 bool eventKeyLess(const Row& lhs, const Row& rhs) noexcept {
@@ -116,7 +105,6 @@ void keepRowsInTimeRange(std::vector<Row>& rows, std::int64_t tsMin, std::int64_
 
 void keepBatchInTimeRange(LiveDataBatch& batch, std::int64_t tsMin, std::int64_t tsMax) {
     keepRowsInTimeRange(batch.trades, tsMin, tsMax);
-    keepRowsInTimeRange(batch.liquidations, tsMin, tsMax);
     keepRowsInTimeRange(batch.bookTickers, tsMin, tsMax);
     keepRowsInTimeRange(batch.depths, tsMin, tsMax);
     keepRowsInTimeRange(batch.snapshots, tsMin, tsMax);
@@ -167,31 +155,6 @@ int ChartController::liveUpdateIntervalMs() const noexcept {
     return liveUpdateIntervalMs_;
 }
 
-QString ChartController::performanceDiagnostics() const {
-    const hftrec::metrics::MetricsSnapshot snap = hftrec::metrics::snapshot();
-    const hftrec::metrics::GuiRuntimeMetrics& gui = snap.gui;
-    const QString loadText = lastRecordedLoadNs_ == 0u
-        ? QStringLiteral("-")
-        : QStringLiteral("%1 %2 %3r")
-              .arg(lastRecordedLoadLabel_,
-                   formatNsAsMs(lastRecordedLoadNs_),
-                   QString::number(static_cast<qulonglong>(lastRecordedLoadRows_)));
-    QString text = QStringLiteral("FPS %1 | paint %2/%3 | snap %4/%5 | objs ob=%6 bt=%7 tr=%8 liq=%9")
-        .arg(static_cast<qulonglong>(gui.fps))
-        .arg(formatNsAsMs(avgNs(gui.paintNsTotal, gui.frameTotal)))
-        .arg(formatNsAsMs(gui.paintNsMax))
-        .arg(formatNsAsMs(avgNs(gui.snapshotBuildNsTotal, gui.snapshotBuildCountTotal)))
-        .arg(formatNsAsMs(gui.snapshotBuildNsMax))
-        .arg(static_cast<qulonglong>(gui.orderbookSegments))
-        .arg(static_cast<qulonglong>(gui.bookTickerSamples))
-        .arg(static_cast<qulonglong>(gui.tradeDots))
-        .arg(static_cast<qulonglong>(gui.liquidationDots));
-    text += QStringLiteral(" | cache h/r=%1/%2 | load %3")
-        .arg(static_cast<qulonglong>(gui.layerCacheHitTotal))
-        .arg(static_cast<qulonglong>(gui.layerCacheRebuildTotal))
-        .arg(loadText);
-    return text;
-}
 
 void ChartController::setRenderWindowSeconds(int seconds) {
     const int clamped = std::clamp(seconds, -1, 86400);
@@ -270,12 +233,9 @@ void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsM
 
     LiveDataBatch nextStable{};
     if (!emptyWindow) {
-        const auto materializeStart = std::chrono::steady_clock::now();
         nextStable = liveDataProvider_->materializeRange(
             LiveDataRangeRequest{{}, tsMin, tsMax},
             liveDataCache_.version + 1u);
-        hftrec::metrics::recordLiveMaterialize(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - materializeStart).count()));
     }
 
     liveDataCache_.stableRows = std::move(nextStable);
@@ -288,11 +248,6 @@ void ChartController::refreshLiveDataWindow(std::int64_t tsMin, std::int64_t tsM
     liveDataCache_.hasRenderRange = !emptyWindow;
     liveDataCache_.renderTsMin = tsMin;
     liveDataCache_.renderTsMax = tsMax;
-    hftrec::metrics::setLiveRows(static_cast<std::uint64_t>(liveDataCache_.stableRows.trades.size() + liveDataCache_.overlayRows.trades.size()),
-                         static_cast<std::uint64_t>(liveDataCache_.stableRows.liquidations.size() + liveDataCache_.overlayRows.liquidations.size()),
-                         static_cast<std::uint64_t>(liveDataCache_.stableRows.bookTickers.size() + liveDataCache_.overlayRows.bookTickers.size()),
-                         static_cast<std::uint64_t>(liveDataCache_.stableRows.depths.size() + liveDataCache_.overlayRows.depths.size()),
-                         static_cast<std::uint64_t>(liveDataCache_.stableRows.snapshots.size() + liveDataCache_.overlayRows.snapshots.size()));
     liveWindowTsMin_ = tsMin;
     liveWindowTsMax_ = tsMax;
     liveWindowVersion_ = liveDataCache_.version;
@@ -335,12 +290,7 @@ void ChartController::refreshProviderFromRegistry_() {
 
 bool ChartController::appendOverlayBatch_(const LiveDataBatch& batch, QString* failureText) {
     if (!appendOrderedRows(batch.trades, liveOverlayState_.trades, failureText, QStringLiteral("trade"))) return false;
-    if (!appendOrderedRows(batch.liquidations, liveOverlayState_.liquidations, failureText, QStringLiteral("liquidation"))) return false;
     if (!appendOrderedRows(batch.bookTickers, liveOverlayState_.bookTickers, failureText, QStringLiteral("bookticker"))) return false;
-    if (!appendOrderedRows(batch.markPrices, liveOverlayState_.markPrices, failureText, QStringLiteral("mark_price"))) return false;
-    if (!appendOrderedRows(batch.indexPrices, liveOverlayState_.indexPrices, failureText, QStringLiteral("index_price"))) return false;
-    if (!appendOrderedRows(batch.fundings, liveOverlayState_.fundings, failureText, QStringLiteral("funding"))) return false;
-    if (!appendOrderedRows(batch.priceLimits, liveOverlayState_.priceLimits, failureText, QStringLiteral("price_limit"))) return false;
     if (!appendOrderedRows(batch.depths, liveOverlayState_.depths, failureText, QStringLiteral("depth"))) return false;
     if (!appendOrderedRows(batch.snapshots, liveOverlayState_.snapshots, failureText, QStringLiteral("snapshot"))) return false;
 
@@ -350,12 +300,7 @@ bool ChartController::appendOverlayBatch_(const LiveDataBatch& batch, QString* f
 
 void ChartController::reconcileOverlayWithStable_() {
     removeRowsPromotedToStable(liveOverlayState_.trades, liveDataCache_.stableRows.trades);
-    removeRowsPromotedToStable(liveOverlayState_.liquidations, liveDataCache_.stableRows.liquidations);
     removeRowsPromotedToStable(liveOverlayState_.bookTickers, liveDataCache_.stableRows.bookTickers);
-    removeRowsPromotedToStable(liveOverlayState_.markPrices, liveDataCache_.stableRows.markPrices);
-    removeRowsPromotedToStable(liveOverlayState_.indexPrices, liveDataCache_.stableRows.indexPrices);
-    removeRowsPromotedToStable(liveOverlayState_.fundings, liveDataCache_.stableRows.fundings);
-    removeRowsPromotedToStable(liveOverlayState_.priceLimits, liveDataCache_.stableRows.priceLimits);
     removeRowsPromotedToStable(liveOverlayState_.depths, liveDataCache_.stableRows.depths);
     removeRowsPromotedToStable(liveOverlayState_.snapshots, liveDataCache_.stableRows.snapshots);
 }
@@ -363,39 +308,19 @@ void ChartController::reconcileOverlayWithStable_() {
 void ChartController::refreshLoadedStateFromSources_() noexcept {
     loaded_ = !replay_.buckets().empty()
         || !replay_.trades().empty()
-        || !replay_.liquidations().empty()
         || !replay_.candles().empty()
         || !replay_.candles2().empty()
         || !replay_.bookTickers().empty()
-        || !replay_.markPrices().empty()
-        || !replay_.indexPrices().empty()
-        || !replay_.fundings().empty()
-        || !replay_.priceLimits().empty()
         || !replay_.depths().empty()
         || !replay_.book().empty()
         || !liveDataCache_.stableRows.trades.empty()
-        || !liveDataCache_.stableRows.liquidations.empty()
         || !liveDataCache_.stableRows.bookTickers.empty()
-        || !liveDataCache_.stableRows.markPrices.empty()
-        || !liveDataCache_.stableRows.indexPrices.empty()
-        || !liveDataCache_.stableRows.fundings.empty()
-        || !liveDataCache_.stableRows.priceLimits.empty()
         || !liveDataCache_.stableRows.depths.empty()
         || !liveDataCache_.overlayRows.trades.empty()
-        || !liveDataCache_.overlayRows.liquidations.empty()
         || !liveDataCache_.overlayRows.bookTickers.empty()
-        || !liveDataCache_.overlayRows.markPrices.empty()
-        || !liveDataCache_.overlayRows.indexPrices.empty()
-        || !liveDataCache_.overlayRows.fundings.empty()
-        || !liveDataCache_.overlayRows.priceLimits.empty()
         || !liveDataCache_.overlayRows.depths.empty()
         || !liveOverlayState_.trades.empty()
-        || !liveOverlayState_.liquidations.empty()
         || !liveOverlayState_.bookTickers.empty()
-        || !liveOverlayState_.markPrices.empty()
-        || !liveOverlayState_.indexPrices.empty()
-        || !liveOverlayState_.fundings.empty()
-        || !liveOverlayState_.priceLimits.empty()
         || !liveOverlayState_.depths.empty();
 }
 
@@ -411,49 +336,28 @@ std::int64_t ChartController::latestOrderbookTsNs_() const noexcept {
 
 std::int64_t ChartController::latestRenderableTsNs_() const noexcept {
     std::int64_t latest = 0;
-    std::int64_t latestLiquidation = 0;
     const auto absorbRows = [](std::int64_t& target, const auto& rows) noexcept {
         if (!rows.empty()) target = std::max(target, rows.back().tsNs);
     };
 
     absorbRows(latest, replay_.trades());
     absorbRows(latest, replay_.bookTickers());
-    absorbRows(latest, replay_.markPrices());
-    absorbRows(latest, replay_.indexPrices());
-    absorbRows(latest, replay_.fundings());
-    absorbRows(latest, replay_.priceLimits());
     absorbRows(latest, replay_.candles2());
     absorbRows(latest, replay_.candles());
     absorbRows(latest, replay_.depths());
-    absorbRows(latestLiquidation, replay_.liquidations());
     absorbRows(latest, liveDataCache_.stableRows.trades);
     absorbRows(latest, liveDataCache_.overlayRows.trades);
     absorbRows(latest, liveOverlayState_.trades);
     absorbRows(latest, liveDataCache_.stableRows.bookTickers);
     absorbRows(latest, liveDataCache_.overlayRows.bookTickers);
     absorbRows(latest, liveOverlayState_.bookTickers);
-    absorbRows(latest, liveDataCache_.stableRows.markPrices);
-    absorbRows(latest, liveDataCache_.overlayRows.markPrices);
-    absorbRows(latest, liveOverlayState_.markPrices);
-    absorbRows(latest, liveDataCache_.stableRows.indexPrices);
-    absorbRows(latest, liveDataCache_.overlayRows.indexPrices);
-    absorbRows(latest, liveOverlayState_.indexPrices);
-    absorbRows(latest, liveDataCache_.stableRows.fundings);
-    absorbRows(latest, liveDataCache_.overlayRows.fundings);
-    absorbRows(latest, liveOverlayState_.fundings);
-    absorbRows(latest, liveDataCache_.stableRows.priceLimits);
-    absorbRows(latest, liveDataCache_.overlayRows.priceLimits);
-    absorbRows(latest, liveOverlayState_.priceLimits);
     absorbRows(latest, liveDataCache_.stableRows.depths);
     absorbRows(latest, liveDataCache_.overlayRows.depths);
     absorbRows(latest, liveOverlayState_.depths);
     absorbRows(latest, liveDataCache_.stableRows.snapshots);
     absorbRows(latest, liveDataCache_.overlayRows.snapshots);
     absorbRows(latest, liveOverlayState_.snapshots);
-    absorbRows(latestLiquidation, liveDataCache_.stableRows.liquidations);
-    absorbRows(latestLiquidation, liveDataCache_.overlayRows.liquidations);
-    absorbRows(latestLiquidation, liveOverlayState_.liquidations);
-    return latest > 0 ? latest : latestLiquidation;
+    return latest;
 }
 
 std::int64_t ChartController::effectiveRenderMinTs_(std::int64_t latestTsNs) const noexcept {
@@ -466,9 +370,7 @@ std::int64_t ChartController::effectiveRenderMinTs_(std::int64_t latestTsNs) con
 
 void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
     if (liveInitialViewportApplied_) return;
-    if (!replay_.trades().empty() || !replay_.liquidations().empty() || !replay_.bookTickers().empty()
-        || !replay_.markPrices().empty() || !replay_.indexPrices().empty() || !replay_.fundings().empty()
-        || !replay_.priceLimits().empty() || !replay_.depths().empty()
+    if (!replay_.trades().empty() || !replay_.bookTickers().empty() || !replay_.depths().empty()
         || !replay_.book().empty()) {
         liveInitialViewportApplied_ = true;
         return;
@@ -504,18 +406,9 @@ void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
             for (const auto& level : row.levels) absorbCandidate(row.tsNs, level.priceE8);
         }
     };
-    const auto absorbMarkRows = [&](const auto& rows) noexcept {
-        for (const auto& row : rows) absorbCandidate(row.tsNs, row.markPriceE8);
-    };
-    const auto absorbIndexRows = [&](const auto& rows) noexcept {
-        for (const auto& row : rows) absorbCandidate(row.tsNs, row.indexPriceE8);
-    };
-    const auto absorbLimitRows = [&](const auto& rows) noexcept {
-        for (const auto& row : rows) {
-            absorbCandidate(row.tsNs, row.buyLimitE8);
-            absorbCandidate(row.tsNs, row.sellLimitE8);
-        }
-    };
+
+
+
 
     absorbTickerRows(liveDataCache_.stableRows.bookTickers);
     absorbTickerRows(liveDataCache_.overlayRows.bookTickers);
@@ -524,24 +417,9 @@ void ChartController::initializeViewportFromLiveDataOnce_() noexcept {
         absorbTradeRows(liveDataCache_.stableRows.trades);
         absorbTradeRows(liveDataCache_.overlayRows.trades);
         absorbTradeRows(liveOverlayState_.trades);
-        absorbMarkRows(liveDataCache_.stableRows.markPrices);
-        absorbMarkRows(liveDataCache_.overlayRows.markPrices);
-        absorbMarkRows(liveOverlayState_.markPrices);
-        absorbIndexRows(liveDataCache_.stableRows.indexPrices);
-        absorbIndexRows(liveDataCache_.overlayRows.indexPrices);
-        absorbIndexRows(liveOverlayState_.indexPrices);
-        absorbLimitRows(liveDataCache_.stableRows.priceLimits);
-        absorbLimitRows(liveDataCache_.overlayRows.priceLimits);
-        absorbLimitRows(liveOverlayState_.priceLimits);
         absorbDepthRows(liveDataCache_.stableRows.depths);
         absorbDepthRows(liveDataCache_.overlayRows.depths);
         absorbDepthRows(liveOverlayState_.depths);
-    }
-
-    if (!found) {
-        absorbTradeRows(liveDataCache_.stableRows.liquidations);
-        absorbTradeRows(liveDataCache_.overlayRows.liquidations);
-        absorbTradeRows(liveOverlayState_.liquidations);
     }
 
     if (!found) return;

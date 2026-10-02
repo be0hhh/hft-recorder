@@ -180,7 +180,7 @@ template <typename T>
          (source.instrument.contractBaseQtyRaw > 0)) ||
         source.descriptorReserved != decltype(source.descriptorReserved){} ||
         source.reserved != 0u ||
-        (source.configuredChannelMask & ~std::uint16_t{0x00ffu}) != 0u ||
+        (source.configuredChannelMask & ~std::uint16_t{0x0007u}) != 0u ||
         (source.availableChannelMask & ~source.configuredChannelMask) != 0u ||
         (source.traderReplayChannelMask &
          ~source.availableChannelMask) != 0u) {
@@ -350,11 +350,11 @@ template <typename T>
                      parser::MarketCaptureDepthFrameKind::Delta &&
                  source.frameKind !=
                      parser::MarketCaptureDepthFrameKind::State) ||
-                source.state < hft_parser::market::DepthSourceState::Empty ||
-                source.state > hft_parser::market::DepthSourceState::Gap ||
-                source.failure < hft_parser::market::DepthFailure::None ||
+                source.state < ::cxet::market::DepthSourceState::Empty ||
+                source.state > ::cxet::market::DepthSourceState::Gap ||
+                source.failure < ::cxet::market::DepthFailure::None ||
                 source.failure >
-                    hft_parser::market::DepthFailure::ConsumerBookRejected ||
+                    ::cxet::market::DepthFailure::ConsumerBookRejected ||
                 source.transactionPartCount == 0u ||
                 source.transactionPartIndex >=
                     source.transactionPartCount ||
@@ -378,14 +378,14 @@ template <typename T>
                 (input.header.flags &
                  parser::MarketCaptureRecordTraderReplayCompatible) != 0u;
             const bool partial =
-                source.state == hft_parser::market::DepthSourceState::Partial;
+                source.state == ::cxet::market::DepthSourceState::Partial;
             const bool healthy =
-                source.state == hft_parser::market::DepthSourceState::Healthy;
+                source.state == ::cxet::market::DepthSourceState::Healthy;
             const bool rebaseInFlight =
                 source.state ==
-                hft_parser::market::DepthSourceState::RebaseInFlight;
+                ::cxet::market::DepthSourceState::RebaseInFlight;
             const bool gap =
-                source.state == hft_parser::market::DepthSourceState::Gap;
+                source.state == ::cxet::market::DepthSourceState::Gap;
             const bool snapshot = source.frameKind ==
                 parser::MarketCaptureDepthFrameKind::Snapshot;
             const bool delta = source.frameKind ==
@@ -418,9 +418,9 @@ template <typename T>
                  (partial || healthy || rebaseInFlight)) ||
                 ((source.totalLevelCount == 0u) != stateRecord) ||
                 ((partial || healthy || rebaseInFlight) &&
-                 source.failure != hft_parser::market::DepthFailure::None) ||
+                 source.failure != ::cxet::market::DepthFailure::None) ||
                 (gap &&
-                 source.failure == hft_parser::market::DepthFailure::None) ||
+                 source.failure == ::cxet::market::DepthFailure::None) ||
                 ((partial || healthy) && !delta) ||
                 (rebaseFlag != rebaseInFlight) ||
                 (rebaseInFlight && source.totalLevelCount == 0u) ||
@@ -463,16 +463,16 @@ template <typename T>
             for (std::uint16_t index = 0u; index < source.levelCount; ++index) {
                 const auto& level = source.levels[index];
                 const bool side =
-                    level.side == hft_parser::market::DepthSide::Bid ||
-                    level.side == hft_parser::market::DepthSide::Ask;
+                    level.side == ::cxet::market::DepthSide::Bid ||
+                    level.side == ::cxet::market::DepthSide::Ask;
                 const bool action =
-                    (level.action == hft_parser::market::DepthAction::Upsert &&
+                    (level.action == ::cxet::market::DepthAction::Upsert &&
                      level.quantityRaw > 0u) ||
-                    (level.action == hft_parser::market::DepthAction::Erase &&
+                    (level.action == ::cxet::market::DepthAction::Erase &&
                      level.quantityRaw == 0u);
                 if (level.priceRaw == 0u || !side || !action ||
                     (snapshot &&
-                     level.action != hft_parser::market::DepthAction::Upsert) ||
+                     level.action != ::cxet::market::DepthAction::Upsert) ||
                     level.reserved16 != 0u || level.reserved32 != 0u) {
                     return false;
                 }
@@ -485,61 +485,7 @@ template <typename T>
                 corpus::BinaryMarketDepthChunkPayload>(&output) = target;
             return true;
         }
-        case ParserChannel::Liquidation: {
-            if (input.header.payloadBytes !=
-                sizeof(parser::MarketCaptureLiquidationPayload)) return false;
-            const auto& source = *parser::marketCapturePayload<
-                parser::MarketCaptureLiquidationPayload>(&input);
-            if (source.priceRaw <= 0 || source.qtyRaw <= 0 ||
-                source.side == hft_parser::market::TradeSide::Unknown ||
-                !tradeSideValid(source.side) ||
-                source.reserved != decltype(source.reserved){}) return false;
-            *corpus::binaryMarketPayload<
-                corpus::BinaryMarketLiquidationPayload>(&output) = {
-                    source.priceRaw, source.qtyRaw, source.averagePriceRaw,
-                    source.filledQtyRaw, source.orderType, source.timeInForce,
-                    source.status, source.sourceMode,
-                    static_cast<std::uint8_t>(source.side), {}};
-            return true;
-        }
-        case ParserChannel::MarkPrice:
-        case ParserChannel::IndexPrice: {
-            if (input.header.payloadBytes !=
-                sizeof(parser::MarketCaptureScalarPricePayload)) return false;
-            const auto& source = *parser::marketCapturePayload<
-                parser::MarketCaptureScalarPricePayload>(&input);
-            if (source.priceRaw <= 0) return false;
-            *corpus::binaryMarketPayload<
-                corpus::BinaryMarketScalarPricePayload>(&output) = {
-                    source.priceRaw};
-            return true;
-        }
-        case ParserChannel::Funding: {
-            if (input.header.payloadBytes !=
-                sizeof(parser::MarketCaptureFundingPayload)) return false;
-            const auto& source = *parser::marketCapturePayload<
-                parser::MarketCaptureFundingPayload>(&input);
-            if (source.fundingTimestampNs < 0 ||
-                source.nextFundingTimestampNs < 0) return false;
-            *corpus::binaryMarketPayload<
-                corpus::BinaryMarketFundingPayload>(&output) = {
-                    source.fundingRateRaw, source.fundingTimestampNs,
-                    source.nextFundingTimestampNs};
-            return true;
-        }
-        case ParserChannel::PriceLimit: {
-            if (input.header.payloadBytes !=
-                sizeof(parser::MarketCapturePriceLimitPayload)) return false;
-            const auto& source = *parser::marketCapturePayload<
-                parser::MarketCapturePriceLimitPayload>(&input);
-            if (source.enabled > 1u ||
-                source.reserved != decltype(source.reserved){}) return false;
-            *corpus::binaryMarketPayload<
-                corpus::BinaryMarketPriceLimitPayload>(&output) = {
-                    source.buyLimitRaw, source.sellLimitRaw,
-                    source.enabled, {}};
-            return true;
-        }
+
     }
     return false;
 }

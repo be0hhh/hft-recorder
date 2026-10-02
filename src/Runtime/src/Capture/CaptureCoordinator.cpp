@@ -102,24 +102,14 @@ bool runtimeHealthDegraded(const ChannelRuntimeHealth& health) noexcept {
 
 bool runtimeHealthDegraded(const SessionManifest& manifest) noexcept {
     return runtimeHealthDegraded(manifest.tradesRuntime) ||
-           runtimeHealthDegraded(manifest.liquidationsRuntime) ||
            runtimeHealthDegraded(manifest.bookTickerRuntime) ||
-           runtimeHealthDegraded(manifest.depthRuntime) ||
-           runtimeHealthDegraded(manifest.markPriceRuntime) ||
-           runtimeHealthDegraded(manifest.indexPriceRuntime) ||
-           runtimeHealthDegraded(manifest.fundingRuntime) ||
-           runtimeHealthDegraded(manifest.priceLimitRuntime);
+           runtimeHealthDegraded(manifest.depthRuntime);
 }
 
 ChannelRuntimeHealth* runtimeHealthForChannel(SessionManifest& manifest, std::string_view channel) noexcept {
     if (channel == "trades") return &manifest.tradesRuntime;
-    if (channel == "liquidations") return &manifest.liquidationsRuntime;
     if (channel == "bookticker") return &manifest.bookTickerRuntime;
     if (channel == "depth") return &manifest.depthRuntime;
-    if (channel == "mark_price") return &manifest.markPriceRuntime;
-    if (channel == "index_price") return &manifest.indexPriceRuntime;
-    if (channel == "funding") return &manifest.fundingRuntime;
-    if (channel == "price_limit") return &manifest.priceLimitRuntime;
     return nullptr;
 }
 
@@ -226,12 +216,7 @@ Status CaptureCoordinator::startExternalCapture(const CaptureConfig& config,
     };
 
     Status status = enable(channels.trades, manifest_.tradesEnabled, ChannelKind::Trades, manifest_.tradesPath);
-    status = aggregateStatus(status, enable(channels.liquidations, manifest_.liquidationsEnabled, ChannelKind::Liquidations, manifest_.liquidationsPath));
     status = aggregateStatus(status, enable(channels.bookTicker, manifest_.bookTickerEnabled, ChannelKind::BookTicker, manifest_.bookTickerPath));
-    status = aggregateStatus(status, enable(channels.markPrice, manifest_.markPriceEnabled, ChannelKind::MarkPrice, manifest_.markPricePath));
-    status = aggregateStatus(status, enable(channels.indexPrice, manifest_.indexPriceEnabled, ChannelKind::IndexPrice, manifest_.indexPricePath));
-    status = aggregateStatus(status, enable(channels.funding, manifest_.fundingEnabled, ChannelKind::Funding, manifest_.fundingPath));
-    status = aggregateStatus(status, enable(channels.priceLimit, manifest_.priceLimitEnabled, ChannelKind::PriceLimit, manifest_.priceLimitPath));
     if (channels.orderbook) {
         manifest_.orderbookEnabled = true;
         for (const std::string* path : {&manifest_.depthPath, &manifest_.depthSidecarPath}) {
@@ -242,25 +227,14 @@ Status CaptureCoordinator::startExternalCapture(const CaptureConfig& config,
         status = aggregateStatus(status, jsonSink_.ensureChannelFile(ChannelKind::DepthTape));
         status = aggregateStatus(status, jsonSink_.ensureChannelFile(ChannelKind::DepthSidecar));
     }
-    const bool derivatives = !runtime::textEqualsAscii(config.market, "spot");
-    const bool priceLimitVenue = derivatives &&
-        (runtime::textEqualsAscii(config.exchange, "bybit") ||
-         runtime::textEqualsAscii(config.exchange, "okx"));
     auto initializeHealth = [](ChannelRuntimeHealth& health, bool requested, bool enabled, bool required) {
         health.state = requested ? (enabled ? "waiting_first_row" : "unsupported") : "not_requested";
         health.required = requested && required;
         if (requested && !enabled) health.lastError = "requested channel is not supported by venue runtime";
     };
     initializeHealth(manifest_.tradesRuntime, requestedChannels.trades, channels.trades, true);
-    initializeHealth(manifest_.liquidationsRuntime, requestedChannels.liquidations, channels.liquidations, false);
     initializeHealth(manifest_.bookTickerRuntime, requestedChannels.bookTicker, channels.bookTicker, true);
     initializeHealth(manifest_.depthRuntime, requestedChannels.orderbook, channels.orderbook, true);
-    initializeHealth(manifest_.markPriceRuntime, requestedChannels.markPrice, channels.markPrice, false);
-    initializeHealth(manifest_.indexPriceRuntime, requestedChannels.indexPrice, channels.indexPrice, false);
-    initializeHealth(manifest_.fundingRuntime, requestedChannels.funding, channels.funding, derivatives);
-    initializeHealth(manifest_.priceLimitRuntime, requestedChannels.priceLimit, channels.priceLimit, priceLimitVenue);
-    manifest_.fundingRequiredWhenEnabled = derivatives;
-    manifest_.priceLimitRequiredWhenEnabled = priceLimitVenue;
     if (!isOk(status)) lastError_ = "failed to prepare external capture storage";
     refreshRecordingManifestLocked_(internal::nowNs());
     const auto manifestStatus = writeManifestFile_();
@@ -314,6 +288,7 @@ Status CaptureCoordinator::accountExternalAppend_(Status status,
                                                   std::int64_t tsNs,
                                                   const replay::EventArrival& arrival,
                                                   std::string_view channel) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex_);
     if (isOk(status)) {
         counter.fetch_add(1u, std::memory_order_acq_rel);
         noteExternalRow_(health, tsNs);
@@ -341,13 +316,7 @@ Status CaptureCoordinator::appendExternalTrade(const replay::TradeRow& row) noex
     return accountExternalAppend_(status, manifest_.tradesRuntime, tradesCount_, row.tsNs, row.arrival, "trades");
 }
 
-Status CaptureCoordinator::appendExternalLiquidation(const replay::LiquidationRow& row) noexcept {
-    if (!replay::hasCapturedApplicationArrival(row.arrival))
-        return accountExternalAppend_(Status::InvalidArgument, manifest_.liquidationsRuntime,
-                                      liquidationsCount_, row.tsNs, row.arrival, "liquidations");
-    const auto status = jsonSink_.appendLiquidationLine(row, renderLiquidationJsonLine(row));
-    return accountExternalAppend_(status, manifest_.liquidationsRuntime, liquidationsCount_, row.tsNs, row.arrival, "liquidations");
-}
+
 
 Status CaptureCoordinator::appendExternalBookTicker(const replay::BookTickerRow& row) noexcept {
     if (!replay::hasCapturedApplicationArrival(row.arrival))
@@ -357,37 +326,13 @@ Status CaptureCoordinator::appendExternalBookTicker(const replay::BookTickerRow&
     return accountExternalAppend_(status, manifest_.bookTickerRuntime, bookTickerCount_, row.tsNs, row.arrival, "bookticker");
 }
 
-Status CaptureCoordinator::appendExternalMarkPrice(const replay::MarkPriceRow& row) noexcept {
-    if (!replay::hasCapturedApplicationArrival(row.arrival))
-        return accountExternalAppend_(Status::InvalidArgument, manifest_.markPriceRuntime,
-                                      markPriceCount_, row.tsNs, row.arrival, "mark_price");
-    const auto status = jsonSink_.appendMarkPriceLine(row, renderMarkPriceJsonLine(row));
-    return accountExternalAppend_(status, manifest_.markPriceRuntime, markPriceCount_, row.tsNs, row.arrival, "mark_price");
-}
 
-Status CaptureCoordinator::appendExternalIndexPrice(const replay::IndexPriceRow& row) noexcept {
-    if (!replay::hasCapturedApplicationArrival(row.arrival))
-        return accountExternalAppend_(Status::InvalidArgument, manifest_.indexPriceRuntime,
-                                      indexPriceCount_, row.tsNs, row.arrival, "index_price");
-    const auto status = jsonSink_.appendIndexPriceLine(row, renderIndexPriceJsonLine(row));
-    return accountExternalAppend_(status, manifest_.indexPriceRuntime, indexPriceCount_, row.tsNs, row.arrival, "index_price");
-}
 
-Status CaptureCoordinator::appendExternalFunding(const replay::FundingRow& row) noexcept {
-    if (!replay::hasCapturedApplicationArrival(row.arrival))
-        return accountExternalAppend_(Status::InvalidArgument, manifest_.fundingRuntime,
-                                      fundingCount_, row.tsNs, row.arrival, "funding");
-    const auto status = jsonSink_.appendFundingLine(row, renderFundingJsonLine(row));
-    return accountExternalAppend_(status, manifest_.fundingRuntime, fundingCount_, row.tsNs, row.arrival, "funding");
-}
 
-Status CaptureCoordinator::appendExternalPriceLimit(const replay::PriceLimitRow& row) noexcept {
-    if (!replay::hasCapturedApplicationArrival(row.arrival))
-        return accountExternalAppend_(Status::InvalidArgument, manifest_.priceLimitRuntime,
-                                      priceLimitCount_, row.tsNs, row.arrival, "price_limit");
-    const auto status = jsonSink_.appendPriceLimitLine(row, renderPriceLimitJsonLine(row));
-    return accountExternalAppend_(status, manifest_.priceLimitRuntime, priceLimitCount_, row.tsNs, row.arrival, "price_limit");
-}
+
+
+
+
 
 Status CaptureCoordinator::appendExternalDepth(const replay::DepthRow& row) noexcept {
     if (!replay::hasCapturedApplicationArrival(row.arrival))
@@ -397,7 +342,16 @@ Status CaptureCoordinator::appendExternalDepth(const replay::DepthRow& row) noex
     return accountExternalAppend_(status, manifest_.depthRuntime, depthCount_, row.tsNs, row.arrival, "depth");
 }
 
+void CaptureCoordinator::noteExternalCaptureLoss(std::string_view channel,std::uint64_t count) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (auto* health=runtimeHealthForChannel(manifest_,channel)) {
+        health->droppedEventCount+=count;health->state="degraded";
+        health->lastError="capture storage handoff lost events; recording stopped";
+    }
+}
+
 void CaptureCoordinator::noteExternalChannelError(std::string_view channel, std::string_view error) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex_);
     ChannelRuntimeHealth* health = runtimeHealthForChannel(manifest_, channel);
     if (health) {
         health->lastError.assign(error);
@@ -408,6 +362,7 @@ void CaptureCoordinator::noteExternalChannelError(std::string_view channel, std:
 }
 
 void CaptureCoordinator::noteExternalUnsupportedChannel(std::string_view channel, std::string_view error) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex_);
     ChannelRuntimeHealth* health = runtimeHealthForChannel(manifest_, channel);
     if (health) {
         health->state = "unsupported";
@@ -418,6 +373,7 @@ void CaptureCoordinator::noteExternalUnsupportedChannel(std::string_view channel
 }
 
 void CaptureCoordinator::noteExternalUnroutableEvent(std::string_view channel, std::string_view error) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex_);
     ChannelRuntimeHealth* health = runtimeHealthForChannel(manifest_, channel);
     if (!health) return;
     ++health->unroutableEventCount;
@@ -428,6 +384,7 @@ void CaptureCoordinator::noteExternalUnroutableEvent(std::string_view channel, s
 void CaptureCoordinator::noteExternalChannelConnection(std::string_view channel,
                                                        bool connected,
                                                        bool reconnected) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex_);
     ChannelRuntimeHealth* health = runtimeHealthForChannel(manifest_, channel);
     if (!health || health->state == "not_requested" || health->state == "unsupported") return;
     if (reconnected) ++health->reconnectCount;
@@ -569,13 +526,8 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
 
 Status CaptureCoordinator::finalizeSession() noexcept {
     (void)stopTrades();
-    (void)stopLiquidations();
     (void)stopBookTicker();
     (void)stopOrderbook();
-    (void)stopMarkPrice();
-    (void)stopIndexPrice();
-    (void)stopFunding();
-    (void)stopPriceLimit();
 
     std::lock_guard<std::mutex> lock(stateMutex_);
     if (!sessionOpen()) {
@@ -587,12 +539,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
         manifest_.actualDurationSec = (manifest_.endedAtNs - manifest_.startedAtNs) / 1000000000LL;
     }
     manifest_.tradesCount = tradesCount_.load(std::memory_order_relaxed);
-    manifest_.liquidationsCount = liquidationsCount_.load(std::memory_order_relaxed);
     manifest_.bookTickerCount = bookTickerCount_.load(std::memory_order_relaxed);
-    manifest_.markPriceCount = markPriceCount_.load(std::memory_order_relaxed);
-    manifest_.indexPriceCount = indexPriceCount_.load(std::memory_order_relaxed);
-    manifest_.fundingCount = fundingCount_.load(std::memory_order_relaxed);
-    manifest_.priceLimitCount = priceLimitCount_.load(std::memory_order_relaxed);
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
@@ -614,7 +561,6 @@ Status CaptureCoordinator::finalizeSession() noexcept {
 	
     noteCloseStatus(eventSink_.close(), "event sink close failed");
     noteCloseStatus(tradesWriter_.close(), "trades writer close failed");
-    noteCloseStatus(liquidationsWriter_.close(), "liquidations writer close failed");
     noteCloseStatus(bookTickerWriter_.close(), "bookticker writer close failed");
     noteCloseStatus(candlesWriter_.close(), "candles writer close failed");
     noteCloseStatus(candles2Writer_.close(), "candles2 writer close failed");
@@ -705,29 +651,19 @@ Status CaptureCoordinator::appendLiveTrade(const replay::TradeRow& row) noexcept
     return liveCacheEnabled() ? liveStore_.appendTrade(row) : Status::Ok;
 }
 
-Status CaptureCoordinator::appendLiveLiquidation(const replay::LiquidationRow& row) noexcept {
-    return liveCacheEnabled() ? liveStore_.appendLiquidation(row) : Status::Ok;
-}
+
 
 Status CaptureCoordinator::appendLiveBookTicker(const replay::BookTickerRow& row) noexcept {
     return liveCacheEnabled() ? liveStore_.appendBookTicker(row) : Status::Ok;
 }
 
-Status CaptureCoordinator::appendLiveMarkPrice(const replay::MarkPriceRow& row) noexcept {
-    return liveCacheEnabled() ? liveStore_.appendMarkPrice(row) : Status::Ok;
-}
 
-Status CaptureCoordinator::appendLiveIndexPrice(const replay::IndexPriceRow& row) noexcept {
-    return liveCacheEnabled() ? liveStore_.appendIndexPrice(row) : Status::Ok;
-}
 
-Status CaptureCoordinator::appendLiveFunding(const replay::FundingRow& row) noexcept {
-    return liveCacheEnabled() ? liveStore_.appendFunding(row) : Status::Ok;
-}
 
-Status CaptureCoordinator::appendLivePriceLimit(const replay::PriceLimitRow& row) noexcept {
-    return liveCacheEnabled() ? liveStore_.appendPriceLimit(row) : Status::Ok;
-}
+
+
+
+
 
 Status CaptureCoordinator::appendLiveDepth(const replay::DepthRow& row) noexcept {
     return liveCacheEnabled() ? liveStore_.appendDepth(row) : Status::Ok;
@@ -740,37 +676,20 @@ void CaptureCoordinator::resetSessionState() noexcept {
     instrumentMetadataReady_ = false;
     lastError_.clear();
     tradesStop_.store(false, std::memory_order_release);
-    liquidationsStop_.store(false, std::memory_order_release);
     bookTickerStop_.store(false, std::memory_order_release);
     orderbookStop_.store(false, std::memory_order_release);
-    markPriceStop_.store(false, std::memory_order_release);
-    indexPriceStop_.store(false, std::memory_order_release);
-    fundingStop_.store(false, std::memory_order_release);
-    priceLimitStop_.store(false, std::memory_order_release);
     tradesRunning_.store(false, std::memory_order_release);
-    liquidationsRunning_.store(false, std::memory_order_release);
     bookTickerRunning_.store(false, std::memory_order_release);
     orderbookRunning_.store(false, std::memory_order_release);
-    markPriceRunning_.store(false, std::memory_order_release);
-    indexPriceRunning_.store(false, std::memory_order_release);
-    fundingRunning_.store(false, std::memory_order_release);
-    priceLimitRunning_.store(false, std::memory_order_release);
     tradesCount_.store(0, std::memory_order_release);
-    liquidationsCount_.store(0, std::memory_order_release);
     bookTickerCount_.store(0, std::memory_order_release);
-    markPriceCount_.store(0, std::memory_order_release);
-    indexPriceCount_.store(0, std::memory_order_release);
-    fundingCount_.store(0, std::memory_order_release);
-    priceLimitCount_.store(0, std::memory_order_release);
     depthCount_.store(0, std::memory_order_release);
     candlesCount_.store(0, std::memory_order_release);
     candles2Count_.store(0, std::memory_order_release);
     tradesCaptureSeq_.store(0, std::memory_order_release);
-    liquidationsCaptureSeq_.store(0, std::memory_order_release);
     bookTickerCaptureSeq_.store(0, std::memory_order_release);
     ingestSeq_.store(0, std::memory_order_release);
     (void)tradesWriter_.close();
-    (void)liquidationsWriter_.close();
     (void)bookTickerWriter_.close();
     (void)candlesWriter_.close();
     (void)candles2Writer_.close();
@@ -790,12 +709,7 @@ void CaptureCoordinator::refreshRecordingManifestLocked_(std::int64_t nowNs) noe
         manifest_.actualDurationSec = (manifest_.endedAtNs - manifest_.startedAtNs) / 1000000000LL;
     }
     manifest_.tradesCount = tradesCount_.load(std::memory_order_relaxed);
-    manifest_.liquidationsCount = liquidationsCount_.load(std::memory_order_relaxed);
     manifest_.bookTickerCount = bookTickerCount_.load(std::memory_order_relaxed);
-    manifest_.markPriceCount = markPriceCount_.load(std::memory_order_relaxed);
-    manifest_.indexPriceCount = indexPriceCount_.load(std::memory_order_relaxed);
-    manifest_.fundingCount = fundingCount_.load(std::memory_order_relaxed);
-    manifest_.priceLimitCount = priceLimitCount_.load(std::memory_order_relaxed);
     manifest_.depthCount = depthCount_.load(std::memory_order_relaxed);
     manifest_.candlesCount = candlesCount_.load(std::memory_order_relaxed);
     manifest_.candles2Count = candles2Count_.load(std::memory_order_relaxed);
@@ -896,7 +810,7 @@ Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
     // venues can stall here after the directory is created but before the
     // initial manifest and JSON sinks are opened. Start with recorder-inferred
     // metadata; cold enrichment can happen after the session is recording.
-    metadata.metadataWarning = "hft_trader_metadata_deferred_startup_nonblocking";
+    metadata.metadataWarning = "cxet_metadata_deferred_startup_nonblocking";
     instrumentMetadataReady_ = false;
     std::ofstream out(sessionDir_ / manifest_.instrumentMetadataPath, std::ios::out | std::ios::trunc);
     if (!out.is_open()) return Status::IoError;

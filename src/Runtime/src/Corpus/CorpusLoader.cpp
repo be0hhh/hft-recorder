@@ -23,28 +23,24 @@ Status parseTradeCanonicalLine(std::string_view line, hftrec::replay::TradeRow& 
     return hftrec::replay::parseTradeLine(line, row);
 }
 
-Status parseLiquidationCanonicalLine(std::string_view line, hftrec::replay::LiquidationRow& row) noexcept {
-    return hftrec::replay::parseLiquidationLine(line, row);
-}
+
 
 Status parseBookTickerCanonicalLine(std::string_view line, hftrec::replay::BookTickerRow& row) noexcept {
     return hftrec::replay::parseBookTickerLine(line, row);
 }
 
-Status parseMarkPriceCanonicalLine(std::string_view line, hftrec::replay::MarkPriceRow& row) noexcept {
-    return hftrec::replay::parseMarkPriceLine(line, row);
-}
 
-Status parseIndexPriceCanonicalLine(std::string_view line, hftrec::replay::IndexPriceRow& row) noexcept {
-    return hftrec::replay::parseIndexPriceLine(line, row);
-}
 
-Status parseFundingCanonicalLine(std::string_view line, hftrec::replay::FundingRow& row) noexcept {
-    return hftrec::replay::parseFundingLine(line, row);
-}
 
-Status parsePriceLimitCanonicalLine(std::string_view line, hftrec::replay::PriceLimitRow& row) noexcept {
-    return hftrec::replay::parsePriceLimitLine(line, row);
+
+
+
+
+
+Status parseFinamArchiveCandle(std::string_view line, hftrec::replay::CandleRow& row) noexcept {
+    const Status status = hftrec::replay::parseCandleLine(line, row);
+    return isOk(status) && row.exchange == "finam" && hftrec::replay::isHistoricalBackfill(row.arrival)
+        ? Status::Ok : Status::CorruptData;
 }
 
 constexpr std::int64_t kSeekIndexVersionCurrent = 1;
@@ -257,6 +253,50 @@ bool parseSeekIndexDocument(std::string_view document,
         if (parser.peek('}')) break;
     } while (parser.parseComma());
     return parser.parseObjectEnd() && parser.finish();
+}
+
+// Immutable manifest/schema and arrival summaries still cover old artifacts.
+// Admit only JSON array framing and row count; never revive a retired decoder,
+// retain its payload, or materialize it as a current product event.
+Status countOmittedArtifact(const std::filesystem::path& path,
+                            std::uint64_t declared,
+                            bool enabled,
+                            std::uint64_t& rows,
+                            LoadReport& report,
+                            const char* channel,
+                            ChannelLoadState& state) noexcept {
+    rows = 0u;
+    if (!enabled) { state = ChannelLoadState::NotCaptured; return Status::Ok; }
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream.is_open()) {
+        state = ChannelLoadState::Missing;
+        addIssue(report, LoadIssueCode::MissingRequiredArtifact, LoadIssueSeverity::Fatal,
+                 Status::CorruptData, channel, path.filename().string(), 0u,
+                 "manifest-declared historical artifact is missing");
+        return Status::CorruptData;
+    }
+    std::string line;
+    while (std::getline(stream, line)) {
+        JsonParser parser{line};
+        if (!parser.peek('[') || !parser.skipValue() || !parser.finish() ||
+            rows == std::numeric_limits<std::uint64_t>::max()) {
+            state = ChannelLoadState::Corrupt;
+            addIssue(report, LoadIssueCode::InvalidJsonLine, LoadIssueSeverity::Fatal,
+                     Status::CorruptData, channel, path.filename().string(),
+                     static_cast<std::size_t>(rows), "invalid historical artifact framing");
+            return Status::CorruptData;
+        }
+        ++rows;
+    }
+    if (!stream.eof() || rows != declared) {
+        state = ChannelLoadState::Corrupt;
+        addIssue(report, LoadIssueCode::InvalidJsonLine, LoadIssueSeverity::Fatal,
+                 Status::CorruptData, channel, path.filename().string(), 0u,
+                 "historical artifact row count does not match immutable manifest");
+        return Status::CorruptData;
+    }
+    state = ChannelLoadState::Clean;
+    return Status::Ok;
 }
 
 template <typename Parser, typename RowT>
@@ -482,14 +522,14 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
                                                 static_cast<std::uint64_t>(corpus.depthRows.size())};
     const std::unordered_map<std::string, SourceArtifactInfo> currentSources{
         {"trades.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.tradesPath), static_cast<std::uint64_t>(corpus.tradeLines.size())}},
-        {"liquidations.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.liquidationsPath), static_cast<std::uint64_t>(corpus.liquidationLines.size())}},
+        {"liquidations.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.liquidationsPath), static_cast<std::uint64_t>(corpus.omittedArtifactRows[0u])}},
         {"bookticker.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.bookTickerPath), static_cast<std::uint64_t>(corpus.bookTickerLines.size())}},
-        {"mark_price.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.markPricePath), static_cast<std::uint64_t>(corpus.markPriceLines.size())}},
-        {"index_price.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.indexPricePath), static_cast<std::uint64_t>(corpus.indexPriceLines.size())}},
-        {"funding.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.fundingPath), static_cast<std::uint64_t>(corpus.fundingLines.size())}},
-        {"price_limit.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.priceLimitPath), static_cast<std::uint64_t>(corpus.priceLimitLines.size())}},
-        {"candles.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candlesPath), static_cast<std::uint64_t>(corpus.candleLines.size())}},
-        {"candles2.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candles2Path), static_cast<std::uint64_t>(corpus.candle2Lines.size())}},
+        {"mark_price.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.markPricePath), static_cast<std::uint64_t>(corpus.omittedArtifactRows[1u])}},
+        {"index_price.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.indexPricePath), static_cast<std::uint64_t>(corpus.omittedArtifactRows[2u])}},
+        {"funding.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.fundingPath), static_cast<std::uint64_t>(corpus.omittedArtifactRows[3u])}},
+        {"price_limit.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.priceLimitPath), static_cast<std::uint64_t>(corpus.omittedArtifactRows[4u])}},
+        {"candles.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candlesPath), (corpus.manifest.exchange == "finam" ? static_cast<std::uint64_t>(corpus.candleLines.size()) : corpus.omittedArtifactRows[5u])}},
+        {"candles2.jsonl", {fileSizeOrZero(sessionDir / corpus.manifest.candles2Path), (corpus.manifest.exchange == "finam" ? static_cast<std::uint64_t>(corpus.candle2Lines.size()) : corpus.omittedArtifactRows[6u])}},
         {"depth_tape.jsonl", depthSource},
         {"depth_sidecar.jsonl", depthSidecarSource},
     };
@@ -631,12 +671,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
     }
 
     const bool requireTrades = report.manifestPresent ? (out.manifest.tradesEnabled && out.manifest.tradesRequiredWhenEnabled) : false;
-    const bool requireLiquidations = false;
     const bool requireBookTicker = report.manifestPresent ? (out.manifest.bookTickerEnabled && out.manifest.bookTickerRequiredWhenEnabled) : false;
-    const bool requireMarkPrice = report.manifestPresent ? (out.manifest.markPriceEnabled && out.manifest.markPriceRequiredWhenEnabled) : false;
-    const bool requireIndexPrice = report.manifestPresent ? (out.manifest.indexPriceEnabled && out.manifest.indexPriceRequiredWhenEnabled) : false;
-    const bool requireFunding = report.manifestPresent ? (out.manifest.fundingEnabled && out.manifest.fundingRequiredWhenEnabled) : false;
-    const bool requirePriceLimit = report.manifestPresent ? (out.manifest.priceLimitEnabled && out.manifest.priceLimitRequiredWhenEnabled) : false;
     const bool requireCandles = report.manifestPresent ? (out.manifest.candlesEnabled && out.manifest.candlesRequiredWhenEnabled) : false;
     const bool requireCandles2 = report.manifestPresent ? (out.manifest.candles2Enabled && out.manifest.candles2RequiredWhenEnabled) : false;
     const bool requireDepth = report.manifestPresent ? (out.manifest.orderbookEnabled && out.manifest.orderbookRequiredWhenEnabled) : false;
@@ -682,15 +717,10 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(&parseLiquidationCanonicalLine), hftrec::replay::LiquidationRow>(
-                            liquidationsPath,
-                            out.liquidationLines,
-                            parseLiquidationCanonicalLine,
-                            report,
-                            "liquidations",
-                            liquidationsPath.filename().string(),
-                            requireLiquidations,
-                            report.liquidationsState))) {
+    if (!isOk(countOmittedArtifact(liquidationsPath, out.manifest.liquidationsCount,
+                                    out.manifest.liquidationsEnabled,
+                                    out.omittedArtifactRows[0u], report,
+                                    "liquidations", report.liquidationsState))) {
         out.report = report;
         return report.finalStatus;
     }
@@ -706,58 +736,47 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(&parseMarkPriceCanonicalLine), hftrec::replay::MarkPriceRow>(
-                            markPricePath,
-                            out.markPriceLines,
-                            parseMarkPriceCanonicalLine,
-                            report,
-                            "mark_price",
-                            markPricePath.filename().string(),
-                            requireMarkPrice,
-                            report.markPriceState))) {
+    if (!isOk(countOmittedArtifact(markPricePath, out.manifest.markPriceCount,
+                                    out.manifest.markPriceEnabled,
+                                    out.omittedArtifactRows[1u], report,
+                                    "mark_price", report.markPriceState))) {
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(&parseIndexPriceCanonicalLine), hftrec::replay::IndexPriceRow>(
-                            indexPricePath,
-                            out.indexPriceLines,
-                            parseIndexPriceCanonicalLine,
-                            report,
-                            "index_price",
-                            indexPricePath.filename().string(),
-                            requireIndexPrice,
-                            report.indexPriceState))) {
+    if (!isOk(countOmittedArtifact(indexPricePath, out.manifest.indexPriceCount,
+                                    out.manifest.indexPriceEnabled,
+                                    out.omittedArtifactRows[2u], report,
+                                    "index_price", report.indexPriceState))) {
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(&parseFundingCanonicalLine), hftrec::replay::FundingRow>(
-                            fundingPath,
-                            out.fundingLines,
-                            parseFundingCanonicalLine,
-                            report,
-                            "funding",
-                            fundingPath.filename().string(),
-                            requireFunding,
-                            report.fundingState))) {
+    if (!isOk(countOmittedArtifact(fundingPath, out.manifest.fundingCount,
+                                    out.manifest.fundingEnabled,
+                                    out.omittedArtifactRows[3u], report,
+                                    "funding", report.fundingState))) {
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(&parsePriceLimitCanonicalLine), hftrec::replay::PriceLimitRow>(
-                            priceLimitPath,
-                            out.priceLimitLines,
-                            parsePriceLimitCanonicalLine,
-                            report,
-                            "price_limit",
-                            priceLimitPath.filename().string(),
-                            requirePriceLimit,
-                            report.priceLimitState))) {
+    if (!isOk(countOmittedArtifact(priceLimitPath, out.manifest.priceLimitCount,
+                                    out.manifest.priceLimitEnabled,
+                                    out.omittedArtifactRows[4u], report,
+                                    "price_limit", report.priceLimitState))) {
         out.report = report;
         return report.finalStatus;
     }
-    if (!isOk(loadJsonLines<decltype(&hftrec::replay::parseCandleLine), hftrec::replay::CandleRow>(
+    if (out.manifest.exchange != "finam") {
+        if (!isOk(countOmittedArtifact(candlesPath, out.manifest.candlesCount,
+                                        out.manifest.candlesEnabled,
+                                        out.omittedArtifactRows[5u], report,
+                                        "candles", report.candlesState))) {
+            out.report = report;
+            return report.finalStatus;
+        }
+    } else {
+    if (!isOk(loadJsonLines<decltype(&parseFinamArchiveCandle), hftrec::replay::CandleRow>(
                             candlesPath,
                             out.candleLines,
-                            hftrec::replay::parseCandleLine,
+                            parseFinamArchiveCandle,
                             report,
                             "candles",
                             candlesPath.filename().string(),
@@ -766,11 +785,21 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         out.report = report;
         return report.finalStatus;
     }
+    }
     ChannelLoadState candles2State = ChannelLoadState::NotCaptured;
-    if (!isOk(loadJsonLines<decltype(&hftrec::replay::parseCandleLine), hftrec::replay::CandleRow>(
+    if (out.manifest.exchange != "finam") {
+        if (!isOk(countOmittedArtifact(candles2Path, out.manifest.candles2Count,
+                                        out.manifest.candles2Enabled,
+                                        out.omittedArtifactRows[6u], report,
+                                        "candles2", candles2State))) {
+            out.report = report;
+            return report.finalStatus;
+        }
+    } else {
+    if (!isOk(loadJsonLines<decltype(&parseFinamArchiveCandle), hftrec::replay::CandleRow>(
                             candles2Path,
                             out.candle2Lines,
-                            hftrec::replay::parseCandleLine,
+                            parseFinamArchiveCandle,
                             report,
                             "candles2",
                             candles2Path.filename().string(),
@@ -778,6 +807,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
                             candles2State))) {
         out.report = report;
         return report.finalStatus;
+    }
     }
     if (out.manifest.orderbookEnabled) {
         if (!isOk(loadDepthTapeSidecarLines(
@@ -820,28 +850,28 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
                                   out.tradeLines.size(), "trades") ||
             !requireDeclaredCount(out.manifest.liquidationsEnabled,
                                   out.manifest.liquidationsCount,
-                                  out.liquidationLines.size(), "liquidations") ||
+                                  out.omittedArtifactRows[0u], "liquidations") ||
             !requireDeclaredCount(out.manifest.bookTickerEnabled,
                                   out.manifest.bookTickerCount,
                                   out.bookTickerLines.size(), "bookticker") ||
             !requireDeclaredCount(out.manifest.markPriceEnabled,
                                   out.manifest.markPriceCount,
-                                  out.markPriceLines.size(), "mark_price") ||
+                                  out.omittedArtifactRows[1u], "mark_price") ||
             !requireDeclaredCount(out.manifest.indexPriceEnabled,
                                   out.manifest.indexPriceCount,
-                                  out.indexPriceLines.size(), "index_price") ||
+                                  out.omittedArtifactRows[2u], "index_price") ||
             !requireDeclaredCount(out.manifest.fundingEnabled,
                                   out.manifest.fundingCount,
-                                  out.fundingLines.size(), "funding") ||
+                                  out.omittedArtifactRows[3u], "funding") ||
             !requireDeclaredCount(out.manifest.priceLimitEnabled,
                                   out.manifest.priceLimitCount,
-                                  out.priceLimitLines.size(), "price_limit") ||
+                                  out.omittedArtifactRows[4u], "price_limit") ||
             !requireDeclaredCount(out.manifest.candlesEnabled,
                                   out.manifest.candlesCount,
-                                  out.candleLines.size(), "candles") ||
+                                  (out.manifest.exchange == "finam" ? out.candleLines.size() : out.omittedArtifactRows[5u]), "candles") ||
             !requireDeclaredCount(out.manifest.candles2Enabled,
                                   out.manifest.candles2Count,
-                                  out.candle2Lines.size(), "candles2") ||
+                                  (out.manifest.exchange == "finam" ? out.candle2Lines.size() : out.omittedArtifactRows[6u]), "candles2") ||
             !requireDeclaredCount(out.manifest.orderbookEnabled,
                                   out.manifest.depthCount,
                                   out.depthRows.size(), "depth")) {

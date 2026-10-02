@@ -30,7 +30,6 @@ RenderSnapshot hoverSnapshotFrom(const RenderSnapshot& snap, const RenderSnapsho
         liveSnap->bookTickerTrace.samples.begin(),
         liveSnap->bookTickerTrace.samples.end());
     merged.tradeDots.insert(merged.tradeDots.end(), liveSnap->tradeDots.begin(), liveSnap->tradeDots.end());
-    merged.liquidationDots.insert(merged.liquidationDots.end(), liveSnap->liquidationDots.begin(), liveSnap->liquidationDots.end());
     return merged;
 }
 
@@ -43,22 +42,7 @@ bool sameViewport(const RenderSnapshot& lhs, const RenderSnapshot& rhs) noexcept
         && lhs.vp.h == rhs.vp.h;
 }
 
-qreal fundingStripY(const RenderSnapshot& snap) noexcept {
-    if (snap.vp.h <= 36.0) return std::max<qreal>(8.0, snap.vp.h * 0.5);
-    return std::clamp<qreal>(snap.vp.h - 18.0, 18.0, snap.vp.h - 8.0);
-}
 
-bool fundingStripHit(const RenderSnapshot& snap, const QPointF& point) noexcept {
-    if (!snap.fundingVisible || snap.fundings.empty() || snap.vp.w <= 0.0 || snap.vp.h <= 0.0) return false;
-    constexpr qreal kStripHitPx = 12.0;
-    constexpr qreal kAxisReserveRight = 88.0;
-    const qreal stripLeft = 8.0;
-    const qreal stripRight = std::max<qreal>(stripLeft, snap.vp.w - kAxisReserveRight);
-    const qreal y = fundingStripY(snap);
-    return point.x() >= stripLeft - kStripHitPx
-        && point.x() <= stripRight + kStripHitPx
-        && std::abs(point.y() - y) <= kStripHitPx;
-}
 
 }  // namespace
 
@@ -84,18 +68,16 @@ void ChartItem::activateContextPoint(qreal x, qreal y) {
     hoverActive_ = true;
     contextActive_ = true;
     updateHover_();
-    if (hoveredTradeIndex_ < 0 && hoveredLiquidationIndex_ < 0 && !hoveredStrategyFill_ && hoveredBookKind_ == 0 && !hoveredFunding_) {
-        const RenderSnapshot& snap = ensureSnapshot_();
-        if (!fundingStripHit(snap, hoverPoint_)) {
-            clearHover();
-            return;
-        }
+    
+    if (hoveredTradeIndex_ < 0 && !hoveredStrategyFill_ && hoveredBookKind_ == 0) {
+        clearHover();
+        return;
     }
     update();
 }
 
 void ChartItem::clearHover() {
-    const bool hadHoverState = hoverActive_ || contextActive_ || hoveredTradeIndex_ >= 0 || hoveredLiquidationIndex_ >= 0 || hoveredStrategyFill_ || hoveredBookKind_ != 0 || hoveredFunding_;
+    const bool hadHoverState = hoverActive_ || contextActive_ || hoveredTradeIndex_ >= 0 || hoveredStrategyFill_ || hoveredBookKind_ != 0;
     hoverActive_ = false;
     contextActive_ = false;
     hoveredTradeIndex_ = -1;
@@ -115,13 +97,6 @@ void ChartItem::clearHover() {
     hoveredTradeAggregated_ = false;
     hoveredTradeSideBuy_ = true;
     hoveredTradeGroupEntries_.clear();
-    hoveredLiquidationIndex_ = -1;
-    hoveredLiquidationTsNs_ = 0;
-    hoveredLiquidationPriceE8_ = 0;
-    hoveredLiquidationQtyE8_ = 0;
-    hoveredLiquidationAvgPriceE8_ = 0;
-    hoveredLiquidationFilledQtyE8_ = 0;
-    hoveredLiquidationSideBuy_ = true;
     hoveredStrategyFill_ = false;
     hoveredStrategyFillOrderId_ = 0;
     hoveredStrategyFillTsNs_ = 0;
@@ -155,12 +130,6 @@ void ChartItem::clearHover() {
     hoveredBookTsNs_ = 0;
     hoveredBookTsStartNs_ = 0;
     hoveredBookTsEndNs_ = 0;
-    hoveredFunding_ = false;
-    hoveredFundingEventTsNs_ = 0;
-    hoveredFundingRateE8_ = 0;
-    hoveredFundingTsNs_ = 0;
-    hoveredNextFundingTsNs_ = 0;
-    hoveredFundingCadenceNs_ = 0;
     if (hadHoverState) update();
 }
 
@@ -182,13 +151,6 @@ void ChartItem::updateHover_() {
     hoveredTradeAggregated_ = false;
     hoveredTradeSideBuy_ = true;
     hoveredTradeGroupEntries_.clear();
-    hoveredLiquidationIndex_ = -1;
-    hoveredLiquidationTsNs_ = 0;
-    hoveredLiquidationPriceE8_ = 0;
-    hoveredLiquidationQtyE8_ = 0;
-    hoveredLiquidationAvgPriceE8_ = 0;
-    hoveredLiquidationFilledQtyE8_ = 0;
-    hoveredLiquidationSideBuy_ = true;
     hoveredStrategyFill_ = false;
     hoveredStrategyFillOrderId_ = 0;
     hoveredStrategyFillTsNs_ = 0;
@@ -222,12 +184,6 @@ void ChartItem::updateHover_() {
     hoveredBookTsNs_ = 0;
     hoveredBookTsStartNs_ = 0;
     hoveredBookTsEndNs_ = 0;
-    hoveredFunding_ = false;
-    hoveredFundingEventTsNs_ = 0;
-    hoveredFundingRateE8_ = 0;
-    hoveredFundingTsNs_ = 0;
-    hoveredNextFundingTsNs_ = 0;
-    hoveredFundingCadenceNs_ = 0;
     if (!hoverActive_ || !controller_ || width() <= 0 || height() <= 0) return;
 
     const RenderSnapshot& snap = ensureSnapshot_();
@@ -258,13 +214,6 @@ void ChartItem::updateHover_() {
     hoveredTradeAggregated_ = hover.tradeHit && hover.tradeAggregated;
     hoveredTradeSideBuy_ = hover.tradeSideBuy;
     hoveredTradeGroupEntries_ = hover.tradeHit ? hover.tradeGroupEntries : std::vector<TradeGroupEntry>{};
-    hoveredLiquidationIndex_ = hover.liquidationHit ? hover.liquidationOrigIndex : -1;
-    hoveredLiquidationTsNs_ = hover.liquidationHit ? hover.liquidationTsNs : 0;
-    hoveredLiquidationPriceE8_ = hover.liquidationHit ? hover.liquidationPriceE8 : 0;
-    hoveredLiquidationQtyE8_ = hover.liquidationHit ? hover.liquidationQtyE8 : 0;
-    hoveredLiquidationAvgPriceE8_ = hover.liquidationHit ? hover.liquidationAvgPriceE8 : 0;
-    hoveredLiquidationFilledQtyE8_ = hover.liquidationHit ? hover.liquidationFilledQtyE8 : 0;
-    hoveredLiquidationSideBuy_ = hover.liquidationSideBuy;
     hoveredStrategyFill_ = hover.strategyFillHit;
     hoveredStrategyFillOrderId_ = hover.strategyFillHit ? hover.strategyFillOrderId : 0;
     hoveredStrategyFillTsNs_ = hover.strategyFillHit ? hover.strategyFillTsNs : 0;
@@ -298,12 +247,6 @@ void ChartItem::updateHover_() {
     hoveredBookTsNs_ = hover.bookTsNs;
     hoveredBookTsStartNs_ = hover.bookTsStartNs;
     hoveredBookTsEndNs_ = hover.bookTsEndNs;
-    hoveredFunding_ = hover.fundingHit;
-    hoveredFundingEventTsNs_ = hover.fundingHit ? hover.fundingEventTsNs : 0;
-    hoveredFundingRateE8_ = hover.fundingHit ? hover.fundingRateE8 : 0;
-    hoveredFundingTsNs_ = hover.fundingHit ? hover.fundingTsNs : 0;
-    hoveredNextFundingTsNs_ = hover.fundingHit ? hover.nextFundingTsNs : 0;
-    hoveredFundingCadenceNs_ = hover.fundingHit ? hover.fundingCadenceNs : 0;
 }
 
 }  // namespace hftrec::gui::viewer
@@ -321,25 +264,9 @@ HoverInfo buildHoverInfo(const ChartItem& item) {
     hover.bookTsNs = item.hoveredBookTsNs_;
     hover.bookTsStartNs = item.hoveredBookTsStartNs_;
     hover.bookTsEndNs = item.hoveredBookTsEndNs_;
-    if (item.hoveredFunding_) {
-        hover.fundingHit = true;
-        hover.fundingEventTsNs = item.hoveredFundingEventTsNs_;
-        hover.fundingRateE8 = item.hoveredFundingRateE8_;
-        hover.fundingTsNs = item.hoveredFundingTsNs_;
-        hover.nextFundingTsNs = item.hoveredNextFundingTsNs_;
-        hover.fundingCadenceNs = item.hoveredFundingCadenceNs_;
-    }
+    
 
-    if (item.hoveredLiquidationIndex_ >= 0) {
-        hover.liquidationHit = true;
-        hover.liquidationOrigIndex = item.hoveredLiquidationIndex_;
-        hover.liquidationTsNs = item.hoveredLiquidationTsNs_;
-        hover.liquidationPriceE8 = item.hoveredLiquidationPriceE8_;
-        hover.liquidationQtyE8 = item.hoveredLiquidationQtyE8_;
-        hover.liquidationAvgPriceE8 = item.hoveredLiquidationAvgPriceE8_;
-        hover.liquidationFilledQtyE8 = item.hoveredLiquidationFilledQtyE8_;
-        hover.liquidationSideBuy = item.hoveredLiquidationSideBuy_;
-    }
+    
 
     if (item.hoveredStrategyFill_) {
         hover.strategyFillHit = true;

@@ -5,7 +5,6 @@ endif()
 
 qt_add_executable(hft-recorder-gui
     src/App/Main.cpp
-    ../Process/src/MetricsBootstrap.cpp
     src/Backtests/BacktestSessionSummary.cpp
     src/Models/RecordingCatalog.cpp
     src/Models/SessionListModel.cpp
@@ -71,10 +70,10 @@ qt_add_executable(hft-recorder-gui
 
 target_include_directories(hft-recorder-gui
     PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/Runtime/include
-        ${PROJECT_SOURCE_DIR}/src/Runtime/src
-        ${PROJECT_SOURCE_DIR}/src/Process/src
-        ${PROJECT_SOURCE_DIR}/src/Gui/src
+        ${HFTREC_SOURCE_DIR}/src/Runtime/include
+        ${HFTREC_SOURCE_DIR}/src/Runtime/src
+        ${HFTREC_SOURCE_DIR}/src/Process/src
+        ${HFTREC_SOURCE_DIR}/src/Gui/src
 )
 
 set(HFTREC_QML_FILES
@@ -152,8 +151,8 @@ target_link_libraries(hft-recorder-gui
         Qt6::Network
         hftrec_core
         hftrec_support
-        hft_compressor_core
-        hft_backtest_core
+        hft_compressor::core
+        hft_backtest::core
         ${CMAKE_DL_LIBS}
 )
 
@@ -161,18 +160,8 @@ target_compile_features(hft-recorder-gui PRIVATE cxx_std_23)
 target_compile_definitions(hft-recorder-gui
     PRIVATE
         _GNU_SOURCE
-        HFTRREC_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
-        HFT_COMPRESSOR_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-compressor"
-        HFT_BACKTEST_TRADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/../hft-trader"
+        HFTRREC_SOURCE_DIR="${HFTREC_SOURCE_DIR}"
+        HFT_COMPRESSOR_SOURCE_DIR="${HFTREC_SOURCE_DIR}/../hft-compressor"
+        HFT_BACKTEST_TRADER_SOURCE_DIR="${HFTREC_SOURCE_DIR}/../hft-trader"
 )
-
-if(WIN32 AND HFT_COMPRESSOR_RUNTIME_LIB)
-    add_custom_command(TARGET hft-recorder-gui POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${HFT_COMPRESSOR_RUNTIME_LIB}"
-            "$<TARGET_FILE_DIR:hft-recorder-gui>"
-    )
-endif()
-
-
 

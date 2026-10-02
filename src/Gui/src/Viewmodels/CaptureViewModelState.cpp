@@ -27,21 +27,11 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, Cap
         }
 
         snapshot.tradesRunning = snapshot.tradesRunning || coordinator->tradesRunning();
-        snapshot.liquidationsRunning = snapshot.liquidationsRunning || coordinator->liquidationsRunning();
         snapshot.bookTickerRunning = snapshot.bookTickerRunning || coordinator->bookTickerRunning();
         snapshot.orderbookRunning = snapshot.orderbookRunning || coordinator->orderbookRunning();
-        snapshot.markPriceRunning = snapshot.markPriceRunning || coordinator->markPriceRunning();
-        snapshot.indexPriceRunning = snapshot.indexPriceRunning || coordinator->indexPriceRunning();
-        snapshot.fundingRunning = snapshot.fundingRunning || coordinator->fundingRunning();
-        snapshot.priceLimitRunning = snapshot.priceLimitRunning || coordinator->priceLimitRunning();
         if (fullRefresh) {
             snapshot.tradesCount += static_cast<qulonglong>(coordinator->tradesCount());
-            snapshot.liquidationsCount += static_cast<qulonglong>(coordinator->liquidationsCount());
             snapshot.bookTickerCount += static_cast<qulonglong>(coordinator->bookTickerCount());
-            snapshot.markPriceCount += static_cast<qulonglong>(coordinator->markPriceCount());
-            snapshot.indexPriceCount += static_cast<qulonglong>(coordinator->indexPriceCount());
-            snapshot.fundingCount += static_cast<qulonglong>(coordinator->fundingCount());
-            snapshot.priceLimitCount += static_cast<qulonglong>(coordinator->priceLimitCount());
             snapshot.candlesCount += static_cast<qulonglong>(coordinator->candlesCount());
             snapshot.candles2Count += static_cast<qulonglong>(coordinator->candles2Count());
             snapshot.depthCount += static_cast<qulonglong>(coordinator->depthCount());
@@ -89,42 +79,22 @@ void CaptureViewModel::refreshState(detail::CaptureRefreshMode mode) {
     }
 
     if (snapshot.tradesRunning != lastTradesRunning_ ||
-        snapshot.liquidationsRunning != lastLiquidationsRunning_ ||
         snapshot.bookTickerRunning != lastBookTickerRunning_ ||
-        snapshot.orderbookRunning != lastOrderbookRunning_ ||
-        snapshot.markPriceRunning != lastMarkPriceRunning_ ||
-        snapshot.indexPriceRunning != lastIndexPriceRunning_ ||
-        snapshot.fundingRunning != lastFundingRunning_ ||
-        snapshot.priceLimitRunning != lastPriceLimitRunning_) {
+        snapshot.orderbookRunning != lastOrderbookRunning_) {
         lastTradesRunning_ = snapshot.tradesRunning;
-        lastLiquidationsRunning_ = snapshot.liquidationsRunning;
         lastBookTickerRunning_ = snapshot.bookTickerRunning;
         lastOrderbookRunning_ = snapshot.orderbookRunning;
-        lastMarkPriceRunning_ = snapshot.markPriceRunning;
-        lastIndexPriceRunning_ = snapshot.indexPriceRunning;
-        lastFundingRunning_ = snapshot.fundingRunning;
-        lastPriceLimitRunning_ = snapshot.priceLimitRunning;
         channelChanged = true;
     }
 
     if (fullRefresh &&
         (snapshot.tradesCount != lastTradesCount_ ||
-        snapshot.liquidationsCount != lastLiquidationsCount_ ||
         snapshot.bookTickerCount != lastBookTickerCount_ ||
-        snapshot.markPriceCount != lastMarkPriceCount_ ||
-        snapshot.indexPriceCount != lastIndexPriceCount_ ||
-        snapshot.fundingCount != lastFundingCount_ ||
-        snapshot.priceLimitCount != lastPriceLimitCount_ ||
         snapshot.candlesCount != lastCandlesCount_ ||
         snapshot.candles2Count != lastCandles2Count_ ||
         snapshot.depthCount != lastDepthCount_)) {
         lastTradesCount_ = snapshot.tradesCount;
-        lastLiquidationsCount_ = snapshot.liquidationsCount;
         lastBookTickerCount_ = snapshot.bookTickerCount;
-        lastMarkPriceCount_ = snapshot.markPriceCount;
-        lastIndexPriceCount_ = snapshot.indexPriceCount;
-        lastFundingCount_ = snapshot.fundingCount;
-        lastPriceLimitCount_ = snapshot.priceLimitCount;
         lastCandlesCount_ = snapshot.candlesCount;
         lastCandles2Count_ = snapshot.candles2Count;
         lastDepthCount_ = snapshot.depthCount;

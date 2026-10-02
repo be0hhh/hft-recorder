@@ -13,9 +13,6 @@
 #include <memory>
 #include <vector>
 
-namespace hft_compressor {
-class MetricsServer;
-}
 
 namespace hftrec::gui {
 
@@ -46,7 +43,6 @@ class CompressionViewModel : public QObject {
     Q_PROPERTY(QVariantList speedSeries READ speedSeries NOTIFY runRowsChanged)
     Q_PROPERTY(QVariantList decodeSpeedSeries READ decodeSpeedSeries NOTIFY verifyRowsChanged)
     Q_PROPERTY(QString emptyStateText READ emptyStateText NOTIFY sessionsChanged)
-    Q_PROPERTY(QString metricsEndpointText READ metricsEndpointText CONSTANT)
     Q_PROPERTY(QString selectedPipelineId READ selectedPipelineId WRITE setSelectedPipelineId NOTIFY selectedPipelineChanged)
     Q_PROPERTY(QString selectedPipelineLabel READ selectedPipelineLabel NOTIFY selectedPipelineChanged)
     Q_PROPERTY(QString selectedPipelineSummary READ selectedPipelineSummary NOTIFY selectedPipelineChanged)
@@ -101,7 +97,6 @@ class CompressionViewModel : public QObject {
     QVariantList speedSeries() const;
     QVariantList decodeSpeedSeries() const;
     QString emptyStateText() const;
-    QString metricsEndpointText() const;
     QString selectedPipelineId() const { return selectedPipelineId_; }
     QString selectedPipelineLabel() const;
     QString selectedPipelineSummary() const;
@@ -231,7 +226,6 @@ class CompressionViewModel : public QObject {
     double ratio_{0.0};
     double encodeMbPerSec_{0.0};
     double decodeMbPerSec_{0.0};
-    std::unique_ptr<hft_compressor::MetricsServer> compressionMetricsServer_{};
 };
 
 }  // namespace hftrec::gui

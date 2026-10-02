@@ -130,16 +130,15 @@ void printUsage() {
 }
 
 [[nodiscard]] const char* channelName(std::size_t index) noexcept {
-    static constexpr std::array<const char*, corpus::kBinaryMarketChannelCount>
-        names{"bbo", "trade", "depth", "liquidation", "mark_price",
-              "index_price", "funding", "price_limit"};
+    static constexpr std::array<const char*, 3u>
+        names{"bbo", "trade", "depth"};
     return index < names.size() ? names[index] : "unknown";
 }
 
 [[nodiscard]] std::string channelList(std::uint16_t mask) {
     std::string result;
     for (std::size_t index = 0u;
-         index < corpus::kBinaryMarketChannelCount; ++index) {
+         index < 3u; ++index) {
         if ((mask & (std::uint16_t{1u} << index)) == 0u) continue;
         if (!result.empty()) result += ',';
         result += channelName(index);

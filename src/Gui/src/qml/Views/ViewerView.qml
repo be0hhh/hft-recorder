@@ -38,31 +38,20 @@ Pane {
     property bool compareMode: selectedCompareSourceA !== "" && selectedCompareSourceB !== "" && selectedCompareSourceA !== selectedCompareSourceB
     property bool comparePickerActive: compareMode
     property bool showTradesLayer: false
-    property bool showLiquidationsLayer: false
     property bool showCandlesLayer: false
     property bool showCandles2Layer: false
     property bool showOrderbookLayer: false
     property bool showBookTickerLayer: true
-    property bool showMarkPriceLayer: false
-    property bool showIndexPriceLayer: false
-    property bool showFundingLayer: false
-    property bool showPriceLimitLayer: false
     property bool showRateLimitLayer: false
     property bool effectiveBookTickerLayer: showBookTickerLayer
     property bool userHasExplicitLayerSelection: false
     property bool userDisabledTradesLayer: false
-    property bool userDisabledLiquidationsLayer: false
     property bool userDisabledCandlesLayer: false
     property bool userDisabledCandles2Layer: false
     property bool userDisabledOrderbookLayer: false
     property bool userDisabledBookTickerLayer: false
-    property bool userDisabledMarkPriceLayer: false
-    property bool userDisabledIndexPriceLayer: false
-    property bool userDisabledFundingLayer: false
-    property bool userDisabledPriceLimitLayer: false
     property bool useDedicatedGpuPath: false
     property bool useGpuRenderer: true
-    property string performanceDiagnosticsText: ""
 
     function chartSurface() { return chartLoader.item }
     function syncRendererDiagnostics() { root.appVm.activeChartRenderer = root.useDedicatedGpuPath ? "gpu-orderbook" : "cpu-chart" }
@@ -71,9 +60,6 @@ Pane {
         compareChart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs)
     }
     function syncRenderWindow() { chart.setRenderWindowSeconds(root.appVm.renderWindowSeconds) }
-    function refreshPerformanceDiagnostics() {
-        root.performanceDiagnosticsText = root.tabActive && !root.compareMode ? chart.performanceDiagnostics() : ""
-    }
 
     function syncBacktestRows() {
         var rows = [{ path: "", sessionPath: "", label: "Backtest" }]
@@ -292,25 +278,15 @@ Pane {
         if (sourceChanged) {
             root.userHasExplicitLayerSelection = false
             root.userDisabledTradesLayer = false
-            root.userDisabledLiquidationsLayer = false
             root.userDisabledCandlesLayer = false
             root.userDisabledCandles2Layer = false
             root.userDisabledOrderbookLayer = false
             root.userDisabledBookTickerLayer = false
-            root.userDisabledMarkPriceLayer = false
-            root.userDisabledIndexPriceLayer = false
-            root.userDisabledFundingLayer = false
-            root.userDisabledPriceLimitLayer = false
             root.showTradesLayer = false
-            root.showLiquidationsLayer = false
             root.showCandlesLayer = false
             root.showCandles2Layer = false
             root.showOrderbookLayer = false
             root.showBookTickerLayer = true
-            root.showMarkPriceLayer = false
-            root.showIndexPriceLayer = false
-            root.showFundingLayer = false
-            root.showPriceLimitLayer = false
         }
         root.userHasExplicitSelection = sourceId !== ""
         root.selectedSourceId = sourceId
@@ -337,7 +313,6 @@ Pane {
         if (!root.compareMode && root.selectedSourceId !== "") {
             if (chart.hasBookTicker && !root.userDisabledBookTickerLayer) {
                 root.showTradesLayer = false
-                root.showLiquidationsLayer = false
                 root.showCandlesLayer = false
                 root.showCandles2Layer = false
                 root.showOrderbookLayer = false
@@ -345,56 +320,30 @@ Pane {
                 return
             }
             root.showTradesLayer = chart.hasTrades && !root.userDisabledTradesLayer
-            root.showLiquidationsLayer = chart.hasLiquidations && !chart.hasTrades && !root.userDisabledLiquidationsLayer
             root.showCandles2Layer = chart.hasCandles2 && !root.userDisabledCandles2Layer
             root.showCandlesLayer = !root.showCandles2Layer && chart.hasCandles && !root.userDisabledCandlesLayer
             root.showOrderbookLayer = chart.hasOrderbook && !root.userDisabledOrderbookLayer
-            root.showMarkPriceLayer = chart.hasMarkPrice && !root.userDisabledMarkPriceLayer
-            root.showIndexPriceLayer = chart.hasIndexPrice && !root.userDisabledIndexPriceLayer
-            root.showFundingLayer = chart.hasFunding && !root.userDisabledFundingLayer
-            root.showPriceLimitLayer = chart.hasPriceLimit && !root.userDisabledPriceLimitLayer
             root.showBookTickerLayer = false
-            if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showCandles2Layer && !root.showOrderbookLayer && !root.showBookTickerLayer
-                    && !root.showMarkPriceLayer && !root.showIndexPriceLayer && !root.showFundingLayer && !root.showPriceLimitLayer)
+            if (!root.showTradesLayer && !root.showCandlesLayer && !root.showCandles2Layer && !root.showOrderbookLayer && !root.showBookTickerLayer)
                 root.showTradesLayer = !root.userDisabledTradesLayer
             return
         }
 
-        if (root.showTradesLayer || root.showLiquidationsLayer || root.showCandlesLayer || root.showCandles2Layer) {
+        if (root.showTradesLayer || root.showCandlesLayer || root.showCandles2Layer) {
             root.showTradesLayer = false
-            root.showLiquidationsLayer = false
             root.showCandlesLayer = false
             root.showCandles2Layer = false
             if (chart.hasOrderbook && !root.userDisabledOrderbookLayer)
                 root.showOrderbookLayer = true
             else if (chart.hasBookTicker && !root.userDisabledBookTickerLayer)
                 root.showBookTickerLayer = true
-            else if (chart.hasMarkPrice && !root.userDisabledMarkPriceLayer)
-                root.showMarkPriceLayer = true
-            else if (chart.hasIndexPrice && !root.userDisabledIndexPriceLayer)
-                root.showIndexPriceLayer = true
-            else if (chart.hasFunding && !root.userDisabledFundingLayer)
-                root.showFundingLayer = true
-            else if (chart.hasPriceLimit && !root.userDisabledPriceLimitLayer)
-                root.showPriceLimitLayer = true
         }
 
-        if (!root.showTradesLayer && !root.showLiquidationsLayer && !root.showCandlesLayer && !root.showCandles2Layer && !root.showOrderbookLayer && !root.showBookTickerLayer
-                && !root.showMarkPriceLayer && !root.showIndexPriceLayer && !root.showFundingLayer && !root.showPriceLimitLayer) {
+        if (!root.showTradesLayer && !root.showCandlesLayer && !root.showCandles2Layer && !root.showOrderbookLayer && !root.showBookTickerLayer) {
             if (chart.hasOrderbook && !root.userDisabledOrderbookLayer)
                 root.showOrderbookLayer = true
             else if (chart.hasBookTicker && !root.userDisabledBookTickerLayer)
                 root.showBookTickerLayer = true
-            else if (chart.hasMarkPrice && !root.userDisabledMarkPriceLayer)
-                root.showMarkPriceLayer = true
-            else if (chart.hasIndexPrice && !root.userDisabledIndexPriceLayer)
-                root.showIndexPriceLayer = true
-            else if (chart.hasFunding && !root.userDisabledFundingLayer)
-                root.showFundingLayer = true
-            else if (chart.hasPriceLimit && !root.userDisabledPriceLimitLayer)
-                root.showPriceLimitLayer = true
-            else if (chart.hasLiquidations && !root.userDisabledLiquidationsLayer)
-                root.showLiquidationsLayer = true
             else if (!root.userDisabledTradesLayer)
                 root.showTradesLayer = true
         }
@@ -556,14 +505,7 @@ Pane {
     }
     ViewerInteractionState { id: interaction }
     Timer { id: interactiveModeTimer; interval: 120; repeat: false; onTriggered: interaction.interactiveMode = false }
-    Timer {
-        id: performanceDiagnosticsTimer
-        interval: 1000
-        repeat: true
-        running: root.tabActive && !root.compareMode
-        triggeredOnStart: true
-        onTriggered: root.refreshPerformanceDiagnostics()
-    }
+
     Timer {
         id: hoverUpdateTimer
         interval: 33
@@ -935,15 +877,10 @@ Pane {
             interaction: interaction
             compareMode: root.comparePickerActive
             showTradesLayer: root.showTradesLayer
-            showLiquidationsLayer: root.showLiquidationsLayer
             showCandlesLayer: root.showCandlesLayer
             showCandles2Layer: root.showCandles2Layer
             showOrderbookLayer: root.showOrderbookLayer
             showBookTickerLayer: root.showBookTickerLayer
-            showMarkPriceLayer: root.showMarkPriceLayer
-            showIndexPriceLayer: root.showIndexPriceLayer
-            showFundingLayer: root.showFundingLayer
-            showPriceLimitLayer: root.showPriceLimitLayer
             showRateLimitLayer: root.showRateLimitLayer
             effectiveBookTickerLayer: root.effectiveBookTickerLayer
             chromeColor: root.chromeColor
@@ -977,14 +914,7 @@ Pane {
                 root.showCandles2Layer = nextVisible
                 root.userDisabledCandles2Layer = !nextVisible
             }
-            onToggleLiquidations: {
-                root.userHasExplicitLayerSelection = true
-                var nextVisible = !root.showLiquidationsLayer
-                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedLiquidations())
-                    nextVisible = false
-                root.showLiquidationsLayer = nextVisible
-                root.userDisabledLiquidationsLayer = !nextVisible
-            }
+            
             onToggleOrderbook: {
                 root.userHasExplicitLayerSelection = true
                 var nextVisible = !root.showOrderbookLayer
@@ -1001,38 +931,10 @@ Pane {
                 root.showBookTickerLayer = nextVisible
                 root.userDisabledBookTickerLayer = !nextVisible
             }
-            onToggleMarkPrice: {
-                root.userHasExplicitLayerSelection = true
-                var nextVisible = !root.showMarkPriceLayer
-                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedMarkPrice())
-                    nextVisible = false
-                root.showMarkPriceLayer = nextVisible
-                root.userDisabledMarkPriceLayer = !nextVisible
-            }
-            onToggleIndexPrice: {
-                root.userHasExplicitLayerSelection = true
-                var nextVisible = !root.showIndexPriceLayer
-                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedIndexPrice())
-                    nextVisible = false
-                root.showIndexPriceLayer = nextVisible
-                root.userDisabledIndexPriceLayer = !nextVisible
-            }
-            onToggleFunding: {
-                root.userHasExplicitLayerSelection = true
-                var nextVisible = !root.showFundingLayer
-                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedFunding())
-                    nextVisible = false
-                root.showFundingLayer = nextVisible
-                root.userDisabledFundingLayer = !nextVisible
-            }
-            onTogglePriceLimit: {
-                root.userHasExplicitLayerSelection = true
-                var nextVisible = !root.showPriceLimitLayer
-                if (nextVisible && chart.currentSourceKind === "recorded" && !chart.loadRecordedPriceLimit())
-                    nextVisible = false
-                root.showPriceLimitLayer = nextVisible
-                root.userDisabledPriceLimitLayer = !nextVisible
-            }
+            
+            
+            
+            
             onToggleRateLimit: {
                 root.showRateLimitLayer = !root.showRateLimitLayer
             }
@@ -1052,9 +954,7 @@ Pane {
                     ? "Top: combined bookTicker traces and routed backtest markers. Bottom: " + compareChart.lowerPaneTitle + "."
                     : (chart.selectedBacktestResult !== "" || root.preferChartStatusText())
                         ? chart.statusText
-                        : root.tabActive && root.performanceDiagnosticsText !== ""
-                            ? root.performanceDiagnosticsText
-                            : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
+                        : "Single source: trades, candles, bookTicker, and orderbook layers are drawn together when present."
                 color: root.mutedTextColor
                 font.pixelSize: 12
                 elide: Text.ElideRight
@@ -1200,15 +1100,10 @@ Pane {
                         anchors.fill: parent
                         controller: chart
                         tradesVisible: root.showTradesLayer
-                        liquidationsVisible: root.showLiquidationsLayer
                         candlesVisible: root.showCandlesLayer
                         candles2Visible: root.showCandles2Layer
                         orderbookVisible: root.showOrderbookLayer
                         bookTickerVisible: root.effectiveBookTickerLayer
-                        markPriceVisible: root.showMarkPriceLayer
-                        indexPriceVisible: root.showIndexPriceLayer
-                        fundingVisible: root.showFundingLayer
-                        priceLimitVisible: root.showPriceLimitLayer
                         tradeAmountScale: root.appVm.tradeAmountScale
                         candleWidthPx: root.appVm.candleWidthPx
                         bookOpacityGain: root.appVm.bookBrightnessUsdRef
@@ -1223,7 +1118,6 @@ Pane {
                         anchors.fill: parent
                         controller: chart
                         tradesVisible: root.showTradesLayer
-                        liquidationsVisible: root.showLiquidationsLayer
                         candlesVisible: root.showCandlesLayer
                         candles2Visible: root.showCandles2Layer
                         orderbookVisible: root.showOrderbookLayer
@@ -1290,7 +1184,7 @@ Pane {
                         pressY = mouse.y
                         lastX = mouse.x
                         lastY = mouse.y
-                        if (root.chartSurface() && !interaction.anyHoverableLayerVisible(root.showTradesLayer || root.showLiquidationsLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) root.chartSurface().clearHover()
+                        if (root.chartSurface() && !interaction.anyHoverableLayerVisible(root.showTradesLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) root.chartSurface().clearHover()
                     }
                     onPositionChanged: function(mouse) {
                         if (interaction.rangeSelectionActive) {
@@ -1322,7 +1216,7 @@ Pane {
                             return
                         }
                         if (interaction.priceScaleDragging || interaction.timeScaleDragging) return
-                        if (!interaction.anyHoverableLayerVisible(root.showTradesLayer || root.showLiquidationsLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) return
+                        if (!interaction.anyHoverableLayerVisible(root.showTradesLayer, root.effectiveBookTickerLayer, root.showOrderbookLayer)) return
                         pendingHoverX = mouse.x
                         pendingHoverY = mouse.y
                         hoverPending = true

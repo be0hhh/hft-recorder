@@ -15,7 +15,7 @@
 #include "CaptureCoordinatorInternal.hpp"
 #include "JsonSerializers.hpp"
 #include "../Replay/EventRows.hpp"
-#include "hft_trader/Runtime/History/Candles/CandleHistoryLoader.hpp"
+#include "cxet/Api/History/Candles/CandleHistoryLoader.hpp"
 #include "cxet/Primitives/Composite/Ohlcv.hpp"
 
 namespace hftrec::capture {
@@ -165,7 +165,7 @@ struct BulkWriteContext {
     std::uint64_t legacyWritten{0u};
 };
 
-bool appendBulkCandlesPage(const hft_trader::runtime::candles::OhlcvHistoryPage& page,
+bool appendBulkCandlesPage(const cxet::api::candles::OhlcvHistoryPage& page,
                            void* userData) noexcept {
     auto* context = static_cast<BulkWriteContext*>(userData);
     if (!context || !context->candles2Writer || !context->candles2Count ||
@@ -251,6 +251,10 @@ bool appendBulkCandlesPage(const hft_trader::runtime::candles::OhlcvHistoryPage&
 }  // namespace
 
 Status CaptureCoordinator::captureDetailedCandlesBulk(const CaptureConfig& config) noexcept {
+    if (!textEqualsAscii(config.exchange, "finam")) {
+        lastError_ = "FINAM is the only retained candle-history route";
+        return Status::InvalidArgument;
+    }
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
     if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
@@ -333,8 +337,8 @@ Status CaptureCoordinator::captureDetailedCandlesBulk(const CaptureConfig& confi
     MessageBuffer requestBuf{};
     MessageBuffer recvBuf{};
     std::string fetchFailure;
-    hft_trader::runtime::candles::OhlcvHistoryStreamStats streamStats{};
-    hft_trader::runtime::candles::OhlcvHistoryStreamOptions options{};
+    cxet::api::candles::OhlcvHistoryStreamStats streamStats{};
+    cxet::api::candles::OhlcvHistoryStreamOptions options{};
     options.pageLimitOverride = config.detailedCandlesPageLimit;
     options.maxAttemptsPerPage = config.detailedCandlesMaxAttemptsPerPage;
     options.maxEmptyDateRangePages = config.detailedCandlesMaxEmptyWindows;
@@ -351,8 +355,8 @@ Status CaptureCoordinator::captureDetailedCandlesBulk(const CaptureConfig& confi
     context.candleTier = candleTier;
     context.writeLegacyCandles = writeLegacyCandles;
 
-    const bool fetched = hft_trader::runtime::candles::streamOhlcvHistoryForVenue(
-        internal::makeTraderVenueConfig(config),
+    const bool fetched = cxet::api::candles::streamOhlcvHistoryForVenue(
+        internal::makeReferenceVenueConfig(config),
         symbol,
         timeframe,
         limit,

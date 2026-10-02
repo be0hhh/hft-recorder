@@ -13,15 +13,10 @@ namespace hftrec::tui {
 
 namespace {
 
-constexpr std::array<LaunchChannel, 8> kLaunchChannels{
+constexpr std::array<LaunchChannel, 3> kLaunchChannels{
     LaunchChannel::Trades,
-    LaunchChannel::Liquidations,
     LaunchChannel::BookTicker,
     LaunchChannel::Orderbook,
-    LaunchChannel::MarkPrice,
-    LaunchChannel::IndexPrice,
-    LaunchChannel::Funding,
-    LaunchChannel::PriceLimit,
 };
 
 std::string lowerAscii(std::string text) {
@@ -125,13 +120,8 @@ void scheduleRunnableJobs(std::vector<RecorderTuiLaunchJob>& runnable,
 const char* launchChannelName(LaunchChannel channel) noexcept {
     switch (channel) {
         case LaunchChannel::Trades: return "trades";
-        case LaunchChannel::Liquidations: return "liquidations";
         case LaunchChannel::BookTicker: return "bookticker";
         case LaunchChannel::Orderbook: return "orderbook";
-        case LaunchChannel::MarkPrice: return "mark_price";
-        case LaunchChannel::IndexPrice: return "index_price";
-        case LaunchChannel::Funding: return "funding";
-        case LaunchChannel::PriceLimit: return "price_limit";
     }
     return "";
 }
@@ -139,13 +129,8 @@ const char* launchChannelName(LaunchChannel channel) noexcept {
 bool launchChannelSelected(const ChannelSelection& channels, LaunchChannel channel) noexcept {
     switch (channel) {
         case LaunchChannel::Trades: return channels.trades;
-        case LaunchChannel::Liquidations: return channels.liquidations;
         case LaunchChannel::BookTicker: return channels.bookTicker;
         case LaunchChannel::Orderbook: return channels.orderbook;
-        case LaunchChannel::MarkPrice: return channels.markPrice;
-        case LaunchChannel::IndexPrice: return channels.indexPrice;
-        case LaunchChannel::Funding: return channels.funding;
-        case LaunchChannel::PriceLimit: return channels.priceLimit;
     }
     return false;
 }
@@ -153,19 +138,13 @@ bool launchChannelSelected(const ChannelSelection& channels, LaunchChannel chann
 void setLaunchChannel(ChannelSelection& channels, LaunchChannel channel, bool enabled) noexcept {
     switch (channel) {
         case LaunchChannel::Trades: channels.trades = enabled; break;
-        case LaunchChannel::Liquidations: channels.liquidations = enabled; break;
         case LaunchChannel::BookTicker: channels.bookTicker = enabled; break;
         case LaunchChannel::Orderbook: channels.orderbook = enabled; break;
-        case LaunchChannel::MarkPrice: channels.markPrice = enabled; break;
-        case LaunchChannel::IndexPrice: channels.indexPrice = enabled; break;
-        case LaunchChannel::Funding: channels.funding = enabled; break;
-        case LaunchChannel::PriceLimit: channels.priceLimit = enabled; break;
     }
 }
 
 bool anyLaunchChannelSelected(const ChannelSelection& channels) noexcept {
-    return channels.trades || channels.liquidations || channels.bookTicker || channels.orderbook ||
-           channels.markPrice || channels.indexPrice || channels.funding || channels.priceLimit;
+    return channels.trades || channels.bookTicker || channels.orderbook;
 }
 
 bool requiresExclusiveMarketDataSession(const RecorderTuiJob& job) {

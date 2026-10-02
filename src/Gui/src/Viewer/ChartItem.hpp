@@ -36,15 +36,10 @@ class ChartItem : public QQuickPaintedItem {
     Q_PROPERTY(hftrec::gui::viewer::ChartController* controller
                    READ controller WRITE setController NOTIFY controllerChanged)
     Q_PROPERTY(bool tradesVisible READ tradesVisible WRITE setTradesVisible NOTIFY tradesVisibleChanged)
-    Q_PROPERTY(bool liquidationsVisible READ liquidationsVisible WRITE setLiquidationsVisible NOTIFY liquidationsVisibleChanged)
     Q_PROPERTY(bool candlesVisible READ candlesVisible WRITE setCandlesVisible NOTIFY candlesVisibleChanged)
     Q_PROPERTY(bool candles2Visible READ candles2Visible WRITE setCandles2Visible NOTIFY candles2VisibleChanged)
     Q_PROPERTY(bool orderbookVisible READ orderbookVisible WRITE setOrderbookVisible NOTIFY orderbookVisibleChanged)
     Q_PROPERTY(bool bookTickerVisible READ bookTickerVisible WRITE setBookTickerVisible NOTIFY bookTickerVisibleChanged)
-    Q_PROPERTY(bool markPriceVisible READ markPriceVisible WRITE setMarkPriceVisible NOTIFY markPriceVisibleChanged)
-    Q_PROPERTY(bool indexPriceVisible READ indexPriceVisible WRITE setIndexPriceVisible NOTIFY indexPriceVisibleChanged)
-    Q_PROPERTY(bool fundingVisible READ fundingVisible WRITE setFundingVisible NOTIFY fundingVisibleChanged)
-    Q_PROPERTY(bool priceLimitVisible READ priceLimitVisible WRITE setPriceLimitVisible NOTIFY priceLimitVisibleChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
     Q_PROPERTY(qreal candleWidthPx READ candleWidthPx WRITE setCandleWidthPx NOTIFY candleWidthPxChanged)
     Q_PROPERTY(qreal bookOpacityGain READ bookOpacityGain WRITE setBookOpacityGain NOTIFY bookOpacityGainChanged)
@@ -61,8 +56,6 @@ class ChartItem : public QQuickPaintedItem {
     void setController(ChartController* c);
     bool tradesVisible() const noexcept { return tradesVisible_; }
     void setTradesVisible(bool value);
-    bool liquidationsVisible() const noexcept { return liquidationsVisible_; }
-    void setLiquidationsVisible(bool value);
     bool candlesVisible() const noexcept { return candlesVisible_; }
     void setCandlesVisible(bool value);
     bool candles2Visible() const noexcept { return candles2Visible_; }
@@ -71,14 +64,6 @@ class ChartItem : public QQuickPaintedItem {
     void setOrderbookVisible(bool value);
     bool bookTickerVisible() const noexcept { return bookTickerVisible_; }
     void setBookTickerVisible(bool value);
-    bool markPriceVisible() const noexcept { return markPriceVisible_; }
-    void setMarkPriceVisible(bool value);
-    bool indexPriceVisible() const noexcept { return indexPriceVisible_; }
-    void setIndexPriceVisible(bool value);
-    bool fundingVisible() const noexcept { return fundingVisible_; }
-    void setFundingVisible(bool value);
-    bool priceLimitVisible() const noexcept { return priceLimitVisible_; }
-    void setPriceLimitVisible(bool value);
     qreal tradeAmountScale() const noexcept { return tradeAmountScale_; }
     void setTradeAmountScale(qreal value);
     qreal candleWidthPx() const noexcept { return candleWidthPx_; }
@@ -102,15 +87,10 @@ class ChartItem : public QQuickPaintedItem {
   signals:
     void controllerChanged();
     void tradesVisibleChanged();
-    void liquidationsVisibleChanged();
     void candlesVisibleChanged();
     void candles2VisibleChanged();
     void orderbookVisibleChanged();
     void bookTickerVisibleChanged();
-    void markPriceVisibleChanged();
-    void indexPriceVisibleChanged();
-    void fundingVisibleChanged();
-    void priceLimitVisibleChanged();
     void tradeAmountScaleChanged();
     void candleWidthPxChanged();
     void bookOpacityGainChanged();
@@ -163,13 +143,6 @@ class ChartItem : public QQuickPaintedItem {
     bool hoveredTradeAggregated_{false};
     bool hoveredTradeSideBuy_{true};
     std::vector<TradeGroupEntry> hoveredTradeGroupEntries_{};
-    int hoveredLiquidationIndex_{-1};
-    std::int64_t hoveredLiquidationTsNs_{0};
-    std::int64_t hoveredLiquidationPriceE8_{0};
-    std::int64_t hoveredLiquidationQtyE8_{0};
-    std::int64_t hoveredLiquidationAvgPriceE8_{0};
-    std::int64_t hoveredLiquidationFilledQtyE8_{0};
-    bool hoveredLiquidationSideBuy_{true};
     bool hoveredStrategyFill_{false};
     std::uint64_t hoveredStrategyFillOrderId_{0};
     std::int64_t hoveredStrategyFillTsNs_{0};
@@ -203,22 +176,11 @@ class ChartItem : public QQuickPaintedItem {
     std::int64_t hoveredBookTsNs_{0};
     std::int64_t hoveredBookTsStartNs_{0};
     std::int64_t hoveredBookTsEndNs_{0};
-    bool hoveredFunding_{false};
-    std::int64_t hoveredFundingEventTsNs_{0};
-    std::int64_t hoveredFundingRateE8_{0};
-    std::int64_t hoveredFundingTsNs_{0};
-    std::int64_t hoveredNextFundingTsNs_{0};
-    std::int64_t hoveredFundingCadenceNs_{0};
     bool tradesVisible_{true};
-    bool liquidationsVisible_{true};
     bool candlesVisible_{false};
     bool candles2Visible_{false};
     bool orderbookVisible_{false};
     bool bookTickerVisible_{false};
-    bool markPriceVisible_{false};
-    bool indexPriceVisible_{false};
-    bool fundingVisible_{false};
-    bool priceLimitVisible_{false};
     qreal tradeAmountScale_{0.45};
     qreal candleWidthPx_{10.0};
     qreal bookOpacityGain_{15000.0};

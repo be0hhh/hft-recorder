@@ -1,20 +1,18 @@
 #pragma once
 
+#include "cxet/Runtime/Market/CommitContract.hpp"
+
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../../Common/Status.hpp"
 
 namespace cxet {
 namespace composite {
-struct TradeRuntimeV1;
-struct BookTickerRuntimeV1;
-struct OrderBookTapeRuntimeV1;
-struct OrderBookTapeSidesRuntimeV1;
-struct OrderBookSnapshot;
-struct LiquidationEvent;
-struct StreamMeta;
+struct Trade;
+struct BookTicker;
 }  // namespace composite
 }  // namespace cxet
 
@@ -33,22 +31,6 @@ struct CapturedTradeRow {
     std::int64_t side{0};
     bool isBuyerMaker{false};
     bool sideBuy{false};
-};
-
-struct CapturedLiquidationRow {
-    std::string symbol{};
-    std::uint64_t exchangeId{0};
-    std::uint64_t tsNs{0};
-    std::int64_t priceE8{0};
-    std::int64_t qtyE8{0};
-    std::int64_t avgPriceE8{0};
-    std::int64_t filledQtyE8{0};
-    std::int64_t side{0};
-    bool sideBuy{false};
-    std::int64_t orderType{0};
-    std::int64_t timeInForce{0};
-    std::int64_t status{0};
-    std::int64_t sourceMode{0};
 };
 
 struct CapturedBookTickerRow {
@@ -93,15 +75,13 @@ struct CaptureFailureEvent {
 class CxetCaptureBridge {
   public:
     Status initialize() noexcept;
-    static CapturedTradeRow captureTrade(const cxet::composite::TradeRuntimeV1& trade,
-                                         const cxet::composite::StreamMeta& meta);
-    static CapturedBookTickerRow captureBookTicker(const cxet::composite::BookTickerRuntimeV1& bookTicker,
-                                                   const cxet::composite::StreamMeta& meta);
-    static CapturedLiquidationRow captureLiquidation(const cxet::composite::LiquidationEvent& event);
-    static CapturedOrderBookRow captureOrderBook(const cxet::composite::OrderBookSnapshot& snapshot);
-    static CapturedOrderBookRow captureOrderBook(const cxet::composite::OrderBookTapeRuntimeV1& tape,
-                                                 const cxet::composite::OrderBookTapeSidesRuntimeV1& sides,
-                                                 const cxet::composite::StreamMeta& meta);
+    static CapturedTradeRow captureTrade(const cxet::runtime::market::TradeCommit& trade,
+                                         std::string_view symbol);
+    static CapturedBookTickerRow captureBookTicker(const cxet::runtime::market::BboCommit& value,
+                                                   std::string_view symbol);
+    static CapturedOrderBookRow captureOrderBook(const cxet::runtime::market::CommitMetadata& metadata,
+                                                  const cxet::api::market::PublicMarketDepthFrame& value);
+
     static CaptureFailureEvent makeFailure(CaptureFailureKind kind,
                                            std::string channel,
                                            std::string detail,

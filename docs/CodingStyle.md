@@ -253,5 +253,5 @@ Before submitting a PR into `apps/hft-recorder/`:
 - [BuildAndIsolation.md](BuildAndIsolation.md) — allowed include surface, CMake contract
 - [ApiContracts.md](ApiContracts.md) — required interfaces and their signatures
 - [CxetcppUsageExamples.md](CxetcppUsageExamples.md) — concrete calls to the library
-- [LoggingAndMetrics.md](LoggingAndMetrics.md) — spdlog/Prometheus conventions
+- [LoggingAndMetrics.md](LoggingAndMetrics.md) — logging conventions
 - [TestingContract.md](TestingContract.md) — what CI runs

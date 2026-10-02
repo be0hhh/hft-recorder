@@ -19,7 +19,6 @@
 #include <QStringList>
 
 #include "../../../Runtime/src/Replay/BookState.hpp"
-#include "../../../Runtime/src/Metrics/Metrics.hpp"
 #include <Detail/BookMath.hpp>
 
 #include "ChartController.hpp"
@@ -36,13 +35,12 @@
 #include "Renderers/OverlayRenderer.hpp"
 #include "Renderers/StrategyOverlayRenderer.hpp"
 #include "Renderers/TradeRenderer.hpp"
-#include "../../../Runtime/src/Common/Timing.hpp"
 
 namespace hftrec::gui::viewer {
 
 namespace {
 
-void renderReferenceOverlays(QPainter* painter, const RenderSnapshot& snap, const HoverInfo& hover);
+void renderStrategyRanges(QPainter* painter, const RenderSnapshot& snap);
 
 void paintSnapshotFrame(QPainter* painter,
                         const RenderSnapshot& snap,
@@ -64,7 +62,7 @@ void paintSnapshotFrame(QPainter* painter,
     RenderContext ctx{painter, snap, hover, dpr};
     renderers::renderBook(ctx);
     renderers::renderCandles(ctx);
-    renderReferenceOverlays(painter, snap, hover);
+    renderStrategyRanges(painter, snap);
     renderers::renderTrades(ctx);
     renderers::renderStrategyOverlay(ctx);
     renderers::renderOverlay(ctx);
@@ -89,142 +87,7 @@ void drawStepLine(QPainter* painter,
     }
 }
 
-void drawStepLine(QPainter* painter,
-                  const std::vector<QPointF>& points,
-                  const QColor& color) {
-    drawStepLine(painter, points, QPen(color, 1.0));
-}
-
-QString formatNsUtcCompact(std::int64_t tsNs) {
-    if (tsNs <= 0) return QStringLiteral("-");
-    return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(tsNs / 1000000ll), Qt::UTC)
-        .toString(QStringLiteral("yyyy-MM-dd HH:mm 'UTC'"));
-}
-
-QString formatFundingRatePercent(std::int64_t rateE8) {
-    const bool negative = rateE8 < 0;
-    const std::uint64_t magnitude = negative
-        ? static_cast<std::uint64_t>(-(rateE8 + 1)) + 1u
-        : static_cast<std::uint64_t>(rateE8);
-    constexpr std::uint64_t kScale = 1000000u;
-    const std::uint64_t whole = magnitude / kScale;
-    const std::uint64_t frac = magnitude % kScale;
-    return QStringLiteral("%1%2.%3%")
-        .arg(negative ? QStringLiteral("-") : QString())
-        .arg(static_cast<qulonglong>(whole))
-        .arg(static_cast<qulonglong>(frac), 6, 10, QLatin1Char('0'));
-}
-
-qreal fundingStripY(const RenderSnapshot& snap) noexcept {
-    if (snap.vp.h <= 36.0) return std::max<qreal>(8.0, snap.vp.h * 0.5);
-    return std::clamp<qreal>(snap.vp.h - 18.0, 18.0, snap.vp.h - 8.0);
-}
-
-bool fundingStripContextHit(const RenderSnapshot& snap, const HoverInfo& hover, qreal y) noexcept {
-    if (!hover.active || !hover.contextActive) return false;
-    constexpr qreal kStripHitPx = 12.0;
-    constexpr qreal kAxisReserveRight = 88.0;
-    const qreal stripLeft = 8.0;
-    const qreal stripRight = std::max<qreal>(stripLeft, snap.vp.w - kAxisReserveRight);
-    return hover.point.x() >= stripLeft - kStripHitPx
-        && hover.point.x() <= stripRight + kStripHitPx
-        && std::abs(hover.point.y() - y) <= kStripHitPx;
-}
-
-void renderFundingStrip(QPainter* painter, const RenderSnapshot& snap, const HoverInfo& hover, bool drawStrip) {
-    if (!snap.fundingVisible || snap.fundings.empty() || snap.vp.w <= 0.0 || snap.vp.h <= 0.0) return;
-
-    painter->save();
-    constexpr qreal kAxisReserveRight = 88.0;
-    constexpr qreal kAxisReserveBottom = 28.0;
-    const QColor fundingColor{255, 214, 51};
-    const qreal stripLeft = 8.0;
-    const qreal stripRight = std::max<qreal>(stripLeft, snap.vp.w - kAxisReserveRight);
-    const qreal y = fundingStripY(snap);
-
-    if (drawStrip) {
-        QPen stripPen(QColor{255, 214, 51, 86});
-        stripPen.setWidthF(1.0);
-        stripPen.setCosmetic(true);
-        painter->setPen(stripPen);
-        painter->drawLine(QPointF{stripLeft, y}, QPointF{stripRight, y});
-
-        QPen tickPen(QColor{255, 214, 51, 190});
-        tickPen.setWidthF(1.0);
-        tickPen.setCosmetic(true);
-        painter->setPen(tickPen);
-        for (const auto& row : snap.fundings) {
-            if (row.tsNs < snap.vp.tMin || row.tsNs > snap.vp.tMax) continue;
-            const qreal x = std::round(snap.vp.toX(row.tsNs));
-            if (x < stripLeft || x > stripRight) continue;
-            const qreal halfHeight = row.fundingRateE8 < 0 ? 3.0 : 5.0;
-            painter->drawLine(QPointF{x, y - halfHeight}, QPointF{x, y + halfHeight});
-        }
-    }
-
-    if (hover.fundingHit || !fundingStripContextHit(snap, hover, y)) {
-        painter->restore();
-        return;
-    }
-
-    QFont font = painter->font();
-    font.setPixelSize(11);
-    painter->setFont(font);
-    const QFontMetrics metrics(font);
-
-    const std::size_t start = snap.fundings.size() > 5u ? snap.fundings.size() - 5u : 0u;
-    QStringList lines;
-    lines << QStringLiteral("Funding");
-    for (std::size_t i = start; i < snap.fundings.size(); ++i) {
-        const auto& row = snap.fundings[i];
-        lines << QStringLiteral("%1  %2")
-                     .arg(formatFundingRatePercent(row.fundingRateE8),
-                          formatNsUtcCompact(row.nextFundingTsNs));
-    }
-
-    int textWidth = 0;
-    for (const auto& line : lines) {
-        textWidth = std::max(textWidth, metrics.horizontalAdvance(line));
-    }
-    const qreal paddingX = 12.0;
-    const qreal paddingY = 9.0;
-    const qreal cardW = static_cast<qreal>(textWidth) + paddingX * 2.0;
-    const qreal cardH = static_cast<qreal>(metrics.height() * lines.size()) + paddingY * 2.0;
-
-    qreal cardX = std::min<qreal>(hover.point.x() + 14.0, snap.vp.w - kAxisReserveRight - cardW);
-    if (cardX < 8.0) cardX = 8.0;
-    qreal cardY = y - cardH - 14.0;
-    if (cardY < 8.0) cardY = y + 14.0;
-    if (cardY + cardH > snap.vp.h - kAxisReserveBottom) {
-        cardY = std::max<qreal>(8.0, snap.vp.h - kAxisReserveBottom - cardH);
-    }
-
-    const QRectF card{cardX, cardY, cardW, cardH};
-    painter->setPen(QPen(tooltipBorderColor(), 1.0));
-    painter->setBrush(tooltipBackColor());
-    painter->drawRoundedRect(card, 6.0, 6.0);
-    painter->setPen(Qt::NoPen);
-    painter->setBrush(fundingColor);
-    painter->drawRoundedRect(QRectF{card.left(), card.top(), 3.0, card.height()}, 1.5, 1.5);
-
-    qreal textY = card.top() + paddingY + metrics.ascent();
-    for (int i = 0; i < lines.size(); ++i) {
-        if (i == 0) {
-            QFont titleFont = font;
-            titleFont.setBold(true);
-            painter->setFont(titleFont);
-            painter->setPen(axisTextColor());
-        } else {
-            painter->setFont(font);
-            painter->setPen(mutedTextColor());
-        }
-        painter->drawText(QPointF{card.left() + paddingX, textY}, lines[i]);
-        textY += metrics.height();
-    }
-    painter->restore();
-}
-
-void renderReferenceOverlays(QPainter* painter, const RenderSnapshot& snap, const HoverInfo& hover) {
+void renderStrategyRanges(QPainter* painter, const RenderSnapshot& snap) {
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, false);
     auto collect = [&](const auto& rows, auto priceOf) {
@@ -238,20 +101,9 @@ void renderReferenceOverlays(QPainter* painter, const RenderSnapshot& snap, cons
         }
         return points;
     };
-    if (snap.markPriceVisible) {
-        drawStepLine(painter, collect(snap.markPrices, [](const hftrec::replay::MarkPriceRow& row) { return row.markPriceE8; }), QColor{255, 152, 0});
-    }
-    if (snap.indexPriceVisible) {
-        drawStepLine(painter, collect(snap.indexPrices, [](const hftrec::replay::IndexPriceRow& row) { return row.indexPriceE8; }), QColor{53, 208, 111});
-    }
-    if (snap.priceLimitVisible) {
-        drawStepLine(painter,
-                     collect(snap.priceLimits, [](const hftrec::replay::PriceLimitRow& row) { return row.buyLimitE8; }),
-                     QPen(QColor{122, 145, 156, 150}, 1.0));
-        drawStepLine(painter,
-                     collect(snap.priceLimits, [](const hftrec::replay::PriceLimitRow& row) { return row.sellLimitE8; }),
-                     QPen(QColor{132, 124, 150, 150}, 1.0));
-    }
+    
+    
+    
     if (!snap.strategyRangePoints.empty()) {
         drawStepLine(painter,
                      collect(snap.strategyRangePoints, [](const StrategyRangePoint& row) { return row.lowE8; }),
@@ -265,7 +117,6 @@ void renderReferenceOverlays(QPainter* painter, const RenderSnapshot& snap, cons
                      collect(snap.strategyRangePoints, [](const StrategyRangePoint& row) { return row.highE8; }),
                      QPen(QColor{68, 178, 255, 235}, 1.4));
     }
-    renderFundingStrip(painter, snap, hover, true);
     painter->restore();
 }
 
@@ -282,7 +133,6 @@ void paintSnapshotLayers(QPainter* painter,
     layerSnap.orderbookVisible = drawOrderbook && snap.orderbookVisible;
     layerSnap.bookTickerVisible = drawBookTicker && snap.bookTickerVisible;
     layerSnap.tradesVisible = drawTrades && snap.tradesVisible;
-    layerSnap.liquidationsVisible = drawTrades && snap.liquidationsVisible;
     layerSnap.candlesVisible = snap.candlesVisible;
     layerSnap.tradeConnectorsVisible = drawTrades && snap.tradeConnectorsVisible;
     if (drawBackground && !layerSnap.overlayOnly) {
@@ -295,8 +145,8 @@ void paintSnapshotLayers(QPainter* painter,
     if (layerSnap.orderbookVisible) renderers::renderBook(ctx);
     if (layerSnap.bookTickerVisible) renderers::renderBookTicker(ctx);
     if (layerSnap.candlesVisible) renderers::renderCandles(ctx);
-    renderReferenceOverlays(painter, layerSnap, drawOverlay ? hover : HoverInfo{});
-    if (layerSnap.tradesVisible || layerSnap.liquidationsVisible) renderers::renderTrades(ctx);
+    renderStrategyRanges(painter, layerSnap);
+    if (layerSnap.tradesVisible) renderers::renderTrades(ctx);
     if (drawOverlay) renderers::renderOverlay(ctx);
 }
 
@@ -735,7 +585,6 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     live.bookTickerTrace = BookTickerTrace{};
     live.tradeDots.clear();
     live.candleRects.clear();
-    live.liquidationDots.clear();
     live.gpuBookVertices.clear();
     live.tradeDecimated = false;
     live.tradeConnectorsVisible = live.tradesVisible;
@@ -763,20 +612,7 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
         appendExactTradeRows(cache.overlayRows.trades);
     }
 
-    if (live.liquidationsVisible) {
-        int liquidationOrigIndex = 0;
-        const auto appendLiquidationRows = [&](const auto& rows) {
-            for (const auto& row : rows) {
-                const int rowOrigIndex = liquidationOrigIndex;
-                if (liquidationOrigIndex < std::numeric_limits<int>::max()) ++liquidationOrigIndex;
-                if (row.tsNs < live.vp.tMin || row.tsNs > live.vp.tMax) continue;
-                if (row.priceE8 < live.vp.pMin || row.priceE8 > live.vp.pMax) continue;
-                live.liquidationDots.push_back(LiquidationDot{row.tsNs, row.priceE8, row.qtyE8, row.avgPriceE8, row.filledQtyE8, row.sideBuy != 0, rowOrigIndex});
-            }
-        };
-        appendLiquidationRows(cache.stableRows.liquidations);
-        appendLiquidationRows(cache.overlayRows.liquidations);
-    }
+    
 
     if (live.bookTickerVisible) {
         std::vector<const hftrec::replay::BookTickerRow*> rows;
@@ -797,23 +633,6 @@ RenderSnapshot liveSnapshotFromDataBatch(const RenderSnapshot& base,
     return live;
 }
 
-void recordGuiObjectCounts(const RenderSnapshot& base, const RenderSnapshot* live = nullptr) {
-    std::uint64_t orderbookSegments = static_cast<std::uint64_t>(base.bookSegments.size());
-    std::uint64_t bookTickerLines = static_cast<std::uint64_t>(base.bookTickerTrace.bidLines.size()
-        + base.bookTickerTrace.askLines.size());
-    std::uint64_t bookTickerSamples = static_cast<std::uint64_t>(base.bookTickerTrace.samples.size());
-    std::uint64_t tradeDots = static_cast<std::uint64_t>(base.tradeDots.size());
-    std::uint64_t liquidationDots = static_cast<std::uint64_t>(base.liquidationDots.size());
-    if (live != nullptr) {
-        orderbookSegments += static_cast<std::uint64_t>(live->bookSegments.size());
-        bookTickerLines += static_cast<std::uint64_t>(live->bookTickerTrace.bidLines.size()
-            + live->bookTickerTrace.askLines.size());
-        bookTickerSamples += static_cast<std::uint64_t>(live->bookTickerTrace.samples.size());
-        tradeDots += static_cast<std::uint64_t>(live->tradeDots.size());
-        liquidationDots += static_cast<std::uint64_t>(live->liquidationDots.size());
-    }
-    metrics::setGuiObjectCounts(orderbookSegments, bookTickerLines, bookTickerSamples, tradeDots, liquidationDots);
-}
 void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
     target.bookSegments.insert(
         target.bookSegments.end(),
@@ -839,10 +658,7 @@ void appendSnapshotRows(RenderSnapshot& target, RenderSnapshot&& rows) {
         target.candleRects.end(),
         std::make_move_iterator(rows.candleRects.begin()),
         std::make_move_iterator(rows.candleRects.end()));
-    target.liquidationDots.insert(
-        target.liquidationDots.end(),
-        std::make_move_iterator(rows.liquidationDots.begin()),
-        std::make_move_iterator(rows.liquidationDots.end()));
+
 }
 
 void drawTradeBridge(QPainter* painter, const RenderSnapshot& base, const RenderSnapshot& live) {
@@ -1023,9 +839,7 @@ const RenderSnapshot& ChartItem::ensureSnapshot_() {
     const bool rebuildActive = activeDirty || !activeCache || sizeChanged;
 
     if (rebuildActive) {
-        const hftrec::timing::Tick snapshotBuildStart = hftrec::timing::captureTick();
         activeCache = std::make_unique<RenderSnapshot>(controller_->buildSnapshot(w, h, detail::collectInputs(*this)));
-        metrics::recordGuiSnapshotBuild(hftrec::timing::deltaNs(snapshotBuildStart, hftrec::timing::captureTick()).raw);
         cachedW_ = w;
         cachedH_ = h;
         activeDirty = false;
@@ -1036,7 +850,6 @@ const RenderSnapshot& ChartItem::ensureSnapshot_() {
 void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h) {
     if (overlayOnly_) return;
     if (!snap.loaded) return;
-    recordGuiObjectCounts(snap);
     const bool sizeMatches = (cachedLayerImageW_ == w && cachedLayerImageH_ == h);
     if (!sizeMatches) {
         cachedOrderbookImage_ = QImage{};
@@ -1047,10 +860,8 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
         cachedTradesEndTsNs_ = 0;
     }
     if (!cachedOrderbookImage_.isNull() && !cachedBookTickerImage_.isNull() && !cachedTradesImage_.isNull()) {
-        metrics::incGuiLayerCacheHit();
         return;
     }
-    metrics::incGuiLayerCacheRebuild();
 
     const RenderSnapshot baseSnap = baseSnapshotForCache(snap);
     const std::int64_t baseOrderbookEndTsNs = maxOrderbookTs(baseSnap);
@@ -1104,7 +915,6 @@ void ChartItem::ensureLayerImages_(const RenderSnapshot& snap, qreal w, qreal h)
 }
 
 void ChartItem::paint(QPainter* painter) {
-    const hftrec::timing::Tick paintStart = hftrec::timing::captureTick();
     painter->setRenderHint(QPainter::Antialiasing, false);
     painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter->setRenderHint(QPainter::TextAntialiasing, true);
@@ -1138,13 +948,10 @@ void ChartItem::paint(QPainter* painter) {
     }
     if (!cachedLiveSnap_ || cachedLiveDataBatchId_ != liveCache.version) {
         const int liveTradeOrigIndexStart = nextTradeOrigIndex(baseSnap);
-        const hftrec::timing::Tick liveSnapshotStart = hftrec::timing::captureTick();
         cachedLiveSnap_ = std::make_unique<RenderSnapshot>(
             liveSnapshotFromDataBatch(snap, liveCache, liveTradeOrigIndexStart));
-        metrics::recordGuiLiveSnapshotBuild(hftrec::timing::deltaNs(liveSnapshotStart, hftrec::timing::captureTick()).raw);
         cachedLiveDataBatchId_ = liveCache.version;
     }
-    recordGuiObjectCounts(baseSnap, cachedLiveSnap_.get());
     const auto refreshHitTestSnapshot = [&]() {
         RenderSnapshot hitTestSnap = baseSnap;
         if (cachedLiveSnap_ != nullptr && cachedLiveSnap_->loaded) {
@@ -1187,20 +994,10 @@ void ChartItem::paint(QPainter* painter) {
                 (clippedSource.width() / sourceRect.width()) * rect.width(),
                 (clippedSource.height() / sourceRect.height()) * rect.height(),
             };
-            const hftrec::timing::Tick orderbookRenderStart = hftrec::timing::captureTick();
             painter->drawImage(destRect, cachedOrderbookImage_, clippedSource);
-            metrics::recordGuiRenderOrderbook(hftrec::timing::deltaNs(orderbookRenderStart, hftrec::timing::captureTick()).raw);
-            const hftrec::timing::Tick bookTickerRenderStart = hftrec::timing::captureTick();
             painter->drawImage(destRect, cachedBookTickerImage_, clippedSource);
-            metrics::recordGuiRenderBookTicker(hftrec::timing::deltaNs(bookTickerRenderStart, hftrec::timing::captureTick()).raw);
-            const hftrec::timing::Tick tradesRenderStart = hftrec::timing::captureTick();
             painter->drawImage(destRect, cachedTradesImage_, clippedSource);
-            metrics::recordGuiRenderTrades(hftrec::timing::deltaNs(tradesRenderStart, hftrec::timing::captureTick()).raw);
-            const hftrec::timing::Tick liveSnapshotDrawStart = hftrec::timing::captureTick();
             paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
-            metrics::recordGuiLiveSnapshotDraw(hftrec::timing::deltaNs(liveSnapshotDrawStart, hftrec::timing::captureTick()).raw);
-            const hftrec::timing::Tick frameEnd = hftrec::timing::captureTick();
-            metrics::recordGuiPaint(hftrec::timing::deltaNs(paintStart, frameEnd).raw, frameEnd.raw);
             return;
         }
 
@@ -1220,42 +1017,28 @@ void ChartItem::paint(QPainter* painter) {
                 liveSnapshotFromDataBatch(snap, liveCache, liveTradeOrigIndexStart));
             cachedLiveDataBatchId_ = liveCache.version;
         }
-        recordGuiObjectCounts(baseSnap, cachedLiveSnap_.get());
         if (!cachedHitTestSnap_ || cachedHitTestBatchId_ != liveCache.version) refreshHitTestSnapshot();
     }
 
     if (!cachedOrderbookImage_.isNull() && !overlayOnly_) {
-        const hftrec::timing::Tick orderbookRenderStart = hftrec::timing::captureTick();
         painter->drawImage(rect, cachedOrderbookImage_);
-        metrics::recordGuiRenderOrderbook(hftrec::timing::deltaNs(orderbookRenderStart, hftrec::timing::captureTick()).raw);
     }
     if (!cachedBookTickerImage_.isNull()) {
-        const hftrec::timing::Tick bookTickerRenderStart = hftrec::timing::captureTick();
         painter->drawImage(rect, cachedBookTickerImage_);
-        metrics::recordGuiRenderBookTicker(hftrec::timing::deltaNs(bookTickerRenderStart, hftrec::timing::captureTick()).raw);
     }
     if (!cachedTradesImage_.isNull()) {
-        const hftrec::timing::Tick tradesRenderStart = hftrec::timing::captureTick();
         painter->drawImage(rect, cachedTradesImage_);
-        metrics::recordGuiRenderTrades(hftrec::timing::deltaNs(tradesRenderStart, hftrec::timing::captureTick()).raw);
     }
-    const hftrec::timing::Tick liveSnapshotDrawStart = hftrec::timing::captureTick();
     paintLiveSnapshot(painter, baseSnap, *cachedLiveSnap_, dpr);
-    metrics::recordGuiLiveSnapshotDraw(hftrec::timing::deltaNs(liveSnapshotDrawStart, hftrec::timing::captureTick()).raw);
 
     if (!interactiveMode_) {
-        const hftrec::timing::Tick overlayRenderStart = hftrec::timing::captureTick();
         const HoverInfo hover = detail::buildHoverInfo(*this);
-        renderFundingStrip(painter, snap, hover, false);
         RenderContext ctx{painter, snap, hover, dpr};
         if (detail::shouldRenderStrategyOverlayInFinalPass(snap, interactiveMode_)) {
             renderers::renderStrategyOverlay(ctx);
         }
         renderers::renderOverlay(ctx);
-        metrics::recordGuiOverlayRender(hftrec::timing::deltaNs(overlayRenderStart, hftrec::timing::captureTick()).raw);
     }
-    const hftrec::timing::Tick frameEnd = hftrec::timing::captureTick();
-    metrics::recordGuiPaint(hftrec::timing::deltaNs(paintStart, frameEnd).raw, frameEnd.raw);
 }
 
 }  // namespace hftrec::gui::viewer

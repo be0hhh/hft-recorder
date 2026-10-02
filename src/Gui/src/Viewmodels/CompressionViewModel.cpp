@@ -26,7 +26,6 @@
 #include <vector>
 
 #include "hft_compressor/Compressor.hpp"
-#include "hft_compressor/MetricsServer.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 #include "../Backtests/BacktestSessionSummary.hpp"
 #include "../Models/RecordingCatalog.hpp"
@@ -40,8 +39,6 @@ CompressionViewModel::CompressionViewModel(QObject* parent)
     reloadStoredRunRows_();
     reloadStoredVerifyRows_();
 
-    compressionMetricsServer_ = std::make_unique<hft_compressor::MetricsServer>();
-    compressionMetricsServer_->startFromEnvironment();
 }
 
 CompressionViewModel::~CompressionViewModel() = default;
@@ -373,12 +370,6 @@ QString CompressionViewModel::emptyStateText() const {
     return QString{};
 }
 
-QString CompressionViewModel::metricsEndpointText() const {
-    bool ok = false;
-    const int envPort = qEnvironmentVariableIntValue("HFT_COMPRESSOR_METRICS_PORT", &ok);
-    const int port = ok && envPort > 0 ? envPort : 8081;
-    return QStringLiteral("Prometheus: http://127.0.0.1:%1/metrics").arg(port);
-}
 
 QString CompressionViewModel::selectedPipelineLabel() const {
     const auto* pipeline = findPipeline(selectedPipelineId_);

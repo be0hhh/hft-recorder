@@ -18,7 +18,6 @@ using detail::wants;
 void fillSummary(RecorderSession& out, const replay::SessionReplay& replay, Status status) {
     out.info.status = status;
     out.info.trades = out.tradeRows.size();
-    out.info.liquidations = out.liquidationRows.size();
     out.info.bookTickers = out.bookTickerRows.size();
     out.info.depths = out.depthRows.size();
     out.info.candles = out.candleRows.size();
@@ -35,7 +34,6 @@ void fillSummary(RecorderSession& out, const replay::SessionReplay& replay, Stat
 void RecorderSession::clear() noexcept {
     info = RecorderSessionSummary{};
     tradeRows.clear();
-    liquidationRows.clear();
     bookTickerRows.clear();
     depthRows.clear();
     candleRows.clear();
@@ -76,10 +74,7 @@ Status loadRecorderSession(const std::filesystem::path& sessionPath,
         out.tradeRows.reserve(replay.trades().size());
         for (const auto& row : replay.trades()) out.tradeRows.push_back(convert(row));
     }
-    if (wants(channels, RecorderChannel_Liquidations)) {
-        out.liquidationRows.reserve(replay.liquidations().size());
-        for (const auto& row : replay.liquidations()) out.liquidationRows.push_back(convert(row));
-    }
+
     if (wants(channels, RecorderChannel_BookTicker)) {
         out.bookTickerRows.reserve(replay.bookTickers().size());
         for (const auto& row : replay.bookTickers()) out.bookTickerRows.push_back(convert(row));

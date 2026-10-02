@@ -421,11 +421,6 @@ void ChartController::computeInitialViewport_() {
     absorbTs(replay_.bookTickers());
     absorbTs(replay_.trades());
     absorbTs(replay_.depths());
-    absorbTs(replay_.markPrices());
-    absorbTs(replay_.indexPrices());
-    absorbTs(replay_.fundings());
-    absorbTs(replay_.priceLimits());
-    if (!hasMarketTs) absorbTs(replay_.liquidations());
     if (!hasMarketTs) {
         absorbTs(replay_.candles2());
         absorbTs(replay_.candles());
@@ -466,32 +461,13 @@ void ChartController::computeInitialViewport_() {
         absorbPrice(ticker.askPriceE8, hasPrice, pMin, pMax);
         if (ticker.bidPriceE8 > 0 || ticker.askPriceE8 > 0) hasTradeOrTickerPrice = true;
     }
-    for (const auto& row : replay_.markPrices()) {
-        if (!inAnchorWindow(row.tsNs)) continue;
-        absorbPrice(row.markPriceE8, hasPrice, pMin, pMax);
-        if (row.markPriceE8 > 0) hasTradeOrTickerPrice = true;
-    }
-    for (const auto& row : replay_.indexPrices()) {
-        if (!inAnchorWindow(row.tsNs)) continue;
-        absorbPrice(row.indexPriceE8, hasPrice, pMin, pMax);
-        if (row.indexPriceE8 > 0) hasTradeOrTickerPrice = true;
-    }
-    for (const auto& row : replay_.priceLimits()) {
-        if (!inAnchorWindow(row.tsNs)) continue;
-        absorbPrice(row.buyLimitE8, hasPrice, pMin, pMax);
-        absorbPrice(row.sellLimitE8, hasPrice, pMin, pMax);
-        if (row.buyLimitE8 > 0 || row.sellLimitE8 > 0) hasTradeOrTickerPrice = true;
-    }
+    
+    
+    
 
     if (!hasTradeOrTickerPrice) {
         absorbBookLevels(replay_.book().bids(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
         absorbBookLevels(replay_.book().asks(), kViewportBookLevelsPerSide, hasPrice, pMin, pMax);
-    }
-
-    if (!hasPrice) {
-        for (const auto& liquidation : replay_.liquidations()) {
-            absorbPrice(liquidation.priceE8, hasPrice, pMin, pMax);
-        }
     }
 
     if (!hasPrice) {
@@ -675,37 +651,18 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
                           static_cast<double>(widthPx), static_cast<double>(heightPx)};
     snap.loaded = loaded_
         || !liveDataCache_.stableRows.trades.empty()
-        || !liveDataCache_.stableRows.liquidations.empty()
         || !liveDataCache_.stableRows.bookTickers.empty()
         || !liveDataCache_.stableRows.depths.empty()
         || !liveDataCache_.overlayRows.trades.empty()
-        || !liveDataCache_.overlayRows.liquidations.empty()
         || !liveDataCache_.overlayRows.bookTickers.empty()
         || !liveDataCache_.overlayRows.depths.empty()
-        || !replay_.markPrices().empty()
-        || !replay_.indexPrices().empty()
-        || !replay_.fundings().empty()
-        || !replay_.priceLimits().empty()
-        || !liveDataCache_.stableRows.markPrices.empty()
-        || !liveDataCache_.stableRows.indexPrices.empty()
-        || !liveDataCache_.stableRows.fundings.empty()
-        || !liveDataCache_.stableRows.priceLimits.empty()
-        || !liveDataCache_.overlayRows.markPrices.empty()
-        || !liveDataCache_.overlayRows.indexPrices.empty()
-        || !liveDataCache_.overlayRows.fundings.empty()
-        || !liveDataCache_.overlayRows.priceLimits.empty()
         || !replay_.candles().empty()
         || !replay_.candles2().empty();
     snap.tradesVisible = in.tradesVisible;
-    snap.liquidationsVisible = in.liquidationsVisible;
     snap.candlesVisible = in.candlesVisible || in.candles2Visible;
     snap.candles2Visible = in.candles2Visible;
     snap.orderbookVisible = in.orderbookVisible;
     snap.bookTickerVisible = in.bookTickerVisible;
-    snap.markPriceVisible = in.markPriceVisible;
-    snap.indexPriceVisible = in.indexPriceVisible;
-    snap.fundingVisible = in.fundingVisible;
-    snap.priceLimitVisible = in.priceLimitVisible;
     snap.tradeConnectorsVisible = in.tradesVisible;
     snap.interactiveMode = in.interactiveMode;
     snap.overlayOnly = in.overlayOnly;
@@ -820,47 +777,7 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         }
     }
 
-    if (in.liquidationsVisible) {
-        const auto& liquidations = replay_.liquidations();
-        auto liqBegin = liquidations.begin();
-        auto liqEnd = liquidations.end();
-        if (latestOnlyWindow) {
-            const auto latestLiqIt = std::upper_bound(
-                liquidations.begin(),
-                liquidations.end(),
-                latestTsNs,
-                [](std::int64_t ts, const hftrec::replay::LiquidationRow& row) noexcept { return ts < row.tsNs; });
-            if (latestLiqIt == liquidations.begin()) {
-                liqBegin = liquidations.end();
-                liqEnd = liquidations.end();
-            } else {
-                liqBegin = std::prev(latestLiqIt);
-                liqEnd = latestLiqIt;
-            }
-        } else {
-            liqBegin = std::lower_bound(
-                liquidations.begin(),
-                liquidations.end(),
-                renderMinTs,
-                [](const hftrec::replay::LiquidationRow& row, std::int64_t ts) noexcept { return row.tsNs < ts; });
-            liqEnd = std::upper_bound(
-                liqBegin,
-                liquidations.end(),
-                renderMaxTs,
-                [](std::int64_t ts, const hftrec::replay::LiquidationRow& row) noexcept { return ts < row.tsNs; });
-        }
-        snap.liquidationDots.reserve(static_cast<std::size_t>(std::distance(liqBegin, liqEnd)));
-        for (auto it = liqBegin; it != liqEnd; ++it) {
-            const auto& row = *it;
-            if (latestOnlyWindow && (row.tsNs < snap.vp.tMin || row.tsNs > snap.vp.tMax)) continue;
-            if (row.priceE8 < snap.vp.pMin || row.priceE8 > snap.vp.pMax) continue;
-            const auto x = snap.vp.toX(row.tsNs);
-            const auto y = snap.vp.toY(row.priceE8);
-            if (x < 0.0 || x > snap.vp.w || y < 0.0 || y > snap.vp.h) continue;
-            const auto origIndex = static_cast<int>(std::distance(liquidations.begin(), it));
-            snap.liquidationDots.push_back(LiquidationDot{row.tsNs, row.priceE8, row.qtyE8, row.avgPriceE8, row.filledQtyE8, row.sideBuy != 0, origIndex});
-        }
-    }
+    
 
     if (in.candlesVisible || in.candles2Visible) {
         auto candleDurationNs = [](const hftrec::replay::CandleRow& row) noexcept -> std::int64_t {
@@ -949,52 +866,14 @@ RenderSnapshot ChartController::buildSnapshot(qreal widthPx, qreal heightPx, con
         if (in.candles2Visible) appendCandleRects(replay_.candles2());
     }
 
-    auto appendMarkRows = [&](const auto& rows) {
-        for (const auto& row : rows) {
-            if (row.tsNs < renderMinTs || row.tsNs > renderMaxTs) continue;
-            if (row.markPriceE8 < snap.vp.pMin || row.markPriceE8 > snap.vp.pMax) continue;
-            snap.markPrices.push_back(row);
-        }
-    };
-    auto appendIndexRows = [&](const auto& rows) {
-        for (const auto& row : rows) {
-            if (row.tsNs < renderMinTs || row.tsNs > renderMaxTs) continue;
-            if (row.indexPriceE8 < snap.vp.pMin || row.indexPriceE8 > snap.vp.pMax) continue;
-            snap.indexPrices.push_back(row);
-        }
-    };
-    auto appendFundingRows = [&](const auto& rows) {
-        for (const auto& row : rows) {
-            if (row.tsNs < renderMinTs || row.tsNs > renderMaxTs) continue;
-            snap.fundings.push_back(row);
-        }
-    };
-    auto appendPriceLimitRows = [&](const auto& rows) {
-        for (const auto& row : rows) {
-            if (row.tsNs < renderMinTs || row.tsNs > renderMaxTs) continue;
-            snap.priceLimits.push_back(row);
-        }
-    };
-    if (in.markPriceVisible) {
-        appendMarkRows(replay_.markPrices());
-        appendMarkRows(liveDataCache_.stableRows.markPrices);
-        appendMarkRows(liveDataCache_.overlayRows.markPrices);
-    }
-    if (in.indexPriceVisible) {
-        appendIndexRows(replay_.indexPrices());
-        appendIndexRows(liveDataCache_.stableRows.indexPrices);
-        appendIndexRows(liveDataCache_.overlayRows.indexPrices);
-    }
-    if (in.fundingVisible) {
-        appendFundingRows(replay_.fundings());
-        appendFundingRows(liveDataCache_.stableRows.fundings);
-        appendFundingRows(liveDataCache_.overlayRows.fundings);
-    }
-    if (in.priceLimitVisible) {
-        appendPriceLimitRows(replay_.priceLimits());
-        appendPriceLimitRows(liveDataCache_.stableRows.priceLimits);
-        appendPriceLimitRows(liveDataCache_.overlayRows.priceLimits);
-    }
+
+
+
+
+    
+    
+    
+    
 
     if (!in.orderbookVisible && !in.bookTickerVisible) return snap;
 

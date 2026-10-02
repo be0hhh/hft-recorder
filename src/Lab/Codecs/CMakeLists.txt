@@ -10,8 +10,8 @@ add_library(hftrec_support STATIC
 
 target_include_directories(hftrec_support
     PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/Runtime/src
-        ${PROJECT_SOURCE_DIR}/src/Lab/Codecs
+        ${HFTREC_SOURCE_DIR}/src/Runtime/src
+        ${HFTREC_SOURCE_DIR}/src/Lab/Codecs
 )
 
 target_link_libraries(hftrec_support

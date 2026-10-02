@@ -34,7 +34,6 @@ namespace {
 SnapshotInputs collectInputs(const GpuChartItem& item) {
     return SnapshotInputs{
         item.tradesVisible(),
-        item.liquidationsVisible(),
         item.candlesVisible(),
         item.candles2Visible(),
         item.orderbookVisible(),
@@ -264,15 +263,6 @@ void GpuChartItem::setTradesVisible(bool value) {
     update();
 }
 
-void GpuChartItem::setLiquidationsVisible(bool value) {
-    if (liquidationsVisible_ == value) return;
-    liquidationsVisible_ = value;
-    if (!liquidationsVisible_) clearHover();
-    invalidateSnapshotCache_();
-    ensureSnapshot_();
-    emit liquidationsVisibleChanged();
-    update();
-}
 
 void GpuChartItem::setCandlesVisible(bool value) {
     if (candlesVisible_ == value) return;
@@ -408,7 +398,7 @@ void GpuChartItem::activateContextPoint(qreal x, qreal y) {
     updateHover_();
     if (hoveredTradeIndex_ < 0
         && hoveredBookKind_ == 0
-        && (!hoverInfo_ || (!hoverInfo_->liquidationHit && !hoverInfo_->strategyFillHit && !hoverInfo_->fundingHit))) {
+        && (!hoverInfo_ || !hoverInfo_->strategyFillHit)) {
         clearHover();
         return;
     }
@@ -420,7 +410,7 @@ void GpuChartItem::clearHover() {
         || contextActive_
         || hoveredTradeIndex_ >= 0
         || hoveredBookKind_ != 0
-        || (hoverInfo_ && (hoverInfo_->strategyFillHit || hoverInfo_->fundingHit));
+        || (hoverInfo_ && hoverInfo_->strategyFillHit);
     hoverActive_ = false;
     contextActive_ = false;
     hoveredTradeIndex_ = -1;

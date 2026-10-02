@@ -21,7 +21,7 @@ constexpr long kDetailedCandlesMaxLimit = 1'000'000;
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] [--candles-page-limit n] [--end-ns ns] [--history-sec n] [--history-page-limit n] [--history-max-rows n] <trades|trades_history|liquidations|bookticker|orderbook|mark_price|index_price|funding|price_limit|candles|candles2|candles2_bulk> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
+    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] [--candles-page-limit n] [--end-ns ns] [--history-sec n] [--history-page-limit n] [--history-max-rows n] <trades|bookticker|orderbook|candles|candles2|candles2_bulk> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
     std::puts("  hft-recorder capture [--env path] [--api-slot n] bookticker all [seconds] [output_dir]");
     std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
     std::puts("");
@@ -35,14 +35,9 @@ void printUsage() {
     std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings gate BTC_USDT margin");
     std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings okx BTC_USDT futures");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 bookticker 30 /mnt/d/recordings finam SBER@MISX spot");
-    std::puts("  hft-recorder capture mark_price 30 /mnt/d/recordings binance BTC_USDT futures");
-    std::puts("  hft-recorder capture index_price 30 /mnt/d/recordings bybit BTC_USDT futures");
-    std::puts("  hft-recorder capture funding 30 /mnt/d/recordings gate BTC_USDT futures");
-    std::puts("  hft-recorder capture price_limit 30 /mnt/d/recordings bitget BTC_USDT futures");
     std::puts("  hft-recorder capture trades 30 /mnt/d/recordings binance ETH_USDT futures 300");
     std::puts("  hft-recorder capture --history-sec 3600 trades_history 1 /mnt/d/recordings mexc BTC_USDT spot");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 /mnt/d/recordings binance ETH_USDT futures 300");
-    std::puts("  hft-recorder capture candles 1 /mnt/d/recordings binance BSB_USDT");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 100000 candles2 1 /mnt/d/recordings finam SBER@MISX spot");
     std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 1000000 candles2_bulk 1 /mnt/d/recordings finam GAZP@MISX spot");
 }
@@ -68,21 +63,13 @@ void applyTransientRouteSymbol(capture::CaptureConfig& config) {
     config.routeSymbols.clear();
 }
 
-bool isMarkPriceChannel(std::string_view channel) noexcept {
-    return channel == "mark_price" || channel == "mark-price" || channel == "markprice" || channel == "mark";
-}
 
-bool isIndexPriceChannel(std::string_view channel) noexcept {
-    return channel == "index_price" || channel == "index-price" || channel == "indexprice" || channel == "index";
-}
 
-bool isFundingChannel(std::string_view channel) noexcept {
-    return channel == "funding" || channel == "funding_rate" || channel == "funding-rate" || channel == "fundingrate";
-}
 
-bool isPriceLimitChannel(std::string_view channel) noexcept {
-    return channel == "price_limit" || channel == "price-limit" || channel == "pricelimit" || channel == "limit" || channel == "limits";
-}
+
+
+
+
 
 bool isDetailedCandlesChannel(std::string_view channel) noexcept {
     return channel == "candles2" || channel == "candle2" || channel == "detailed_candles" ||
@@ -104,13 +91,8 @@ Status startChannel(capture::CaptureCoordinator& coordinator,
                     const std::string& channel,
                     const capture::CaptureConfig& config) {
     if (channel == "trades") return coordinator.startTrades(config);
-    if (channel == "liquidations" || channel == "liquidation" || channel == "forceOrder") return coordinator.startLiquidations(config);
     if (channel == "bookticker") return coordinator.startBookTicker(config);
     if (channel == "orderbook") return coordinator.startOrderbook(config);
-    if (isMarkPriceChannel(channel)) return coordinator.startMarkPrice(config);
-    if (isIndexPriceChannel(channel)) return coordinator.startIndexPrice(config);
-    if (isFundingChannel(channel)) return coordinator.startFunding(config);
-    if (isPriceLimitChannel(channel)) return coordinator.startPriceLimit(config);
     if (channel == "candles" || channel == "candle" || channel == "klines") {
         const auto sessionStatus = coordinator.ensureSession(config);
         if (!isOk(sessionStatus)) return sessionStatus;

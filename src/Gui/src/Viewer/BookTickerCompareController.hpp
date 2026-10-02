@@ -85,8 +85,6 @@ class BookTickerCompareController : public QObject {
 
     const std::vector<hftrec::replay::BookTickerRow>& primaryRows() const noexcept { return primaryRows_; }
     const std::vector<hftrec::replay::BookTickerRow>& secondaryRows() const noexcept { return secondaryRows_; }
-    const std::vector<hftrec::replay::FundingRow>& primaryFundingRows() const noexcept { return primaryFundingRows_; }
-    const std::vector<hftrec::replay::FundingRow>& secondaryFundingRows() const noexcept { return secondaryFundingRows_; }
     const std::vector<hftrec::replay::CandleRow>& primaryCandles() const noexcept { return primaryCandles_; }
     const std::vector<hftrec::replay::CandleRow>& secondaryCandles() const noexcept { return secondaryCandles_; }
     const std::vector<hftrec::arbitrage::BookTickerSpreadPoint>& spreadPoints() const noexcept { return spreadPoints_; }
@@ -136,7 +134,6 @@ class BookTickerCompareController : public QObject {
         std::unique_ptr<ILiveDataProvider> liveProvider{};
         std::uint64_t nextBatchId{1};
         std::vector<hftrec::replay::BookTickerRow> rows{};
-        std::vector<hftrec::replay::FundingRow> fundings{};
         std::vector<hftrec::replay::CandleRow> candles{};
         std::string marketHint{};
         std::int64_t priceBasisQtyE8{hftrec::arbitrage::kPriceBasisScaleE8};
@@ -162,8 +159,6 @@ class BookTickerCompareController : public QObject {
     QString statusText_{QStringLiteral("Select two market sessions")};
     std::vector<hftrec::replay::BookTickerRow> primaryRows_{};
     std::vector<hftrec::replay::BookTickerRow> secondaryRows_{};
-    std::vector<hftrec::replay::FundingRow> primaryFundingRows_{};
-    std::vector<hftrec::replay::FundingRow> secondaryFundingRows_{};
     std::vector<hftrec::replay::CandleRow> primaryCandles_{};
     std::vector<hftrec::replay::CandleRow> secondaryCandles_{};
     std::vector<hftrec::arbitrage::BookTickerSpreadPoint> spreadPoints_{};

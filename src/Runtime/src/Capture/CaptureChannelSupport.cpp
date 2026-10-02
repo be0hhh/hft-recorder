@@ -4,18 +4,22 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <memory>
+#include <new>
 #include <string_view>
 #include <thread>
 #include <utility>
 
 #if HFTREC_WITH_CXET
-#include "cxet/Api/Market/MarketDataReactor.hpp"
+#include "cxet/Api/Market/PublicMarketCatalog.hpp"
+#include "cxet/Api/Instrument/InstrumentDenomination.hpp"
+#include "cxet/Api/Resolve/LocalSymbolValidation.hpp"
 #include "cxet/Canon/MarketMapping.hpp"
 #include "cxet/Canon/PositionAndExchange.hpp"
 #include "cxet/Canon/Subtypes.hpp"
 #include "CaptureCoordinatorInternal.hpp"
 #include "CaptureCoordinatorRuntimeHelpers.hpp"
-#include "hft_trader/Runtime/Market/MarketDataRuntime.hpp"
+
 #endif
 
 namespace hftrec::capture {
@@ -76,19 +80,15 @@ canon::MarketType marketTypeFromConfig(ExchangeId exchange, std::string_view mar
     return canon::kMarketTypeUnknown;
 }
 
-cxet::api::market::PublicMarketDataStream streamForCaptureChannel(CaptureChannel channel) noexcept {
+cxet::api::market::PublicMarketObject objectForCaptureChannel(CaptureChannel channel) noexcept {
     switch (channel) {
-        case CaptureChannel::Trades: return cxet::api::market::PublicMarketDataStream::Trades;
-        case CaptureChannel::Liquidations: return cxet::api::market::PublicMarketDataStream::Liquidations;
-        case CaptureChannel::BookTicker: return cxet::api::market::PublicMarketDataStream::BookTicker;
-        case CaptureChannel::Orderbook: return cxet::api::market::PublicMarketDataStream::Orderbook;
-        case CaptureChannel::MarkPrice: return cxet::api::market::PublicMarketDataStream::MarkPrice;
-        case CaptureChannel::IndexPrice: return cxet::api::market::PublicMarketDataStream::IndexPrice;
-        case CaptureChannel::Funding: return cxet::api::market::PublicMarketDataStream::Funding;
-        case CaptureChannel::PriceLimit: return cxet::api::market::PublicMarketDataStream::PriceLimit;
+        case CaptureChannel::Trades:return cxet::api::market::PublicMarketObject::Trade;
+        case CaptureChannel::BookTicker:return cxet::api::market::PublicMarketObject::BookTicker;
+        case CaptureChannel::Orderbook:return cxet::api::market::PublicMarketObject::Depth;
     }
-    return cxet::api::market::PublicMarketDataStream::BookTicker;
+    return {};
 }
+
 #endif
 
 bool defaultAvailability(const CaptureConfig& config,
@@ -137,106 +137,7 @@ CaptureLaunchPlan envPreflightFailedPlan(const std::vector<CaptureChannel>& requ
     return plan;
 }
 
-CaptureChannelSkipReason skipReasonForMarketDataStatus(cxet::api::market::PublicMarketDataStatus status) noexcept {
-    switch (status) {
-        case cxet::api::market::PublicMarketDataStatus::BadConfig:
-            return CaptureChannelSkipReason::InvalidConfig;
-        case cxet::api::market::PublicMarketDataStatus::UnsupportedRoute:
-            return CaptureChannelSkipReason::UnsupportedRoute;
-        case cxet::api::market::PublicMarketDataStatus::SubscribeFailed:
-            return CaptureChannelSkipReason::SubscribeSendFailed;
-        case cxet::api::market::PublicMarketDataStatus::ParseFailed:
-            return CaptureChannelSkipReason::ParseFailed;
-        case cxet::api::market::PublicMarketDataStatus::ConnectFailed:
-        case cxet::api::market::PublicMarketDataStatus::Disconnected:
-        default:
-            return CaptureChannelSkipReason::ConnectFailed;
-    }
-}
 
-CaptureChannelSkipReason terminalRuntimeReason(const hft_trader::runtime::MarketDataRuntime& market) {
-    std::array<cxet::api::market::PublicMarketDataRouteDiagnostic, 8> diagnostics{};
-    const std::size_t routeCount = market.manager().routeDiagnostics(diagnostics.data(), diagnostics.size());
-    const std::size_t count = std::min(routeCount, diagnostics.size());
-    for (std::size_t i = 0u; i < count; ++i) {
-        const auto reason = skipReasonForMarketDataStatus(diagnostics[i].lastStatus);
-        if (reason != CaptureChannelSkipReason::ConnectFailed) return reason;
-    }
-    return CaptureChannelSkipReason::ConnectFailed;
-}
-
-bool startupPreflightAllowsChannel(const CaptureConfig& config,
-                                   CaptureChannel channel,
-                                   CaptureChannelSkipReason& reason,
-                                   std::string& detail) {
-    reason = CaptureChannelSkipReason::None;
-    detail.clear();
-
-    std::string err;
-    if (!runtime::linkedTraderMarketDataRuntimeAbiMatches(err)) {
-        reason = CaptureChannelSkipReason::ApplyFailed;
-        detail = std::move(err);
-        return false;
-    }
-
-    hft_trader::runtime::MarketDataRuntime market{};
-    const auto stream = streamForCaptureChannel(channel);
-    if (!runtime::applyTraderMarketDataConfig(
-            market,
-            config,
-            Span<const cxet::api::market::PublicMarketDataStream>(&stream, 1u),
-            err)) {
-        market.closeAll();
-        reason = CaptureChannelSkipReason::ApplyFailed;
-        detail = std::move(err);
-        return false;
-    }
-
-    const auto deadline = std::chrono::steady_clock::now()
-        + std::chrono::nanoseconds(runtime::kMarketDataStartupFailureGraceNs);
-    std::int64_t nextLifecyclePollNs = 0;
-    std::string routeDiagnostic;
-    const std::string_view scope{captureChannelName(channel)};
-    while (std::chrono::steady_clock::now() < deadline) {
-        runtime::pollMarketDataLifecycleIfDue(market, nextLifecyclePollNs, &routeDiagnostic, scope);
-
-        std::string terminalDiagnostic;
-        if (runtime::marketDataRuntimeTerminalStartupFailure(market, scope, &terminalDiagnostic)) {
-            reason = terminalRuntimeReason(market);
-            detail = std::move(terminalDiagnostic);
-            market.closeAll();
-            return false;
-        }
-
-        hft_trader::runtime::MarketDataRuntimeEvent event{};
-        if (market.pollAvailableOne(event)) {
-            if (event.status == cxet::api::market::PublicMarketDataStatus::Parsed) {
-                market.closeAll();
-                return true;
-            }
-            if (runtime::marketDataStatusIsTerminalStartupFailure(event.status)) {
-                market.closeAll();
-                reason = skipReasonForMarketDataStatus(event.status);
-                detail = std::string{scope} + ": route status=" + runtime::publicMarketDataStatusName(event.status);
-                return false;
-            }
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-
-    std::string terminalDiagnostic;
-    if (runtime::marketDataRuntimeTerminalStartupFailure(market, scope, &terminalDiagnostic)) {
-        reason = terminalRuntimeReason(market);
-        detail = std::move(terminalDiagnostic);
-        market.closeAll();
-        return false;
-    }
-
-    market.closeAll();
-    detail = std::move(routeDiagnostic);
-    return true;
-}
 #endif
 
 }  // namespace
@@ -244,13 +145,8 @@ bool startupPreflightAllowsChannel(const CaptureConfig& config,
 const char* captureChannelName(CaptureChannel channel) noexcept {
     switch (channel) {
         case CaptureChannel::Trades: return "trades";
-        case CaptureChannel::Liquidations: return "liquidations";
         case CaptureChannel::BookTicker: return "bookticker";
         case CaptureChannel::Orderbook: return "orderbook";
-        case CaptureChannel::MarkPrice: return "mark_price";
-        case CaptureChannel::IndexPrice: return "index_price";
-        case CaptureChannel::Funding: return "funding";
-        case CaptureChannel::PriceLimit: return "price_limit";
     }
     return "unknown";
 }
@@ -320,6 +216,10 @@ bool captureChannelRuntimeReady(const CaptureConfig& config,
                                 CaptureChannel channel,
                                 std::string& detail) noexcept {
     detail.clear();
+    if (channel == CaptureChannel::Orderbook) {
+        detail = "native book capture requires an exact binary source directory and configured byte quota; JSON cannot preserve snapshot/rebase";
+        return false;
+    }
     if (config.symbols.empty() || config.symbols.front().empty()) {
         detail = "missing symbol";
         return false;
@@ -336,16 +236,47 @@ bool captureChannelRuntimeReady(const CaptureConfig& config,
         detail = "unknown market";
         return false;
     }
-    const auto stream = streamForCaptureChannel(channel);
-    const auto caps = cxet::api::market::publicMarketDataCapabilities(exchange, market, stream);
-    if (caps.selectedRuntimeReady()) return true;
-    detail = "missing_mask=" + std::to_string(caps.missingMask);
-    return false;
+    auto registry=std::unique_ptr<cxet::api::market::PublicMarketRegistry>(new(std::nothrow) cxet::api::market::PublicMarketRegistry{});
+    if (!registry || cxet::api::market::buildStagedPublicMarketCatalog(registry.get())!=cxet::api::market::StagedPublicMarketCatalogStatus::Ready ||
+        !registry->select(exchange.raw,market.raw,objectForCaptureChannel(channel),0u,0u)) {
+        detail="registered native market descriptor unavailable";return false;
+    }
+    return true;
 #else
     (void)channel;
     return true;
 #endif
 }
+
+#if HFTREC_WITH_CXET
+bool makeConfiguredCaptureSource(const CaptureConfig& config,CaptureChannel channel,
+    cxet::runtime::market::ConfiguredMarketSource& out,std::string& detail) noexcept {
+    if (!captureChannelRuntimeReady(config,channel,detail)) return false;
+    const auto identity=internal::primaryIdentitySymbolText(config);
+    const auto routeText=internal::primaryRouteSymbolText(config);
+    if (identity.empty() || identity.size()>=Symbol::capacity || routeText.empty() || routeText.size()>=Symbol::capacity) {
+        detail="invalid exact capture symbol";return false;
+    }
+    out={};out.exchange=exchangeIdFromConfig(config.exchange);out.market=marketTypeFromConfig(out.exchange,config.market);
+    out.object=objectForCaptureChannel(channel);out.apiSlot=internal::normalizedApiSlot(config);
+    out.symbol.copyFrom(std::string{routeText}.c_str());
+    cxet::api::InstrumentRouteInfo route{};
+    if (cxet::api::looksLikeLocalCryptoSymbol(out.symbol)) {
+        if (!cxet::api::resolveExchangeProductInstrumentRoute(out.exchange,out.market,out.symbol,&route,out.apiProtocolProfile) ||
+            !route.hasNativeSymbol || route.baseMultiplier!=1u) {
+            detail="capture instrument requires an authoritative denomination binding";return false;
+        }
+    }
+    cxet::api::instrument::InstrumentDenominationTransform transform{};
+    const auto kind=out.market==canon::kMarketTypeSpot || out.market==canon::kMarketTypeMargin
+        ?cxet::api::instrument::InstrumentQuantityKind::SpotBase:cxet::api::instrument::InstrumentQuantityKind::DerivativeContracts;
+    if (!cxet::api::instrument::makeInstrumentDenominationTransform(1u,1u,kind,&transform) ||
+        !cxet::api::instrument::runtimeInstrumentNumeric(transform,&out.numeric)) {
+        detail="capture native numeric context unavailable";return false;
+    }
+    return true;
+}
+#endif
 
 CaptureLaunchPlan buildCaptureLaunchPlan(const CaptureConfig& config,
                                           const std::vector<CaptureChannel>& requested,
@@ -391,13 +322,7 @@ CaptureLaunchPlan preflightCaptureLaunchPlan(const CaptureConfig& config,
                 skippedDecision(channel, skipReasonForUnavailableDetail(detail), std::move(detail)));
             continue;
         }
-#if HFTREC_WITH_CXET
-        CaptureChannelSkipReason reason = CaptureChannelSkipReason::None;
-        if (!startupPreflightAllowsChannel(config, channel, reason, detail)) {
-            plan.decisions.push_back(skippedDecision(channel, reason, std::move(detail)));
-            continue;
-        }
-#endif
+
         plan.decisions.push_back(enabledDecision(channel));
     }
     return plan;

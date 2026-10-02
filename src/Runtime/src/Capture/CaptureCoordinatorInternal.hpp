@@ -7,7 +7,7 @@
 #include "CaptureCoordinator.hpp"
 #if HFTREC_WITH_CXET
 #include "cxet/Cxet.hpp"
-#include "hft_trader/Runtime/Config/RuntimeConfig.hpp"
+#include "cxet/Runtime/Reference/ReferenceVenueConfig.hpp"
 #endif
 
 namespace hftrec::corpus {
@@ -33,7 +33,7 @@ std::string_view primaryRouteSymbolText(const CaptureConfig& config) noexcept;
 bool validateRequestedAliases(const std::vector<std::string>& aliasNames,
                               std::string& lastError);
 
-hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfig& config) noexcept;
+cxet::runtime::reference::ReferenceVenueConfig makeReferenceVenueConfig(const CaptureConfig& config) noexcept;
 
 #endif
 

@@ -192,15 +192,13 @@ struct RunningJob {
 };
 
 bool anyRunningChannel(const capture::CaptureCoordinator& coordinator) noexcept {
-    return coordinator.tradesRunning() || coordinator.liquidationsRunning() || coordinator.bookTickerRunning() ||
-           coordinator.orderbookRunning() || coordinator.markPriceRunning() || coordinator.indexPriceRunning() ||
-           coordinator.fundingRunning() || coordinator.priceLimitRunning();
+    return coordinator.tradesRunning() || coordinator.bookTickerRunning() ||
+           coordinator.orderbookRunning();
 }
 
 std::uint64_t totalRows(const capture::CaptureCoordinator& coordinator) noexcept {
-    return coordinator.tradesCount() + coordinator.liquidationsCount() + coordinator.bookTickerCount() +
-           coordinator.depthCount() + coordinator.markPriceCount() + coordinator.indexPriceCount() +
-           coordinator.fundingCount() + coordinator.priceLimitCount();
+    return coordinator.tradesCount() + coordinator.bookTickerCount() +
+           coordinator.depthCount();
 }
 
 std::int64_t startAgeSeconds(const RunningJob& job, Clock::time_point now) noexcept {
@@ -229,13 +227,8 @@ capture::CaptureChannel captureChannelForRunner(tui::LaunchChannel channel) noex
 tui::LaunchChannel launchChannelForCapture(capture::CaptureChannel channel) noexcept {
     switch (channel) {
         case capture::CaptureChannel::Trades: return tui::LaunchChannel::Trades;
-        case capture::CaptureChannel::Liquidations: return tui::LaunchChannel::Liquidations;
         case capture::CaptureChannel::BookTicker: return tui::LaunchChannel::BookTicker;
         case capture::CaptureChannel::Orderbook: return tui::LaunchChannel::Orderbook;
-        case capture::CaptureChannel::MarkPrice: return tui::LaunchChannel::MarkPrice;
-        case capture::CaptureChannel::IndexPrice: return tui::LaunchChannel::IndexPrice;
-        case capture::CaptureChannel::Funding: return tui::LaunchChannel::Funding;
-        case capture::CaptureChannel::PriceLimit: return tui::LaunchChannel::PriceLimit;
     }
     return tui::LaunchChannel::BookTicker;
 }
@@ -245,13 +238,8 @@ std::vector<capture::CaptureChannel> selectedCaptureChannels(const tui::ChannelS
     selected.reserve(8u);
     for (const auto channel : {
              tui::LaunchChannel::Trades,
-             tui::LaunchChannel::Liquidations,
              tui::LaunchChannel::BookTicker,
              tui::LaunchChannel::Orderbook,
-             tui::LaunchChannel::MarkPrice,
-             tui::LaunchChannel::IndexPrice,
-             tui::LaunchChannel::Funding,
-             tui::LaunchChannel::PriceLimit,
          }) {
         if (tui::launchChannelSelected(channels, channel)) selected.push_back(captureChannelForRunner(channel));
     }
@@ -310,13 +298,8 @@ RunningJob startJobFromConfig(const tui::RecorderTuiJob& source, capture::Captur
     job.status = "starting";
 
     if (job.job.channels.trades) tryStartChannel(job, "trades", job.coordinator->startTrades(job.config));
-    if (job.job.channels.liquidations) tryStartChannel(job, "liquidations", job.coordinator->startLiquidations(job.config));
     if (job.job.channels.bookTicker) tryStartChannel(job, "bookticker", job.coordinator->startBookTicker(job.config));
     if (job.job.channels.orderbook) tryStartChannel(job, "orderbook", job.coordinator->startOrderbook(job.config));
-    if (job.job.channels.markPrice) tryStartChannel(job, "mark_price", job.coordinator->startMarkPrice(job.config));
-    if (job.job.channels.indexPrice) tryStartChannel(job, "index_price", job.coordinator->startIndexPrice(job.config));
-    if (job.job.channels.funding) tryStartChannel(job, "funding", job.coordinator->startFunding(job.config));
-    if (job.job.channels.priceLimit) tryStartChannel(job, "price_limit", job.coordinator->startPriceLimit(job.config));
 
     job.running = anyRunningChannel(*job.coordinator);
     if (!job.running && job.error.empty()) job.error = "no channels started";
@@ -339,13 +322,8 @@ void requestStopJob(RunningJob& job) {
         return;
     }
     if (job.job.channels.trades) (void)job.coordinator->requestStopTrades();
-    if (job.job.channels.liquidations) (void)job.coordinator->requestStopLiquidations();
     if (job.job.channels.bookTicker) (void)job.coordinator->requestStopBookTicker();
     if (job.job.channels.orderbook) (void)job.coordinator->requestStopOrderbook();
-    if (job.job.channels.markPrice) (void)job.coordinator->requestStopMarkPrice();
-    if (job.job.channels.indexPrice) (void)job.coordinator->requestStopIndexPrice();
-    if (job.job.channels.funding) (void)job.coordinator->requestStopFunding();
-    if (job.job.channels.priceLimit) (void)job.coordinator->requestStopPriceLimit();
     job.stopRequested = true;
     job.running = false;
     job.status = "stopping";
@@ -628,13 +606,8 @@ void writeStatusFile(const std::filesystem::path& path,
 capture::CaptureChannel captureChannelForRunner(tui::LaunchChannel channel) noexcept {
     switch (channel) {
         case tui::LaunchChannel::Trades: return capture::CaptureChannel::Trades;
-        case tui::LaunchChannel::Liquidations: return capture::CaptureChannel::Liquidations;
         case tui::LaunchChannel::BookTicker: return capture::CaptureChannel::BookTicker;
         case tui::LaunchChannel::Orderbook: return capture::CaptureChannel::Orderbook;
-        case tui::LaunchChannel::MarkPrice: return capture::CaptureChannel::MarkPrice;
-        case tui::LaunchChannel::IndexPrice: return capture::CaptureChannel::IndexPrice;
-        case tui::LaunchChannel::Funding: return capture::CaptureChannel::Funding;
-        case tui::LaunchChannel::PriceLimit: return capture::CaptureChannel::PriceLimit;
     }
     return capture::CaptureChannel::BookTicker;
 }
@@ -722,13 +695,8 @@ void writeRunGroupManifests(const std::filesystem::path& recordingsRoot, const R
 capture::ExternalCaptureChannels externalChannels(const tui::ChannelSelection& channels) noexcept {
     return capture::ExternalCaptureChannels{
         .trades = channels.trades,
-        .liquidations = channels.liquidations,
         .bookTicker = channels.bookTicker,
         .orderbook = channels.orderbook,
-        .markPrice = channels.markPrice,
-        .indexPrice = channels.indexPrice,
-        .funding = channels.funding,
-        .priceLimit = channels.priceLimit,
     };
 }
 

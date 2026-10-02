@@ -145,7 +145,7 @@ QVariantMap candidateBySymbol(const QVariantList& rows, const QString& symbol) {
 }
 
 std::uint64_t manifestTotalRows(const capture::SessionManifest& manifest) {
-    return manifest.tradesCount + manifest.liquidationsCount + manifest.bookTickerCount +
+    return manifest.tradesCount+manifest.liquidationsCount+manifest.bookTickerCount+
            manifest.depthCount + manifest.candlesCount + manifest.candles2Count +
            manifest.markPriceCount + manifest.indexPriceCount + manifest.fundingCount +
            manifest.priceLimitCount;
@@ -306,37 +306,22 @@ recordings::RecordingGroupInfo makeBasisRecordingGroup(const std::filesystem::pa
 
 bool hasRunningChannel(const capture::CaptureCoordinator& coordinator) noexcept {
     return coordinator.tradesRunning()
-        || coordinator.liquidationsRunning()
         || coordinator.bookTickerRunning()
-        || coordinator.orderbookRunning()
-        || coordinator.markPriceRunning()
-        || coordinator.indexPriceRunning()
-        || coordinator.fundingRunning()
-        || coordinator.priceLimitRunning();
+        || coordinator.orderbookRunning();
 }
 
 bool startDesiredChannels(capture::CaptureCoordinator& coordinator,
                           const capture::CaptureConfig& config,
                           bool trades,
-                          bool liquidations,
                           bool bookTicker,
                           bool orderbook,
-                          bool markPrice,
-                          bool indexPrice,
-                          bool funding,
-                          bool priceLimit,
                           std::string* skippedSummary) {
-    const bool requested = trades || liquidations || bookTicker || orderbook || markPrice || indexPrice || funding || priceLimit;
+    const bool requested = trades || bookTicker || orderbook;
     std::vector<capture::CaptureChannel> requestedChannels;
-    requestedChannels.reserve(8u);
+    requestedChannels.reserve(3u);
     if (trades) requestedChannels.push_back(capture::CaptureChannel::Trades);
-    if (liquidations) requestedChannels.push_back(capture::CaptureChannel::Liquidations);
     if (bookTicker) requestedChannels.push_back(capture::CaptureChannel::BookTicker);
     if (orderbook) requestedChannels.push_back(capture::CaptureChannel::Orderbook);
-    if (markPrice) requestedChannels.push_back(capture::CaptureChannel::MarkPrice);
-    if (indexPrice) requestedChannels.push_back(capture::CaptureChannel::IndexPrice);
-    if (funding) requestedChannels.push_back(capture::CaptureChannel::Funding);
-    if (priceLimit) requestedChannels.push_back(capture::CaptureChannel::PriceLimit);
 
     const auto launchPlan = capture::buildCaptureLaunchPlan(config, requestedChannels);
     const std::string skipped = launchPlan.skippedSummary();
@@ -348,40 +333,25 @@ bool startDesiredChannels(capture::CaptureCoordinator& coordinator,
         *skippedSummary += skipped;
     }
     trades = launchPlan.channelEnabled(capture::CaptureChannel::Trades);
-    liquidations = launchPlan.channelEnabled(capture::CaptureChannel::Liquidations);
     bookTicker = launchPlan.channelEnabled(capture::CaptureChannel::BookTicker);
     orderbook = launchPlan.channelEnabled(capture::CaptureChannel::Orderbook);
-    markPrice = launchPlan.channelEnabled(capture::CaptureChannel::MarkPrice);
-    indexPrice = launchPlan.channelEnabled(capture::CaptureChannel::IndexPrice);
-    funding = launchPlan.channelEnabled(capture::CaptureChannel::Funding);
-    priceLimit = launchPlan.channelEnabled(capture::CaptureChannel::PriceLimit);
     if (requested && !launchPlan.anyEnabled()) return false;
     bool running = hasRunningChannel(coordinator);
 
     if (trades && !coordinator.tradesRunning()) {
         if (isOk(coordinator.startTrades(config))) running = true;
     }
-    if (liquidations && !coordinator.liquidationsRunning()) {
-        if (isOk(coordinator.startLiquidations(config))) running = true;
-    }
+
     if (bookTicker && !coordinator.bookTickerRunning()) {
         if (isOk(coordinator.startBookTicker(config))) running = true;
     }
     if (orderbook && !coordinator.orderbookRunning()) {
         if (isOk(coordinator.startOrderbook(config))) running = true;
     }
-    if (markPrice && !coordinator.markPriceRunning()) {
-        if (isOk(coordinator.startMarkPrice(config))) running = true;
-    }
-    if (indexPrice && !coordinator.indexPriceRunning()) {
-        if (isOk(coordinator.startIndexPrice(config))) running = true;
-    }
-    if (funding && !coordinator.fundingRunning()) {
-        if (isOk(coordinator.startFunding(config))) running = true;
-    }
-    if (priceLimit && !coordinator.priceLimitRunning()) {
-        if (isOk(coordinator.startPriceLimit(config))) running = true;
-    }
+
+
+
+
     return !requested || running;
 }
 
@@ -423,23 +393,9 @@ bool CaptureViewModel::startTradesHistory() {
     return ok;
 }
 
-bool CaptureViewModel::startLiquidations() {
-    desiredLiquidationsRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("Liquidations capture desired for %1 stream(s)").arg(coordinators_.size()));
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return true;
-}
 
-void CaptureViewModel::stopLiquidations() {
-    desiredLiquidationsRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (entry.coordinator) entry.coordinator->requestStopLiquidations();
-    }
-    setStatusText(QStringLiteral("Liquidations stop requested"));
-    refreshState(detail::CaptureRefreshMode::Full);
-}
+
+
 bool CaptureViewModel::startBookTicker() {
     desiredBookTickerRunning_ = true;
     if (!reconcileCoordinatorBatch_()) return false;
@@ -900,92 +856,28 @@ void CaptureViewModel::stopOrderbook() {
     refreshState(detail::CaptureRefreshMode::Full);
 }
 
-bool CaptureViewModel::startMarkPrice() {
-    desiredMarkPriceRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("MarkPrice capture desired for %1 stream(s)").arg(coordinators_.size()));
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return true;
-}
 
-void CaptureViewModel::stopMarkPrice() {
-    desiredMarkPriceRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (entry.coordinator) entry.coordinator->requestStopMarkPrice();
-    }
-    setStatusText(QStringLiteral("MarkPrice stop requested"));
-    refreshState(detail::CaptureRefreshMode::Full);
-}
 
-bool CaptureViewModel::startIndexPrice() {
-    desiredIndexPriceRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("IndexPrice capture desired for %1 stream(s)").arg(coordinators_.size()));
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return true;
-}
 
-void CaptureViewModel::stopIndexPrice() {
-    desiredIndexPriceRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (entry.coordinator) entry.coordinator->requestStopIndexPrice();
-    }
-    setStatusText(QStringLiteral("IndexPrice stop requested"));
-    refreshState(detail::CaptureRefreshMode::Full);
-}
 
-bool CaptureViewModel::startFunding() {
-    desiredFundingRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("Funding capture desired for %1 stream(s)").arg(coordinators_.size()));
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return true;
-}
 
-void CaptureViewModel::stopFunding() {
-    desiredFundingRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (entry.coordinator) entry.coordinator->requestStopFunding();
-    }
-    setStatusText(QStringLiteral("Funding stop requested"));
-    refreshState(detail::CaptureRefreshMode::Full);
-}
 
-bool CaptureViewModel::startPriceLimit() {
-    desiredPriceLimitRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("PriceLimit capture desired for %1 stream(s)").arg(coordinators_.size()));
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return true;
-}
 
-void CaptureViewModel::stopPriceLimit() {
-    desiredPriceLimitRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (entry.coordinator) entry.coordinator->requestStopPriceLimit();
-    }
-    setStatusText(QStringLiteral("PriceLimit stop requested"));
-    refreshState(detail::CaptureRefreshMode::Full);
-}
 
-bool CaptureViewModel::startOpenInterest() {
-    setStatusText(QStringLiteral("OpenInterest display is disabled; no data file was created"));
-    return false;
-}
+
+
+
+
+
+
+
+
+
 
 bool CaptureViewModel::startAllChannels() {
     desiredTradesRunning_ = true;
-    desiredLiquidationsRunning_ = true;
     desiredBookTickerRunning_ = true;
     desiredOrderbookRunning_ = true;
-    desiredMarkPriceRunning_ = true;
-    desiredIndexPriceRunning_ = true;
-    desiredFundingRunning_ = true;
-    desiredPriceLimitRunning_ = true;
     if (!reconcileCoordinatorBatch_()) return false;
 
     bool candlesOk = true;
@@ -1011,23 +903,13 @@ bool CaptureViewModel::startAllChannels() {
 
 void CaptureViewModel::stopAllChannels() {
     desiredTradesRunning_ = false;
-    desiredLiquidationsRunning_ = false;
     desiredBookTickerRunning_ = false;
     desiredOrderbookRunning_ = false;
-    desiredMarkPriceRunning_ = false;
-    desiredIndexPriceRunning_ = false;
-    desiredFundingRunning_ = false;
-    desiredPriceLimitRunning_ = false;
     for (auto& entry : coordinators_) {
         if (!entry.coordinator) continue;
         entry.coordinator->requestStopTrades();
-        entry.coordinator->requestStopLiquidations();
         entry.coordinator->requestStopBookTicker();
         entry.coordinator->requestStopOrderbook();
-        entry.coordinator->requestStopMarkPrice();
-        entry.coordinator->requestStopIndexPrice();
-        entry.coordinator->requestStopFunding();
-        entry.coordinator->requestStopPriceLimit();
     }
     setStatusText(QStringLiteral("All capture channels stop requested"));
     refreshState(detail::CaptureRefreshMode::Full);
@@ -1100,13 +982,8 @@ bool CaptureViewModel::reconcileCoordinatorBatch_() {
         if (!startDesiredChannels(*entry.coordinator,
                                   entry.config,
                                   desiredTradesRunning_,
-                                  desiredLiquidationsRunning_,
                                   desiredBookTickerRunning_,
                                   desiredOrderbookRunning_,
-                                  desiredMarkPriceRunning_,
-                                  desiredIndexPriceRunning_,
-                                  desiredFundingRunning_,
-                                  desiredPriceLimitRunning_,
                                   &skippedSummary)) {
             anyFailed = true;
         }
@@ -1131,8 +1008,7 @@ bool CaptureViewModel::reconcileCoordinatorBatch_() {
 }
 
 void CaptureViewModel::reconcileActiveChannels_() {
-    if (!(desiredTradesRunning_ || desiredLiquidationsRunning_ || desiredBookTickerRunning_ || desiredOrderbookRunning_
-          || desiredMarkPriceRunning_ || desiredIndexPriceRunning_ || desiredFundingRunning_ || desiredPriceLimitRunning_)) return;
+    if (!(desiredTradesRunning_ || desiredBookTickerRunning_ || desiredOrderbookRunning_)) return;
     (void)reconcileCoordinatorBatch_();
     registerLiveSources_();
 }
@@ -1147,10 +1023,7 @@ void CaptureViewModel::registerLiveSources_() {
         const auto& coordinator = entry.coordinator;
         if (!coordinator) continue;
         const auto manifest = coordinator->manifestCopy();
-        const bool hasLiveChannel = coordinator->tradesRunning() || coordinator->liquidationsRunning()
-            || coordinator->bookTickerRunning() || coordinator->orderbookRunning()
-            || coordinator->markPriceRunning() || coordinator->indexPriceRunning()
-            || coordinator->fundingRunning() || coordinator->priceLimitRunning();
+        const bool hasLiveChannel=coordinator->tradesRunning() || coordinator->bookTickerRunning() || coordinator->orderbookRunning();
         if (!hasLiveChannel) continue;
         if (coordinator->eventSource() == nullptr) continue;
 
@@ -1206,13 +1079,8 @@ void CaptureViewModel::abortCoordinatorBatch_(const QString& fallbackStatus) {
         if (!coordinator) continue;
         const auto preFinalizeError = QString::fromStdString(coordinator->lastError()).trimmed();
         coordinator->stopTrades();
-        coordinator->stopLiquidations();
         coordinator->stopBookTicker();
         coordinator->stopOrderbook();
-        coordinator->stopMarkPrice();
-        coordinator->stopIndexPrice();
-        coordinator->stopFunding();
-        coordinator->stopPriceLimit();
         const auto status = coordinator->finalizeSession();
         if (!preFinalizeError.isEmpty() && !errors.contains(preFinalizeError)) errors.push_back(preFinalizeError);
         if (!isOk(status) && preFinalizeError.isEmpty()) {

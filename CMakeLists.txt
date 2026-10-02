@@ -1,295 +1,53 @@
-cmake_minimum_required(VERSION 3.20)
-project(hft-recorder LANGUAGES CXX VERSION 0.1.0)
+cmake_minimum_required(VERSION 3.22)
 
-if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    message(FATAL_ERROR "hft-recorder requires the pinned compiler selected by the canonical CXET root.")
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR OR NOT CXET_ROOT_SOURCE_GRAPH)
+    message(FATAL_ERROR "hft-recorder requires the canonical CXET root source graph; use its compile.sh wrapper")
 endif()
-
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
-
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
-endif()
-
-option(HFTREC_PORTABLE_BUILD "If ON: disable -march=native for hft-recorder Release builds." OFF)
-set(_HFTREC_RELEASE_FLAGS "-O3 -DNDEBUG")
-if(NOT HFTREC_PORTABLE_BUILD)
-    string(APPEND _HFTREC_RELEASE_FLAGS " -march=native")
-endif()
-set(CMAKE_CXX_FLAGS_RELEASE "${_HFTREC_RELEASE_FLAGS}" CACHE STRING "hft-recorder Release C++ flags" FORCE)
-unset(_HFTREC_RELEASE_FLAGS)
-
-# hft-recorder is a standalone consumer of a prebuilt CXETCPP library when
-# available. Offline viewer builds must not build or vendor parent sources.
-set(CXET_PUBLIC_INCLUDE_DIR "" CACHE PATH "Path to CXETCPP public headers")
-set(CXET_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_lib shared library")
-set(CXET_REPLAY_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt libcxet_replay_core shared library")
-set(HFT_TRADER_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/src/Core/include" CACHE PATH "Path to hft-trader public headers")
-set(HFT_TRADER_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/generated" CACHE PATH "Path to hft-trader generated headers")
-set(HFT_TRADER_SHARED_LIB "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/libhft_trader_runtime.so" CACHE FILEPATH "Path to prebuilt hft-trader runtime shared library")
-set(HFT_TRADER_CXET_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/include" CACHE PATH "Path to hft-trader bundled CXETCPP headers")
-set(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR "${HFT_TRADER_CXET_INCLUDE_DIR}" CACHE PATH "Path to hft-trader bundled CXETCPP public header root for exchange-owned headers")
-set(HFT_TRADER_CXET_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/lib" CACHE PATH "Path to hft-trader bundled CXETCPP libraries")
-set(HFT_PARSER_CONTRACT_INCLUDE_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../hft-parser/src/Contracts/include"
-    CACHE PATH "Path to hft-parser app-to-app protocol headers")
-set(HFTREC_CXET_MODE "AUTO" CACHE STRING "CXET integration mode: AUTO, ON, or OFF")
-set_property(CACHE HFTREC_CXET_MODE PROPERTY STRINGS AUTO ON OFF)
-
-if(NOT EXISTS "${HFT_PARSER_CONTRACT_INCLUDE_DIR}/hft_parser/Ipc/MarketCaptureProtocol.hpp")
-    message(FATAL_ERROR
-        "hft-recorder: hft-parser market-capture contract is missing: ${HFT_PARSER_CONTRACT_INCLUDE_DIR}")
-endif()
-option(HFTREC_HOTPATH_METRICS_DEFAULT "Enable hft-recorder/CXET hot-path metrics by default" ON)
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    set(HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS ON)
-else()
-    set(HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS OFF)
-endif()
-option(HFTREC_BUILD_APP_TARGETS "Build hft-recorder CLI app targets" ${HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS})
-option(HFTREC_BUILD_GUI "Build hft-recorder Qt GUI" ${HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS})
-option(HFTREC_BUILD_TESTS "Build hft-recorder tests" ${HFTREC_DEFAULT_BUILD_PRODUCT_TARGETS})
-if(HFTREC_HOTPATH_METRICS_DEFAULT)
-    set(HFTREC_HOTPATH_METRICS_DEFAULT_VALUE 1)
-else()
-    set(HFTREC_HOTPATH_METRICS_DEFAULT_VALUE 0)
-endif()
-string(TOUPPER "${HFTREC_CXET_MODE}" HFTREC_CXET_MODE_NORMALIZED)
-
-set(HFTREC_WITH_TRADER_RUNTIME OFF)
-if(HFT_TRADER_PUBLIC_INCLUDE_DIR AND HFT_TRADER_SHARED_LIB
-        AND EXISTS "${HFT_TRADER_PUBLIC_INCLUDE_DIR}/hft_trader/Runtime/Market/MarketDataRuntime.hpp"
-        AND EXISTS "${HFT_TRADER_SHARED_LIB}")
-    set(HFTREC_WITH_TRADER_RUNTIME ON)
-    get_filename_component(_hft_trader_lib_dir "${HFT_TRADER_SHARED_LIB}" DIRECTORY)
-    add_library(hft_trader_runtime SHARED IMPORTED GLOBAL)
-    set(_hft_trader_include_dirs "${HFT_TRADER_PUBLIC_INCLUDE_DIR}")
-    if(HFT_TRADER_GENERATED_INCLUDE_DIR AND EXISTS "${HFT_TRADER_GENERATED_INCLUDE_DIR}")
-        list(APPEND _hft_trader_include_dirs "${HFT_TRADER_GENERATED_INCLUDE_DIR}")
+set(HFTREC_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+foreach(required_target IN ITEMS cxet::cxet_lib
+        hft_backtest::core hft_compressor::core hftp_client_headers
+        hftrec::corpus_contract absl::flat_hash_map)
+    if(NOT TARGET ${required_target})
+        message(FATAL_ERROR "hft-recorder is missing direct root provider ${required_target}; configure its owner graph through the CXET root")
     endif()
-    set(_hft_trader_cxet_include_dirs "")
-    if(HFT_TRADER_CXET_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_INCLUDE_DIR}/cxet/Cxet.hpp")
-        list(APPEND _hft_trader_cxet_include_dirs "${HFT_TRADER_CXET_INCLUDE_DIR}")
-        if(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}/cxet/Api/Object/GetObject.hpp")
-            list(APPEND _hft_trader_cxet_include_dirs "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}")
-        endif()
-        list(APPEND _hft_trader_include_dirs ${_hft_trader_cxet_include_dirs})
-    elseif(CXET_PUBLIC_INCLUDE_DIR AND EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/cxet/Cxet.hpp")
-        list(APPEND _hft_trader_include_dirs "${CXET_PUBLIC_INCLUDE_DIR}")
-    endif()
-    set(_hft_trader_link_options "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_trader_lib_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${_hft_trader_lib_dir}>")
-    set(_hft_trader_link_dirs "${_hft_trader_lib_dir}")
-    set(_hft_trader_interface_libs "")
-    if(HFT_TRADER_CXET_LIB_DIR AND EXISTS "${HFT_TRADER_CXET_LIB_DIR}")
-        set(_hft_trader_cxet_lib "${HFT_TRADER_CXET_LIB_DIR}/libcxet_lib.so")
-        if(NOT EXISTS "${_hft_trader_cxet_lib}")
-            message(FATAL_ERROR "hft-recorder: hft-trader CXET library is missing: ${_hft_trader_cxet_lib}")
-        endif()
-        add_library(hft_trader_cxet_lib SHARED IMPORTED GLOBAL)
-        if(NOT _hft_trader_cxet_include_dirs)
-            list(APPEND _hft_trader_cxet_include_dirs "${HFT_TRADER_CXET_INCLUDE_DIR}")
-            if(HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR AND EXISTS "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}/cxet/Api/Object/GetObject.hpp")
-                list(APPEND _hft_trader_cxet_include_dirs "${HFT_TRADER_CXET_EXCHANGES_INCLUDE_DIR}")
-            endif()
-        endif()
-        set_target_properties(hft_trader_cxet_lib PROPERTIES
-            IMPORTED_LOCATION "${_hft_trader_cxet_lib}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hft_trader_cxet_include_dirs}"
-            INTERFACE_LINK_DIRECTORIES "${HFT_TRADER_CXET_LIB_DIR}"
-            INTERFACE_LINK_OPTIONS "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${HFT_TRADER_CXET_LIB_DIR}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${HFT_TRADER_CXET_LIB_DIR}>"
-        )
-        list(APPEND _hft_trader_link_dirs "${HFT_TRADER_CXET_LIB_DIR}")
-        list(APPEND _hft_trader_interface_libs hft_trader_cxet_lib)
-        list(APPEND _hft_trader_link_options "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${HFT_TRADER_CXET_LIB_DIR}>")
-        list(APPEND _hft_trader_link_options "$<$<PLATFORM_ID:Linux>:-Wl,-rpath,${HFT_TRADER_CXET_LIB_DIR}>")
-    endif()
-    set_target_properties(hft_trader_runtime PROPERTIES
-        IMPORTED_LOCATION "${HFT_TRADER_SHARED_LIB}"
-        INTERFACE_INCLUDE_DIRECTORIES "${_hft_trader_include_dirs}"
-        INTERFACE_LINK_DIRECTORIES "${_hft_trader_link_dirs}"
-        INTERFACE_LINK_LIBRARIES "${_hft_trader_interface_libs}"
-        INTERFACE_LINK_OPTIONS "${_hft_trader_link_options}"
-    )
-    message(STATUS "hft-recorder: hft-trader runtime integration enabled")
-else()
-    message(STATUS "hft-recorder: hft-trader runtime integration not found")
-endif()
+endforeach()
 
-set(HFTREC_WITH_CXET OFF)
-if(HFTREC_CXET_MODE_NORMALIZED STREQUAL "OFF")
-    message(STATUS "hft-recorder: CXETCPP integration disabled")
-elseif(HFTREC_WITH_TRADER_RUNTIME)
-    set(HFTREC_WITH_CXET ON)
-    message(STATUS "hft-recorder: CXETCPP data integration enabled through hft-trader runtime")
-else()
-    if(HFTREC_CXET_MODE_NORMALIZED STREQUAL "ON")
-        message(FATAL_ERROR "HFTREC_CXET_MODE=ON requires a valid prebuilt hft-trader runtime")
-    endif()
-    message(STATUS "hft-recorder: hft-trader runtime not found; building offline viewer mode")
+set(HFTREC_BUILD_APP_TARGETS OFF)
+set(HFTREC_BUILD_GUI OFF)
+if(CXET_BUILD_OWNER STREQUAL "hft-recorder")
+    set(HFTREC_BUILD_APP_TARGETS ON)
+    set(HFTREC_BUILD_GUI ON)
 endif()
-
-set(HFTREC_WITH_CXET_REPLAY OFF)
-set(_CXET_REPLAY_INCLUDE_DIR "")
-if(CXET_PUBLIC_INCLUDE_DIR)
-    get_filename_component(_CXET_PUBLIC_INCLUDE_PARENT "${CXET_PUBLIC_INCLUDE_DIR}" DIRECTORY)
-    if(EXISTS "${_CXET_PUBLIC_INCLUDE_PARENT}/cxet/replay/ReplaySession.hpp")
-        set(_CXET_REPLAY_INCLUDE_DIR "${_CXET_PUBLIC_INCLUDE_PARENT}")
-    elseif(EXISTS "${CXET_PUBLIC_INCLUDE_DIR}/cxet/replay/ReplaySession.hpp")
-        set(_CXET_REPLAY_INCLUDE_DIR "${CXET_PUBLIC_INCLUDE_DIR}")
-    endif()
-endif()
-if(HFTREC_WITH_CXET AND CXET_REPLAY_SHARED_LIB
-        AND _CXET_REPLAY_INCLUDE_DIR
-        AND EXISTS "${CXET_REPLAY_SHARED_LIB}")
-    set(HFTREC_WITH_CXET_REPLAY ON)
-    add_library(cxet_replay_core SHARED IMPORTED GLOBAL)
-    set_target_properties(cxet_replay_core PROPERTIES
-        IMPORTED_LOCATION "${CXET_REPLAY_SHARED_LIB}"
-        INTERFACE_INCLUDE_DIRECTORIES "${_CXET_REPLAY_INCLUDE_DIR}"
-    )
-    message(STATUS "hft-recorder: CXET replay-core integration enabled")
-else()
-    message(STATUS "hft-recorder: CXET replay-core integration not found; recorded viewer uses offline fallback")
-endif()
+set(HFTREC_PORTABLE_BUILD "${CXET_PORTABLE_BUILD}")
+set(HFTREC_WITH_CXET ON)
 
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
-find_package(absl CONFIG REQUIRED)
-find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2 Network QUIET)
-
-if(HFTREC_BUILD_GUI OR HFTREC_BUILD_APP_TARGETS)
-set(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/src/Api/include" CACHE PATH "Path to hft-compressor public headers")
-set(HFT_COMPRESSOR_SHARED_LIB "" CACHE FILEPATH "Path to prebuilt hft-compressor shared/import library")
-set(HFT_COMPRESSOR_RUNTIME_LIB "" CACHE FILEPATH "Path to hft-compressor runtime library, usually DLL on Windows")
-if(NOT HFT_COMPRESSOR_SHARED_LIB)
-    set(_HFT_COMPRESSOR_LIB_CANDIDATES
-        "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/build/libhft_compressor_core.so"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/build/lib/libhft_compressor_core.so"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../hft-compressor/build/Release/hft_compressor_core.lib"
-    )
-    foreach(_candidate IN LISTS _HFT_COMPRESSOR_LIB_CANDIDATES)
-        if(EXISTS "${_candidate}")
-            set(HFT_COMPRESSOR_SHARED_LIB "${_candidate}" CACHE FILEPATH "Path to prebuilt hft-compressor shared/import library" FORCE)
-            break()
-        endif()
-    endforeach()
-endif()
-if(NOT HFT_COMPRESSOR_RUNTIME_LIB AND HFT_COMPRESSOR_SHARED_LIB)
-    get_filename_component(_hft_compressor_lib_dir "${HFT_COMPRESSOR_SHARED_LIB}" DIRECTORY)
-    if(EXISTS "${_hft_compressor_lib_dir}/hft_compressor_core.dll")
-        set(HFT_COMPRESSOR_RUNTIME_LIB "${_hft_compressor_lib_dir}/hft_compressor_core.dll" CACHE FILEPATH "Path to hft-compressor runtime library, usually DLL on Windows" FORCE)
-    endif()
+if(HFTREC_BUILD_GUI)
+    find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2 Network)
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
+    set(CMAKE_AUTOUIC ON)
 endif()
 
-if(HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR AND HFT_COMPRESSOR_SHARED_LIB
-        AND EXISTS "${HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR}/hft_compressor/Compressor.hpp"
-        AND EXISTS "${HFT_COMPRESSOR_SHARED_LIB}")
-    get_filename_component(_hft_compressor_lib_ext "${HFT_COMPRESSOR_SHARED_LIB}" EXT)
-    if(WIN32 AND _hft_compressor_lib_ext STREQUAL ".lib")
-        add_library(hft_compressor_core SHARED IMPORTED GLOBAL)
-        set_target_properties(hft_compressor_core PROPERTIES
-            IMPORTED_IMPLIB "${HFT_COMPRESSOR_SHARED_LIB}"
-            IMPORTED_LOCATION "${HFT_COMPRESSOR_RUNTIME_LIB}"
-            INTERFACE_INCLUDE_DIRECTORIES "${HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR}"
-            INTERFACE_COMPILE_DEFINITIONS HFT_COMPRESSOR_SHARED
-        )
-    else()
-        add_library(hft_compressor_core UNKNOWN IMPORTED GLOBAL)
-        set_target_properties(hft_compressor_core PROPERTIES
-            IMPORTED_LOCATION "${HFT_COMPRESSOR_SHARED_LIB}"
-            INTERFACE_INCLUDE_DIRECTORIES "${HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR}"
-            INTERFACE_COMPILE_DEFINITIONS HFT_COMPRESSOR_SHARED
-        )
-    endif()
-    message(STATUS "hft-recorder: hft-compressor prebuilt dependency enabled: ${HFT_COMPRESSOR_SHARED_LIB}")
-else()
-    message(FATAL_ERROR "hft-recorder GUI/bench compression features require prebuilt hft-compressor. Configure with HFT_COMPRESSOR_PUBLIC_INCLUDE_DIR and HFT_COMPRESSOR_SHARED_LIB.")
+# Reuse prepared providers. Source/package acquisition is separate from build.
+if(NOT TARGET fmt::fmt)
+    find_package(fmt CONFIG REQUIRED)
+endif()
+if(NOT TARGET spdlog::spdlog)
+    find_package(spdlog CONFIG REQUIRED)
 endif()
 
-set(HFT_BACKTEST_PUBLIC_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../hft-backtest/src/Runtime/include CACHE PATH [[Path to hft-backtest public headers]])
-set(HFT_BACKTEST_SHARED_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../hft-backtest/build/libhft_backtest_core.so CACHE FILEPATH [[Path to prebuilt hft-backtest shared library]])
-
-if(HFT_BACKTEST_PUBLIC_INCLUDE_DIR AND HFT_BACKTEST_SHARED_LIB
-        AND EXISTS ${HFT_BACKTEST_PUBLIC_INCLUDE_DIR}/hft_backtest/Backtest.hpp
-        AND EXISTS ${HFT_BACKTEST_SHARED_LIB})
-    get_filename_component(_hft_backtest_lib_dir "${HFT_BACKTEST_SHARED_LIB}" DIRECTORY)
-    set(_hft_trader_runtime_dir "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build")
-    set(_hft_trader_cxet_runtime_dir "${CMAKE_CURRENT_SOURCE_DIR}/../hft-trader/build/cxetcpp/lib")
-    add_library(hft_backtest_core UNKNOWN IMPORTED GLOBAL)
-    set_target_properties(hft_backtest_core PROPERTIES
-        IMPORTED_LOCATION ${HFT_BACKTEST_SHARED_LIB}
-        INTERFACE_INCLUDE_DIRECTORIES ${HFT_BACKTEST_PUBLIC_INCLUDE_DIR}
-        INTERFACE_COMPILE_DEFINITIONS HFT_BACKTEST_SHARED
-        INTERFACE_LINK_DIRECTORIES "${_hft_backtest_lib_dir};${_hft_trader_runtime_dir};${_hft_trader_cxet_runtime_dir}"
-        INTERFACE_LINK_OPTIONS "$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_backtest_lib_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_trader_runtime_dir}>;$<$<PLATFORM_ID:Linux>:-Wl,-rpath-link,${_hft_trader_cxet_runtime_dir}>"
-    )
-    message(STATUS [[hft-recorder: hft-backtest prebuilt dependency enabled]])
-else()
-    message(FATAL_ERROR [[hft-recorder GUI backtest features require prebuilt hft-backtest. Configure HFT_BACKTEST_PUBLIC_INCLUDE_DIR and HFT_BACKTEST_SHARED_LIB.]])
-endif()
-endif()
-
-include(FetchContent)
-set(FETCHCONTENT_QUIET ON)
-
-FetchContent_Declare(
-    fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG 11.0.2
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(fmt)
-
-set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.14.1
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(spdlog)
-
-if(HFTREC_BUILD_TESTS)
-FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.15.2
-    GIT_SHALLOW TRUE
-)
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
-endif()
-
-if(HFTREC_BUILD_TESTS)
-enable_testing()
-endif()
-
-add_compile_options(
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wno-unused-parameter
-    -Wno-unused-variable
-)
-if(HFTREC_PORTABLE_BUILD)
-    add_compile_options($<$<CONFIG:Release>:-O3>)
-else()
-    add_compile_options($<$<CONFIG:Release>:-O3> $<$<CONFIG:Release>:-march=native>)
-endif()
-add_compile_options($<$<CONFIG:Release>:-g>)
-
+add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-variable)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
-
-add_subdirectory(src/Contracts)
+if(NOT TARGET hftrec::corpus_contract)
+    add_subdirectory(src/Contracts)
+endif()
 add_subdirectory(src)
-if(HFTREC_BUILD_TESTS)
-    add_subdirectory(tests)
+
+if(HFTREC_BUILD_APP_TARGETS AND HFTREC_BUILD_GUI)
+    add_custom_target(hft-recorder-product DEPENDS hft-recorder hft-recorder-gui history)
+    add_custom_target(hft-recorder-all DEPENDS hft-recorder-product)
 endif()

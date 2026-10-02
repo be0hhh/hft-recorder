@@ -53,21 +53,15 @@ segments, index и gap ledger проверяются fail-closed.
 binary record schema `2`. Несовпадение любого guard запрещает attach/load;
 совместимый fallback отсутствует.
 
-Текущий protocol перечисляет каналы:
+Retained product channels:
 
 - bookticker;
 - trades;
 - depth;
-- liquidations;
-- mark price;
-- index price;
-- funding;
-- price limit.
-
-Наличие enum или payload не доказывает готовность канала. На текущем исходном
-пути parser реально объявляет и публикует только bookticker, trades и depth.
-Стратегия, требующая отсутствующий канал, должна получить явную ошибку загрузки,
-а не пустой или синтетический stream.
+Immutable corpus protocol также сохраняет numeric tags liquidations, mark,
+index, funding и price limit. Эти retired channels не читаются в product rows,
+не воспроизводятся и не отображаются. Их framing/count evidence сохраняется;
+неизвестный tag отклоняется. Enum или payload не доказывает готовность канала.
 
 Depth записывается не из сырого входного frame, а из транзакции, уже принятой
 `DepthSharedPublisher`. Обычная delta является одной транзакцией. Rebase
@@ -82,9 +76,10 @@ frame, сохраняется отдельной recorded-only state-запис�
 degraded/sequence-gap и не может быть допущена как replay event.
 
 Trade с `Unknown` aggressor side также сохраняется, но только как
-`RecordedOnly`: PublicMarket V2 умеет честно выразить неизвестную сторону, а
-текущий trader `TradeRuntimeV1` — только бинарные Buy/Sell. Recorder не
-выдумывает сторону; любой exact-интервал, пересекающий такую запись, отвергается.
+`RecordedOnly`: canonical Trade и market publication сохраняют Unknown, но
+текущий binary capture producer не ставит такой записи флаг ExactTraderReplay.
+Recorder не выдумывает сторону; exact-интервал с такой записью отвергается.
+Прямой JSON capture также отклоняет Unknown с явной ошибкой канала.
 
 `ExactTraderReplay` в binary directory доказывает представимость captured
 parser event в текущих trader runtime primitives. Равенство фактического числа
@@ -202,7 +197,9 @@ GUI только отображает результат и не пересчи�
 
 ## Result contract
 
-Текущий final artifact имеет `type = run.result.v3`. В нём replay-clock evidence
+Текущий final artifact имеет `type = run.result` и обязательный
+`schema_version = 4`. Recorder отклоняет отсутствующий или несовпадающий guard.
+В нём replay-clock evidence
 должен явно указывать:
 
 - `arrival_boundary = hft-parser.application-frame-ready`;

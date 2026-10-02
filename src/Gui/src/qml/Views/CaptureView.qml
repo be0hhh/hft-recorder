@@ -8,7 +8,7 @@ Pane {
 
     required property CaptureViewModel captureVm
     required property bool tabActive
-    property bool anyChannelRunning: root.captureVm.tradesRunning || root.captureVm.liquidationsRunning || root.captureVm.bookTickerRunning || root.captureVm.orderbookRunning || root.captureVm.markPriceRunning || root.captureVm.indexPriceRunning || root.captureVm.fundingRunning || root.captureVm.priceLimitRunning
+    property bool anyChannelRunning: root.captureVm.tradesRunning || root.captureVm.bookTickerRunning || root.captureVm.orderbookRunning
 
     property color windowColor: "#161616"
     property color panelColor: "#2c2c2f"
@@ -789,31 +789,7 @@ Pane {
                         }
                     }
 
-                    CaptureChannelCard {
-                        captureVm: root.captureVm
-                        channelKey: "liquidations"
-                        titleText: "Liquidations Request"
-                        emptyText: "No liquidation aliases available."
-                        availableAliases: root.captureVm.liquidationsAvailableAliases
-                        requestPreview: root.captureVm.liquidationsRequestPreview
-                        weightSummary: root.captureVm.channelWeightSummary("liquidations")
-                        running: root.captureVm.liquidationsRunning
-                        actionText: root.captureVm.liquidationsRunning ? "Stop Liquidations" : "Start Liquidations"
-                        panelColor: root.panelColor
-                        panelAltColor: root.panelAltColor
-                        borderColor: root.borderColor
-                        textColor: root.textColor
-                        mutedTextColor: root.mutedTextColor
-                        accentRequiredColor: root.accentRequiredColor
-                        accentOptionalColor: root.accentOptionalColor
-                        accentSellColor: root.accentSellColor
-                        actionAccentColor: root.captureVm.liquidationsRunning ? root.accentSellColor : root.accentRequiredColor
-                        actionTextColor: root.captureVm.liquidationsRunning ? "#fff4f5" : "#071419"
 
-                        actionVisible: true
-                        onActionTriggered: root.captureVm.liquidationsRunning ? root.captureVm.stopLiquidations() : root.captureVm.startLiquidations()
-
-                    }
                     CaptureChannelCard {
                         captureVm: root.captureVm
                         channelKey: "bookticker"
@@ -840,101 +816,13 @@ Pane {
 
                     }
 
-                    CaptureChannelCard {
-                        captureVm: root.captureVm
-                        channelKey: "mark_price"
-                        titleText: "MarkPrice"
-                        emptyText: "CXET runtime stream: mark price."
-                        availableAliases: []
-                        requestPreview: "subscribe().object(mark_price) -> jsonl/mark_price.jsonl"
-                        weightSummary: "Rows " + root.captureVm.markPriceCount
-                        running: root.captureVm.markPriceRunning
-                        actionText: root.captureVm.markPriceRunning ? "Stop MarkPrice" : "Start MarkPrice"
-                        panelColor: root.panelColor
-                        panelAltColor: root.panelAltColor
-                        borderColor: root.borderColor
-                        textColor: root.textColor
-                        mutedTextColor: root.mutedTextColor
-                        accentRequiredColor: root.accentRequiredColor
-                        accentOptionalColor: root.accentOptionalColor
-                        accentSellColor: root.accentSellColor
-                        actionAccentColor: root.captureVm.markPriceRunning ? root.accentSellColor : root.accentRequiredColor
-                        actionTextColor: root.captureVm.markPriceRunning ? "#fff4f5" : "#071419"
-                        actionVisible: true
-                        onActionTriggered: root.captureVm.markPriceRunning ? root.captureVm.stopMarkPrice() : root.captureVm.startMarkPrice()
-                    }
 
-                    CaptureChannelCard {
-                        captureVm: root.captureVm
-                        channelKey: "index_price"
-                        titleText: "IndexPrice"
-                        emptyText: "CXET runtime stream: index price."
-                        availableAliases: []
-                        requestPreview: "subscribe().object(index_price) -> jsonl/index_price.jsonl"
-                        weightSummary: "Rows " + root.captureVm.indexPriceCount
-                        running: root.captureVm.indexPriceRunning
-                        actionText: root.captureVm.indexPriceRunning ? "Stop IndexPrice" : "Start IndexPrice"
-                        panelColor: root.panelColor
-                        panelAltColor: root.panelAltColor
-                        borderColor: root.borderColor
-                        textColor: root.textColor
-                        mutedTextColor: root.mutedTextColor
-                        accentRequiredColor: root.accentRequiredColor
-                        accentOptionalColor: root.accentOptionalColor
-                        accentSellColor: root.accentSellColor
-                        actionAccentColor: root.captureVm.indexPriceRunning ? root.accentSellColor : root.accentRequiredColor
-                        actionTextColor: root.captureVm.indexPriceRunning ? "#fff4f5" : "#071419"
-                        actionVisible: true
-                        onActionTriggered: root.captureVm.indexPriceRunning ? root.captureVm.stopIndexPrice() : root.captureVm.startIndexPrice()
-                    }
 
-                    CaptureChannelCard {
-                        captureVm: root.captureVm
-                        channelKey: "funding"
-                        titleText: "Funding"
-                        emptyText: "CXET funding stream/poller; writes only changed funding tuples."
-                        availableAliases: []
-                        requestPreview: "subscribe().object(funding) -> jsonl/funding.jsonl"
-                        weightSummary: "Rows " + root.captureVm.fundingCount
-                        running: root.captureVm.fundingRunning
-                        actionText: root.captureVm.fundingRunning ? "Stop Funding" : "Start Funding"
-                        panelColor: root.panelColor
-                        panelAltColor: root.panelAltColor
-                        borderColor: root.borderColor
-                        textColor: root.textColor
-                        mutedTextColor: root.mutedTextColor
-                        accentRequiredColor: root.accentRequiredColor
-                        accentOptionalColor: root.accentOptionalColor
-                        accentSellColor: root.accentSellColor
-                        actionAccentColor: root.captureVm.fundingRunning ? root.accentSellColor : root.accentRequiredColor
-                        actionTextColor: root.captureVm.fundingRunning ? "#fff4f5" : "#071419"
-                        actionVisible: true
-                        onActionTriggered: root.captureVm.fundingRunning ? root.captureVm.stopFunding() : root.captureVm.startFunding()
-                    }
 
-                    CaptureChannelCard {
-                        captureVm: root.captureVm
-                        channelKey: "price_limit"
-                        titleText: "PriceLimit"
-                        emptyText: "CXET runtime stream: buy/sell limits."
-                        availableAliases: []
-                        requestPreview: "subscribe().object(price_limit) -> jsonl/price_limit.jsonl"
-                        weightSummary: "Rows " + root.captureVm.priceLimitCount
-                        running: root.captureVm.priceLimitRunning
-                        actionText: root.captureVm.priceLimitRunning ? "Stop PriceLimit" : "Start PriceLimit"
-                        panelColor: root.panelColor
-                        panelAltColor: root.panelAltColor
-                        borderColor: root.borderColor
-                        textColor: root.textColor
-                        mutedTextColor: root.mutedTextColor
-                        accentRequiredColor: root.accentRequiredColor
-                        accentOptionalColor: root.accentOptionalColor
-                        accentSellColor: root.accentSellColor
-                        actionAccentColor: root.captureVm.priceLimitRunning ? root.accentSellColor : root.accentRequiredColor
-                        actionTextColor: root.captureVm.priceLimitRunning ? "#fff4f5" : "#071419"
-                        actionVisible: true
-                        onActionTriggered: root.captureVm.priceLimitRunning ? root.captureVm.stopPriceLimit() : root.captureVm.startPriceLimit()
-                    }
+
+
+
+
 
                     CaptureChannelCard {
                         captureVm: root.captureVm

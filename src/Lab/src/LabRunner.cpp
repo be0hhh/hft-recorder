@@ -4,7 +4,6 @@
 #include <chrono>
 
 #include "BookFrameSampler.hpp"
-#include "../../Runtime/src/Metrics/Metrics.hpp"
 #include "../../Runtime/src/Validation/AccuracyClass.hpp"
 
 namespace hftrec::lab {
@@ -71,11 +70,6 @@ std::vector<PipelineResult> LabRunner::run(const corpus::SessionCorpus& corpus,
         if (!isOk(groundTruthStatus)) {
             result.validation.failureReason = "ground-truth sampling failed";
         }
-        metrics::recordLabRun(result.inputBytes,
-                              result.outputBytes,
-                              result.encodeNs,
-                              result.decodeNs,
-                              result.validation.eventsMismatch != 0u);
         results.push_back(result);
     }
     return results;

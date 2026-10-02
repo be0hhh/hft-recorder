@@ -8,11 +8,6 @@ namespace hftrec::replay {
 struct TradeRow;
 struct BookTickerRow;
 struct CandleRow;
-struct MarkPriceRow;
-struct IndexPriceRow;
-struct FundingRow;
-struct PriceLimitRow;
-struct LiquidationRow;
 struct DepthRow;
 struct SnapshotDocument;
 }
@@ -28,19 +23,13 @@ std::string renderTradeJsonLine(const hftrec::replay::TradeRow& trade);
 std::string renderTradeJsonLine(const hftrec::replay::TradeRow& trade,
                                 const std::vector<std::string>& aliases);
 
-std::string renderLiquidationJsonLine(const hftrec::replay::LiquidationRow& liquidation);
-std::string renderLiquidationJsonLine(const hftrec::replay::LiquidationRow& liquidation,
-                                      const std::vector<std::string>& aliases);
+
 
 std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker);
 std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker,
                                      const std::vector<std::string>& aliases);
 
 std::string renderCandleJsonLine(const hftrec::replay::CandleRow& candle);
-std::string renderMarkPriceJsonLine(const hftrec::replay::MarkPriceRow& row);
-std::string renderIndexPriceJsonLine(const hftrec::replay::IndexPriceRow& row);
-std::string renderFundingJsonLine(const hftrec::replay::FundingRow& row);
-std::string renderPriceLimitJsonLine(const hftrec::replay::PriceLimitRow& row);
 
 std::string renderDepthTapeJsonLine(const hftrec::replay::DepthRow& delta);
 std::string renderDepthRleSidecarJsonLine(const hftrec::replay::DepthRow& delta);

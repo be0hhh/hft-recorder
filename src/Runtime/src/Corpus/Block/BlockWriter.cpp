@@ -34,7 +34,7 @@
 //   - No exceptions; return Status on every failure.
 //   - Allocate the block buffer once in open(), not per appendEvent.
 //   - Use pwrite, not write — offset is explicit so we can reason about recovery.
-//   - errno on failure goes into the metrics label `errno` (see LOGGING_AND_METRICS).
+//   - errno on failure is included in the error log.
 //
 // Phase 1 status: all methods return Unimplemented until the recorder is wired.
 // ─────────────────────────────────────────────────────────────────────────────

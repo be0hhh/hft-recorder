@@ -231,15 +231,13 @@ void appendSyntheticEquityPoint(QVariantList& out,
 BacktestRunSummary decodeBacktestRunSummary(const QJsonObject& root) {
     BacktestRunSummary out;
     out.canonicalRunResult = root.value(QStringLiteral("type")).toString() ==
-        QStringLiteral("run.result.v3");
-    if (out.canonicalRunResult) {
-        const QJsonValue schemaVersion = root.value(QStringLiteral("schema_version"));
-        if (!schemaVersion.isUndefined() &&
-            (!schemaVersion.isDouble() || schemaVersion.toInteger() != 3)) {
-            out.status = BacktestRunSummaryStatus::UnsupportedSchema;
-            out.error = QStringLiteral("run.result.v3 has unsupported schema_version");
-            return out;
-        }
+        QStringLiteral("run.result");
+    const QJsonValue schemaVersion = root.value(QStringLiteral("schema_version"));
+    if (!out.canonicalRunResult || !schemaVersion.isDouble() ||
+        schemaVersion.toDouble() != 4.0) {
+        out.status = BacktestRunSummaryStatus::UnsupportedSchema;
+        out.error = QStringLiteral("unsupported backtest result type or schema_version");
+        return out;
     }
 
     const QJsonValue summaryValue = root.value(QStringLiteral("summary"));
@@ -271,22 +269,11 @@ BacktestRunSummary decodeBacktestRunSummary(const QJsonObject& root) {
         return true;
     };
 
-    if (out.canonicalRunResult) {
-        if (!acceptTotal(out.values.value(QStringLiteral("total_pnl_e8")),
-                         QStringLiteral("total_pnl_e8"))) {
-            out.status = BacktestRunSummaryStatus::MissingTotalPnl;
-            out.error = QStringLiteral("run.result.v3 summary has no total_pnl_e8");
-        }
-        return out;
+    if (!acceptTotal(out.values.value(QStringLiteral("total_pnl_e8")),
+                     QStringLiteral("total_pnl_e8"))) {
+        out.status = BacktestRunSummaryStatus::MissingTotalPnl;
+        out.error = QStringLiteral("run.result summary has no total_pnl_e8");
     }
-
-    for (const QString& key : {QStringLiteral("total_pnl_e8"),
-                               QStringLiteral("net_realized_pnl_e8"),
-                               QStringLiteral("realized_pnl_e8")}) {
-        if (acceptTotal(out.values.value(key), key)) return out;
-    }
-    out.status = BacktestRunSummaryStatus::MissingTotalPnl;
-    out.error = QStringLiteral("legacy backtest summary has no total, net realized, or realized PnL");
     return out;
 }
 

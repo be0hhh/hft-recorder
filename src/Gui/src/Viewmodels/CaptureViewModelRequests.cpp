@@ -1,8 +1,8 @@
 ﻿#include "viewmodels/CaptureViewModelInternal.hpp"
 #include "FinamCatalog.hpp"
 
-#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
-#include "hft_trader/Runtime/History/Candles/CandleRequestLimits.hpp"
+#if defined(HFTREC_WITH_CXET) && HFTREC_WITH_CXET
+#include "cxet/Api/History/Candles/CandleRequestLimits.hpp"
 #endif
 
 #include <QDate>
@@ -146,13 +146,13 @@ bool isFinamVenue(const VenueSpec& venue) noexcept {
 
 QString detailedCandlesTimeframeForVenue(const VenueSpec& venue, const QString& requestedTimeframe);
 
-#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
+#if defined(HFTREC_WITH_CXET) && HFTREC_WITH_CXET
 bool candleRequestLimitFor(const VenueSpec& venue,
                            const QString& timeframe,
-                           hft_trader::runtime::candles::CandleRequestLimit* out) noexcept {
+                           cxet::api::candles::CandleRequestLimit* out) noexcept {
     const QString normalized = detailedCandlesTimeframeForVenue(venue, timeframe);
     const std::string tf = normalized.toStdString();
-    return hft_trader::runtime::candles::findCandleRequestLimitByName(
+    return cxet::api::candles::findCandleRequestLimitByName(
         std::string_view(venue.exchange),
         std::string_view(venue.market),
         std::string_view(tf.data(), tf.size()),
@@ -205,13 +205,7 @@ QString normalizeDetailedCandlesEndMode(QString mode) {
 }
 
 bool supportsDetailedCandlesVenue(const VenueSpec& venue) noexcept {
-    const std::string_view exchange{venue.exchange};
-    if (exchange == "hyperliquid") return false;
-    if (exchange == "poloniex") return false;
-    if (exchange == "mexc") {
-        return venue.market[0] == 's' && venue.market[1] == 'p' && venue.market[2] == 'o' && venue.market[3] == 't';
-    }
-    return true;
+    return isFinamVenue(venue);
 }
 
 QString normalizeDetailedTimeframe(QString timeframe) {
@@ -234,78 +228,7 @@ QStringList detailedCandlesTimeframesForVenue(const VenueSpec& venue) {
             QStringLiteral("1d"),
         };
     }
-    const QString exchange = QString::fromLatin1(venue.exchange);
-    if (exchange == QStringLiteral("okx")) {
-        return {
-            QStringLiteral("1m"),
-            QStringLiteral("3m"),
-            QStringLiteral("5m"),
-            QStringLiteral("15m"),
-            QStringLiteral("30m"),
-            QStringLiteral("1h"),
-            QStringLiteral("2h"),
-            QStringLiteral("4h"),
-            QStringLiteral("6h"),
-            QStringLiteral("12h"),
-            QStringLiteral("1d"),
-            QStringLiteral("1w"),
-            QStringLiteral("1M"),
-        };
-    }
-    if (exchange == QStringLiteral("kucoin")) {
-        return {
-            QStringLiteral("1m"),
-            QStringLiteral("15m"),
-            QStringLiteral("1h"),
-            QStringLiteral("4h"),
-            QStringLiteral("1d"),
-        };
-    }
-    if (exchange == QStringLiteral("bitget")) {
-        return {
-            QStringLiteral("1m"),
-            QStringLiteral("3m"),
-            QStringLiteral("5m"),
-            QStringLiteral("15m"),
-            QStringLiteral("30m"),
-            QStringLiteral("1h"),
-            QStringLiteral("4h"),
-            QStringLiteral("6h"),
-            QStringLiteral("12h"),
-            QStringLiteral("1d"),
-        };
-    }
-    if (exchange == QStringLiteral("gate")) {
-        return {
-            QStringLiteral("1m"),
-            QStringLiteral("5m"),
-            QStringLiteral("15m"),
-            QStringLiteral("30m"),
-            QStringLiteral("1h"),
-            QStringLiteral("4h"),
-            QStringLiteral("8h"),
-            QStringLiteral("1d"),
-            QStringLiteral("7d"),
-            QStringLiteral("30d"),
-        };
-    }
-    return {
-        QStringLiteral("1m"),
-        QStringLiteral("3m"),
-        QStringLiteral("5m"),
-        QStringLiteral("15m"),
-        QStringLiteral("30m"),
-        QStringLiteral("1h"),
-        QStringLiteral("2h"),
-        QStringLiteral("4h"),
-        QStringLiteral("6h"),
-        QStringLiteral("8h"),
-        QStringLiteral("12h"),
-        QStringLiteral("1d"),
-        QStringLiteral("3d"),
-        QStringLiteral("1w"),
-        QStringLiteral("1M"),
-    };
+    return {};
 }
 
 bool detailedCandlesSupportsTimeframe(const VenueSpec& venue, const QString& timeframe) {
@@ -358,25 +281,7 @@ QStringList canonicalTradesAliases() {
     };
 }
 
-QStringList canonicalLiquidationsAliases() {
-    return {
-        QStringLiteral("price"),
-        QStringLiteral("amount"),
-        QStringLiteral("side"),
-        QStringLiteral("timestamp"),
-        QStringLiteral("avgPrice"),
-        QStringLiteral("filledQty"),
-        QStringLiteral("symbol"),
-        QStringLiteral("exchange"),
-        QStringLiteral("market"),
-        QStringLiteral("orderType"),
-        QStringLiteral("timeInForce"),
-        QStringLiteral("status"),
-        QStringLiteral("sourceMode"),
-        QStringLiteral("captureSeq"),
-        QStringLiteral("ingestSeq"),
-    };
-}
+
 QStringList canonicalBookTickerAliases() {
     return {
         QStringLiteral("bidPrice"),
@@ -411,16 +316,7 @@ QStringList requiredTradesAliases() {
     };
 }
 
-QStringList requiredLiquidationsAliases() {
-    return {
-        QStringLiteral("price"),
-        QStringLiteral("amount"),
-        QStringLiteral("side"),
-        QStringLiteral("timestamp"),
-        QStringLiteral("avgPrice"),
-        QStringLiteral("filledQty"),
-    };
-}
+
 QStringList requiredBookTickerAliases() {
     return {
         QStringLiteral("bidPrice"),
@@ -443,7 +339,6 @@ QStringList requiredOrderbookAliases() {
 }
 
 QString channelObjectName(const QString& channel) {
-    if (channel == QStringLiteral("liquidations")) return QStringLiteral("liquidation");
     return channel;
 }
 QString buildAliasesSuffix(const QStringList& availableAliases,
@@ -540,7 +435,6 @@ bool appendDetailedCandlesConfig(std::vector<capture::CaptureConfig>& configs,
 QStringList loadAliasesForChannel(const char* channelName) {
     const auto channel = QString::fromUtf8(channelName);
     if (channel == QStringLiteral("trades")) return canonicalTradesAliases();
-    if (channel == QStringLiteral("liquidations")) return canonicalLiquidationsAliases();
     if (channel == QStringLiteral("bookticker")) return canonicalBookTickerAliases();
     if (channel == QStringLiteral("orderbook")) return canonicalOrderbookAliases();
     return {};
@@ -571,7 +465,6 @@ QVariantList detailedCandlesVenueChoices() {
 
 QStringList requiredAliasesForChannel(const QString& channel) {
     if (channel == QStringLiteral("trades")) return requiredTradesAliases();
-    if (channel == QStringLiteral("liquidations")) return requiredLiquidationsAliases();
     if (channel == QStringLiteral("bookticker")) return requiredBookTickerAliases();
     if (channel == QStringLiteral("orderbook")) return requiredOrderbookAliases();
     return {};
@@ -845,11 +738,9 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                                                 const QStringList& venueSymbolsTexts,
                                                 const QString& symbolsText,
                                                 const QStringList& tradesAvailableAliases,
-                                                const QStringList& liquidationsAvailableAliases,
                                                 const QStringList& bookTickerAvailableAliases,
                                                 const QStringList& orderbookAvailableAliases,
                                                 const QStringList& selectedTradesAliases,
-                                                const QStringList& selectedLiquidationsAliases,
                                                 const QStringList& selectedBookTickerAliases,
                                                 const QStringList& selectedOrderbookAliases,
                                                 int tradesHistoryWarmupSec) {
@@ -857,11 +748,9 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
     const auto venues = selectedVenues(venueKeys);
 
     const auto normalizedTradesAliases = normalizedSelectedAliasesForChannel(QStringLiteral("trades"), selectedTradesAliases);
-    const auto normalizedLiquidationsAliases = normalizedSelectedAliasesForChannel(QStringLiteral("liquidations"), selectedLiquidationsAliases);
     const auto normalizedBookTickerAliases = normalizedSelectedAliasesForChannel(QStringLiteral("bookticker"), selectedBookTickerAliases);
     const auto normalizedOrderbookAliases = normalizedSelectedAliasesForChannel(QStringLiteral("orderbook"), selectedOrderbookAliases);
     const auto tradesSuffix = buildAliasesSuffix(tradesAvailableAliases, normalizedTradesAliases);
-    const auto liquidationsSuffix = buildAliasesSuffix(liquidationsAvailableAliases, normalizedLiquidationsAliases);
     const auto bookTickerSuffix = buildAliasesSuffix(bookTickerAvailableAliases, normalizedBookTickerAliases);
     const auto orderbookSuffix = buildAliasesSuffix(orderbookAvailableAliases, normalizedOrderbookAliases);
 
@@ -886,8 +775,6 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
             const auto symbolDsl = toDslSymbol(venue, symbol);
             config.tradesAliases.reserve(static_cast<std::size_t>(normalizedTradesAliases.size()));
             for (const auto& alias : normalizedTradesAliases) config.tradesAliases.push_back(alias.toStdString());
-            config.liquidationAliases.reserve(static_cast<std::size_t>(normalizedLiquidationsAliases.size()));
-            for (const auto& alias : normalizedLiquidationsAliases) config.liquidationAliases.push_back(alias.toStdString());
             config.bookTickerAliases.reserve(static_cast<std::size_t>(normalizedBookTickerAliases.size()));
             for (const auto& alias : normalizedBookTickerAliases) config.bookTickerAliases.push_back(alias.toStdString());
             config.orderbookAliases.reserve(static_cast<std::size_t>(normalizedOrderbookAliases.size()));
@@ -900,10 +787,7 @@ std::vector<capture::CaptureConfig> makeConfigs(const QString& outputDirectory,
                 QStringLiteral("subscribe().object(trades).exchange(%1).market(%2).api(%3).symbol(%4)%5")
                     .arg(exchangeDsl, market, apiSlotText, symbolDsl, tradesSuffix)
                     .toStdString();
-            config.liquidationRequestCommand =
-                QStringLiteral("subscribe().object(liquidation).exchange(%1).market(%2).api(%3).symbol(%4)%5")
-                    .arg(exchangeDsl, market, apiSlotText, symbolDsl, liquidationsSuffix)
-                    .toStdString();
+
             config.bookTickerRequestCommand =
                 QStringLiteral("subscribe().object(bookticker).exchange(%1).market(%2).api(%3).symbol(%4)%5")
                     .arg(exchangeDsl, market, apiSlotText, symbolDsl, bookTickerSuffix)
@@ -1055,32 +939,21 @@ QVariantList detailedCandlesSymbolSuggestions(const QString& venueKey,
         return result;
     }
 
-    const QString source = query.trimmed().isEmpty() ? anchorSymbolText : query;
-    const QString formatted = venueSymbolsFromGlobalInput(venueKey, source).trimmed();
-    const auto symbols = normalizedSymbols(formatted);
-    if (symbols.empty()) return result;
 
-    const QString symbol = QString::fromStdString(symbols.front()).trimmed();
-    QVariantMap item;
-    item.insert(QStringLiteral("symbol"), symbol);
-    item.insert(QStringLiteral("label"), symbol);
-    item.insert(QStringLiteral("detail"), QStringLiteral("Derived for %1").arg(QString::fromLatin1(venue->label)));
-    item.insert(QStringLiteral("rank"), 0);
-    result.push_back(item);
     return result;
 }
 
 QVariantList detailedCandlesTimeframeChoices(const QString& venueKey) {
     const auto* venue = venueByKey(venueKey);
-    if (venue == nullptr) venue = &kVenues[0];
     QVariantList choices;
+    if (venue == nullptr || !isFinamVenue(*venue)) return choices;
     const auto timeframes = detailedCandlesTimeframesForVenue(*venue);
     for (const auto& timeframe : timeframes) {
         QVariantMap item;
         item.insert(QStringLiteral("label"), timeframe);
         item.insert(QStringLiteral("value"), timeframe);
-#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
-        hft_trader::runtime::candles::CandleRequestLimit limit{};
+#if defined(HFTREC_WITH_CXET) && HFTREC_WITH_CXET
+        cxet::api::candles::CandleRequestLimit limit{};
         if (candleRequestLimitFor(*venue, timeframe, &limit) && limit.maxCandlesPerRequest != 0u) {
             item.insert(QStringLiteral("rightText"),
                         QStringLiteral("request %1").arg(QString::number(limit.maxCandlesPerRequest)));
@@ -1107,8 +980,8 @@ QString detailedCandlesLimitHint(const QString& venueKey,
                                  const QString& timeframe) {
     const auto* venue = venueByKey(venueKey);
     if (venue == nullptr) return QStringLiteral("Total candles");
-#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
-    hft_trader::runtime::candles::CandleRequestLimit requestLimit{};
+#if defined(HFTREC_WITH_CXET) && HFTREC_WITH_CXET
+    cxet::api::candles::CandleRequestLimit requestLimit{};
     if (candleRequestLimitFor(*venue, timeframe, &requestLimit) && requestLimit.maxCandlesPerRequest != 0u) {
         return QStringLiteral("Request max: %1").arg(QString::number(requestLimit.maxCandlesPerRequest));
     }
@@ -1124,10 +997,10 @@ QString detailedCandlesLimitWarning(const QString& venueKey,
     if (venue == nullptr) {
         return QStringLiteral("Total target: %1 candles. Paging stops when the exchange returns no older candles.").arg(totalText);
     }
-#if defined(HFTREC_WITH_TRADER_RUNTIME) && HFTREC_WITH_TRADER_RUNTIME
-    hft_trader::runtime::candles::CandleRequestLimit requestLimit{};
+#if defined(HFTREC_WITH_CXET) && HFTREC_WITH_CXET
+    cxet::api::candles::CandleRequestLimit requestLimit{};
     if (candleRequestLimitFor(*venue, timeframe, &requestLimit) && requestLimit.maxCandlesPerRequest != 0u) {
-        const QString paging = pagingLabelFor(hft_trader::runtime::candles::candleRequestPagingName(requestLimit.paging));
+        const QString paging = pagingLabelFor(cxet::api::candles::candleRequestPagingName(requestLimit.paging));
         const QString total = requestLimit.maxTotalUnbounded
             ? QStringLiteral("paged until older candles end")
             : QStringLiteral("max total %1").arg(QString::number(requestLimit.maxTotalCandles));

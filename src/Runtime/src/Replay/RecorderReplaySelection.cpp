@@ -78,6 +78,10 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
                           RecorderChannelMask channels,
                           replay::SessionReplay& replay,
                           std::string& error) noexcept {
+    if ((channels & ~RecorderChannel_AllMarketData) != 0u) {
+        error = "unsupported recorder product channel mask";
+        return Status::Unsupported;
+    }
     replay.reset();
     if (sessionPath.empty()) {
         error = "session path is empty";
@@ -114,13 +118,6 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
                                &replay::SessionReplay::addTradesFile);
     if (!isOk(status)) return status;
 
-    status = addChannel(RecorderChannel_Liquidations,
-                        manifest.liquidationsEnabled,
-                        "liquidations",
-                        declaredChannelPath(sessionPath, manifest.liquidationsPath),
-                        &replay::SessionReplay::addLiquidationsFile);
-    if (!isOk(status)) return status;
-
     status = addChannel(RecorderChannel_BookTicker,
                         manifest.bookTickerEnabled,
                         "bookticker",
@@ -128,7 +125,7 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
                         &replay::SessionReplay::addBookTickerFile);
     if (!isOk(status)) return status;
 
-    if (wants(channels, RecorderChannel_Candles)) {
+    if (wants(channels, RecorderChannel_Candles) && manifest.exchange == "finam") {
         const auto candlesPath = declaredChannelPath(sessionPath, manifest.candlesPath);
         const auto candles2Path = declaredChannelPath(sessionPath, manifest.candles2Path);
         if (manifest.candlesEnabled) {
@@ -169,15 +166,13 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
     };
     if (!countMatches(RecorderChannel_Trades, manifest.tradesEnabled,
                       manifest.tradesCount, replay.trades().size(), "trades") ||
-        !countMatches(RecorderChannel_Liquidations, manifest.liquidationsEnabled,
-                      manifest.liquidationsCount, replay.liquidations().size(), "liquidations") ||
         !countMatches(RecorderChannel_BookTicker, manifest.bookTickerEnabled,
                       manifest.bookTickerCount, replay.bookTickers().size(), "bookticker") ||
         !countMatches(RecorderChannel_Depth, manifest.orderbookEnabled,
                       manifest.depthCount, replay.depths().size(), "depth")) {
         return Status::CorruptData;
     }
-    if (wants(channels, RecorderChannel_Candles) &&
+    if (wants(channels, RecorderChannel_Candles) && manifest.exchange == "finam" &&
         ((manifest.candlesEnabled &&
           manifest.candlesCount != static_cast<std::uint64_t>(replay.candles().size())) ||
          (manifest.candles2Enabled &&

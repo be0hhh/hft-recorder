@@ -13,39 +13,25 @@
 #include "../Common/JsonString.hpp"
 #include "../Corpus/CorpusLoader.hpp"
 #include "../Corpus/SessionCorpus.hpp"
-#include "../Metrics/Metrics.hpp"
 #include "JsonLineParser.hpp"
 
 namespace hftrec::replay {
 
 namespace {
 
+Status parseFinamCandleArchiveLine(std::string_view line, CandleRow& row) noexcept {
+    const Status status = parseCandleLine(line, row);
+    return isOk(status) && row.exchange == "finam" && isHistoricalBackfill(row.arrival)
+        ? Status::Ok : Status::CorruptData;
+}
+
+
 Status parseTradeCanonicalLine(std::string_view line, TradeRow& row) noexcept {
     return parseTradeLine(line, row);
 }
 
-Status parseLiquidationCanonicalLine(std::string_view line, LiquidationRow& row) noexcept {
-    return parseLiquidationLine(line, row);
-}
-
 Status parseBookTickerCanonicalLine(std::string_view line, BookTickerRow& row) noexcept {
     return parseBookTickerLine(line, row);
-}
-
-Status parseMarkPriceCanonicalLine(std::string_view line, MarkPriceRow& row) noexcept {
-    return parseMarkPriceLine(line, row);
-}
-
-Status parseIndexPriceCanonicalLine(std::string_view line, IndexPriceRow& row) noexcept {
-    return parseIndexPriceLine(line, row);
-}
-
-Status parseFundingCanonicalLine(std::string_view line, FundingRow& row) noexcept {
-    return parseFundingLine(line, row);
-}
-
-Status parsePriceLimitCanonicalLine(std::string_view line, PriceLimitRow& row) noexcept {
-    return parsePriceLimitLine(line, row);
 }
 
 bool sameLevelKey(const PricePair& lhs, const PricePair& rhs) noexcept {
@@ -241,12 +227,7 @@ Status loadDepthTapeSidecarJsonl(const std::filesystem::path& tapePath,
 
 void SessionReplay::reset() noexcept {
     trades_.clear();
-    liquidations_.clear();
     bookTickers_.clear();
-    markPrices_.clear();
-    indexPrices_.clear();
-    fundings_.clear();
-    priceLimits_.clear();
     candles_.clear();
     candles2_.clear();
     depths_.clear();
@@ -277,7 +258,6 @@ Status SessionReplay::addTradesFile(const std::filesystem::path& path, std::size
     if (path.empty()) {
         errorDetail_ = "trades path is empty";
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("trades");
         noteIncident_(IntegrityIncident{
             IntegrityChannel::Trades,
             IntegrityIncidentKind::ParseError,
@@ -297,7 +277,6 @@ Status SessionReplay::addTradesFile(const std::filesystem::path& path, std::size
     const auto st = loadJsonl<TradeRow>(path, trades_, errorDetail_, parseTradeCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("trades");
         auto& summary = summaryFor_(IntegrityChannel::Trades);
         summary.state = ChannelHealthState::Corrupt;
         summary.exactReplayEligible = false;
@@ -317,33 +296,10 @@ Status SessionReplay::addTradesFile(const std::filesystem::path& path, std::size
     return st;
 }
 
-Status SessionReplay::addLiquidationsFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
-    if (path.empty()) {
-        errorDetail_ = "liquidations path is empty";
-        status_ = Status::InvalidArgument;
-        metrics::recordReplayParseFailure("liquidations");
-        return status_;
-    }
-    std::size_t lineNumber = 0;
-    const auto st = loadJsonl<LiquidationRow>(path, liquidations_, errorDetail_, parseLiquidationCanonicalLine, lineNumber, reserveHint);
-    if (!isOk(st)) {
-        ++parseFailureCount_;
-        metrics::recordReplayParseFailure("liquidations");
-        auto& summary = summaryFor_(IntegrityChannel::Liquidations);
-        summary.state = ChannelHealthState::Corrupt;
-        summary.exactReplayEligible = false;
-        noteIncident_(IntegrityIncident{IntegrityChannel::Liquidations, IntegrityIncidentKind::ParseError, IntegritySeverity::Error, "parse_error", errorDetail_, 0, lineNumber, {}, path.filename().string(), true});
-        status_ = st;
-        return st;
-    }
-    return Status::Ok;
-}
-
 Status SessionReplay::addBookTickerFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
     if (path.empty()) {
         errorDetail_ = "bookticker path is empty";
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("bookticker");
         noteIncident_(IntegrityIncident{
             IntegrityChannel::BookTicker,
             IntegrityIncidentKind::ParseError,
@@ -363,7 +319,6 @@ Status SessionReplay::addBookTickerFile(const std::filesystem::path& path, std::
     const auto st = loadJsonl<BookTickerRow>(path, bookTickers_, errorDetail_, parseBookTickerCanonicalLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("bookticker");
         auto& summary = summaryFor_(IntegrityChannel::BookTicker);
         summary.state = ChannelHealthState::Corrupt;
         summary.exactReplayEligible = false;
@@ -383,97 +338,18 @@ Status SessionReplay::addBookTickerFile(const std::filesystem::path& path, std::
     return st;
 }
 
-Status SessionReplay::addMarkPriceFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
-    if (path.empty()) {
-        errorDetail_ = "mark_price path is empty";
-        ++parseFailureCount_;
-        return Status::InvalidArgument;
-    }
-    std::size_t lineNumber = 0;
-    const auto st = loadJsonl<MarkPriceRow>(path, markPrices_, errorDetail_, parseMarkPriceCanonicalLine, lineNumber, reserveHint);
-    if (!isOk(st)) {
-        ++parseFailureCount_;
-        status_ = st;
-        return st;
-    }
-    std::stable_sort(markPrices_.begin(), markPrices_.end(), [](const MarkPriceRow& lhs, const MarkPriceRow& rhs) noexcept {
-        return lhs.tsNs < rhs.tsNs;
-    });
-    return Status::Ok;
-}
-
-Status SessionReplay::addIndexPriceFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
-    if (path.empty()) {
-        errorDetail_ = "index_price path is empty";
-        ++parseFailureCount_;
-        return Status::InvalidArgument;
-    }
-    std::size_t lineNumber = 0;
-    const auto st = loadJsonl<IndexPriceRow>(path, indexPrices_, errorDetail_, parseIndexPriceCanonicalLine, lineNumber, reserveHint);
-    if (!isOk(st)) {
-        ++parseFailureCount_;
-        status_ = st;
-        return st;
-    }
-    std::stable_sort(indexPrices_.begin(), indexPrices_.end(), [](const IndexPriceRow& lhs, const IndexPriceRow& rhs) noexcept {
-        return lhs.tsNs < rhs.tsNs;
-    });
-    return Status::Ok;
-}
-
-Status SessionReplay::addFundingFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
-    if (path.empty()) {
-        errorDetail_ = "funding path is empty";
-        ++parseFailureCount_;
-        return Status::InvalidArgument;
-    }
-    std::size_t lineNumber = 0;
-    const auto st = loadJsonl<FundingRow>(path, fundings_, errorDetail_, parseFundingCanonicalLine, lineNumber, reserveHint);
-    if (!isOk(st)) {
-        ++parseFailureCount_;
-        status_ = st;
-        return st;
-    }
-    std::stable_sort(fundings_.begin(), fundings_.end(), [](const FundingRow& lhs, const FundingRow& rhs) noexcept {
-        return lhs.tsNs < rhs.tsNs;
-    });
-    return Status::Ok;
-}
-
-Status SessionReplay::addPriceLimitFile(const std::filesystem::path& path, std::size_t reserveHint) noexcept {
-    if (path.empty()) {
-        errorDetail_ = "price_limit path is empty";
-        ++parseFailureCount_;
-        return Status::InvalidArgument;
-    }
-    std::size_t lineNumber = 0;
-    const auto st = loadJsonl<PriceLimitRow>(path, priceLimits_, errorDetail_, parsePriceLimitCanonicalLine, lineNumber, reserveHint);
-    if (!isOk(st)) {
-        ++parseFailureCount_;
-        status_ = st;
-        return st;
-    }
-    std::stable_sort(priceLimits_.begin(), priceLimits_.end(), [](const PriceLimitRow& lhs, const PriceLimitRow& rhs) noexcept {
-        return lhs.tsNs < rhs.tsNs;
-    });
-    return Status::Ok;
-}
-
 Status SessionReplay::addCandlesFile(const std::filesystem::path& path,
                                      std::size_t reserveHint,
                                      bool rebuildTimeline) noexcept {
     if (path.empty()) {
         errorDetail_ = "candles path is empty";
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("candles");
         return Status::InvalidArgument;
     }
-
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<CandleRow>(path, candles_, errorDetail_, parseCandleLine, lineNumber, reserveHint);
+    const auto st = loadJsonl<CandleRow>(path, candles_, errorDetail_, parseFinamCandleArchiveLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("candles");
         status_ = st;
         return st;
     }
@@ -488,15 +364,13 @@ Status SessionReplay::addCandles2File(const std::filesystem::path& path,
     if (path.empty()) {
         errorDetail_ = "candles2 path is empty";
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("candles2");
         return Status::InvalidArgument;
     }
 
     std::size_t lineNumber = 0;
-    const auto st = loadJsonl<CandleRow>(path, candles2_, errorDetail_, parseCandleLine, lineNumber, reserveHint);
+    const auto st = loadJsonl<CandleRow>(path, candles2_, errorDetail_, parseFinamCandleArchiveLine, lineNumber, reserveHint);
     if (!isOk(st)) {
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("candles2");
         status_ = st;
         return st;
     }
@@ -517,7 +391,6 @@ Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allo
     if (path.empty()) {
         errorDetail_ = "depth path is empty";
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("depth");
         noteIncident_(IntegrityIncident{
             IntegrityChannel::Depth,
             IntegrityIncidentKind::ParseError,
@@ -552,7 +425,6 @@ Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allo
     }
     if (!isOk(st)) {
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("depth");
         auto& summary = summaryFor_(IntegrityChannel::Depth);
         summary.state = ChannelHealthState::Corrupt;
         summary.exactReplayEligible = false;
@@ -579,7 +451,6 @@ Status SessionReplay::addDepthFile_(const std::filesystem::path& path, bool allo
 }
 
 Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
-    const auto startedAt = std::chrono::steady_clock::now();
     reset();
     sessionDir_ = sessionDir;
 
@@ -592,7 +463,6 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         manifestHints_.present = true;
         manifestHints_.exchange = corpus.manifest.exchange;
         manifestHints_.tradesEnabled = corpus.manifest.tradesEnabled;
-        manifestHints_.liquidationsEnabled = corpus.manifest.liquidationsEnabled;
         manifestHints_.bookTickerEnabled = corpus.manifest.bookTickerEnabled;
         manifestHints_.orderbookEnabled = corpus.manifest.orderbookEnabled;
         manifestHints_.endedAtNs = corpus.manifest.endedAtNs;
@@ -602,7 +472,6 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
 
     if (!isOk(status_)) {
         ++parseFailureCount_;
-        metrics::recordReplayParseFailure("session");
         if (!loadReport_.issues.empty()) {
             const auto& issue = loadReport_.issues.front();
             applyLoadIssueToIntegritySummary(issue, integritySummary_);
@@ -630,7 +499,6 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         if (!isOk(st)) {
             errorDetail_ = "failed to parse trades.jsonl line from loaded corpus";
             ++parseFailureCount_;
-            metrics::recordReplayParseFailure("trades");
             status_ = st;
             refreshHealthSummary_();
             maybeWriteIntegrityReport_();
@@ -639,22 +507,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         trades_.push_back(std::move(row));
     }
 
-    liquidations_.reserve(corpus.liquidationLines.size());
-    for (const auto& line : corpus.liquidationLines) {
-        if (line.empty()) continue;
-        LiquidationRow row{};
-        const auto st = parseLiquidationLine(std::string_view{line}, row);
-        if (!isOk(st)) {
-            errorDetail_ = "failed to parse liquidations.jsonl line from loaded corpus";
-            ++parseFailureCount_;
-            metrics::recordReplayParseFailure("liquidations");
-            status_ = st;
-            refreshHealthSummary_();
-            maybeWriteIntegrityReport_();
-            return status_;
-        }
-        liquidations_.push_back(std::move(row));
-    }
+
 
     bookTickers_.reserve(corpus.bookTickerLines.size());
     for (const auto& line : corpus.bookTickerLines) {
@@ -664,7 +517,6 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         if (!isOk(st)) {
             errorDetail_ = "failed to parse bookticker.jsonl line from loaded corpus";
             ++parseFailureCount_;
-            metrics::recordReplayParseFailure("bookticker");
             status_ = st;
             refreshHealthSummary_();
             maybeWriteIntegrityReport_();
@@ -673,91 +525,22 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
         bookTickers_.push_back(std::move(row));
     }
 
-    markPrices_.reserve(corpus.markPriceLines.size());
-    for (const auto& line : corpus.markPriceLines) {
-        if (line.empty()) continue;
-        MarkPriceRow row{};
-        const auto st = parseMarkPriceLine(std::string_view{line}, row);
-        if (!isOk(st)) {
-            errorDetail_ = "failed to parse mark_price.jsonl line from loaded corpus";
-            ++parseFailureCount_;
-            status_ = st;
-            refreshHealthSummary_();
-            maybeWriteIntegrityReport_();
-            return status_;
-        }
-        markPrices_.push_back(std::move(row));
-    }
-    std::stable_sort(markPrices_.begin(), markPrices_.end(), [](const MarkPriceRow& lhs, const MarkPriceRow& rhs) noexcept {
-        return lhs.tsNs < rhs.tsNs;
-    });
 
-    indexPrices_.reserve(corpus.indexPriceLines.size());
-    for (const auto& line : corpus.indexPriceLines) {
-        if (line.empty()) continue;
-        IndexPriceRow row{};
-        const auto st = parseIndexPriceLine(std::string_view{line}, row);
-        if (!isOk(st)) {
-            errorDetail_ = "failed to parse index_price.jsonl line from loaded corpus";
-            ++parseFailureCount_;
-            status_ = st;
-            refreshHealthSummary_();
-            maybeWriteIntegrityReport_();
-            return status_;
-        }
-        indexPrices_.push_back(std::move(row));
-    }
-    std::stable_sort(indexPrices_.begin(), indexPrices_.end(), [](const IndexPriceRow& lhs, const IndexPriceRow& rhs) noexcept {
-        return lhs.tsNs < rhs.tsNs;
-    });
 
-    fundings_.reserve(corpus.fundingLines.size());
-    for (const auto& line : corpus.fundingLines) {
-        if (line.empty()) continue;
-        FundingRow row{};
-        const auto st = parseFundingLine(std::string_view{line}, row);
-        if (!isOk(st)) {
-            errorDetail_ = "failed to parse funding.jsonl line from loaded corpus";
-            ++parseFailureCount_;
-            status_ = st;
-            refreshHealthSummary_();
-            maybeWriteIntegrityReport_();
-            return status_;
-        }
-        fundings_.push_back(std::move(row));
-    }
-    std::stable_sort(fundings_.begin(), fundings_.end(), [](const FundingRow& lhs, const FundingRow& rhs) noexcept {
-        return lhs.tsNs < rhs.tsNs;
-    });
 
-    priceLimits_.reserve(corpus.priceLimitLines.size());
-    for (const auto& line : corpus.priceLimitLines) {
-        if (line.empty()) continue;
-        PriceLimitRow row{};
-        const auto st = parsePriceLimitLine(std::string_view{line}, row);
-        if (!isOk(st)) {
-            errorDetail_ = "failed to parse price_limit.jsonl line from loaded corpus";
-            ++parseFailureCount_;
-            status_ = st;
-            refreshHealthSummary_();
-            maybeWriteIntegrityReport_();
-            return status_;
-        }
-        priceLimits_.push_back(std::move(row));
-    }
-    std::stable_sort(priceLimits_.begin(), priceLimits_.end(), [](const PriceLimitRow& lhs, const PriceLimitRow& rhs) noexcept {
-        return lhs.tsNs < rhs.tsNs;
-    });
+
+
+
+
 
     candles_.reserve(corpus.candleLines.size());
     for (const auto& line : corpus.candleLines) {
         if (line.empty()) continue;
         CandleRow row{};
-        const auto st = parseCandleLine(std::string_view{line}, row);
+        const auto st = parseFinamCandleArchiveLine(std::string_view{line}, row);
         if (!isOk(st)) {
             errorDetail_ = "failed to parse candles.jsonl line from loaded corpus";
             ++parseFailureCount_;
-            metrics::recordReplayParseFailure("candles");
             status_ = st;
             refreshHealthSummary_();
             maybeWriteIntegrityReport_();
@@ -769,11 +552,10 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
     for (const auto& line : corpus.candle2Lines) {
         if (line.empty()) continue;
         CandleRow row{};
-        const auto st = parseCandleLine(std::string_view{line}, row);
+        const auto st = parseFinamCandleArchiveLine(std::string_view{line}, row);
         if (!isOk(st)) {
             errorDetail_ = "failed to parse candles2.jsonl line from loaded corpus";
             ++parseFailureCount_;
-            metrics::recordReplayParseFailure("candles2");
             status_ = st;
             refreshHealthSummary_();
             maybeWriteIntegrityReport_();
@@ -791,20 +573,6 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
 
     finalize();
     maybeWriteIntegrityReport_();
-    if (isOk(status_)) {
-        const auto loadNs = static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now() - startedAt).count());
-        metrics::recordReplayLoad(trades_.size()
-                                  + liquidations_.size()
-                                  + bookTickers_.size()
-                                  + markPrices_.size()
-                                  + indexPrices_.size()
-                                  + fundings_.size()
-                                  + priceLimits_.size()
-                                  + depths_.size(),
-                                  loadNs);
-    }
     return status_;
 }
 
@@ -877,20 +645,10 @@ bool SessionReplay::loadManifestHints_(const std::filesystem::path& sessionDir) 
     manifestHints_.exchange = manifest.exchange;
     manifestHints_.tradesEnabled = manifest.tradesEnabled;
     manifestHints_.tradesRequired = manifest.tradesRequiredWhenEnabled;
-    manifestHints_.liquidationsEnabled = manifest.liquidationsEnabled;
-    manifestHints_.liquidationsRequired = manifest.liquidationsRequiredWhenEnabled;
     manifestHints_.bookTickerEnabled = manifest.bookTickerEnabled;
     manifestHints_.bookTickerRequired = manifest.bookTickerRequiredWhenEnabled;
     manifestHints_.orderbookEnabled = manifest.orderbookEnabled;
     manifestHints_.orderbookRequired = manifest.orderbookRequiredWhenEnabled;
-    manifestHints_.markPriceEnabled = manifest.markPriceEnabled;
-    manifestHints_.markPriceRequired = manifest.markPriceRequiredWhenEnabled;
-    manifestHints_.indexPriceEnabled = manifest.indexPriceEnabled;
-    manifestHints_.indexPriceRequired = manifest.indexPriceRequiredWhenEnabled;
-    manifestHints_.fundingEnabled = manifest.fundingEnabled;
-    manifestHints_.fundingRequired = manifest.fundingRequiredWhenEnabled;
-    manifestHints_.priceLimitEnabled = manifest.priceLimitEnabled;
-    manifestHints_.priceLimitRequired = manifest.priceLimitRequiredWhenEnabled;
     manifestHints_.endedAtNs = manifest.endedAtNs;
     return true;
 }
@@ -991,10 +749,6 @@ void SessionReplay::finalizeChannelStates_() noexcept {
 
     markSimpleChannel(IntegrityChannel::Trades, manifestHints_.tradesEnabled,
                       manifestHints_.tradesRequired, trades_.size());
-    markSimpleChannel(IntegrityChannel::Liquidations,
-                      manifestHints_.liquidationsEnabled,
-                      manifestHints_.liquidationsRequired,
-                      liquidations_.size());
     markSimpleChannel(IntegrityChannel::BookTicker,
                       manifestHints_.bookTickerEnabled,
                       manifestHints_.bookTickerRequired,
@@ -1057,31 +811,10 @@ void SessionReplay::refreshHealthSummary_() noexcept {
         exact = exact && summary.exactReplayEligible;
     };
     includeTracked(manifestHints_.tradesEnabled, integritySummary_.trades);
-    includeTracked(manifestHints_.liquidationsEnabled,
-                   integritySummary_.liquidations);
     includeTracked(manifestHints_.bookTickerEnabled,
                    integritySummary_.bookTicker);
     includeTracked(manifestHints_.orderbookEnabled, integritySummary_.depth);
 
-    bool requiredReferenceMissing = false;
-    const auto includeReference = [&](bool enabled,
-                                      bool required,
-                                      std::size_t count) noexcept {
-        if (!enabled) return;
-        anyLiveChannel = true;
-        if (required && count == 0u) {
-            exact = false;
-            requiredReferenceMissing = true;
-        }
-    };
-    includeReference(manifestHints_.markPriceEnabled,
-                     manifestHints_.markPriceRequired, markPrices_.size());
-    includeReference(manifestHints_.indexPriceEnabled,
-                     manifestHints_.indexPriceRequired, indexPrices_.size());
-    includeReference(manifestHints_.fundingEnabled,
-                     manifestHints_.fundingRequired, fundings_.size());
-    includeReference(manifestHints_.priceLimitEnabled,
-                     manifestHints_.priceLimitRequired, priceLimits_.size());
     integritySummary_.exactReplayEligible = anyLiveChannel && exact;
 
     integritySummary_.sessionHealth = SessionHealth::Clean;
@@ -1101,8 +834,6 @@ void SessionReplay::refreshHealthSummary_() noexcept {
             integritySummary_.sessionHealth = SessionHealth::Degraded;
         }
     }
-    if (requiredReferenceMissing)
-        integritySummary_.sessionHealth = SessionHealth::Degraded;
 }
 
 void SessionReplay::maybeWriteIntegrityReport_() noexcept {

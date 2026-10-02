@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "../Corpus/LoadReport.hpp"
-#include "../Metrics/Metrics.hpp"
 
 namespace hftrec::replay {
 
@@ -14,36 +13,8 @@ void SessionReplay::appendTradeRow(TradeRow row) {
     trades_.push_back(std::move(row));
 }
 
-void SessionReplay::appendLiquidationRow(LiquidationRow row) {
-    liquidations_.push_back(std::move(row));
-}
-
 void SessionReplay::appendBookTickerRow(BookTickerRow row) {
     bookTickers_.push_back(std::move(row));
-}
-
-void SessionReplay::appendMarkPriceRow(MarkPriceRow row) {
-    markPrices_.push_back(std::move(row));
-}
-
-void SessionReplay::appendIndexPriceRow(IndexPriceRow row) {
-    indexPrices_.push_back(std::move(row));
-}
-
-void SessionReplay::appendFundingRow(FundingRow row) {
-    fundings_.push_back(std::move(row));
-}
-
-void SessionReplay::appendPriceLimitRow(PriceLimitRow row) {
-    priceLimits_.push_back(std::move(row));
-}
-
-void SessionReplay::appendCandleRow(CandleRow row) {
-    candles_.push_back(std::move(row));
-}
-
-void SessionReplay::appendCandle2Row(CandleRow row) {
-    candles2_.push_back(std::move(row));
 }
 
 void SessionReplay::appendDepthRow(DepthRow row) {
@@ -93,7 +64,6 @@ void SessionReplay::finalize() noexcept {
     const bool renderablePartialDepth = partialDepthCorrupt_ && !depths_.empty()
         && integritySummary_.depth.state == ChannelHealthState::Corrupt
         && integritySummary_.trades.state != ChannelHealthState::Corrupt
-        && integritySummary_.liquidations.state != ChannelHealthState::Corrupt
         && integritySummary_.bookTicker.state != ChannelHealthState::Corrupt
         && integritySummary_.snapshot.state != ChannelHealthState::Corrupt;
     if (!depthValid || !sequenceMetadataValid || (integritySummary_.sessionHealth == SessionHealth::Corrupt && !renderablePartialDepth)) {
@@ -109,13 +79,6 @@ void SessionReplay::rewindToSnapshot_() {
     cursor_ = 0;
 }
 
-void SessionReplay::applyDepthRowsUntil_(std::size_t depthRowExclusive) {
-    const auto limit = std::min(depthRowExclusive, depths_.size());
-    for (std::size_t i = 0; i < limit; ++i) {
-        book_.applyDelta(depths_[i]);
-    }
-}
-
 void SessionReplay::applyBucket_(const ReplayBucket& bucket) {
     for (const auto& item : bucket.items) {
         if (item.kind == EventKind::Depth && item.rowIndex < depths_.size()) {
@@ -126,7 +89,6 @@ void SessionReplay::applyBucket_(const ReplayBucket& bucket) {
 
 void SessionReplay::seek(std::int64_t targetTsNs) {
     if (!isOk(status_)) return;
-    metrics::recordReplaySeek();
     const std::int64_t currentTsNs = cursor_ == 0
         ? (snapshot_.tsNs != 0 ? snapshot_.tsNs : 0)
         : buckets_[cursor_ - 1].tsNs;
@@ -134,27 +96,9 @@ void SessionReplay::seek(std::int64_t targetTsNs) {
         rewindToSnapshot_();
     }
 
-    if (cursor_ == 0 && !loadReport_.seekBuckets.empty()) {
-        const auto it = std::upper_bound(
-            loadReport_.seekBuckets.begin(),
-            loadReport_.seekBuckets.end(),
-            targetTsNs,
-            [](std::int64_t ts, const hftrec::corpus::SeekIndexBucket& bucket) noexcept {
-                return ts < bucket.tsNs;
-            });
-        if (it != loadReport_.seekBuckets.begin()) {
-            const auto& bucket = *std::prev(it);
-            applyDepthRowsUntil_(static_cast<std::size_t>(bucket.depthRowIndex));
-            std::size_t eventBase = 0;
-            std::size_t bucketCursor = 0;
-            const auto targetEventIndex = static_cast<std::size_t>(bucket.eventIndexStart);
-            while (bucketCursor < buckets_.size() && eventBase < targetEventIndex) {
-                eventBase += buckets_[bucketCursor].items.size();
-                ++bucketCursor;
-            }
-            cursor_ = std::min(bucketCursor, buckets_.size());
-        }
-    }
+    // Historical seek-index event offsets span retired channels. This current
+    // product advances its own three-channel timeline instead of borrowing them.
+
 
     while (cursor_ < buckets_.size() && buckets_[cursor_].tsNs <= targetTsNs) {
         applyBucket_(buckets_[cursor_]);
@@ -302,9 +246,8 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
     };
 
     const bool tradesOk = validateChannel(IntegrityChannel::Trades, trades_, "trades");
-    const bool liquidationsOk = validateChannel(IntegrityChannel::Liquidations, liquidations_, "liquidations");
     const bool bookTickerOk = validateChannel(IntegrityChannel::BookTicker, bookTickers_, "bookticker");
-    if (!(tradesOk && liquidationsOk && bookTickerOk)) {
+    if (!tradesOk || !bookTickerOk) {
         return false;
     }
 
@@ -321,11 +264,9 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
     for (std::size_t i = 1; i < mergedIngestSeqs.size(); ++i) {
         if (mergedIngestSeqs[i] <= mergedIngestSeqs[i - 1]) {
             auto& tradesSummary = summaryFor_(IntegrityChannel::Trades);
-            auto& liquidationsSummary = summaryFor_(IntegrityChannel::Liquidations);
             auto& bookTickerSummary = summaryFor_(IntegrityChannel::BookTicker);
             auto& depthSummary = summaryFor_(IntegrityChannel::Depth);
             if (tradesSummary.state != ChannelHealthState::Corrupt) tradesSummary.state = ChannelHealthState::Degraded;
-            if (liquidationsSummary.state != ChannelHealthState::Corrupt) liquidationsSummary.state = ChannelHealthState::Degraded;
             if (bookTickerSummary.state != ChannelHealthState::Corrupt) bookTickerSummary.state = ChannelHealthState::Degraded;
             if (depthSummary.state != ChannelHealthState::Corrupt) depthSummary.state = ChannelHealthState::Degraded;
             noteIncident_(IntegrityIncident{
@@ -350,12 +291,7 @@ bool SessionReplay::validateSequenceMetadata_() noexcept {
 void SessionReplay::rebuildEvents_() noexcept {
     events_.clear();
     events_.reserve(trades_.size()
-                    + liquidations_.size()
                     + bookTickers_.size()
-                    + markPrices_.size()
-                    + indexPrices_.size()
-                    + fundings_.size()
-                    + priceLimits_.size()
                     + depths_.size());
     for (std::size_t i = 0; i < depths_.size(); ++i) {
         events_.push_back(Event{depths_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::Depth});
@@ -363,24 +299,14 @@ void SessionReplay::rebuildEvents_() noexcept {
     for (std::size_t i = 0; i < trades_.size(); ++i) {
         events_.push_back(Event{trades_[i].tsNs, trades_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::Trade});
     }
-    for (std::size_t i = 0; i < liquidations_.size(); ++i) {
-        events_.push_back(Event{liquidations_[i].tsNs, liquidations_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::Liquidation});
-    }
+
     for (std::size_t i = 0; i < bookTickers_.size(); ++i) {
         events_.push_back(Event{bookTickers_[i].tsNs, bookTickers_[i].ingestSeq, static_cast<std::uint32_t>(i), EventKind::BookTicker});
     }
-    for (std::size_t i = 0; i < markPrices_.size(); ++i) {
-        events_.push_back(Event{markPrices_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::MarkPrice});
-    }
-    for (std::size_t i = 0; i < indexPrices_.size(); ++i) {
-        events_.push_back(Event{indexPrices_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::IndexPrice});
-    }
-    for (std::size_t i = 0; i < fundings_.size(); ++i) {
-        events_.push_back(Event{fundings_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::Funding});
-    }
-    for (std::size_t i = 0; i < priceLimits_.size(); ++i) {
-        events_.push_back(Event{priceLimits_[i].tsNs, 0, static_cast<std::uint32_t>(i), EventKind::PriceLimit});
-    }
+
+
+
+
     std::stable_sort(events_.begin(), events_.end(),
                      [](const Event& a, const Event& b) noexcept {
                          if (a.tsNs != b.tsNs) return a.tsNs < b.tsNs;

@@ -85,16 +85,6 @@ std::filesystem::path recordedBookTickerPath(const std::filesystem::path& sessio
     return existingFileOrEmpty(sessionPath / "bookticker.jsonl");
 }
 
-std::filesystem::path recordedFundingPath(const std::filesystem::path& sessionPath) {
-    const QJsonObject manifest = readSessionManifestObject(sessionPath);
-    const QJsonObject channels = manifest.value(QStringLiteral("channels")).toObject();
-    const QString manifestPath = channels.value(QStringLiteral("funding")).toObject().value(QStringLiteral("path")).toString();
-    if (!manifestPath.isEmpty()) {
-        if (const auto path = existingFileOrEmpty(sessionPath / manifestPath.toStdString()); !path.empty()) return path;
-    }
-    if (const auto path = existingFileOrEmpty(sessionPath / "jsonl" / "funding.jsonl"); !path.empty()) return path;
-    return existingFileOrEmpty(sessionPath / "funding.jsonl");
-}
 
 std::filesystem::path recordedCandles2Path(const std::filesystem::path& sessionPath) {
     const QJsonObject manifest = readSessionManifestObject(sessionPath);
@@ -223,8 +213,6 @@ void BookTickerCompareController::clear() {
     secondarySourceId_.clear();
     primaryRows_.clear();
     secondaryRows_.clear();
-    primaryFundingRows_.clear();
-    secondaryFundingRows_.clear();
     primaryCandles_.clear();
     secondaryCandles_.clear();
     spreadPoints_.clear();
@@ -483,7 +471,6 @@ bool BookTickerCompareController::setSource_(SourceState& state,
 
 void BookTickerCompareController::reloadRecorded_(SourceState& state) {
     state.rows.clear();
-    state.fundings.clear();
     state.candles.clear();
     state.marketHint = manifestMarketHint(state.sessionPath);
     state.healthLabel = manifestHealthLabel(state.sessionPath);
@@ -502,16 +489,7 @@ void BookTickerCompareController::reloadRecorded_(SourceState& state) {
         }
     }
 
-    const auto fundingPath = recordedFundingPath(state.sessionPath);
-    if (!fundingPath.empty()) {
-        hftrec::replay::SessionReplay fundingReplay{};
-        if (isOk(fundingReplay.addFundingFile(fundingPath))) {
-            state.fundings = fundingReplay.fundings();
-            std::sort(state.fundings.begin(), state.fundings.end(), [](const auto& lhs, const auto& rhs) noexcept {
-                return lhs.tsNs < rhs.tsNs;
-            });
-        }
-    }
+
 
     if (state.marketHint.empty()) {
         state.marketHint = state.sourceId.trimmed().toLower().toStdString();
@@ -545,13 +523,7 @@ void BookTickerCompareController::pollLive_() {
             std::sort(state.rows.begin(), state.rows.end(), rowsLessTs);
             changed = true;
         }
-        if (!result.batch.fundings.empty()) {
-            state.fundings.insert(state.fundings.end(), result.batch.fundings.begin(), result.batch.fundings.end());
-            std::sort(state.fundings.begin(), state.fundings.end(), [](const auto& lhs, const auto& rhs) noexcept {
-                return lhs.tsNs < rhs.tsNs;
-            });
-            changed = true;
-        }
+
     };
 
     pollOne(primary_);
@@ -563,8 +535,6 @@ void BookTickerCompareController::pollLive_() {
 void BookTickerCompareController::rebuild_() {
     primaryRows_ = primary_.rows;
     secondaryRows_ = secondary_.rows;
-    primaryFundingRows_ = primary_.fundings;
-    secondaryFundingRows_ = secondary_.fundings;
     primaryCandles_ = primary_.candles;
     secondaryCandles_ = secondary_.candles;
     spreadPoints_ = hftrec::arbitrage::buildBestSideBookTickerSpread(primaryRows_, secondaryRows_, totalFeePenaltyBps());

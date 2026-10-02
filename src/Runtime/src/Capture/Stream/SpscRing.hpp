@@ -46,7 +46,7 @@ class SpscRing {
         return true;
     }
 
-    // Approximate occupancy; producer / consumer may race. Good enough for metrics.
+    // Approximate occupancy; producer / consumer may race. Used by cold status views.
     std::size_t approxSize() const noexcept {
         const auto h = head_.load(std::memory_order_acquire);
         const auto t = tail_.load(std::memory_order_acquire);

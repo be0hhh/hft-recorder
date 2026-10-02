@@ -298,59 +298,37 @@ std::string generatedJobsMessage(const GeneratedJobsAppendResult& result, std::s
     return out.str();
 }
 
-void toggleChannelByIndex(tui::ChannelSelection& channels, int index) {
+void toggleChannelByIndex(tui::ChannelSelection& channels,int index) {
     switch (index) {
-        case 0: channels.trades = !channels.trades; break;
-        case 1: channels.liquidations = !channels.liquidations; break;
-        case 2: channels.bookTicker = !channels.bookTicker; break;
-        case 3: channels.orderbook = !channels.orderbook; break;
-        case 4: channels.markPrice = !channels.markPrice; break;
-        case 5: channels.indexPrice = !channels.indexPrice; break;
-        case 6: channels.funding = !channels.funding; break;
-        case 7: channels.priceLimit = !channels.priceLimit; break;
-        default: break;
+        case 0:channels.trades=!channels.trades;break;
+        case 1:channels.bookTicker=!channels.bookTicker;break;
+        case 2:channels.orderbook=!channels.orderbook;break;
+        default:break;
     }
-    if (!tui::anyChannelSelected(channels)) channels.trades = true;
+    if (!tui::anyChannelSelected(channels)) channels.trades=true;
 }
-
-bool channelByIndex(const tui::ChannelSelection& channels, int index) {
+bool channelByIndex(const tui::ChannelSelection& channels,int index) {
     switch (index) {
-        case 0: return channels.trades;
-        case 1: return channels.liquidations;
-        case 2: return channels.bookTicker;
-        case 3: return channels.orderbook;
-        case 4: return channels.markPrice;
-        case 5: return channels.indexPrice;
-        case 6: return channels.funding;
-        case 7: return channels.priceLimit;
-        default: return false;
+        case 0:return channels.trades;
+        case 1:return channels.bookTicker;
+        case 2:return channels.orderbook;
+        default:return false;
     }
 }
-
 const char* channelNameByIndex(int index) {
     switch (index) {
-        case 0: return "trades";
-        case 1: return "liquidations";
-        case 2: return "bookticker";
-        case 3: return "orderbook";
-        case 4: return "mark_price";
-        case 5: return "index_price";
-        case 6: return "funding";
-        case 7: return "price_limit";
-        default: return "";
+        case 0:return "trades";
+        case 1:return "bookticker";
+        case 2:return "orderbook";
+        default:return "";
     }
 }
 
 capture::CaptureChannel captureChannelForLaunch(tui::LaunchChannel channel) noexcept {
     switch (channel) {
         case tui::LaunchChannel::Trades: return capture::CaptureChannel::Trades;
-        case tui::LaunchChannel::Liquidations: return capture::CaptureChannel::Liquidations;
         case tui::LaunchChannel::BookTicker: return capture::CaptureChannel::BookTicker;
         case tui::LaunchChannel::Orderbook: return capture::CaptureChannel::Orderbook;
-        case tui::LaunchChannel::MarkPrice: return capture::CaptureChannel::MarkPrice;
-        case tui::LaunchChannel::IndexPrice: return capture::CaptureChannel::IndexPrice;
-        case tui::LaunchChannel::Funding: return capture::CaptureChannel::Funding;
-        case tui::LaunchChannel::PriceLimit: return capture::CaptureChannel::PriceLimit;
     }
     return capture::CaptureChannel::BookTicker;
 }
@@ -358,13 +336,8 @@ capture::CaptureChannel captureChannelForLaunch(tui::LaunchChannel channel) noex
 tui::LaunchChannel launchChannelForCapture(capture::CaptureChannel channel) noexcept {
     switch (channel) {
         case capture::CaptureChannel::Trades: return tui::LaunchChannel::Trades;
-        case capture::CaptureChannel::Liquidations: return tui::LaunchChannel::Liquidations;
         case capture::CaptureChannel::BookTicker: return tui::LaunchChannel::BookTicker;
         case capture::CaptureChannel::Orderbook: return tui::LaunchChannel::Orderbook;
-        case capture::CaptureChannel::MarkPrice: return tui::LaunchChannel::MarkPrice;
-        case capture::CaptureChannel::IndexPrice: return tui::LaunchChannel::IndexPrice;
-        case capture::CaptureChannel::Funding: return tui::LaunchChannel::Funding;
-        case capture::CaptureChannel::PriceLimit: return tui::LaunchChannel::PriceLimit;
     }
     return tui::LaunchChannel::BookTicker;
 }
@@ -374,13 +347,8 @@ std::vector<capture::CaptureChannel> selectedCaptureChannels(const tui::ChannelS
     selected.reserve(8u);
     for (const auto channel : {
              tui::LaunchChannel::Trades,
-             tui::LaunchChannel::Liquidations,
              tui::LaunchChannel::BookTicker,
              tui::LaunchChannel::Orderbook,
-             tui::LaunchChannel::MarkPrice,
-             tui::LaunchChannel::IndexPrice,
-             tui::LaunchChannel::Funding,
-             tui::LaunchChannel::PriceLimit,
          }) {
         if (tui::launchChannelSelected(channels, channel)) selected.push_back(captureChannelForLaunch(channel));
     }
@@ -454,7 +422,7 @@ void renderEditJob(const tui::RecorderTuiJob& job, int row, std::string_view mes
     printLine(std::string(marker) + " market       " + job.market, viewport);
     marker = row == 4 ? ">" : " ";
     printLine(std::string(marker) + " duration     " + durationText, viewport);
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < 3; ++i) {
         marker = row == i + 5 ? ">" : " ";
         printLine(std::string(marker) + " [" + (channelByIndex(job.channels, i) ? "x" : " ") + "] " +
                       channelNameByIndex(i),
@@ -627,13 +595,8 @@ std::string skippedChannelsNote(const tui::ChannelSelection& channels) {
 
 void mergeChannelSelection(tui::ChannelSelection& target, const tui::ChannelSelection& source) noexcept {
     target.trades = target.trades || source.trades;
-    target.liquidations = target.liquidations || source.liquidations;
     target.bookTicker = target.bookTicker || source.bookTicker;
     target.orderbook = target.orderbook || source.orderbook;
-    target.markPrice = target.markPrice || source.markPrice;
-    target.indexPrice = target.indexPrice || source.indexPrice;
-    target.funding = target.funding || source.funding;
-    target.priceLimit = target.priceLimit || source.priceLimit;
 }
 
 void appendPlanNote(std::string& target, const std::string& note) {
@@ -729,9 +692,8 @@ bool preflightJobBeforeSession(RunningJob& job) {
 }
 
 bool anyRunningChannel(const capture::CaptureCoordinator& coordinator) noexcept {
-    return coordinator.tradesRunning() || coordinator.liquidationsRunning() || coordinator.bookTickerRunning() ||
-           coordinator.orderbookRunning() || coordinator.markPriceRunning() || coordinator.indexPriceRunning() ||
-           coordinator.fundingRunning() || coordinator.priceLimitRunning();
+    return coordinator.tradesRunning() || coordinator.bookTickerRunning() ||
+           coordinator.orderbookRunning();
 }
 
 int activeJobSlots(const std::vector<RunningJob>& jobs) noexcept {
@@ -769,13 +731,8 @@ void requestStopJob(RunningJob& job) {
         return;
     }
     if (job.job.channels.trades) (void)job.coordinator->requestStopTrades();
-    if (job.job.channels.liquidations) (void)job.coordinator->requestStopLiquidations();
     if (job.job.channels.bookTicker) (void)job.coordinator->requestStopBookTicker();
     if (job.job.channels.orderbook) (void)job.coordinator->requestStopOrderbook();
-    if (job.job.channels.markPrice) (void)job.coordinator->requestStopMarkPrice();
-    if (job.job.channels.indexPrice) (void)job.coordinator->requestStopIndexPrice();
-    if (job.job.channels.funding) (void)job.coordinator->requestStopFunding();
-    if (job.job.channels.priceLimit) (void)job.coordinator->requestStopPriceLimit();
     job.stopRequested = true;
     job.running = false;
     job.status = "stopping";
@@ -796,13 +753,8 @@ RunningJob startJobFromConfig(const tui::RecorderTuiJob& source, capture::Captur
     job.status = "starting";
 
     if (job.job.channels.trades) tryStartChannel(job, "trades", job.coordinator->startTrades(job.config));
-    if (job.job.channels.liquidations) tryStartChannel(job, "liquidations", job.coordinator->startLiquidations(job.config));
     if (job.job.channels.bookTicker) tryStartChannel(job, "bookticker", job.coordinator->startBookTicker(job.config));
     if (job.job.channels.orderbook) tryStartChannel(job, "orderbook", job.coordinator->startOrderbook(job.config));
-    if (job.job.channels.markPrice) tryStartChannel(job, "mark_price", job.coordinator->startMarkPrice(job.config));
-    if (job.job.channels.indexPrice) tryStartChannel(job, "index_price", job.coordinator->startIndexPrice(job.config));
-    if (job.job.channels.funding) tryStartChannel(job, "funding", job.coordinator->startFunding(job.config));
-    if (job.job.channels.priceLimit) tryStartChannel(job, "price_limit", job.coordinator->startPriceLimit(job.config));
 
     job.running = anyRunningChannel(*job.coordinator);
     job.status = job.running ? "running" : "error";
@@ -1085,9 +1037,8 @@ void finalizeJob(RunningJob& job) {
 }
 
 std::uint64_t totalRows(const capture::CaptureCoordinator& coordinator) noexcept {
-    return coordinator.tradesCount() + coordinator.liquidationsCount() + coordinator.bookTickerCount() +
-           coordinator.depthCount() + coordinator.markPriceCount() + coordinator.indexPriceCount() +
-           coordinator.fundingCount() + coordinator.priceLimitCount();
+    return coordinator.tradesCount() + coordinator.bookTickerCount() +
+           coordinator.depthCount();
 }
 
 bool deadZeroRowJobExpired(const RunningJob& job, Clock::time_point now) noexcept {
@@ -1178,13 +1129,8 @@ void renderRunning(const std::vector<RunningJob>& jobs, std::size_t selected, st
         if (job.coordinator) {
             std::ostringstream counts;
             counts << "      trades=" << static_cast<unsigned long long>(job.coordinator->tradesCount())
-                   << " liq=" << static_cast<unsigned long long>(job.coordinator->liquidationsCount())
                    << " bbo=" << static_cast<unsigned long long>(job.coordinator->bookTickerCount())
-                   << " depth=" << static_cast<unsigned long long>(job.coordinator->depthCount())
-                   << " mark=" << static_cast<unsigned long long>(job.coordinator->markPriceCount())
-                   << " index=" << static_cast<unsigned long long>(job.coordinator->indexPriceCount())
-                   << " funding=" << static_cast<unsigned long long>(job.coordinator->fundingCount())
-                   << " limits=" << static_cast<unsigned long long>(job.coordinator->priceLimitCount());
+                   << " depth=" << static_cast<unsigned long long>(job.coordinator->depthCount());
             lines.push_back(counts.str());
         }
         const std::string last = job.coordinator ? job.coordinator->lastError() : std::string{};

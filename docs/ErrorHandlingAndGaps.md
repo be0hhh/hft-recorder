@@ -84,9 +84,9 @@ See `FILE_FORMAT.md` § "CODER_RESET and Error Recovery". Summary:
 
 ---
 
-## Recovery procedure (read side)
+## Historical .cxrec recovery proposal
 
-`hft-recorder-bench --repair <file.cxrec>` does this:
+The former .cxrec design proposed this read-side procedure:
 
 ```
 open(file)
@@ -106,8 +106,8 @@ loop:
 if file ends mid-block (payload read short): log and stop at last fully-valid block.
 ```
 
-This is **read-only**; `--repair` does not rewrite the file. Use
-`hft-recorder-bench --rewrite <in> <out>` (future work) to compact out the corrupted regions.
+This was a **read-only** recovery proposal. The current CLI does not implement
+this procedure or a .cxrec rewrite command.
 
 ---
 

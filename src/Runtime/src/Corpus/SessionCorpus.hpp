@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,13 +17,11 @@ struct SessionCorpus {
     capture::SessionManifest manifest;
     std::optional<InstrumentMetadata> instrumentMetadata;
     LoadReport report;
+    // Only counts survive format admission for retired channels and non-FINAM
+    // candle archives; no row payload, string or replay event is retained.
+    std::array<std::uint64_t, 7u> omittedArtifactRows{};
     std::vector<std::string> tradeLines;
-    std::vector<std::string> liquidationLines;
     std::vector<std::string> bookTickerLines;
-    std::vector<std::string> markPriceLines;
-    std::vector<std::string> indexPriceLines;
-    std::vector<std::string> fundingLines;
-    std::vector<std::string> priceLimitLines;
     std::vector<std::string> candleLines;
     std::vector<std::string> candle2Lines;
     // Depth is decoded exactly once from the paired current tape package.

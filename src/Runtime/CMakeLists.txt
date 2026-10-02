@@ -29,12 +29,10 @@ set(HFTREC_CORE_SOURCES
     ../Lab/src/BookFrameSampler.cpp
     ../Lab/src/LabRunner.cpp
     ../Lab/src/RankingEngine.cpp
-    src/Metrics/Metrics.cpp
     src/Replay/RecorderApi.cpp
     src/Replay/RecorderReplaySelection.cpp
     src/Replay/RecorderReplayRows.cpp
     src/Replay/BookState.cpp
-    src/Replay/CxetReplaySessionLoader.cpp
     src/Replay/SessionReplay.cpp
     src/Replay/SessionReplayTimeline.cpp
     src/Corpus/Recordings/BasisChainManifest.cpp
@@ -52,19 +50,14 @@ set(HFTREC_CORE_SOURCES
     src/Validation/ValidationRunner.cpp
 )
 
-if(HFTREC_WITH_CXET)
-    list(APPEND HFTREC_CORE_SOURCES
-        src/Capture/CaptureCoordinatorBulk.cpp
-        src/Capture/CaptureCoordinatorRuntime.cpp
-        src/Capture/CaptureCoordinatorRuntimeLoops.cpp
-        src/Capture/VenueMultiplexCapture.cpp
-        src/Capture/Bridge/CxetCaptureBridge.cpp
-    )
-else()
-    list(APPEND HFTREC_CORE_SOURCES
-        src/Capture/CaptureCoordinatorOffline.cpp
-    )
-endif()
+list(APPEND HFTREC_CORE_SOURCES
+    src/Capture/CaptureCoordinatorBulk.cpp
+    src/Capture/CaptureCoordinatorRuntime.cpp
+    src/Capture/CaptureCoordinatorRuntimeLoops.cpp
+    src/Capture/VenueMultiplexCapture.cpp
+    src/Capture/MarketData/NativeMarketCapture.cpp
+    src/Capture/Bridge/CxetCaptureBridge.cpp
+)
 
 add_library(hftrec_core STATIC ${HFTREC_CORE_SOURCES})
 add_library(hftrec::core ALIAS hftrec_core)
@@ -73,15 +66,16 @@ add_library(hftrec::recorder_api ALIAS hftrec_recorder_api)
 
 target_include_directories(hftrec_core
     PUBLIC
-        ${PROJECT_SOURCE_DIR}/src/Runtime/include
+        ${HFTREC_SOURCE_DIR}/src/Runtime/include
     PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/Runtime/src
-        ${HFT_PARSER_CONTRACT_INCLUDE_DIR}
+        ${HFTREC_SOURCE_DIR}/src/Runtime/src
 )
 
 target_link_libraries(hftrec_core
     PUBLIC
-        hftrec_corpus_contract
+        hftrec::corpus_contract
+        hftp_client_headers
+        cxet::cxet_lib
         Threads::Threads
         absl::flat_hash_map
         spdlog::spdlog
@@ -89,23 +83,8 @@ target_link_libraries(hftrec_core
         ZLIB::ZLIB
 )
 
-if(HFTREC_WITH_TRADER_RUNTIME)
-    target_link_libraries(hftrec_core PUBLIC hft_trader_runtime)
-    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_TRADER_RUNTIME=1 HFTREC_WITH_CXET=1)
-else()
-    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_TRADER_RUNTIME=0 HFTREC_WITH_CXET=0)
-endif()
-
-if(HFTREC_WITH_CXET_REPLAY)
-    target_link_libraries(hftrec_core PRIVATE cxet_replay_core)
-    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET_REPLAY=1)
-else()
-    target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET_REPLAY=0)
-endif()
-
-target_compile_definitions(hftrec_core PUBLIC HFTREC_HOTPATH_METRICS_DEFAULT=${HFTREC_HOTPATH_METRICS_DEFAULT_VALUE})
+target_compile_definitions(hftrec_core PUBLIC HFTREC_WITH_CXET=1)
 
 target_compile_features(hftrec_core PUBLIC cxx_std_23)
 target_link_libraries(hftrec_recorder_api INTERFACE hftrec_core)
 target_compile_features(hftrec_recorder_api INTERFACE cxx_std_23)
-

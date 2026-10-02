@@ -72,10 +72,7 @@ bool assignChannel(std::string_view raw, ChannelSelection& channels) {
         channels.trades = true;
         return true;
     }
-    if (name == "liquidations" || name == "liquidation" || name == "forceorder" || name == "force_order") {
-        channels.liquidations = true;
-        return true;
-    }
+
     if (name == "bookticker" || name == "book_ticker" || name == "book-ticker" || name == "bbo") {
         channels.bookTicker = true;
         return true;
@@ -84,22 +81,10 @@ bool assignChannel(std::string_view raw, ChannelSelection& channels) {
         channels.orderbook = true;
         return true;
     }
-    if (name == "mark_price" || name == "mark-price" || name == "markprice" || name == "mark") {
-        channels.markPrice = true;
-        return true;
-    }
-    if (name == "index_price" || name == "index-price" || name == "indexprice" || name == "index") {
-        channels.indexPrice = true;
-        return true;
-    }
-    if (name == "funding" || name == "funding_rate" || name == "funding-rate") {
-        channels.funding = true;
-        return true;
-    }
-    if (name == "price_limit" || name == "price-limit" || name == "pricelimit" || name == "limit" || name == "limits") {
-        channels.priceLimit = true;
-        return true;
-    }
+
+
+
+
     return false;
 }
 
@@ -179,19 +164,13 @@ bool validateJob(const RecorderTuiJob& job, std::string& error) {
 ChannelSelection allLiveChannels() noexcept {
     return ChannelSelection{
         .trades = true,
-        .liquidations = true,
         .bookTicker = true,
         .orderbook = true,
-        .markPrice = true,
-        .indexPrice = true,
-        .funding = true,
-        .priceLimit = true,
     };
 }
 
 bool anyChannelSelected(const ChannelSelection& channels) noexcept {
-    return channels.trades || channels.liquidations || channels.bookTicker || channels.orderbook ||
-           channels.markPrice || channels.indexPrice || channels.funding || channels.priceLimit;
+    return channels.trades || channels.bookTicker || channels.orderbook;
 }
 
 const char* recorderTuiExecutionModeName(RecorderTuiExecutionMode mode) noexcept {
@@ -256,13 +235,8 @@ bool parseChannelSelection(std::string_view text, ChannelSelection& out, std::st
 std::string renderChannelSelection(const ChannelSelection& channels) {
     std::vector<std::string_view> names;
     if (channels.trades) names.push_back("trades");
-    if (channels.liquidations) names.push_back("liquidations");
     if (channels.bookTicker) names.push_back("bookticker");
     if (channels.orderbook) names.push_back("orderbook");
-    if (channels.markPrice) names.push_back("mark_price");
-    if (channels.indexPrice) names.push_back("index_price");
-    if (channels.funding) names.push_back("funding");
-    if (channels.priceLimit) names.push_back("price_limit");
 
     std::string out;
     for (std::size_t i = 0; i < names.size(); ++i) {

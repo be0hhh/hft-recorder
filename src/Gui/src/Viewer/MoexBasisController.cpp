@@ -710,7 +710,8 @@ void MoexBasisController::reloadStrategyResults_() {
             if (!QFileInfo::exists(QDir(resultPath).absoluteFilePath(QStringLiteral("strategy_spread.jsonl")))) continue;
 
             const QJsonObject manifest = readJsonObject(manifestPath);
-            if (manifest.value(QStringLiteral("type")).toString() != QStringLiteral("run.result.v3")) continue;
+            if (manifest.value(QStringLiteral("type")).toString() != QStringLiteral("run.result") ||
+                manifest.value(QStringLiteral("schema_version")).toDouble(-1.0) != 4.0) continue;
 
             QString matchedFuturePath;
             for (const QString& futurePath : futurePaths) {

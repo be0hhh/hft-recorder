@@ -74,15 +74,10 @@ Rectangle {
             spacing: 18
 
             Label { text: "Trades: " + card.captureVm.tradesCount; color: card.textColor }
-            Label { text: "Liquidations: " + card.captureVm.liquidationsCount; color: card.textColor }
             Label { text: "BookTicker: " + card.captureVm.bookTickerCount + (card.captureVm.bookTickerRunning ? " (running)" : ""); color: card.textColor }
             Label { text: "Candles: " + card.captureVm.candlesCount; color: card.textColor }
             Label { text: "Candles2: " + card.captureVm.candles2Count; color: card.textColor }
             Label { text: "Depth: " + card.captureVm.depthCount; color: card.textColor }
-            Label { text: "Mark: " + card.captureVm.markPriceCount; color: card.textColor }
-            Label { text: "Index: " + card.captureVm.indexPriceCount; color: card.textColor }
-            Label { text: "Funding: " + card.captureVm.fundingCount; color: card.textColor }
-            Label { text: "PriceLimit: " + card.captureVm.priceLimitCount; color: card.textColor }
         }
     }
 }

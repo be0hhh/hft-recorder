@@ -22,12 +22,7 @@ class SessionReplay {
     enum class EventKind : std::uint8_t {
         Depth      = 0,
         Trade      = 1,
-        Liquidation = 2,
         BookTicker = 3,
-        MarkPrice = 4,
-        IndexPrice = 5,
-        Funding = 6,
-        PriceLimit = 7,
     };
 
     struct Event {
@@ -53,17 +48,13 @@ class SessionReplay {
     // Individual-file loaders. Useful from the GUI when the user wants to
     // pick current captured-arrival JSON rows. Depth always requires the
     // paired depth_tape.jsonl/depth_sidecar.jsonl package.
-    // from unrelated paths. Call reset() first, then any combination of
+    // Candles are FINAM historical-backfill archives only. Call reset() first,
+    // then any combination of
     // addXxx(), then finalize(). Each addXxx() may be called multiple times
     // to merge files.
     void   reset() noexcept;
     Status addTradesFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
-    Status addLiquidationsFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
     Status addBookTickerFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
-    Status addMarkPriceFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
-    Status addIndexPriceFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
-    Status addFundingFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
-    Status addPriceLimitFile(const std::filesystem::path& path, std::size_t reserveHint = 0) noexcept;
     Status addCandlesFile(const std::filesystem::path& path,
                           std::size_t reserveHint = 0,
                           bool rebuildTimeline = true) noexcept;
@@ -84,12 +75,7 @@ class SessionReplay {
     const hftrec::corpus::LoadReport& loadReport() const noexcept { return loadReport_; }
 
     const std::vector<TradeRow>&      trades()      const noexcept { return trades_;      }
-    const std::vector<LiquidationRow>& liquidations() const noexcept { return liquidations_; }
     const std::vector<BookTickerRow>& bookTickers() const noexcept { return bookTickers_; }
-    const std::vector<MarkPriceRow>& markPrices() const noexcept { return markPrices_; }
-    const std::vector<IndexPriceRow>& indexPrices() const noexcept { return indexPrices_; }
-    const std::vector<FundingRow>& fundings() const noexcept { return fundings_; }
-    const std::vector<PriceLimitRow>& priceLimits() const noexcept { return priceLimits_; }
     const std::vector<CandleRow>&     candles()     const noexcept { return candles_;     }
     const std::vector<CandleRow>&     candles2()    const noexcept { return candles2_;    }
     const std::vector<DepthRow>&      depths()      const noexcept { return depths_;      }
@@ -99,14 +85,7 @@ class SessionReplay {
     const std::vector<ReplayBucket>&  buckets()     const noexcept { return buckets_;     }
 
     void appendTradeRow(TradeRow row);
-    void appendLiquidationRow(LiquidationRow row);
     void appendBookTickerRow(BookTickerRow row);
-    void appendMarkPriceRow(MarkPriceRow row);
-    void appendIndexPriceRow(IndexPriceRow row);
-    void appendFundingRow(FundingRow row);
-    void appendPriceLimitRow(PriceLimitRow row);
-    void appendCandleRow(CandleRow row);
-    void appendCandle2Row(CandleRow row);
     void appendDepthRow(DepthRow row);
     void appendSnapshotDocument(SnapshotDocument snapshot);
     void refreshLiveTimeline() noexcept;
@@ -132,26 +111,15 @@ class SessionReplay {
         std::string exchange{};
         bool tradesEnabled{true};
         bool tradesRequired{true};
-        bool liquidationsEnabled{true};
-        bool liquidationsRequired{false};
         bool bookTickerEnabled{true};
         bool bookTickerRequired{true};
         bool orderbookEnabled{true};
         bool orderbookRequired{true};
-        bool markPriceEnabled{false};
-        bool markPriceRequired{false};
-        bool indexPriceEnabled{false};
-        bool indexPriceRequired{false};
-        bool fundingEnabled{false};
-        bool fundingRequired{false};
-        bool priceLimitEnabled{false};
-        bool priceLimitRequired{false};
         std::int64_t endedAtNs{0};
     };
 
     void rewindToSnapshot_();
     void applyBucket_(const ReplayBucket& bucket);
-    void applyDepthRowsUntil_(std::size_t depthRowExclusive);
     bool validateDepthStream_() noexcept;
     bool validateSequenceMetadata_() noexcept;
     void rebuildEvents_() noexcept;
@@ -168,12 +136,7 @@ class SessionReplay {
     void maybeWriteIntegrityReport_() noexcept;
 
     std::vector<TradeRow>      trades_{};
-    std::vector<LiquidationRow> liquidations_{};
     std::vector<BookTickerRow> bookTickers_{};
-    std::vector<MarkPriceRow>   markPrices_{};
-    std::vector<IndexPriceRow>  indexPrices_{};
-    std::vector<FundingRow>     fundings_{};
-    std::vector<PriceLimitRow>  priceLimits_{};
     std::vector<CandleRow>     candles_{};
     std::vector<CandleRow>     candles2_{};
     std::vector<DepthRow>      depths_{};

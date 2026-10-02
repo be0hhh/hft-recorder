@@ -1,315 +1,48 @@
-# hft-recorder — CXETCPP Usage Examples
-
-Concrete, copy-pasteable snippets for every CXETCPP public entrypoint used by `hft-recorder`.
-Patterns come from `apps/arbitrage-screener/src/data/DataManager.cpp` (proven production pattern).
-
-All snippets assume:
-
-```cpp
-#include "cxet/Cxet.hpp"               // ONLY public CXETCPP header — never parse/ network/ runtime/
-using namespace cxet;
-using namespace cxet::api;
-using namespace cxet::composite;
-```
-
-Boundary rule for `hft-recorder`:
-
-- these examples define how the app calls `CXETCPP`
-- they do not define the recorder's durable corpus contract
-- recorder code should convert `CXETCPP` callback payloads into recorder-owned
-  normalized capture rows before writing canonical JSON
-- future replay/backtest consumers should depend on the recorder corpus
-  contract, not on live `CXETCPP` callback shapes
-
-> Rule: `#include "cxet/Cxet.hpp"` is the **single** entry into the library. Any other include
-> (`"parse/..."`, `"network/..."`, `"runtime/..."`, `"exchanges/..."`) is a rules violation —
-> see `CodingStyle.md` § "No internal includes".
-
----
-
-## 1. One-time initialisation
-
-```cpp
-int main(int argc, char** argv) {
-    cxet::initBuildDispatch();        // WHY: registers all exchange dispatch tables.
-                                      // Must be called EXACTLY once before any other cxet:: call.
-    // ... launch threads, etc.
-}
-```
-
-> Rule: `initBuildDispatch()` must run **before** any producer thread builds a
-> `UnifiedRequestBuilder`. If omitted, every dispatch lookup returns "no config" and
-> every `runSubscribe*` call returns `false`.
-
----
-
-## 2. aggTrade stream — `CxetStream<TradePublic>`
-
-Producer thread (pinned to `CPU_PROD_TRADES`, default `2`):
-
-```cpp
-void runTradeProducer(Symbol sym, canon::ExchangeId ex, canon::MarketType mkt,
-                      SpscRing<TradePublic, kProducerRingCapacity>& ring,
-                      std::atomic<bool>& stop) noexcept {
-    // Build subscribe descriptor.
-    UnifiedRequestBuilder b;
-    b.subscribe()
-     .object(cxet::composite::out::SubscribeObject::Trades)
-     .exchange(ex)
-     .market(mkt)
-     .symbol(sym);
-
-    // Request every field (leave aliases unset = all fields).
-    // hft-recorder stores full TradePublic, unlike the screener which asks for price/ts/symbol only.
-
-    auto stream = std::make_unique<CxetStream<TradePublic, 2048>>(b);
-    stream->start();
-
-    TradePublic ev{};
-    while (!stop.load(std::memory_order_relaxed)) {
-        if (stream->tryPop(ev)) {
-            // Push into SPSC ring to writer thread. tryPush=false → drop + counter.
-            if (!ring.tryPush(ev)) {
-                metrics::eventsDropped(StreamType::AggTrade, DropReason::SpscFull).increment();
-            }
-        } else {
-            std::this_thread::sleep_for(std::chrono::microseconds(200));
-        }
-    }
-    stream->stop();    // Idempotent; safe after signal.
-}
-```
-
-Key points:
-
-- `CxetStream<T, Capacity>` owns the WS connection. Capacity `2048` = producer-internal ring.
-- `tryPop(out) → bool` — non-blocking; returns `false` when no event available.
-- Sleep `200 μs` on empty (same value as arbitrage-screener). **Do not** busy-spin: other
-  cores need the cycles.
-- `stream->stop()` is **blocking** until WS loop drains; call only from the producer thread.
-
----
-
-## 3. bookTicker stream — `CxetStream<BookTickerData>`
-
-Identical shape, different `object`:
-
-```cpp
-UnifiedRequestBuilder b;
-b.subscribe()
- .object(cxet::composite::out::SubscribeObject::BookTicker)
- .exchange(ex).market(mkt).symbol(sym);
-
-auto stream = std::make_unique<CxetStream<BookTickerData, 2048>>(b);
-stream->start();
-BookTickerData ev{};
-while (!stop.load(std::memory_order_relaxed)) {
-    if (stream->tryPop(ev)) { /* push to writer ring */ }
-    else std::this_thread::sleep_for(std::chrono::microseconds(200));
-}
-stream->stop();
-```
-
-> WHY `CxetStream` over `runSubscribeBookTickerByConfig`: the library exposes both.
-> `CxetStream` owns an internal SPSC ring → less callback context, cleaner shutdown,
-> matches the aggTrade producer pattern. The callback form is only useful for
-> non-stream producers. Orderbook uses the tape+sides snapshot path (next section)
-> because the library does not provide a
-> `CxetStream<OrderBookSnapshot>` specialization.
-
----
-
-## 4. depth@0ms tape+sides — `PublicMarketDataSnapshot`
-
-`ParseOrderBookTapeRuntimeFn` writes the active orderbook payload into paired
-runtime buffers:
-
-```cpp
-using ParseOrderBookTapeRuntimeFn =
-    bool (*)(MessageBuffer& buf,
-             const UnifiedRequestSpec& builder,
-             ExchangeId exchangeId,
-             composite::OrderBookTapeRuntimeV1* tapeOut,
-             composite::OrderBookTapeSidesRuntimeV1* sidesOut,
-             Span<const canon::FieldId> requestedFields) noexcept;
-```
-
-The producer reads the library snapshot atomically and keeps the work loop short
-and lock-free. `StreamMeta` carries exchange/market/symbol.
-`OrderBookTapeRuntimeV1` carries timestamp-tagged tape words plus price/quantity
-pairs. `OrderBookTapeSidesRuntimeV1` is the paired sidecar: one side byte for each
-price/quantity pair. `qty == 0` is preserved and means delete this level.
-
-```cpp
-struct DepthCallbackCtx {
-    SpscRing<CapturedOrderBookRow, kProducerRingCapacity>* ring;
-    std::atomic<bool>*                                     stopFlag;
-};
-
-static bool pushDepthTape(const composite::OrderBookTapeRuntimeV1& tape,
-                          const composite::OrderBookTapeSidesRuntimeV1& sides,
-                          const composite::StreamMeta& meta,
-                          DepthCallbackCtx& ctx) noexcept {
-    if (ctx.stopFlag->load(std::memory_order_relaxed)) return false;
-
-    const CapturedOrderBookRow row =
-        CxetCaptureBridge::captureOrderBook(tape, sides, meta);
-    if (!ctx.ring->tryPush(row)) {
-        metrics::eventsDropped(StreamType::DepthUpdate, DropReason::SpscFull).increment();
-    }
-    return true;
-}
-
-void runDepthProducer(const cxet::api::market::PublicMarketDataSnapshot& snapshot,
-                      SpscRing<CapturedOrderBookRow, kProducerRingCapacity>& ring,
-                      std::atomic<bool>& stop) noexcept {
-    DepthCallbackCtx ctx{&ring, &stop};
-    while (!stop.load(std::memory_order_relaxed)) {
-        composite::OrderBookTapeRuntimeV1 tape{};
-        composite::OrderBookTapeSidesRuntimeV1 sides{};
-        composite::StreamMeta meta{};
-        if (readOrderbookSnapshot(snapshot, tape, sides, meta)) {
-            (void)pushDepthTape(tape, sides, meta, ctx);
-        }
-    }
-}
-```
-
-Notes:
-
-- The public snapshot stores orderbook as paired `orderbook` + `orderbookSides`.
-- The corpus remains paired: `depth_tape.jsonl` stores tape words and
-  `depth_sidecar.jsonl` stores side bytes. Do not emit legacy delta JSON.
-- Do the polling/producer work on a dedicated producer thread (`CPU_PROD_DEPTH`, default `4`).
-- The old snapshot-shaped callback is removed.
-
----
-
-## 5. Orderbook snapshot — `runGetOrderBookByConfig` (REST poll)
-
-The snapshot is a **one-shot REST fetch**, not a stream. Dedicated thread sleeps 60 s between
-calls (Binance recommended cadence for full depth refresh).
-
-```cpp
-void runSnapshotPoller(Symbol sym, canon::ExchangeId ex, canon::MarketType mkt,
-                       SpscRing<OrderBookSnapshot, 4>& ring,
-                       std::atomic<bool>& stop) noexcept {
-    MessageBuffer reqBuf{};
-    MessageBuffer recvBuf{};
-    OrderBookSnapshot snap{};
-
-    while (!stop.load(std::memory_order_relaxed)) {
-        UnifiedRequestBuilder b;
-        b.get()
-         .object(cxet::composite::out::GetObject::OrderBook)
-         .exchange(ex).market(mkt).symbol(sym);
-
-        const bool ok = runGetOrderBookByConfig(b, reqBuf, recvBuf, &snap);
-        if (ok) {
-            (void)ring.tryPush(snap);       // writer reads, persists one block per snapshot.
-        } else {
-            logWarn("snapshot fetch failed for {}; retry in 60s", sym.cStr());
-        }
-
-        // Interruptible sleep: 600 × 100 ms = 60 s.
-        for (int i = 0; i < 600 && !stop.load(std::memory_order_relaxed); ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-    }
-}
-```
-
-Why not a single `sleep_for(60s)`: SIGTERM must exit within ~100 ms; a 60-second sleep
-masks shutdown.
-
----
-
-## 6. CPU pinning — via CXETCPP helper
-
-```cpp
-// Producer thread entry:
-const bool pinned = cxet::os::setThisThreadAffinity(/* cpuId = */ 2);
-if (!pinned) logWarn("affinity set failed for trade producer (CPU 2)");
-
-// ... then runTradeProducer(...);
-```
-
-If `cxet::os::setThisThreadAffinity` is not exposed by the installed CXETCPP version,
-fall back to a tiny local helper in `src/Runtime/src/os/Affinity.hpp` that wraps
-`pthread_setaffinity_np` (Linux only — we build with `-DCXET_LINUX_ONLY`).
-
-CPU map (from `ConfigAndCli.md`):
-
-| Thread | CPU |
-|---|---|
-| main | 0 |
-| producer trades | 2 |
-| producer bookTicker | 3 |
-| producer depth@0ms | 4 |
-| producer snapshot | 5 |
-| control (SIGTERM/metrics) | 7 |
-| writer trades | 8 |
-| writer bookTicker | 9 |
-| writer depth@0ms | 10 |
-| writer snapshot | 11 |
-
----
-
-## 7. MessageBuffer — who owns what
-
-CXETCPP exposes `MessageBuffer` as a 64 KB owned buffer. For recorder:
-
-- **Producer thread**: one `MessageBuffer payloadBuf` + one `MessageBuffer recvBuf` per
-  `runSubscribe…` / `runGet…` call, declared as local automatic storage. This is NOT the hot
-  path — allocation happens once at thread start.
-- **CxetStream<T>**: manages its own internal buffers; do not pass one in.
-
-> Do **not** use `MessageBufferPool` in hft-recorder. The pool exists for multi-symbol
-> multiplexers (screeners). We have one connection per producer thread, so each thread
-> owns its two buffers directly — simpler lifecycles, zero lock contention.
-
----
-
-## 8. FORBIDDEN — what not to do
-
-```cpp
-// ❌ Include internal headers
-#include "parse/...".        // rules violation
-#include "network/ws/...".   // ditto
-#include "runtime/...".      // ditto
-
-// ❌ Write your own WS/REST client
-boost::beast::websocket::stream<...>  myWs;   // redundant; CxetStream handles it.
-
-// ❌ Use double / float for prices
-double price = snap.bids[0].price / 1e8;      // LOSS of precision; use Price (int64).
-
-// ❌ Use std::string in hot path
-std::string sym = "BTCUSDT";                  // alloc per tick; use Symbol.
-
-// ❌ Throw exceptions
-if (!ok) throw std::runtime_error("nope");    // library is -fno-exceptions; use Status.
-
-// ❌ Log via printf / cout
-std::cout << "trade: " << price << "\n";      // use spdlog wrapper — see LOGGING_AND_METRICS.md.
-
-// ❌ Call initBuildDispatch() more than once
-cxet::initBuildDispatch();    // in main()
-cxet::initBuildDispatch();    // ❌ in some other constructor — undefined state.
-
-// ❌ Share a MessageBuffer between threads
-static MessageBuffer gBuf{};                  // data-race; each thread owns its own.
-```
-
----
-
-## References
-
-- `apps/arbitrage-screener/src/data/DataManager.cpp` — reference pattern for `CxetStream<T>` +
-  producer/poll thread (lines 148–271 for batched+markprice streams).
-- `CXETCPP/src/src/api/market/PublicMarketDataSubscriptionManager.cpp` - snapshot publication.
-- `CXETCPP/src/src/core/include/cxet/api/config/ExchangeObjectConfig.hpp` - `ParseOrderBookTapeRuntimeFn` signature.
-- `CodingStyle.md` — primitive types, container bans, logging rules.
-- `ApiContracts.md` — internal `SpscRing<T>`, `IStreamRecorder`, `BlockWriter` interfaces.
-- `ErrorHandlingAndGaps.md` — what happens when `tryPush` fails or WS drops.
-- `ConfigAndCli.md` — CPU pin assignments, `.env` schema.
+# hft-recorder — current CXET capture boundary
+
+Status: current source integration, static-only evidence.
+
+Recorder consumes the same CXET Core runtime as Parser and HFT Trader. Its live
+capture adapter is `src/Runtime/src/Capture/MarketData/NativeMarketCapture.cpp`;
+normalized row conversion is owned by `Capture/Bridge/CxetCaptureBridge.cpp`.
+There is no `CxetStream`, tape callback or alternate Recorder network runtime.
+
+## Cold configuration
+
+`NativeMarketCapture::configure` receives exact configured sources and sinks,
+selects the registered descriptor, allocates bounded event/level handoff storage
+and configures `ConfiguredMarketOwner` on its `MarketRuntime` transport. Missing
+route, identity, sink or budget rejects configuration. Recorder asks for logical
+objects; exchange-owned CXET code selects native wire grammar.
+
+## Native consumption
+
+`NativeCaptureHooks` consumes canonical Trade/BBO commits and borrowed Depth
+frames after Core admission. BBO presence flags and commit metadata are preserved.
+Depth levels are copied into the prepared bounded row arena before the borrowed
+frame can be released. Handoff overflow records loss and stops exact recording;
+it never allocates a larger queue or substitutes another input path.
+
+Core owns transport progress, ingress drain and release. Recorder's storage
+worker owns row conversion, manifests and disk I/O after the bounded handoff.
+Shutdown retires the configured owner and joins the storage worker before
+releasing handoff storage.
+
+## Corpus boundaries
+
+Current direct JSON capture cannot represent an Unknown Trade initiator side or
+native Depth snapshot/rebase metadata. These inputs stop that capture with an
+explicit channel error/loss record; Recorder never invents a side or delta.
+Supported native deltas preserve zero quantity as level deletion.
+
+Parser binary capture is a separate producer-owned external capture product. It
+preserves native Unknown side as RecordedOnly, according to the current exact
+replay admission contract. Corpus schemas and serialized numeric tags retain their
+fail-closed guards; they are not aliases for another live runtime.
+
+Arrival metadata comes from the admitted application frame. REST historical
+backfill stays historical and does not become a live strategy delivery. See
+[BacktestEngineContract.md](BacktestEngineContract.md) and
+[DeliveryTimestampsContract.md](DeliveryTimestampsContract.md) for exact corpus
+admission. These source boundaries do not establish build, GUI, replay or live
+provider acceptance.

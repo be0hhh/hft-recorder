@@ -9,15 +9,10 @@ Rectangle {
     required property var chart
     required property var interaction
     required property bool showTradesLayer
-    required property bool showLiquidationsLayer
     required property bool showCandlesLayer
     required property bool showCandles2Layer
     required property bool showOrderbookLayer
     required property bool showBookTickerLayer
-    required property bool showMarkPriceLayer
-    required property bool showIndexPriceLayer
-    required property bool showFundingLayer
-    required property bool showPriceLimitLayer
     required property bool showRateLimitLayer
     required property bool effectiveBookTickerLayer
     required property color chromeColor
@@ -30,15 +25,10 @@ Rectangle {
     property bool compareMode: false
 
     signal toggleTrades()
-    signal toggleLiquidations()
     signal toggleCandles()
     signal toggleCandles2()
     signal toggleOrderbook()
     signal toggleBookTicker()
-    signal toggleMarkPrice()
-    signal toggleIndexPrice()
-    signal toggleFunding()
-    signal togglePriceLimit()
     signal toggleRateLimit()
 
     property color liveControlBg: '#050505'
@@ -109,18 +99,7 @@ Rectangle {
             onClicked: bar.toggleTrades()
         }
 
-        ViewerChannelButton {
-            text: bar.compact ? "Liq" : "Liquidations"
-            active: bar.showLiquidationsLayer
-            compact: bar.compact
-            panelColor: bar.panelColor
-            panelAltColor: bar.panelAltColor
-            borderColor: bar.borderColor
-            textColor: bar.textColor
-            mutedTextColor: bar.mutedTextColor
-            accentBuyColor: bar.accentBuyColor
-            onClicked: bar.toggleLiquidations()
-        }
+        
 
         ViewerChannelButton {
             text: "C"
@@ -173,57 +152,13 @@ Rectangle {
             onClicked: bar.toggleBookTicker()
         }
 
-        ViewerChannelButton {
-            text: "Mark"
-            active: bar.showMarkPriceLayer
-            compact: bar.compact
-            panelColor: bar.panelColor
-            panelAltColor: bar.panelAltColor
-            borderColor: bar.borderColor
-            textColor: bar.textColor
-            mutedTextColor: bar.mutedTextColor
-            accentBuyColor: bar.accentBuyColor
-            onClicked: bar.toggleMarkPrice()
-        }
+        
 
-        ViewerChannelButton {
-            text: "Index"
-            active: bar.showIndexPriceLayer
-            compact: bar.compact
-            panelColor: bar.panelColor
-            panelAltColor: bar.panelAltColor
-            borderColor: bar.borderColor
-            textColor: bar.textColor
-            mutedTextColor: bar.mutedTextColor
-            accentBuyColor: bar.accentBuyColor
-            onClicked: bar.toggleIndexPrice()
-        }
+        
 
-        ViewerChannelButton {
-            text: bar.compact ? "Fund" : "Funding"
-            active: bar.showFundingLayer
-            compact: bar.compact
-            panelColor: bar.panelColor
-            panelAltColor: bar.panelAltColor
-            borderColor: bar.borderColor
-            textColor: bar.textColor
-            mutedTextColor: bar.mutedTextColor
-            accentBuyColor: bar.accentBuyColor
-            onClicked: bar.toggleFunding()
-        }
+        
 
-        ViewerChannelButton {
-            text: "Limits"
-            active: bar.showPriceLimitLayer
-            compact: bar.compact
-            panelColor: bar.panelColor
-            panelAltColor: bar.panelAltColor
-            borderColor: bar.borderColor
-            textColor: bar.textColor
-            mutedTextColor: bar.mutedTextColor
-            accentBuyColor: bar.accentBuyColor
-            onClicked: bar.togglePriceLimit()
-        }
+        
 
         ViewerChannelButton {
             text: "Rate"

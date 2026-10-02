@@ -27,7 +27,6 @@ RenderSnapshot buildInteractiveTickerSnapshot(ChartController& controller,
                                               qreal height) {
     SnapshotInputs tickerInputs{};
     tickerInputs.tradesVisible = false;
-    tickerInputs.liquidationsVisible = false;
     tickerInputs.candlesVisible = false;
     tickerInputs.candles2Visible = false;
     tickerInputs.orderbookVisible = false;

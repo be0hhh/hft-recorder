@@ -22,12 +22,7 @@ namespace hftrec::gui::viewer {
 struct LiveDataBatch {
     std::uint64_t id{0};
     std::vector<hftrec::replay::TradeRow> trades{};
-    std::vector<hftrec::replay::LiquidationRow> liquidations{};
     std::vector<hftrec::replay::BookTickerRow> bookTickers{};
-    std::vector<hftrec::replay::MarkPriceRow> markPrices{};
-    std::vector<hftrec::replay::IndexPriceRow> indexPrices{};
-    std::vector<hftrec::replay::FundingRow> fundings{};
-    std::vector<hftrec::replay::PriceLimitRow> priceLimits{};
     std::vector<hftrec::replay::DepthRow> depths{};
     std::vector<hftrec::replay::SnapshotDocument> snapshots{};
 };
@@ -49,12 +44,7 @@ struct LiveDataRangeRequest {
 
 struct LiveDataStats {
     std::uint64_t tradesTotal{0};
-    std::uint64_t liquidationsTotal{0};
     std::uint64_t bookTickersTotal{0};
-    std::uint64_t markPricesTotal{0};
-    std::uint64_t indexPricesTotal{0};
-    std::uint64_t fundingsTotal{0};
-    std::uint64_t priceLimitsTotal{0};
     std::uint64_t depthsTotal{0};
     std::uint64_t snapshotsTotal{0};
     std::uint64_t version{0};
@@ -110,21 +100,11 @@ class JsonTailLiveDataProvider final : public ILiveDataProvider {
 
     std::filesystem::path sessionDir_{};
     TailFile trades_{};
-    TailFile liquidations_{};
     TailFile bookTicker_{};
-    TailFile markPrice_{};
-    TailFile indexPrice_{};
-    TailFile funding_{};
-    TailFile priceLimit_{};
     TailFile depthTape_{};
     TailFile depth_{};
     std::vector<hftrec::replay::TradeRow> tradesHistory_{};
-    std::vector<hftrec::replay::LiquidationRow> liquidationHistory_{};
     std::vector<hftrec::replay::BookTickerRow> bookTickerHistory_{};
-    std::vector<hftrec::replay::MarkPriceRow> markPriceHistory_{};
-    std::vector<hftrec::replay::IndexPriceRow> indexPriceHistory_{};
-    std::vector<hftrec::replay::FundingRow> fundingHistory_{};
-    std::vector<hftrec::replay::PriceLimitRow> priceLimitHistory_{};
     std::vector<hftrec::replay::DepthRow> depthHistory_{};
     LiveDataStats observedStats_{};
     std::uint64_t version_{0};
@@ -153,12 +133,7 @@ class InMemoryLiveDataProvider final : public ILiveDataProvider {
     struct SourceState {
         SourceRef ref{};
         std::size_t seenTrades{0};
-        std::size_t seenLiquidations{0};
         std::size_t seenBookTickers{0};
-        std::size_t seenMarkPrices{0};
-        std::size_t seenIndexPrices{0};
-        std::size_t seenFundings{0};
-        std::size_t seenPriceLimits{0};
         std::size_t seenDepths{0};
         std::size_t seenSnapshots{0};
     };

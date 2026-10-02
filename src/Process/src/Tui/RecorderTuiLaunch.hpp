@@ -11,13 +11,8 @@ namespace hftrec::tui {
 
 enum class LaunchChannel : std::uint8_t {
     Trades,
-    Liquidations,
     BookTicker,
     Orderbook,
-    MarkPrice,
-    IndexPrice,
-    Funding,
-    PriceLimit,
 };
 
 struct RecorderTuiLaunchJob {

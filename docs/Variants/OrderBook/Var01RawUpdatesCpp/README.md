@@ -31,7 +31,7 @@ OrderBookDeltaEvent stream (first_update_id, final_update_id, is_bid,
 3. `docs/Streams.md` — §"depth@0ms"
 4. `docs/OrderbookRepresentationExperiments.md` — this is the anchor against
    which the representation experiments are scored
-5. `docs/CxetcppUsageExamples.md` — §`runSubscribeOrderBookRuntimeByConfig`
+5. `docs/CxetcppUsageExamples.md` — current native Depth capture boundary
 
 ## How to implement (Phase 3)
 

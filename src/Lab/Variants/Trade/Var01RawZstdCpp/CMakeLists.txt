@@ -5,7 +5,7 @@ add_library(hftrec_variant_trade_var01 STATIC
 
 target_include_directories(hftrec_variant_trade_var01
     PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/Runtime/src
+        ${HFTREC_SOURCE_DIR}/src/Runtime/src
         ${CMAKE_CURRENT_LIST_DIR}/src
 )
 

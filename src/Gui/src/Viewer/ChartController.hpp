@@ -36,15 +36,10 @@ class ChartController : public QObject {
     Q_PROPERTY(qint64 priceMaxE8 READ priceMaxE8 NOTIFY viewportChanged)
 
     Q_PROPERTY(bool hasTrades READ hasTrades NOTIFY sessionChanged)
-    Q_PROPERTY(bool hasLiquidations READ hasLiquidations NOTIFY sessionChanged)
     Q_PROPERTY(bool hasCandles READ hasCandles NOTIFY sessionChanged)
     Q_PROPERTY(bool hasCandles2 READ hasCandles2 NOTIFY sessionChanged)
     Q_PROPERTY(bool hasBookTicker READ hasBookTicker NOTIFY sessionChanged)
     Q_PROPERTY(bool hasOrderbook READ hasOrderbook NOTIFY sessionChanged)
-    Q_PROPERTY(bool hasMarkPrice READ hasMarkPrice NOTIFY sessionChanged)
-    Q_PROPERTY(bool hasIndexPrice READ hasIndexPrice NOTIFY sessionChanged)
-    Q_PROPERTY(bool hasFunding READ hasFunding NOTIFY sessionChanged)
-    Q_PROPERTY(bool hasPriceLimit READ hasPriceLimit NOTIFY sessionChanged)
     Q_PROPERTY(bool gpuRendererAvailable READ gpuRendererAvailable CONSTANT)
     Q_PROPERTY(int tradeCount READ tradeCount NOTIFY sessionChanged)
     Q_PROPERTY(int candleCount READ candleCount NOTIFY sessionChanged)
@@ -84,12 +79,7 @@ class ChartController : public QObject {
             || !liveDataCache_.overlayRows.trades.empty()
             || !liveOverlayState_.trades.empty();
     }
-    bool hasLiquidations() const noexcept {
-        return !replay_.liquidations().empty()
-            || !liveDataCache_.stableRows.liquidations.empty()
-            || !liveDataCache_.overlayRows.liquidations.empty()
-            || !liveOverlayState_.liquidations.empty();
-    }
+
     bool hasCandles() const noexcept { return !replay_.candles().empty(); }
     bool hasCandles2() const noexcept { return !replay_.candles2().empty(); }
     bool hasBookTicker() const noexcept {
@@ -105,30 +95,10 @@ class ChartController : public QObject {
             || !liveDataCache_.overlayRows.depths.empty()
             || !liveOverlayState_.depths.empty();
     }
-    bool hasMarkPrice() const noexcept {
-        return !replay_.markPrices().empty()
-            || !liveDataCache_.stableRows.markPrices.empty()
-            || !liveDataCache_.overlayRows.markPrices.empty()
-            || !liveOverlayState_.markPrices.empty();
-    }
-    bool hasIndexPrice() const noexcept {
-        return !replay_.indexPrices().empty()
-            || !liveDataCache_.stableRows.indexPrices.empty()
-            || !liveDataCache_.overlayRows.indexPrices.empty()
-            || !liveOverlayState_.indexPrices.empty();
-    }
-    bool hasFunding() const noexcept {
-        return !replay_.fundings().empty()
-            || !liveDataCache_.stableRows.fundings.empty()
-            || !liveDataCache_.overlayRows.fundings.empty()
-            || !liveOverlayState_.fundings.empty();
-    }
-    bool hasPriceLimit() const noexcept {
-        return !replay_.priceLimits().empty()
-            || !liveDataCache_.stableRows.priceLimits.empty()
-            || !liveDataCache_.overlayRows.priceLimits.empty()
-            || !liveOverlayState_.priceLimits.empty();
-    }
+
+
+
+
     bool gpuRendererAvailable() const noexcept { return gpuRendererAvailable_; }
 
     int tradeCount() const { return static_cast<int>(replay_.trades().size()); }
@@ -148,39 +118,27 @@ class ChartController : public QObject {
     Q_INVOKABLE bool loadSession(const QString& dir);
     Q_INVOKABLE bool loadSessionForLayers(const QString& dir,
                                           bool tradesVisible,
-                                          bool liquidationsVisible,
                                           bool candlesVisible,
                                           bool candles2Visible,
                                           bool orderbookVisible,
-                                          bool bookTickerVisible,
-                                          bool markPriceVisible,
-                                          bool indexPriceVisible,
-                                          bool fundingVisible,
-                                          bool priceLimitVisible);
+                                          bool bookTickerVisible);
     Q_INVOKABLE bool loadRecordedSession(const QString& dir);
     Q_INVOKABLE bool loadRecordedTrades();
-    Q_INVOKABLE bool loadRecordedLiquidations();
     Q_INVOKABLE bool loadRecordedCandles();
     Q_INVOKABLE bool loadRecordedCandles2();
     Q_INVOKABLE bool loadRecordedBookTicker();
-    Q_INVOKABLE bool loadRecordedMarkPrice();
-    Q_INVOKABLE bool loadRecordedIndexPrice();
-    Q_INVOKABLE bool loadRecordedFunding();
-    Q_INVOKABLE bool loadRecordedPriceLimit();
     Q_INVOKABLE bool loadRecordedOrderbook();
     Q_INVOKABLE void setActive(bool active);
     Q_INVOKABLE bool activateLiveSource(const QString& sourceId, const QString& sessionPath = QString{});
     Q_INVOKABLE void activateLiveOnlyMode();
     Q_INVOKABLE void resetSession();
     Q_INVOKABLE bool addTradesFile(const QString& path);
-    Q_INVOKABLE bool addLiquidationsFile(const QString& path);
     Q_INVOKABLE bool addCandlesFile(const QString& path);
     Q_INVOKABLE bool addBookTickerFile(const QString& path);
     Q_INVOKABLE bool addDepthFile(const QString& path);
     Q_INVOKABLE void finalizeFiles();
     Q_INVOKABLE void setLiveUpdateIntervalMs(int intervalMs);
     Q_INVOKABLE int liveUpdateIntervalMs() const noexcept;
-    Q_INVOKABLE QString performanceDiagnostics() const;
     void setLiveDataProvider(std::unique_ptr<ILiveDataProvider> provider);
 
     Q_INVOKABLE void setViewport(qint64 tsMin, qint64 tsMax,
@@ -306,7 +264,7 @@ class ChartController : public QObject {
     void initializeViewportFromLiveDataOnce_() noexcept;
     void applyRecordedRenderWindowViewport_() noexcept;
     bool loadRecordedChannel_(const QString& channelName);
-    void noteRecordedLoad_(QString label, std::uint64_t loadNs, std::size_t rowsLoaded);
+    void noteRecordedLoad_(QString label, std::size_t rowsLoaded);
     QString recordedLoadStatus_(QStringView prefix) const;
     void markUserViewportControl_() noexcept;
     std::int64_t latestRenderableTsNs_() const noexcept;
@@ -328,7 +286,6 @@ class ChartController : public QObject {
     QString sourceSymbol_{};
     QString statusText_{"No session loaded"};
     QString lastRecordedLoadLabel_{};
-    std::uint64_t lastRecordedLoadNs_{0};
     std::size_t lastRecordedLoadRows_{0};
     bool loaded_{false};
     bool active_{false};

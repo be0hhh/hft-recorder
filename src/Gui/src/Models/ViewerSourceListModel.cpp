@@ -72,8 +72,9 @@ BacktestResultSummary readBacktestResultSummary(const QString& manifestPath) {
     const QJsonObject root = doc.object();
     const QString type = root.value(QStringLiteral("type")).toString();
     summary.type = type;
-    summary.valid = type == QStringLiteral("run.result.v3") || type == QStringLiteral("sweep.result.v1");
-    summary.selectable = type == QStringLiteral("run.result.v3");
+    summary.selectable = type == QStringLiteral("run.result") &&
+        root.value(QStringLiteral("schema_version")).toDouble(-1.0) == 4.0;
+    summary.valid = summary.selectable || type == QStringLiteral("sweep.result.v1");
     if (type == QStringLiteral("sweep.result.v1")) {
         const qint64 points = root.value(QStringLiteral("points_evaluated")).toInteger();
         summary.rightText = points > 0 ? QStringLiteral("sweep %1 pts").arg(points) : QStringLiteral("sweep");

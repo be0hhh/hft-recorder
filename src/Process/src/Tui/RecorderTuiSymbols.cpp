@@ -158,12 +158,7 @@ ChannelSelection generatedMarketDataChannels(const RecorderTuiVenueSpec& venue) 
     channels.trades = true;
     channels.bookTicker = true;
     channels.orderbook = true;
-    const bool derivatives = venue.market != "spot";
-    channels.liquidations = derivatives;
-    channels.markPrice = derivatives;
-    channels.indexPrice = derivatives;
-    channels.funding = derivatives;
-    channels.priceLimit = derivatives && (venue.exchange == "bybit" || venue.exchange == "okx");
+    (void)venue;
     return channels;
 }
 

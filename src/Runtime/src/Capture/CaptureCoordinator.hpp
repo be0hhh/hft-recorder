@@ -47,11 +47,9 @@ struct CaptureConfig {
     std::uint32_t tradesHistoryPageLimit{1000u};
     std::uint32_t tradesHistoryMaxRows{0u};
     std::vector<std::string> tradesAliases{};
-    std::vector<std::string> liquidationAliases{};
     std::vector<std::string> bookTickerAliases{};
     std::vector<std::string> orderbookAliases{};
     std::string tradesRequestCommand{};
-    std::string liquidationRequestCommand{};
     std::string bookTickerRequestCommand{};
     std::string orderbookRequestCommand{};
     std::string detailedCandlesTimeframe{"15m"};
@@ -65,13 +63,8 @@ struct CaptureConfig {
 
 struct ExternalCaptureChannels {
     bool trades{false};
-    bool liquidations{false};
     bool bookTicker{false};
     bool orderbook{false};
-    bool markPrice{false};
-    bool indexPrice{false};
-    bool funding{false};
-    bool priceLimit{false};
 };
 
 class CaptureCoordinator : public market_data::IMarketDataIngress {
@@ -83,27 +76,12 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status startTrades(const CaptureConfig& config) noexcept;
     Status requestStopTrades() noexcept;
     Status stopTrades() noexcept;
-    Status startLiquidations(const CaptureConfig& config) noexcept;
-    Status requestStopLiquidations() noexcept;
-    Status stopLiquidations() noexcept;
     Status startBookTicker(const CaptureConfig& config) noexcept;
     Status requestStopBookTicker() noexcept;
     Status stopBookTicker() noexcept;
     Status startOrderbook(const CaptureConfig& config) noexcept;
     Status requestStopOrderbook() noexcept;
     Status stopOrderbook() noexcept;
-    Status startMarkPrice(const CaptureConfig& config) noexcept;
-    Status requestStopMarkPrice() noexcept;
-    Status stopMarkPrice() noexcept;
-    Status startIndexPrice(const CaptureConfig& config) noexcept;
-    Status requestStopIndexPrice() noexcept;
-    Status stopIndexPrice() noexcept;
-    Status startFunding(const CaptureConfig& config) noexcept;
-    Status requestStopFunding() noexcept;
-    Status stopFunding() noexcept;
-    Status startPriceLimit(const CaptureConfig& config) noexcept;
-    Status requestStopPriceLimit() noexcept;
-    Status stopPriceLimit() noexcept;
     Status finalizeSession() noexcept;
     Status captureCandlesOnce(const CaptureConfig& config) noexcept;
     Status probeDetailedCandlesOnce(const CaptureConfig& config) noexcept;
@@ -114,13 +92,9 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
                                 const ExternalCaptureChannels& enabledChannels,
                                 const ExternalCaptureChannels& requestedChannels) noexcept;
     Status appendExternalTrade(const replay::TradeRow& row) noexcept;
-    Status appendExternalLiquidation(const replay::LiquidationRow& row) noexcept;
     Status appendExternalBookTicker(const replay::BookTickerRow& row) noexcept;
-    Status appendExternalMarkPrice(const replay::MarkPriceRow& row) noexcept;
-    Status appendExternalIndexPrice(const replay::IndexPriceRow& row) noexcept;
-    Status appendExternalFunding(const replay::FundingRow& row) noexcept;
-    Status appendExternalPriceLimit(const replay::PriceLimitRow& row) noexcept;
     Status appendExternalDepth(const replay::DepthRow& row) noexcept;
+    void noteExternalCaptureLoss(std::string_view channel,std::uint64_t count) noexcept;
     void noteExternalChannelError(std::string_view channel, std::string_view error) noexcept;
     void noteExternalUnsupportedChannel(std::string_view channel, std::string_view error) noexcept;
     void noteExternalUnroutableEvent(std::string_view channel, std::string_view error) noexcept;
@@ -133,20 +107,10 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     std::filesystem::path sessionDirCopy() const;
     const std::filesystem::path& sessionDir() const noexcept { return sessionDir_; }
     bool tradesRunning() const noexcept { return tradesRunning_.load(std::memory_order_acquire); }
-    bool liquidationsRunning() const noexcept { return liquidationsRunning_.load(std::memory_order_acquire); }
     bool bookTickerRunning() const noexcept { return bookTickerRunning_.load(std::memory_order_acquire); }
     bool orderbookRunning() const noexcept { return orderbookRunning_.load(std::memory_order_acquire); }
-    bool markPriceRunning() const noexcept { return markPriceRunning_.load(std::memory_order_acquire); }
-    bool indexPriceRunning() const noexcept { return indexPriceRunning_.load(std::memory_order_acquire); }
-    bool fundingRunning() const noexcept { return fundingRunning_.load(std::memory_order_acquire); }
-    bool priceLimitRunning() const noexcept { return priceLimitRunning_.load(std::memory_order_acquire); }
     std::uint64_t tradesCount() const noexcept { return tradesCount_.load(std::memory_order_relaxed); }
-    std::uint64_t liquidationsCount() const noexcept { return liquidationsCount_.load(std::memory_order_relaxed); }
     std::uint64_t bookTickerCount() const noexcept { return bookTickerCount_.load(std::memory_order_relaxed); }
-    std::uint64_t markPriceCount() const noexcept { return markPriceCount_.load(std::memory_order_relaxed); }
-    std::uint64_t indexPriceCount() const noexcept { return indexPriceCount_.load(std::memory_order_relaxed); }
-    std::uint64_t fundingCount() const noexcept { return fundingCount_.load(std::memory_order_relaxed); }
-    std::uint64_t priceLimitCount() const noexcept { return priceLimitCount_.load(std::memory_order_relaxed); }
     std::uint64_t depthCount() const noexcept { return depthCount_.load(std::memory_order_relaxed); }
     std::uint64_t candlesCount() const noexcept { return candlesCount_.load(std::memory_order_relaxed); }
     std::uint64_t candles2Count() const noexcept { return candles2Count_.load(std::memory_order_relaxed); }
@@ -176,11 +140,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     enum class ManagedStreamKind : std::uint8_t {
         Trades,
         BookTicker,
-        Orderbook,
-        MarkPrice,
-        IndexPrice,
-        Funding,
-        PriceLimit
+        Orderbook
     };
 
     Status startManagedMarketData_(const CaptureConfig& config, ManagedStreamKind stream) noexcept;
@@ -188,8 +148,6 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     void joinManagedMarketDataIfIdle_() noexcept;
     bool anyManagedMarketDataDesired_() const noexcept;
     void marketDataManagerLoop_(CaptureConfig config) noexcept;
-    void referenceDataManagerLoop_(CaptureConfig config) noexcept;
-    void liquidationsLoop_(CaptureConfig config) noexcept;
     void refreshRecordingManifestLocked_(std::int64_t nowNs) noexcept;
     Status flushRecordingManifestIfDue_(std::int64_t& nextFlushNs) noexcept;
     void syncManifestIntegrityFromReplay_() noexcept;
@@ -200,18 +158,12 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status writeSupportArtifacts() noexcept;
     bool liveCacheEnabled() const noexcept { return liveCacheEnabled_.load(std::memory_order_acquire); }
     Status appendLiveTrade(const replay::TradeRow& row) noexcept;
-    Status appendLiveLiquidation(const replay::LiquidationRow& row) noexcept;
     Status appendLiveBookTicker(const replay::BookTickerRow& row) noexcept;
-    Status appendLiveMarkPrice(const replay::MarkPriceRow& row) noexcept;
-    Status appendLiveIndexPrice(const replay::IndexPriceRow& row) noexcept;
-    Status appendLiveFunding(const replay::FundingRow& row) noexcept;
-    Status appendLivePriceLimit(const replay::PriceLimitRow& row) noexcept;
     Status appendLiveDepth(const replay::DepthRow& row) noexcept;
 
     SessionManifest manifest_{};
     std::filesystem::path sessionDir_{};
     ChannelJsonWriter tradesWriter_{};
-    ChannelJsonWriter liquidationsWriter_{};
     ChannelJsonWriter bookTickerWriter_{};
     ChannelJsonWriter candlesWriter_{};
     ChannelJsonWriter candles2Writer_{};
@@ -220,55 +172,31 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     storage::CompositeEventSink eventSink_{};
     CaptureConfig config_{};
     std::atomic<bool> tradesRunning_{false};
-    std::atomic<bool> liquidationsRunning_{false};
     std::atomic<bool> bookTickerRunning_{false};
     std::atomic<bool> orderbookRunning_{false};
-    std::atomic<bool> markPriceRunning_{false};
-    std::atomic<bool> indexPriceRunning_{false};
-    std::atomic<bool> fundingRunning_{false};
-    std::atomic<bool> priceLimitRunning_{false};
     std::atomic<bool> tradesStop_{false};
-    std::atomic<bool> liquidationsStop_{false};
     std::atomic<bool> bookTickerStop_{false};
     std::atomic<bool> orderbookStop_{false};
-    std::atomic<bool> markPriceStop_{false};
-    std::atomic<bool> indexPriceStop_{false};
-    std::atomic<bool> fundingStop_{false};
-    std::atomic<bool> priceLimitStop_{false};
     std::atomic<std::uint64_t> tradesCount_{0};
-    std::atomic<std::uint64_t> liquidationsCount_{0};
     std::atomic<std::uint64_t> bookTickerCount_{0};
-    std::atomic<std::uint64_t> markPriceCount_{0};
-    std::atomic<std::uint64_t> indexPriceCount_{0};
-    std::atomic<std::uint64_t> fundingCount_{0};
-    std::atomic<std::uint64_t> priceLimitCount_{0};
     std::atomic<std::uint64_t> depthCount_{0};
     std::atomic<std::uint64_t> candlesCount_{0};
     std::atomic<std::uint64_t> candles2Count_{0};
     std::atomic<std::uint64_t> tradesCaptureSeq_{0};
-    std::atomic<std::uint64_t> liquidationsCaptureSeq_{0};
     std::atomic<std::uint64_t> bookTickerCaptureSeq_{0};
     std::atomic<std::uint64_t> ingestSeq_{0};
     std::atomic<bool> liveCacheEnabled_{false};
     bool instrumentMetadataReady_{false};
     mutable std::mutex stateMutex_{};
     std::thread marketDataThread_{};
-    std::thread referenceDataThread_{};
     std::thread tradesThread_{};
-    std::thread liquidationsThread_{};
     std::thread bookTickerThread_{};
     std::thread orderbookThread_{};
     std::atomic<bool> marketDataRunning_{false};
     std::atomic<bool> marketDataStop_{false};
-    std::atomic<bool> referenceDataRunning_{false};
-    std::atomic<bool> referenceDataStop_{false};
     std::atomic<bool> desiredTrades_{false};
     std::atomic<bool> desiredBookTicker_{false};
     std::atomic<bool> desiredOrderbook_{false};
-    std::atomic<bool> desiredMarkPrice_{false};
-    std::atomic<bool> desiredIndexPrice_{false};
-    std::atomic<bool> desiredFunding_{false};
-    std::atomic<bool> desiredPriceLimit_{false};
     std::string lastError_{};
 };
 

@@ -17,13 +17,8 @@ enum class RecorderTuiExecutionMode : std::uint8_t {
 
 struct ChannelSelection {
     bool trades{false};
-    bool liquidations{false};
     bool bookTicker{false};
     bool orderbook{false};
-    bool markPrice{false};
-    bool indexPrice{false};
-    bool funding{false};
-    bool priceLimit{false};
 };
 
 struct RecorderTuiJob {

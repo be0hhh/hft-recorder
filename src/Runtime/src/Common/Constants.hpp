@@ -28,9 +28,6 @@ inline constexpr std::size_t kSpscCapacityBookTicker = 2048;
 inline constexpr std::size_t kSpscCapacityDepth      = 8192;
 inline constexpr std::size_t kSpscCapacitySnapshot   = 16;
 
-// Prometheus push interval (seconds).
-inline constexpr std::uint32_t kMetricsPushIntervalSec = 10;
-
 // File format.
 inline constexpr std::uint32_t kFileMagic       = 0x43585243u;  // 'CXRC'
 inline constexpr std::uint16_t kFileVersion     = 1;

@@ -6,7 +6,6 @@
 #include <QMetaObject>
 #include <QUrl>
 
-#include "../../../Process/src/MetricsBootstrap.hpp"
 #include "../Api/ChartApiServer.hpp"
 #include "../Models/RecordingCatalog.hpp"
 #include "../Models/SessionListModel.hpp"
@@ -62,7 +61,6 @@ int main(int argc, char* argv[]) {
     if (qEnvironmentVariableIsEmpty("CXET_WS_RUNTIME")) qputenv("CXET_WS_RUNTIME", "sync");
 #endif
     QGuiApplication app(argc, argv);
-    hftrec::app::MetricsBootstrap metricsBootstrap{};
     QCoreApplication::setOrganizationName(QStringLiteral("hftrec"));
     QCoreApplication::setApplicationName(QStringLiteral("hft-recorder"));
     const QString requestedMode = qEnvironmentVariable("HFTREC_RENDER_MODE", "cpu").trimmed().toLower();

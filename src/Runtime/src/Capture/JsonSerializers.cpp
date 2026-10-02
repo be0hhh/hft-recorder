@@ -5,7 +5,6 @@
 
 #include "../Common/JsonString.hpp"
 #include "../Replay/EventRows.hpp"
-#include "cxet/Primitives/Composite/OrderBookTapeRuntimeV1.hpp"
 
 namespace hftrec::capture {
 
@@ -63,9 +62,9 @@ void appendFlatOrderbook(std::string& out, const std::vector<replay::PricePair>&
 }
 
 std::uint64_t taggedTapeTimestamp(std::int64_t tsNs) noexcept {
-    TimeNs ts{};
-    ts.raw = static_cast<std::uint64_t>(tsNs);
-    return cxet::composite::makeOrderBookTapeTimestampWord(ts);
+    // Immutable recorded JSON tape encoding, independent of native market payloads.
+    constexpr std::uint64_t tag=1ull<<63u;
+    return tag|(static_cast<std::uint64_t>(tsNs)&~tag);
 }
 
 }  // namespace
@@ -97,36 +96,6 @@ std::string renderTradeJsonLine(const replay::TradeRow& trade,
                                 const std::vector<std::string>& aliases) {
     (void)aliases;
     return renderTradeJsonLine(trade);
-}
-
-std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation) {
-    std::string out;
-    out.reserve(384);
-    out.push_back('[');
-    appendInt(out, liquidation.priceE8); out.push_back(',');
-    appendInt(out, liquidation.qtyE8); out.push_back(',');
-    appendInt(out, liquidation.side); out.push_back(',');
-    appendInt(out, liquidation.tsNs); out.push_back(',');
-    appendInt(out, liquidation.avgPriceE8); out.push_back(',');
-    appendInt(out, liquidation.filledQtyE8); out.push_back(',');
-    appendString(out, liquidation.symbol); out.push_back(',');
-    appendString(out, liquidation.exchange); out.push_back(',');
-    appendString(out, liquidation.market); out.push_back(',');
-    appendInt(out, liquidation.orderType); out.push_back(',');
-    appendInt(out, liquidation.timeInForce); out.push_back(',');
-    appendInt(out, liquidation.status); out.push_back(',');
-    appendInt(out, liquidation.sourceMode); out.push_back(',');
-    appendInt(out, liquidation.captureSeq); out.push_back(',');
-    appendInt(out, liquidation.ingestSeq); out.push_back(',');
-    appendArrival(out, liquidation.arrival);
-    out.push_back(']');
-    return out;
-}
-
-std::string renderLiquidationJsonLine(const replay::LiquidationRow& liquidation,
-                                      const std::vector<std::string>& aliases) {
-    (void)aliases;
-    return renderLiquidationJsonLine(liquidation);
 }
 
 std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker) {
@@ -177,62 +146,6 @@ std::string renderCandleJsonLine(const replay::CandleRow& candle) {
     appendInt(out, candle.captureSeq); out.push_back(',');
     appendInt(out, candle.ingestSeq); out.push_back(',');
     appendArrival(out, candle.arrival);
-    out.push_back(']');
-    return out;
-}
-
-std::string renderMarkPriceJsonLine(const replay::MarkPriceRow& row) {
-    std::string out;
-    out.reserve(224);
-    out.push_back('[');
-    appendInt(out, row.tsNs); out.push_back(',');
-    appendInt(out, row.markPriceE8); out.push_back(',');
-    appendInt(out, row.captureSeq); out.push_back(',');
-    appendInt(out, row.ingestSeq); out.push_back(',');
-    appendArrival(out, row.arrival);
-    out.push_back(']');
-    return out;
-}
-
-std::string renderIndexPriceJsonLine(const replay::IndexPriceRow& row) {
-    std::string out;
-    out.reserve(224);
-    out.push_back('[');
-    appendInt(out, row.tsNs); out.push_back(',');
-    appendInt(out, row.indexPriceE8); out.push_back(',');
-    appendInt(out, row.captureSeq); out.push_back(',');
-    appendInt(out, row.ingestSeq); out.push_back(',');
-    appendArrival(out, row.arrival);
-    out.push_back(']');
-    return out;
-}
-
-std::string renderFundingJsonLine(const replay::FundingRow& row) {
-    std::string out;
-    out.reserve(256);
-    out.push_back('[');
-    appendInt(out, row.tsNs); out.push_back(',');
-    appendInt(out, row.fundingRateE8); out.push_back(',');
-    appendInt(out, row.fundingTsNs); out.push_back(',');
-    appendInt(out, row.nextFundingTsNs); out.push_back(',');
-    appendInt(out, row.captureSeq); out.push_back(',');
-    appendInt(out, row.ingestSeq); out.push_back(',');
-    appendArrival(out, row.arrival);
-    out.push_back(']');
-    return out;
-}
-
-std::string renderPriceLimitJsonLine(const replay::PriceLimitRow& row) {
-    std::string out;
-    out.reserve(256);
-    out.push_back('[');
-    appendInt(out, row.tsNs); out.push_back(',');
-    appendInt(out, row.buyLimitE8); out.push_back(',');
-    appendInt(out, row.sellLimitE8); out.push_back(',');
-    appendInt(out, static_cast<int>(row.enabled)); out.push_back(',');
-    appendInt(out, row.captureSeq); out.push_back(',');
-    appendInt(out, row.ingestSeq); out.push_back(',');
-    appendArrival(out, row.arrival);
     out.push_back(']');
     return out;
 }

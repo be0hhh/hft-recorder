@@ -5,18 +5,16 @@
 #include <vector>
 
 #include "CaptureCoordinator.hpp"
+#if HFTREC_WITH_CXET
+#include "cxet/Runtime/Market/ConfiguredMarketOwner.hpp"
+#endif
 
 namespace hftrec::capture {
 
 enum class CaptureChannel : std::uint8_t {
     Trades,
-    Liquidations,
     BookTicker,
     Orderbook,
-    MarkPrice,
-    IndexPrice,
-    Funding,
-    PriceLimit,
 };
 
 enum class CaptureChannelSkipReason : std::uint8_t {
@@ -54,6 +52,11 @@ using CaptureChannelAvailabilityFn = bool (*)(const CaptureConfig& config,
                                               CaptureChannel channel,
                                               std::string& detail,
                                               void* userData);
+
+#if HFTREC_WITH_CXET
+bool makeConfiguredCaptureSource(const CaptureConfig&,CaptureChannel,
+    cxet::runtime::market::ConfiguredMarketSource&,std::string&) noexcept;
+#endif
 
 const char* captureChannelName(CaptureChannel channel) noexcept;
 const char* captureChannelSkipReasonName(CaptureChannelSkipReason reason) noexcept;

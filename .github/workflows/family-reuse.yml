@@ -50,6 +50,8 @@ jobs:
           if not isinstance(event, dict) or not isinstance(event.get("client_payload"), dict):
               fail("family-reuse client_payload is required.")
           payload = event["client_payload"]
+          if payload.get("schema_version") != 5:
+              fail("family-reuse requires schema_version=5.")
           controller_sha = require_sha(payload.get("controller_sha"), "controller_sha")
           snapshot = payload.get("snapshot")
           if not isinstance(snapshot, dict):

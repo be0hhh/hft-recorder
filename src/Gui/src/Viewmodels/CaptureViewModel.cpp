@@ -103,7 +103,6 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
     outputDirectory_ = defaultOutputDirectory();
     envPath_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../.env"));
     tradesAvailableAliases_ = detail::loadAliasesForChannel("trades");
-    liquidationsAvailableAliases_ = detail::loadAliasesForChannel("liquidations");
     bookTickerAvailableAliases_ = detail::loadAliasesForChannel("bookticker");
     orderbookAvailableAliases_ = detail::loadAliasesForChannel("orderbook");
     venueSymbolsTexts_ = defaultVenueSymbolsTexts();
@@ -147,26 +146,15 @@ QString CaptureViewModel::captureUnavailableReason() const {
 }
 bool CaptureViewModel::sessionOpen() const { return !coordinators_.empty(); }
 bool CaptureViewModel::tradesRunning() const { return lastTradesRunning_; }
-bool CaptureViewModel::liquidationsRunning() const { return lastLiquidationsRunning_; }
 bool CaptureViewModel::bookTickerRunning() const { return lastBookTickerRunning_; }
 bool CaptureViewModel::orderbookRunning() const { return lastOrderbookRunning_; }
-bool CaptureViewModel::markPriceRunning() const { return lastMarkPriceRunning_; }
-bool CaptureViewModel::indexPriceRunning() const { return lastIndexPriceRunning_; }
-bool CaptureViewModel::fundingRunning() const { return lastFundingRunning_; }
-bool CaptureViewModel::priceLimitRunning() const { return lastPriceLimitRunning_; }
 qulonglong CaptureViewModel::tradesCount() const { return lastTradesCount_; }
-qulonglong CaptureViewModel::liquidationsCount() const { return lastLiquidationsCount_; }
 qulonglong CaptureViewModel::bookTickerCount() const { return lastBookTickerCount_; }
-qulonglong CaptureViewModel::markPriceCount() const { return lastMarkPriceCount_; }
-qulonglong CaptureViewModel::indexPriceCount() const { return lastIndexPriceCount_; }
-qulonglong CaptureViewModel::fundingCount() const { return lastFundingCount_; }
-qulonglong CaptureViewModel::priceLimitCount() const { return lastPriceLimitCount_; }
 qulonglong CaptureViewModel::candlesCount() const { return lastCandlesCount_; }
 qulonglong CaptureViewModel::candles2Count() const { return lastCandles2Count_; }
 qulonglong CaptureViewModel::depthCount() const { return lastDepthCount_; }
 void CaptureViewModel::refreshStats() { refreshState(detail::CaptureRefreshMode::Full); }
 QStringList CaptureViewModel::tradesAvailableAliases() const { return tradesAvailableAliases_; }
-QStringList CaptureViewModel::liquidationsAvailableAliases() const { return liquidationsAvailableAliases_; }
 QStringList CaptureViewModel::bookTickerAvailableAliases() const { return bookTickerAvailableAliases_; }
 QStringList CaptureViewModel::orderbookAvailableAliases() const { return orderbookAvailableAliases_; }
 
@@ -188,15 +176,7 @@ QString CaptureViewModel::tradesRequestPreview() const {
                                        apiSlot_);
 }
 
-QString CaptureViewModel::liquidationsRequestPreview() const {
-    return detail::buildRequestPreview(QStringLiteral("liquidations"),
-                                       liquidationsAvailableAliases_,
-                                       selectedLiquidationsAliases_,
-                                       selectedVenueKeys_,
-                                       venueSymbolsTexts_,
-                                       symbolsText_,
-                                       apiSlot_);
-}
+
 
 QString CaptureViewModel::bookTickerRequestPreview() const {
     return detail::buildRequestPreview(QStringLiteral("bookticker"),
@@ -565,11 +545,9 @@ std::vector<capture::CaptureConfig> CaptureViewModel::makeConfigs() const {
                                venueSymbolsTexts_,
                                symbolsText_,
                                tradesAvailableAliases_,
-                               liquidationsAvailableAliases_,
                                bookTickerAvailableAliases_,
                                orderbookAvailableAliases_,
                                selectedTradesAliases_,
-                               selectedLiquidationsAliases_,
                                selectedBookTickerAliases_,
                                selectedOrderbookAliases_,
                                tradesHistoryWarmupSec_);
@@ -577,7 +555,6 @@ std::vector<capture::CaptureConfig> CaptureViewModel::makeConfigs() const {
 
 QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& channel) {
     if (channel == QStringLiteral("trades")) return &selectedTradesAliases_;
-    if (channel == QStringLiteral("liquidations")) return &selectedLiquidationsAliases_;
     if (channel == QStringLiteral("bookticker")) return &selectedBookTickerAliases_;
     if (channel == QStringLiteral("orderbook")) return &selectedOrderbookAliases_;
     return nullptr;
@@ -585,7 +562,6 @@ QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& channel
 
 const QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& channel) const {
     if (channel == QStringLiteral("trades")) return &selectedTradesAliases_;
-    if (channel == QStringLiteral("liquidations")) return &selectedLiquidationsAliases_;
     if (channel == QStringLiteral("bookticker")) return &selectedBookTickerAliases_;
     if (channel == QStringLiteral("orderbook")) return &selectedOrderbookAliases_;
     return nullptr;
@@ -593,7 +569,6 @@ const QStringList* CaptureViewModel::selectedAliasesForChannel_(const QString& c
 
 const QStringList* CaptureViewModel::availableAliasesForChannel_(const QString& channel) const {
     if (channel == QStringLiteral("trades")) return &tradesAvailableAliases_;
-    if (channel == QStringLiteral("liquidations")) return &liquidationsAvailableAliases_;
     if (channel == QStringLiteral("bookticker")) return &bookTickerAvailableAliases_;
     if (channel == QStringLiteral("orderbook")) return &orderbookAvailableAliases_;
     return nullptr;
@@ -661,7 +636,7 @@ void CaptureViewModel::loadSettings_() {
         settings_.value(QStringLiteral("capture/detailed_candles_leg1_venue_key"),
                         settings_.value(QStringLiteral("capture/detailed_candles_venue_key"), detailedCandlesVenueKey_))
             .toString());
-    detailedCandlesVenueKey_ = detailedVenueKey.isEmpty() ? QStringLiteral("binance_futures") : detailedVenueKey;
+    detailedCandlesVenueKey_ = detailedVenueKey.isEmpty() ? QStringLiteral("finam_spot") : detailedVenueKey;
     syncDetailedVenueFields(detailedCandlesVenueKey_, detailedCandlesExchange_, detailedCandlesMarket_);
 
     const auto detailedSymbol = settings_.value(QStringLiteral("capture/detailed_candles_leg1_symbol"),

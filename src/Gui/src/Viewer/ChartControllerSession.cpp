@@ -18,8 +18,6 @@
 #include <chrono>
 
 #include "../../../Runtime/src/Capture/SessionManifest.hpp"
-#include "../../../Runtime/src/Metrics/Metrics.hpp"
-#include "../../../Runtime/src/Replay/CxetReplaySessionLoader.hpp"
 
 namespace hftrec::gui::viewer {
 
@@ -49,12 +47,7 @@ QString liveModeLabel(int intervalMs) {
 
 bool hasRows(const LiveDataBatch& batch) noexcept {
     return !batch.trades.empty()
-        || !batch.liquidations.empty()
         || !batch.bookTickers.empty()
-        || !batch.markPrices.empty()
-        || !batch.indexPrices.empty()
-        || !batch.fundings.empty()
-        || !batch.priceLimits.empty()
         || !batch.depths.empty();
 }
 
@@ -148,23 +141,10 @@ std::size_t channelDeclaredCount(const QJsonObject& manifest, QStringView channe
 
 std::size_t replayRowCount(const hftrec::replay::SessionReplay& replay) noexcept {
     return replay.trades().size()
-        + replay.liquidations().size()
         + replay.candles().size()
         + replay.candles2().size()
         + replay.depths().size()
-        + replay.bookTickers().size()
-        + replay.markPrices().size()
-        + replay.indexPrices().size()
-        + replay.fundings().size()
-        + replay.priceLimits().size();
-}
-
-QString formatLoadNsAsMs(std::uint64_t ns) {
-    const std::uint64_t wholeMs = ns / 1000000ull;
-    const std::uint64_t hundredths = (ns % 1000000ull) / 10000ull;
-    return QStringLiteral("%1.%2ms")
-        .arg(static_cast<qulonglong>(wholeMs))
-        .arg(static_cast<int>(hundredths), 2, 10, QLatin1Char('0'));
+        + replay.bookTickers().size();
 }
 
 bool mergeStatus(Status& aggregate, Status next) noexcept {
@@ -216,8 +196,9 @@ CachedManifestSummary readManifestSummary(const std::filesystem::path& manifestP
     const QJsonObject root = doc.object();
     const QString type = root.value(QStringLiteral("type")).toString();
     summary.type = type;
-    summary.valid = type == QStringLiteral("run.result.v3") || type == QStringLiteral("sweep.result.v1");
-    summary.selectable = type == QStringLiteral("run.result.v3");
+    summary.selectable = type == QStringLiteral("run.result") &&
+        root.value(QStringLiteral("schema_version")).toDouble(-1.0) == 4.0;
+    summary.valid = summary.selectable || type == QStringLiteral("sweep.result.v1");
     if (type == QStringLiteral("sweep.result.v1")) {
         const qint64 points = root.value(QStringLiteral("points_evaluated")).toInteger();
         summary.rightText = points > 0 ? QStringLiteral("sweep %1 pts").arg(points) : QStringLiteral("sweep");
@@ -464,28 +445,15 @@ void ChartController::pollLiveData_() {
     const auto oldPriceMax = priceMaxE8_;
     const auto oldLoaded = loaded_;
     const bool oldHasTrades = hasTrades();
-    const bool oldHasLiquidations = hasLiquidations();
     const bool oldHasBookTicker = hasBookTicker();
     const bool oldHasOrderbook = hasOrderbook();
-    const bool oldHasMarkPrice = hasMarkPrice();
-    const bool oldHasIndexPrice = hasIndexPrice();
-    const bool oldHasFunding = hasFunding();
-    const bool oldHasPriceLimit = hasPriceLimit();
     const auto oldTradeCount = replay_.trades().size();
-    const auto oldLiquidationCount = replay_.liquidations().size();
     const auto oldDepthCount = replay_.depths().size();
     const auto oldBookTickerCount = replay_.bookTickers().size();
-    const auto oldMarkPriceCount = replay_.markPrices().size();
-    const auto oldIndexPriceCount = replay_.indexPrices().size();
-    const auto oldFundingCount = replay_.fundings().size();
-    const auto oldPriceLimitCount = replay_.priceLimits().size();
 
     bool reloadedSession = false;
     QString failureText{};
-    const auto pollStart = std::chrono::steady_clock::now();
     auto pollResult = liveDataProvider_->pollHot(liveDataBatchSeq_ + 1u);
-    hftrec::metrics::recordLivePoll(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::steady_clock::now() - pollStart).count()));
     auto nextLiveBatch = std::move(pollResult.batch);
     if (!isOk(pollResult.failureStatus) && !pollResult.failureDetail.empty()) {
         failureText = QStringLiteral("%1: %2")
@@ -562,10 +530,9 @@ void ChartController::pollLiveData_() {
     currentBookTickerIndex_ = -1;
 
     const auto nextStatus = isOk(replay_.status())
-        ? QStringLiteral("Live %1 | trades=%2 liq=%3 depth=%4 bookticker=%5")
+        ? QStringLiteral("Live %1 | trades=%2 depth=%3 bookticker=%4")
               .arg(liveModeLabel(liveUpdateIntervalMs_))
               .arg(replay_.trades().size() + liveDataStats_.tradesTotal)
-              .arg(replay_.liquidations().size() + liveDataStats_.liquidationsTotal)
               .arg(replay_.depths().size() + liveDataStats_.depthsTotal)
               .arg(replay_.bookTickers().size() + liveDataStats_.bookTickersTotal)
         : replayFailureText(replay_, replay_.status(), QStringLiteral("Live integrity failed"));
@@ -573,21 +540,11 @@ void ChartController::pollLiveData_() {
         || (priceMinE8_ != oldPriceMin) || (priceMaxE8_ != oldPriceMax);
     const bool sessionChangedFlag = (loaded_ != oldLoaded)
         || (hasTrades() != oldHasTrades)
-        || (hasLiquidations() != oldHasLiquidations)
         || (hasBookTicker() != oldHasBookTicker)
         || (hasOrderbook() != oldHasOrderbook)
-        || (hasMarkPrice() != oldHasMarkPrice)
-        || (hasIndexPrice() != oldHasIndexPrice)
-        || (hasFunding() != oldHasFunding)
-        || (hasPriceLimit() != oldHasPriceLimit)
         || (replay_.trades().size() != oldTradeCount)
-        || (replay_.liquidations().size() != oldLiquidationCount)
         || (replay_.depths().size() != oldDepthCount)
-        || (replay_.bookTickers().size() != oldBookTickerCount)
-        || (replay_.markPrices().size() != oldMarkPriceCount)
-        || (replay_.indexPrices().size() != oldIndexPriceCount)
-        || (replay_.fundings().size() != oldFundingCount)
-        || (replay_.priceLimits().size() != oldPriceLimitCount);
+        || (replay_.bookTickers().size() != oldBookTickerCount);
 
     if (reloadedSession || sessionChangedFlag) emit sessionChanged();
     else if (hasLiveDataBatch) emit liveDataChanged();
@@ -628,7 +585,6 @@ bool ChartController::activateLiveSource(const QString& sourceId, const QString&
     sourceMarket_ = identity.market;
     sourceSymbol_ = identity.symbol;
     lastRecordedLoadLabel_.clear();
-    lastRecordedLoadNs_ = 0;
     lastRecordedLoadRows_ = 0;
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
@@ -673,7 +629,6 @@ void ChartController::activateLiveOnlyMode() {
     sourceMarket_.clear();
     sourceSymbol_.clear();
     lastRecordedLoadLabel_.clear();
-    lastRecordedLoadNs_ = 0;
     lastRecordedLoadRows_ = 0;
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
@@ -703,7 +658,6 @@ void ChartController::resetSession() {
     sourceMarket_.clear();
     sourceSymbol_.clear();
     lastRecordedLoadLabel_.clear();
-    lastRecordedLoadNs_ = 0;
     lastRecordedLoadRows_ = 0;
     tsMin_ = tsMax_ = priceMinE8_ = priceMaxE8_ = 0;
     currentBookTickerIndex_ = -1;
@@ -739,24 +693,6 @@ bool ChartController::addTradesFile(const QString& path) {
     return true;
 }
 
-bool ChartController::addLiquidationsFile(const QString& path) {
-    if (path.trimmed().isEmpty()) {
-        statusText_ = QStringLiteral("No path. Enter a liquidations.jsonl path first.");
-        emit statusChanged();
-        return false;
-    }
-
-    const auto st = replay_.addLiquidationsFile(stripFileUrl(path));
-    if (!isOk(st)) {
-        statusText_ = replayFailureText(replay_, st, QStringLiteral("liquidations load failed"));
-        emit statusChanged();
-        return false;
-    }
-
-    statusText_ = QStringLiteral("+ liquidations (now %1 rows)").arg(replay_.liquidations().size());
-    emit statusChanged();
-    return true;
-}
 
 bool ChartController::addCandlesFile(const QString& path) {
     if (path.trimmed().isEmpty()) {
@@ -848,31 +784,22 @@ void ChartController::finalizeFiles() {
     emit viewportChanged();
 }
 
-void ChartController::noteRecordedLoad_(QString label, std::uint64_t loadNs, std::size_t rowsLoaded) {
+void ChartController::noteRecordedLoad_(QString label, std::size_t rowsLoaded) {
     lastRecordedLoadLabel_ = std::move(label);
-    lastRecordedLoadNs_ = loadNs;
     lastRecordedLoadRows_ = rowsLoaded;
-    hftrec::metrics::recordReplayLoad(rowsLoaded, loadNs);
 }
 
 QString ChartController::recordedLoadStatus_(QStringView prefix) const {
-    QString counts = QStringLiteral("tr=%1 liq=%2 C=%3 C2=%4 depth=%5 bt=%6")
+    QString counts = QStringLiteral("tr=%1 C=%2 C2=%3 depth=%4 bt=%5")
         .arg(QString::number(static_cast<qulonglong>(replay_.trades().size())))
-        .arg(QString::number(static_cast<qulonglong>(replay_.liquidations().size())))
         .arg(QString::number(static_cast<qulonglong>(replay_.candles().size())))
         .arg(QString::number(static_cast<qulonglong>(replay_.candles2().size())))
         .arg(QString::number(static_cast<qulonglong>(replay_.depths().size())))
         .arg(QString::number(static_cast<qulonglong>(replay_.bookTickers().size())));
-    counts += QStringLiteral(" mark=%1 index=%2 fund=%3 limits=%4")
-        .arg(QString::number(static_cast<qulonglong>(replay_.markPrices().size())))
-        .arg(QString::number(static_cast<qulonglong>(replay_.indexPrices().size())))
-        .arg(QString::number(static_cast<qulonglong>(replay_.fundings().size())))
-        .arg(QString::number(static_cast<qulonglong>(replay_.priceLimits().size())));
-    return QStringLiteral("%1 %2 rows=%3 time=%4 | %5")
+    return QStringLiteral("%1 %2 rows=%3 | %4")
         .arg(prefix.toString(),
              lastRecordedLoadLabel_.isEmpty() ? QStringLiteral("session") : lastRecordedLoadLabel_,
              QString::number(static_cast<qulonglong>(lastRecordedLoadRows_)),
-             formatLoadNsAsMs(lastRecordedLoadNs_),
              counts);
 }
 
@@ -883,21 +810,30 @@ bool ChartController::loadRecordedChannel_(const QString& channelName) {
         return false;
     }
 
+    if (channelName != QStringLiteral("trades") &&
+        channelName != QStringLiteral("candles") &&
+        channelName != QStringLiteral("candles2") &&
+        channelName != QStringLiteral("bookticker")) {
+        statusText_ = QStringLiteral("Unsupported recorded channel.");
+        emit statusChanged();
+        return false;
+    }
     const bool alreadyLoaded =
         (channelName == QStringLiteral("trades") && !replay_.trades().empty())
-        || (channelName == QStringLiteral("liquidations") && !replay_.liquidations().empty())
         || (channelName == QStringLiteral("candles") && !replay_.candles().empty())
         || (channelName == QStringLiteral("candles2") && !replay_.candles2().empty())
-        || (channelName == QStringLiteral("bookticker") && !replay_.bookTickers().empty())
-        || (channelName == QStringLiteral("mark_price") && !replay_.markPrices().empty())
-        || (channelName == QStringLiteral("index_price") && !replay_.indexPrices().empty())
-        || (channelName == QStringLiteral("funding") && !replay_.fundings().empty())
-        || (channelName == QStringLiteral("price_limit") && !replay_.priceLimits().empty());
+        || (channelName == QStringLiteral("bookticker") && !replay_.bookTickers().empty());
     if (alreadyLoaded) return true;
 
     const bool hadLoadedData = loaded_;
     const auto path = std::filesystem::path(stripFileUrl(sessionDir_));
     const QJsonObject manifest = readSessionManifestObject(path);
+    if ((channelName == QStringLiteral("candles") || channelName == QStringLiteral("candles2")) &&
+        sourceIdentityFromManifest(manifest).exchange != QStringLiteral("finam")) {
+        statusText_ = QStringLiteral("Candle archives are available for FINAM only.");
+        emit statusChanged();
+        return false;
+    }
     Status st = Status::Ok;
     bool loadedAnyChannel = false;
     QString label = channelName;
@@ -910,20 +846,13 @@ bool ChartController::loadRecordedChannel_(const QString& channelName) {
     };
 
     const auto rowsBefore = replayRowCount(replay_);
-    const auto loadStartedAt = std::chrono::steady_clock::now();
     if (channelName == QStringLiteral("trades")) {
         loadOptional(QStringLiteral("trades"),
                      sessionChannelPath(path, manifest, QStringLiteral("trades"), "trades.jsonl"),
                      [&](const std::filesystem::path& channelPath) {
                          return replay_.addTradesFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("trades")));
                      });
-    } else if (channelName == QStringLiteral("liquidations")) {
-        loadOptional(QStringLiteral("liquidations"),
-                     sessionChannelPath(path, manifest, QStringLiteral("liquidations"), "liquidations.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addLiquidationsFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("liquidations")));
-                     });
-    } else if (channelName == QStringLiteral("candles")) {
+    }  else if (channelName == QStringLiteral("candles")) {
         loadOptional(QStringLiteral("candles"),
                      sessionChannelPath(path, manifest, QStringLiteral("candles"), "candles.jsonl"),
                      [&](const std::filesystem::path& channelPath) {
@@ -941,39 +870,12 @@ bool ChartController::loadRecordedChannel_(const QString& channelName) {
                      [&](const std::filesystem::path& channelPath) {
                          return replay_.addBookTickerFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("bookticker")));
                      });
-    } else if (channelName == QStringLiteral("mark_price")) {
-        loadOptional(QStringLiteral("mark_price"),
-                     sessionChannelPath(path, manifest, QStringLiteral("mark_price"), "mark_price.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addMarkPriceFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("mark_price")));
-                     });
-    } else if (channelName == QStringLiteral("index_price")) {
-        loadOptional(QStringLiteral("index_price"),
-                     sessionChannelPath(path, manifest, QStringLiteral("index_price"), "index_price.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addIndexPriceFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("index_price")));
-                     });
-    } else if (channelName == QStringLiteral("funding")) {
-        loadOptional(QStringLiteral("funding"),
-                     sessionChannelPath(path, manifest, QStringLiteral("funding"), "funding.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addFundingFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("funding")));
-                     });
-    } else if (channelName == QStringLiteral("price_limit")) {
-        loadOptional(QStringLiteral("price_limit"),
-                     sessionChannelPath(path, manifest, QStringLiteral("price_limit"), "price_limit.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addPriceLimitFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("price_limit")));
-                     });
     } else {
         statusText_ = QStringLiteral("Unknown recorded channel: %1").arg(channelName);
         emit statusChanged();
         return false;
     }
 
-    const auto loadNs = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - loadStartedAt).count());
     if (!loadedAnyChannel) {
         statusText_ = QStringLiteral("No %1 data found for selected session.").arg(label);
         emit statusChanged();
@@ -989,7 +891,7 @@ bool ChartController::loadRecordedChannel_(const QString& channelName) {
     }
 
     const auto rowsAfter = replayRowCount(replay_);
-    noteRecordedLoad_(label, loadNs, rowsAfter >= rowsBefore ? rowsAfter - rowsBefore : rowsAfter);
+    noteRecordedLoad_(label, rowsAfter >= rowsBefore ? rowsAfter - rowsBefore : rowsAfter);
     refreshLoadedStateFromSources_();
     currentBookTickerIndex_ = -1;
     if (loaded_ && !hadLoadedData) {
@@ -1005,15 +907,10 @@ bool ChartController::loadRecordedChannel_(const QString& channelName) {
 
 bool ChartController::loadSessionForLayers(const QString& dir,
                                            bool tradesVisible,
-                                           bool liquidationsVisible,
                                            bool candlesVisible,
                                            bool candles2Visible,
                                            bool orderbookVisible,
-                                           bool bookTickerVisible,
-                                           bool markPriceVisible,
-                                           bool indexPriceVisible,
-                                           bool fundingVisible,
-                                           bool priceLimitVisible) {
+                                           bool bookTickerVisible) {
     stopLiveData_();
     clearStrategyOverlay_();
     sessionDir_ = dir;
@@ -1023,7 +920,6 @@ bool ChartController::loadSessionForLayers(const QString& dir,
     loaded_ = false;
     replay_ = hftrec::replay::SessionReplay{};
     lastRecordedLoadLabel_.clear();
-    lastRecordedLoadNs_ = 0;
     lastRecordedLoadRows_ = 0;
     clearSelection();
     if (!verticalMarkers_.empty()) {
@@ -1041,7 +937,6 @@ bool ChartController::loadSessionForLayers(const QString& dir,
     bool loadedAnyChannel = false;
     QStringList loadedChannels;
     const auto rowsBefore = replayRowCount(replay_);
-    const auto loadStartedAt = std::chrono::steady_clock::now();
 
     auto loadOptional = [&](QStringView label, const std::filesystem::path& channelPath, auto&& load) {
         if (channelPath.empty()) return true;
@@ -1057,21 +952,15 @@ bool ChartController::loadSessionForLayers(const QString& dir,
                          return replay_.addTradesFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("trades")));
                      });
     }
-    if (liquidationsVisible) {
-        loadOptional(QStringLiteral("liquidations"),
-                     sessionChannelPath(path, manifest, QStringLiteral("liquidations"), "liquidations.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addLiquidationsFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("liquidations")));
-                     });
-    }
-    if (candlesVisible) {
+    
+    if (candlesVisible && sourceExchange_ == QStringLiteral("finam")) {
         loadOptional(QStringLiteral("candles"),
                      sessionChannelPath(path, manifest, QStringLiteral("candles"), "candles.jsonl"),
                      [&](const std::filesystem::path& channelPath) {
                          return replay_.addCandlesFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("candles")), false);
                      });
     }
-    if (candles2Visible) {
+    if (candles2Visible && sourceExchange_ == QStringLiteral("finam")) {
         loadOptional(QStringLiteral("candles2"),
                      sessionChannelPath(path, manifest, QStringLiteral("candles2"), "candles2.jsonl"),
                      [&](const std::filesystem::path& channelPath) {
@@ -1085,34 +974,10 @@ bool ChartController::loadSessionForLayers(const QString& dir,
                          return replay_.addBookTickerFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("bookticker")));
                      });
     }
-    if (markPriceVisible) {
-        loadOptional(QStringLiteral("mark_price"),
-                     sessionChannelPath(path, manifest, QStringLiteral("mark_price"), "mark_price.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addMarkPriceFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("mark_price")));
-                     });
-    }
-    if (indexPriceVisible) {
-        loadOptional(QStringLiteral("index_price"),
-                     sessionChannelPath(path, manifest, QStringLiteral("index_price"), "index_price.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addIndexPriceFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("index_price")));
-                     });
-    }
-    if (fundingVisible) {
-        loadOptional(QStringLiteral("funding"),
-                     sessionChannelPath(path, manifest, QStringLiteral("funding"), "funding.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addFundingFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("funding")));
-                     });
-    }
-    if (priceLimitVisible) {
-        loadOptional(QStringLiteral("price_limit"),
-                     sessionChannelPath(path, manifest, QStringLiteral("price_limit"), "price_limit.jsonl"),
-                     [&](const std::filesystem::path& channelPath) {
-                         return replay_.addPriceLimitFile(channelPath, channelDeclaredCount(manifest, QStringLiteral("price_limit")));
-                     });
-    }
+    
+    
+    
+    
     if (orderbookVisible) {
         loadOptional(QStringLiteral("depth"),
                      sessionChannelPath(path, manifest, QStringLiteral("depth"), "depth_tape.jsonl"),
@@ -1137,11 +1002,7 @@ bool ChartController::loadSessionForLayers(const QString& dir,
     }
 
     const auto rowsAfter = replayRowCount(replay_);
-    const auto loadNs = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - loadStartedAt).count());
     noteRecordedLoad_(loadedChannels.join(QLatin1Char('+')),
-                      loadNs,
                       rowsAfter >= rowsBefore ? rowsAfter - rowsBefore : rowsAfter);
     refreshLoadedStateFromSources_();
     currentBookTickerIndex_ = -1;
@@ -1163,27 +1024,26 @@ bool ChartController::loadRecordedSession(const QString& dir) {
     const auto path = std::filesystem::path(stripFileUrl(dir));
     const QJsonObject manifest = readSessionManifestObject(path);
     if (!sessionChannelPath(path, manifest, QStringLiteral("bookticker"), "bookticker.jsonl").empty()) {
-        return loadSessionForLayers(dir, false, false, false, false, false, true, false, false, false, false);
+        return loadSessionForLayers(dir, false, false, false, false, true);
     }
-    if (!sessionChannelPath(path, manifest, QStringLiteral("candles2"), "candles2.jsonl").empty()) {
-        return loadSessionForLayers(dir, false, false, false, true, false, false, false, false, false, false);
+    if (sourceIdentityFromManifest(manifest).exchange == QStringLiteral("finam") &&
+        !sessionChannelPath(path, manifest, QStringLiteral("candles2"), "candles2.jsonl").empty()) {
+        return loadSessionForLayers(dir, false, false, true, false, false);
     }
-    if (!sessionChannelPath(path, manifest, QStringLiteral("candles"), "candles.jsonl").empty()) {
-        return loadSessionForLayers(dir, false, false, true, false, false, false, false, false, false, false);
+    if (sourceIdentityFromManifest(manifest).exchange == QStringLiteral("finam") &&
+        !sessionChannelPath(path, manifest, QStringLiteral("candles"), "candles.jsonl").empty()) {
+        return loadSessionForLayers(dir, false, true, false, false, false);
     }
     if (!sessionChannelPath(path, manifest, QStringLiteral("trades"), "trades.jsonl").empty()) {
-        return loadSessionForLayers(dir, true, false, false, false, false, false, false, false, false, false);
+        return loadSessionForLayers(dir, true, false, false, false, false);
     }
-    return loadSessionForLayers(dir, false, false, false, false, false, false, false, false, false, false);
+    return loadSessionForLayers(dir, false, false, false, false, false);
 }
 
 bool ChartController::loadRecordedTrades() {
     return loadRecordedChannel_(QStringLiteral("trades"));
 }
 
-bool ChartController::loadRecordedLiquidations() {
-    return loadRecordedChannel_(QStringLiteral("liquidations"));
-}
 
 bool ChartController::loadRecordedCandles() {
     return loadRecordedChannel_(QStringLiteral("candles"));
@@ -1197,21 +1057,9 @@ bool ChartController::loadRecordedBookTicker() {
     return loadRecordedChannel_(QStringLiteral("bookticker"));
 }
 
-bool ChartController::loadRecordedMarkPrice() {
-    return loadRecordedChannel_(QStringLiteral("mark_price"));
-}
 
-bool ChartController::loadRecordedIndexPrice() {
-    return loadRecordedChannel_(QStringLiteral("index_price"));
-}
 
-bool ChartController::loadRecordedFunding() {
-    return loadRecordedChannel_(QStringLiteral("funding"));
-}
 
-bool ChartController::loadRecordedPriceLimit() {
-    return loadRecordedChannel_(QStringLiteral("price_limit"));
-}
 
 bool ChartController::loadRecordedOrderbook() {
     if (currentSourceKind_ != QStringLiteral("recorded") || sessionDir_.trimmed().isEmpty()) {
@@ -1234,7 +1082,6 @@ bool ChartController::loadRecordedOrderbook() {
     };
 
     const auto rowsBefore = replayRowCount(replay_);
-    const auto loadStartedAt = std::chrono::steady_clock::now();
     loadOptional(sessionChannelPath(path, manifest, QStringLiteral("depth"), "depth_tape.jsonl"),
                  [&](const std::filesystem::path& channelPath) {
                      const auto depthStatus = replay_.addDepthFileAllowPartial(channelPath, channelDeclaredCount(manifest, QStringLiteral("depth")));
@@ -1243,9 +1090,8 @@ bool ChartController::loadRecordedOrderbook() {
 
     if (!loadedAnyChannel) {
         if (hadLoadedData || loaded_) {
-            statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 C=%3 C2=%4 depth=%5 bookticker=%6")
+            statusText_ = QStringLiteral("Loaded trades=%1 C=%2 C2=%3 depth=%4 bookticker=%5")
                               .arg(static_cast<qulonglong>(replay_.trades().size()))
-                              .arg(static_cast<qulonglong>(replay_.liquidations().size()))
                               .arg(static_cast<qulonglong>(replay_.candles().size()))
                               .arg(static_cast<qulonglong>(replay_.candles2().size()))
                               .arg(static_cast<qulonglong>(replay_.depths().size()))
@@ -1275,11 +1121,7 @@ bool ChartController::loadRecordedOrderbook() {
         applyRecordedRenderWindowViewport_();
     }
     const auto rowsAfter = replayRowCount(replay_);
-    const auto loadNs = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - loadStartedAt).count());
     noteRecordedLoad_(QStringLiteral("orderbook"),
-                      loadNs,
                       rowsAfter >= rowsBefore ? rowsAfter - rowsBefore : rowsAfter);
     statusText_ = recordedLoadStatus_(QStringLiteral("Loaded"));
     if (!replay_.errorDetail().empty()) {
@@ -1294,64 +1136,7 @@ bool ChartController::loadRecordedOrderbook() {
 }
 
 bool ChartController::loadSession(const QString& dir) {
-#if HFTREC_WITH_CXET_REPLAY
-    stopLiveData_();
-    clearStrategyOverlay_();
-    sessionDir_ = dir;
-    currentSourceId_ = recordedSourceIdFromPath(dir);
-    liveProviderSourceId_.clear();
-    currentSourceKind_ = QStringLiteral("recorded");
-    loaded_ = false;
-    replay_ = hftrec::replay::SessionReplay{};
-    lastRecordedLoadLabel_.clear();
-    lastRecordedLoadNs_ = 0;
-    lastRecordedLoadRows_ = 0;
-    clearSelection();
-    if (!verticalMarkers_.empty()) {
-        verticalMarkers_.clear();
-        emit markersChanged();
-    }
-
-    const auto path = std::filesystem::path(stripFileUrl(dir));
-    const SourceIdentity identity = sourceIdentityFromSessionPath(path);
-    sourceExchange_ = identity.exchange;
-    sourceMarket_ = identity.market;
-    sourceSymbol_ = identity.symbol;
-    std::string cxetReplayError;
-    const hftrec::replay::CxetReplaySessionLoader cxetLoader{};
-    const auto st = cxetLoader.loadRenderOnce(path, replay_, cxetReplayError);
-    if (!isOk(st)) {
-        statusText_ = cxetReplayError.empty()
-            ? replayFailureText(replay_, st, QStringLiteral("Failed to load session"))
-            : QStringLiteral("Failed to load session: %1").arg(QString::fromStdString(cxetReplayError));
-        emit sessionChanged();
-        emit statusChanged();
-        return false;
-    }
-
-    refreshLoadedStateFromSources_();
-    currentBookTickerIndex_ = -1;
-    statusText_ = QStringLiteral("Loaded trades=%1 liq=%2 C=%3 C2=%4 depth=%5 bookticker=%6")
-                       .arg(replay_.trades().size())
-                       .arg(replay_.liquidations().size())
-                       .arg(replay_.candles().size())
-                       .arg(replay_.candles2().size())
-                       .arg(replay_.depths().size())
-                       .arg(replay_.bookTickers().size());
-    if (!replay_.errorDetail().empty()) {
-        statusText_ += QStringLiteral(" | %1").arg(QString::fromStdString(std::string{replay_.errorDetail()}));
-    }
-    if (loaded_) {
-        computeInitialViewport_();
-        applyRecordedRenderWindowViewport_();
-    }
-    emit sessionChanged();
-    emit statusChanged();
-    emit viewportChanged();
-    return true;
-#else
-    return loadSessionForLayers(dir, true, true, true, true, true, true, true, true, true, true);
-#endif
+    return loadSessionForLayers(dir, true, true, true, true, true);
 }
 
 }  // namespace hftrec::gui::viewer

@@ -112,15 +112,7 @@ struct CandleRect {
     bool up{true};
 };
 
-struct LiquidationDot {
-    std::int64_t tsNs{0};
-    std::int64_t priceE8{0};
-    std::int64_t qtyE8{0};
-    std::int64_t avgPriceE8{0};
-    std::int64_t filledQtyE8{0};
-    bool         sideBuy{true};
-    int          origIndex{-1};
-};
+
 
 struct VerticalMarker {
     std::int64_t tsNs{0};
@@ -152,15 +144,6 @@ struct HoverInfo {
     bool         tradeSideBuy{true};
     std::vector<TradeGroupEntry> tradeGroupEntries;
 
-    // Liquidation hit-test result.
-    bool         liquidationHit{false};
-    int          liquidationOrigIndex{-1};
-    std::int64_t liquidationTsNs{0};
-    std::int64_t liquidationPriceE8{0};
-    std::int64_t liquidationQtyE8{0};
-    std::int64_t liquidationAvgPriceE8{0};
-    std::int64_t liquidationFilledQtyE8{0};
-    bool         liquidationSideBuy{true};
 
     // Strategy/backtest fill hit-test result.
     bool         strategyFillHit{false};
@@ -199,13 +182,6 @@ struct HoverInfo {
     std::int64_t bookTsStartNs{0};
     std::int64_t bookTsEndNs{0};
 
-    // Funding hit-test result.
-    bool         fundingHit{false};
-    std::int64_t fundingEventTsNs{0};
-    std::int64_t fundingRateE8{0};
-    std::int64_t fundingTsNs{0};
-    std::int64_t nextFundingTsNs{0};
-    std::int64_t fundingCadenceNs{0};
 };
 
 // Everything renderers need to draw one frame. Plain POD; owned by whoever
@@ -218,16 +194,11 @@ struct RenderSnapshot {
 
     // Visibility + tuning knobs (snapshot of ChartItem state at build time).
     bool  tradesVisible{true};
-    bool  liquidationsVisible{true};
     bool  candlesVisible{false};
     bool  candles2Visible{false};
     bool  tradeConnectorsVisible{false};
     bool  orderbookVisible{false};
     bool  bookTickerVisible{false};
-    bool  markPriceVisible{false};
-    bool  indexPriceVisible{false};
-    bool  fundingVisible{false};
-    bool  priceLimitVisible{false};
     bool  interactiveMode{false};
     bool  overlayOnly{false};
     qreal tradeAmountScale{0.45};
@@ -244,11 +215,6 @@ struct RenderSnapshot {
     // Trades pre-filtered to viewport (original order by tsNs).
     std::vector<TradeDot> tradeDots;
     std::vector<CandleRect> candleRects;
-    std::vector<LiquidationDot> liquidationDots;
-    std::vector<hftrec::replay::MarkPriceRow> markPrices;
-    std::vector<hftrec::replay::IndexPriceRow> indexPrices;
-    std::vector<hftrec::replay::FundingRow> fundings;
-    std::vector<hftrec::replay::PriceLimitRow> priceLimits;
     std::vector<StrategyOrderSegment> strategyOrderSegments;
     std::vector<StrategyFillMarker> strategyFillMarkers;
     std::vector<StrategyRangePoint> strategyRangePoints;
@@ -267,7 +233,6 @@ struct RenderSnapshot {
 // ChartItem. Kept as a struct so the signature doesn't drift when knobs change.
 struct SnapshotInputs {
     bool  tradesVisible{true};
-    bool  liquidationsVisible{true};
     bool  candlesVisible{false};
     bool  candles2Visible{false};
     bool  orderbookVisible{false};
@@ -281,10 +246,6 @@ struct SnapshotInputs {
     qreal bookRenderDetail{5000.0};
     qreal bookDepthWindowPct{5.0};
     bool  gpuOrderbookVertices{false};
-    bool  markPriceVisible{false};
-    bool  indexPriceVisible{false};
-    bool  fundingVisible{false};
-    bool  priceLimitVisible{false};
 };
 
 }  // namespace hftrec::gui::viewer

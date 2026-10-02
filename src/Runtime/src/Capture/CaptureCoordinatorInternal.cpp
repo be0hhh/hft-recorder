@@ -20,8 +20,8 @@
 #include "cxet/Canon/PositionAndExchange.hpp"
 #include "cxet/Canon/Subtypes.hpp"
 #include "cxet/Cxet.hpp"
-#include "hft_trader/Runtime/Preparation/SymbolMetadataRuntime.hpp"
-#include "hft_trader/Runtime/Config/RuntimeConfig.hpp"
+#include "cxet/Api/Instrument/SymbolMetadataResolve.hpp"
+#include "cxet/Runtime/Reference/ReferenceVenueConfig.hpp"
 #include "cxet/Primitives/Buf/Symbol.hpp"
 #endif
 
@@ -238,44 +238,41 @@ bool enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
                                               corpus::InstrumentMetadata& metadata) noexcept {
 #if HFTREC_WITH_CXET
     if (config.symbols.empty()) {
-        metadata.metadataWarning = "hft_trader_metadata_skipped_empty_symbol";
+        metadata.metadataWarning = "cxet_metadata_skipped_empty_symbol";
         return false;
     }
-    hft_trader::runtime::SymbolMetadataResolveResult result{};
+    cxet::api::instrument::SymbolMetadataResolveResult result{};
     const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
-    const bool ok = hft_trader::runtime::resolveSymbolMetadataOnce(exchange,
-                                                                   marketTypeFromConfig(exchange, config.market),
-                                                                   makeSymbol(primaryRouteSymbolText(config)),
-                                                                   result,
-                                                                   normalizedApiSlot(config),
-                                                                   ApiProtocolProfile{});
+    const bool ok = cxet::api::instrument::resolveSymbolMetadataOnce(
+        {exchange, marketTypeFromConfig(exchange, config.market), normalizedApiSlot(config), ApiProtocolProfile{}},
+        makeSymbol(primaryRouteSymbolText(config)), {}, result);
     if (!ok) {
-        metadata.metadataWarning = std::string{"hft_trader_metadata_failed:"} + (result.error.empty() ? "unknown" : result.error);
+        metadata.metadataWarning = std::string{"cxet_metadata_failed:"} + (result.error.empty() ? "unknown" : result.error);
         return false;
     }
-    metadata.tickSizeE8 = result.instrumentSpec.tickSizeRaw;
-    metadata.tickSizeSource = "hft_trader_exchange_info";
-    metadata.lotSizeE8 = result.instrumentSpec.stepSizeRaw;
-    metadata.lotSizeSource = "hft_trader_exchange_info";
-    if (result.instrumentSpec.contractBaseQtyRaw > 0) {
-        metadata.contractBaseQtyE8 = result.instrumentSpec.contractBaseQtyRaw;
-        metadata.contractBaseQtySource = "hft_trader_exchange_info";
+    metadata.tickSizeE8 = result.rules.tickSizeRaw;
+    metadata.tickSizeSource = "cxet_exchange_info";
+    metadata.lotSizeE8 = result.rules.stepSizeRaw;
+    metadata.lotSizeSource = "cxet_exchange_info";
+    if (result.rules.contractBaseQtyRaw > 0) {
+        metadata.contractBaseQtyE8 = result.rules.contractBaseQtyRaw;
+        metadata.contractBaseQtySource = "cxet_exchange_info";
     }
-    if (result.instrumentSpec.priceBasisQtyRaw > 0) {
-        metadata.priceBasisQtyE8 = result.instrumentSpec.priceBasisQtyRaw;
-        metadata.priceBasisQtySource = "hft_trader_exchange_info";
+    if (result.rules.priceBasisQtyRaw > 0) {
+        metadata.priceBasisQtyE8 = result.rules.priceBasisQtyRaw;
+        metadata.priceBasisQtySource = "cxet_exchange_info";
     }
-    if (result.instrumentSpec.expiryUtcNs > 0u &&
-        result.instrumentSpec.expiryUtcNs <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-        metadata.expiryUtcNs = static_cast<std::int64_t>(result.instrumentSpec.expiryUtcNs);
-        metadata.expiryUtcNsSource = "hft_trader_exchange_info";
+    if (result.rules.expiryUtcNs > 0u &&
+        result.rules.expiryUtcNs <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        metadata.expiryUtcNs = static_cast<std::int64_t>(result.rules.expiryUtcNs);
+        metadata.expiryUtcNsSource = "cxet_exchange_info";
     }
-    metadata.metadataSource = "hft_trader";
+    metadata.metadataSource = "cxet";
     metadata.metadataWarning.reset();
     return true;
 #else
     (void)config;
-    metadata.metadataWarning = "hft_trader_metadata_unavailable_no_cxet";
+    metadata.metadataWarning = "cxet_metadata_unavailable_no_cxet";
     return false;
 #endif
 }
@@ -340,25 +337,9 @@ bool validateRequestedAliases(const std::vector<std::string>& aliasNames,
     return true;
 }
 
-hft_trader::runtime::VenueRuntimeConfig makeTraderVenueConfig(const CaptureConfig& config) noexcept {
-    hft_trader::runtime::VenueRuntimeConfig venue{};
-    venue.name = config.exchange + "." + config.market;
-    venue.exchange = exchangeIdFromConfig(config.exchange);
-    venue.market = marketTypeFromConfig(venue.exchange, config.market);
-    venue.apiSlot = normalizedApiSlot(config);
-    venue.hasApiSlot = true;
-    venue.marketEnabled = true;
-    venue.userEnabled = false;
-    venue.orderEnabled = false;
-    venue.controlEnabled = false;
-    for (std::size_t i = 0; i < config.symbols.size(); ++i) {
-        const std::string_view routeSymbolText = routeSymbolTextAt(config, i);
-        if (routeSymbolText.empty()) continue;
-        Symbol symbol = makeSymbol(routeSymbolText);
-        if (symbol.data[0] != '\0') venue.symbols.push_back(symbol);
-    }
-    hft_trader::runtime::setStrategyParam(venue.params, "reference_poll_interval_ms", "5000");
-    return venue;
+cxet::runtime::reference::ReferenceVenueConfig makeReferenceVenueConfig(const CaptureConfig& config) noexcept {
+    const auto exchange = exchangeIdFromConfig(config.exchange);
+    return {exchange, marketTypeFromConfig(exchange, config.market), normalizedApiSlot(config), ApiProtocolProfile{}};
 }
 #endif
 

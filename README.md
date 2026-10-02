@@ -43,7 +43,12 @@ one user-selected session directory:
 
 - Trades;
 - BookTicker;
-- Orderbook, seeded by an initial snapshot and followed by bounded deltas.
+- Depth deltas from the native stream.
+
+Direct capture uses the shared CXET Core `MarketRuntime`. The current canonical
+JSON writer cannot represent depth snapshot/rebase metadata or Trade
+`Unknown` initiator side: those inputs stop recording with an explicit error
+and loss evidence. It does not seed the JSON corpus with an initial snapshot.
 
 The session JSON files are the canonical input for validation, charts and the
 compression lab.
@@ -85,11 +90,37 @@ Start with [docs/README.md](docs/README.md).
 ## CI coverage
 
 The `corpus-contract` workflow overlays the triggering Recorder revision into
-the private CXETCPP root graph, builds the exact
-`hft-backtest-session-loader-tests` consumer target and runs only that CTest.
-This checks the Recorder-owned corpus contract through its Backtest consumer.
-It does not configure, build or test the full Recorder Qt/QML GUI product.
+the private CXETCPP direct-source family graph. Its retired Backtest
+session-loader test target provides no current corpus acceptance evidence. New
+meaningful corpus and GUI checks are deferred. The badge is a workflow link,
+not evidence of current passing CI or Qt/QML product acceptance.
 
 The root checkout requires the repository secret `CI_CXETCPP_SSH_KEY`. Fork
 pull requests without that secret fail explicitly before checkout and do not
 provide a passing corpus-contract result.
+
+## Build
+
+Prepare Qt 6, fmt and spdlog development packages separately. The build reuses
+their CMake targets and fails if a required package is absent; it does not fetch them.
+
+From this directory in the canonical CXET checkout:
+
+```bash
+./compile.sh p
+./compile.sh --force p
+./compile.sh all p
+./compile.sh --force all portable p
+```
+
+The default builds only this repository's production targets and requires ready
+prerequisites. `--force` cleans and rebuilds the exact required production
+closure. `all` builds and runs only this repository's registered tests and their
+support libraries; it does not build production daemons or benchmarks. With
+`--force all`, production is rebuilt first, followed by the local tests. If no
+local tests are registered, the command reports that and succeeds; an empty
+test registry is not passing test proof.
+
+Libraries are static `.a` archives. Release uses `-O3`, host-native CPU targeting
+and full LTO; `portable` selects portable CPU targeting. Use `p` or `-j N` for
+parallelism and `--help` for the supported options.

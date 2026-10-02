@@ -131,7 +131,6 @@ hardware instruction, and is permissively licensed.
 |---|---|---|
 | **spdlog** | Logging wrapper target (see `LoggingAndMetrics.md`). | MIT |
 | **fmt** (fmtlib) | Formatted strings; auto-pulled by spdlog. | MIT |
-| **prometheus-cpp** | Metrics export + Pushgateway client. | MIT |
 
 ### E.5 Testing & benchmarking
 
@@ -236,7 +235,7 @@ captured `.cxrec` files, prototypes ideas, produces plots.
 |---|---|
 | **matplotlib** | Bar charts for ratio comparisons. |
 | **seaborn** | Nicer defaults over matplotlib. |
-| **plotly** | Interactive Grafana-adjacent plots. |
+| **plotly** | Interactive offline research plots. |
 | **pytest-benchmark** | Consistent microbench harness. |
 | **hypothesis** | Python property-based testing (analog of rapidcheck). |
 
@@ -269,10 +268,9 @@ If you want a single minimal "what should be in `CMakeLists.txt` today" list:
 find_package(absl CONFIG REQUIRED)                 # flat_hash_map + InlinedVector
 find_package(spdlog CONFIG REQUIRED)                # logging
 find_package(fmt CONFIG REQUIRED)                   # depended on by spdlog
-find_package(prometheus-cpp CONFIG REQUIRED)        # metrics + push
 FetchContent_Declare(crc32c ... google/crc32c)     # hardware CRC32C
 
-# Bench-only (linked into hft-recorder-bench)
+# Compression research baselines
 find_package(zstd CONFIG REQUIRED)                  # headline baseline
 find_package(lz4 CONFIG REQUIRED)                   # speed floor baseline
 find_package(Brotli CONFIG REQUIRED)                # static-dict baseline
@@ -316,11 +314,10 @@ pytest-benchmark hypothesis
 
 ## J. How we use this catalog
 
-1. **Phase 2 (VARINT recorder)**: only abseil + spdlog + fmt + prometheus-cpp + crc32c. Nothing else.
 2. **Phase 3 (bench tool)**: add zstd + lz4 + brotli + lzma + FastPFor + streamvbyte as reference
    codecs in `src/Runtime/src/Corpus/Codec/ref/`. Wrap behind `IBlockEncoder`. Their `codec_id` in bench output
    is 0x80+ (reserved range, not written to `.cxrec` files).
-3. **Phase 5 (Grafana)**: the 28-cell matrix (§ `BENCHMARK_PLAN.md`) expands to ~60 cells once
+3. **Offline report expansion**: the 28-cell matrix (§ `BENCHMARK_PLAN.md`) expands to ~60 cells once
    reference codecs are added. Grouped chart: "our 7" vs "reference 8" per stream.
 4. **Python research (any time)**: prototype an idea in blosc2/numcodecs first (5 lines of
    Python). If it shows a ≥10% improvement over zstd on a stream, graduate it to a C++ codec

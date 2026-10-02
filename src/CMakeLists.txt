@@ -3,7 +3,7 @@
 
 add_subdirectory(Runtime)
 
-if(HFTREC_BUILD_APP_TARGETS OR HFTREC_BUILD_GUI OR HFTREC_BUILD_TESTS)
+if(HFTREC_BUILD_APP_TARGETS OR HFTREC_BUILD_GUI)
     add_subdirectory(Lab/Codecs)
     add_subdirectory(Lab/Variants)
 endif()

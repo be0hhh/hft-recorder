@@ -14,14 +14,12 @@ using RecorderChannelMask = std::uint32_t;
 
 inline constexpr RecorderChannelMask RecorderChannel_None = 0u;
 inline constexpr RecorderChannelMask RecorderChannel_Trades = 1u << 0u;
-inline constexpr RecorderChannelMask RecorderChannel_Liquidations = 1u << 1u;
 inline constexpr RecorderChannelMask RecorderChannel_BookTicker = 1u << 2u;
 inline constexpr RecorderChannelMask RecorderChannel_Depth = 1u << 3u;
 inline constexpr RecorderChannelMask RecorderChannel_Candles = 1u << 4u;
 inline constexpr RecorderChannelMask RecorderChannel_Snapshot = 1u << 5u;
 inline constexpr RecorderChannelMask RecorderChannel_AllMarketData =
     RecorderChannel_Trades |
-    RecorderChannel_Liquidations |
     RecorderChannel_BookTicker |
     RecorderChannel_Depth |
     RecorderChannel_Candles |
@@ -39,7 +37,6 @@ struct RecorderSessionSummary {
     std::filesystem::path sessionPath{};
     std::string error{};
     std::uint64_t trades{0};
-    std::uint64_t liquidations{0};
     std::uint64_t bookTickers{0};
     std::uint64_t depths{0};
     std::uint64_t candles{0};
@@ -66,25 +63,6 @@ struct RecorderTradeRow {
     std::int64_t side{0};
     std::uint8_t isBuyerMaker{0};
     std::uint8_t sideBuy{0};
-};
-
-struct RecorderLiquidationRow {
-    std::string symbol{};
-    std::string exchange{};
-    std::string market{};
-    std::int64_t tsNs{0};
-    std::int64_t captureSeq{0};
-    std::int64_t ingestSeq{0};
-    std::int64_t priceE8{0};
-    std::int64_t qtyE8{0};
-    std::int64_t avgPriceE8{0};
-    std::int64_t filledQtyE8{0};
-    std::int64_t side{0};
-    std::uint8_t sideBuy{0};
-    std::int64_t orderType{0};
-    std::int64_t timeInForce{0};
-    std::int64_t status{0};
-    std::int64_t sourceMode{0};
 };
 
 struct RecorderBookTickerRow {
@@ -138,7 +116,6 @@ struct RecorderSnapshotDocument {
 enum class RecorderEventKind : std::uint8_t {
     Depth = 0,
     Trade = 1,
-    Liquidation = 2,
     BookTicker = 3,
 };
 
@@ -152,7 +129,6 @@ struct RecorderTimelineEvent {
 struct RecorderSession {
     RecorderSessionSummary info{};
     std::vector<RecorderTradeRow> tradeRows{};
-    std::vector<RecorderLiquidationRow> liquidationRows{};
     std::vector<RecorderBookTickerRow> bookTickerRows{};
     std::vector<RecorderDepthRow> depthRows{};
     std::vector<RecorderCandleRow> candleRows{};
@@ -163,7 +139,6 @@ struct RecorderSession {
     void clear() noexcept;
     const RecorderSessionSummary& summary() const noexcept { return info; }
     const std::vector<RecorderTradeRow>& trades() const noexcept { return tradeRows; }
-    const std::vector<RecorderLiquidationRow>& liquidations() const noexcept { return liquidationRows; }
     const std::vector<RecorderBookTickerRow>& bookTickers() const noexcept { return bookTickerRows; }
     const std::vector<RecorderDepthRow>& depths() const noexcept { return depthRows; }
     const std::vector<RecorderCandleRow>& candles() const noexcept { return candleRows; }
