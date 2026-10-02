@@ -5,7 +5,7 @@
 #include <Qt>
 
 #include "cxet/Canon/Enums.hpp"
-#include "../Viewer/ChartController.hpp"
+#include "../Viewer/Chart/Controller/ChartController.hpp"
 
 namespace hftrec::gui::api {
 namespace {

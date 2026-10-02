@@ -94,3 +94,9 @@ Allowed scopes: capture, corpus, validation, GUI, lab, compression variants, doc
 Use at most three recorder workers concurrently. Give each worker a concrete, non-overlapping file scope; keep shared integration, registry, and manifest files with the primary agent. Stop and ask the user if ownership overlaps or the implementation has no single safe design.
 
 Every subagent must read this file before acting. Subagents must not run Git commands, GitHub/remote checks, CI/release inspection, builds, tests, compiles, generated-file rewrites, runtime binaries, or long-running processes unless explicit active-task authorization covers that exact action. Implementation authorization alone does not grant any of those actions.
+
+## Development workflow
+
+Follow `../../docs/Agents/DevelopmentWorkflow.md` for behavioral TDD, refactor coverage and exact authorized
+offline checks. Implementation alone permits edits only; local RED/GREEN and
+CI, runtime and live evidence remain separate.

@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <utility>
 
-#include "../Capture/SessionManifest.hpp"
+#include "../Capture/Session/SessionManifest.hpp"
 #include "InstrumentMetadata.hpp"
 #include "../Common/MiniJsonParser.hpp"
 #include "../Replay/EventRows.hpp"

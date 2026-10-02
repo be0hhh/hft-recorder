@@ -5,15 +5,16 @@ set(HFTREC_CORE_SOURCES
     ../Lab/src/Arbitrage/BookTickerSpread.cpp
     ../Lab/src/Arbitrage/BookTickerSpreadMean.cpp
     ../Lab/src/Arbitrage/CandleSpread.cpp
-    src/Capture/SessionId.cpp
-    src/Capture/Candles2BulkState.cpp
-    src/Capture/ChannelJsonWriter.cpp
-    src/Capture/ParserMarketCaptureClient.cpp
-    src/Capture/CaptureChannelSupport.cpp
-    src/Capture/CaptureCoordinatorInternal.cpp
-    src/Capture/CaptureCoordinator.cpp
-    src/Capture/JsonSerializers.cpp
-    src/Capture/SupportArtifacts.cpp
+    src/Capture/Session/SessionId.cpp
+    src/Capture/Serialization/Candles2BulkState.cpp
+    src/Capture/Serialization/ChannelJsonWriter.cpp
+    src/Capture/Parser/ParserMarketCaptureClient.cpp
+    src/Capture/Parser/Private/CorpusConversion.cpp
+    src/Capture/Coordinator/CaptureChannelSupport.cpp
+    src/Capture/Coordinator/CaptureCoordinatorInternal.cpp
+    src/Capture/Coordinator/CaptureCoordinator.cpp
+    src/Capture/Serialization/JsonSerializers.cpp
+    src/Capture/Session/SupportArtifacts.cpp
     src/Common/Log.cpp
     src/Corpus/Codec/VarInt.cpp
     src/Corpus/CorpusLoader.cpp
@@ -51,12 +52,12 @@ set(HFTREC_CORE_SOURCES
 )
 
 list(APPEND HFTREC_CORE_SOURCES
-    src/Capture/CaptureCoordinatorBulk.cpp
-    src/Capture/CaptureCoordinatorRuntime.cpp
-    src/Capture/CaptureCoordinatorRuntimeLoops.cpp
-    src/Capture/VenueMultiplexCapture.cpp
-    src/Capture/MarketData/NativeMarketCapture.cpp
-    src/Capture/Bridge/CxetCaptureBridge.cpp
+    src/Capture/Coordinator/CaptureCoordinatorBulk.cpp
+    src/Capture/Coordinator/CaptureCoordinatorRuntime.cpp
+    src/Capture/Coordinator/CaptureCoordinatorRuntimeLoops.cpp
+    src/Capture/Coordinator/VenueMultiplexCapture.cpp
+    src/Capture/Session/MarketData/NativeMarketCapture.cpp
+    src/Capture/Session/Bridge/CxetCaptureBridge.cpp
 )
 
 add_library(hftrec_core STATIC ${HFTREC_CORE_SOURCES})

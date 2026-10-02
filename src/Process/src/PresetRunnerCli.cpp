@@ -18,10 +18,10 @@
 #include <utility>
 #include <vector>
 
-#include "../../Runtime/src/Capture/CaptureChannelSupport.hpp"
-#include "../../Runtime/src/Capture/CaptureCoordinator.hpp"
+#include "../../Runtime/src/Capture/Coordinator/CaptureChannelSupport.hpp"
+#include "../../Runtime/src/Capture/Coordinator/CaptureCoordinator.hpp"
 #if HFTREC_WITH_CXET
-#include "../../Runtime/src/Capture/VenueMultiplexCapture.hpp"
+#include "../../Runtime/src/Capture/Coordinator/VenueMultiplexCapture.hpp"
 #endif
 #include "Corpus/Recordings/RecordingDiscovery.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"

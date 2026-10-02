@@ -84,27 +84,6 @@ Pane {
         rows.push(row)
     }
 
-    function backtestPopupPreferredWidth() {
-        var widest = 420
-        for (var i = 0; i < root.backtestRows.length; ++i) {
-            var row = root.backtestRows[i] || {}
-            var label = String(row.label || "")
-            var right = String(row.rightText || row.pnlText || (row.selectable === false ? "sweep" : ""))
-            var estimate = 48 + Math.ceil(label.length * 7.4) + (right.length > 0 ? Math.ceil(right.length * 8.2) + 18 : 0)
-            widest = Math.max(widest, estimate)
-        }
-        var controlWidth = backtestCombo && backtestCombo.width > 0 ? backtestCombo.width : 220
-        return Math.min(Math.max(controlWidth, widest), Math.max(controlWidth, root.width - 32))
-    }
-
-    function backtestPopupX(popupWidth) {
-        if (!backtestCombo)
-            return 0
-        var comboRootX = backtestCombo.mapToItem(root, 0, 0).x
-        var alignRightX = Math.min(0, backtestCombo.width - popupWidth)
-        return Math.max(16 - comboRootX, alignRightX)
-    }
-
     function compareComboSourceId(combo) {
         if (!combo)
             return ""
@@ -678,164 +657,21 @@ Pane {
                     onAccepted: compareChart.setMeanWindowSeconds(Number(text))
                 }
 
-                ComboBox {
+                ViewerBacktestPicker {
                     id: backtestCombo
                     Layout.preferredWidth: 220
                     enabled: root.backtestRows.length > 1 || root.selectedBacktestCountHint() > 0
-                    model: root.backtestRows
-                    textRole: "label"
-                    valueRole: "path"
-                    property string searchText: ""
-                    property var filteredRows: []
-                    function rebuildFilter() {
-                        var needle = backtestCombo.searchText.trim().toLowerCase()
-                        var rows = []
-                        for (var i = 0; i < root.backtestRows.length; ++i) {
-                            var row = root.backtestRows[i]
-                            var haystack = (row.label + " " + row.path).toLowerCase()
-                            if (needle.length === 0 || haystack.indexOf(needle) !== -1)
-                                rows.push({ "index": i, "label": row.label, "path": row.path, "pnlText": row.rightText || row.pnlText || (row.selectable === false ? "sweep" : ""), "selectable": row.selectable !== false })
-                        }
-                        backtestCombo.filteredRows = rows
-                    }
-                    function selectFilteredRow(row) {
-                        if (!row || row.index < 0)
-                            return
-                        backtestCombo.currentIndex = row.index
-                        backtestCombo.popup.close()
-                        root.chooseBacktestRow(row.index)
-                    }
-                    onSearchTextChanged: rebuildFilter()
-                    onModelChanged: rebuildFilter()
-                    onActivated: function(index) { root.chooseBacktestRow(index) }
-                    contentItem: Text {
-                        text: backtestCombo.displayText === "" ? "Backtest" : backtestCombo.displayText
-                        color: backtestCombo.enabled ? root.textColor : root.mutedTextColor
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-                        leftPadding: 10
-                        rightPadding: 28
-                    }
-                    background: Rectangle {
-                        radius: 7
-                        color: backtestCombo.down ? root.panelAltColor : root.panelColor
-                        border.color: backtestCombo.activeFocus ? root.accentBuyColor : root.borderColor
-                        border.width: 1
-                    }
-                    delegate: Component {
-                        ItemDelegate {
-                            width: backtestCombo.popup.width
-                            text: modelData.label
-                            highlighted: backtestCombo.highlightedIndex === index
-                            contentItem: RowLayout {
-                                spacing: 8
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: modelData.label
-                                    color: modelData.index === 0 || modelData.selectable === false ? root.mutedTextColor : root.textColor
-                                    elide: Text.ElideRight
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                Text {
-                                    Layout.preferredWidth: visible ? Math.min(190, Math.max(96, implicitWidth + 14)) : 0
-                                    text: modelData.pnlText || ""
-                                    visible: text.length > 0
-                                    color: text.charAt(0) === "-" ? "#ef6f6c" : root.accentBuyColor
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    horizontalAlignment: Text.AlignRight
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                            }
-                            background: Rectangle { color: highlighted ? root.panelAltColor : root.panelColor }
-                            onClicked: backtestCombo.selectFilteredRow(modelData)
-                        }
-                    }
-                    popup: Popup {
-                        y: backtestCombo.height + 2
-                        x: root.backtestPopupX(width)
-                        width: root.backtestPopupPreferredWidth()
-                        implicitHeight: Math.min(contentItem.implicitHeight, 360)
-                        padding: 1
-                        onOpened: {
-                            root.refreshBacktestChoices()
-                            backtestCombo.searchText = ""
-                            backtestCombo.rebuildFilter()
-                            backtestSearchField.forceActiveFocus()
-                        }
-                        contentItem: Column {
-                            width: backtestCombo.popup.width
-                            spacing: 4
-
-                            Rectangle {
-                                width: parent.width - 8
-                                x: 4
-                                height: 30
-                                radius: 5
-                                color: root.panelDeepColor
-                                border.color: backtestSearchField.activeFocus ? root.accentBuyColor : root.borderColor
-                                border.width: 1
-
-                                Text { anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; text: "Search"; visible: backtestSearchField.text.length === 0; color: root.mutedTextColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
-                                TextInput {
-                                    id: backtestSearchField
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 8
-                                    anchors.rightMargin: 8
-                                    text: backtestCombo.searchText
-                                    color: root.textColor
-                                    selectionColor: root.accentBuyColor
-                                    selectedTextColor: root.panelDeepColor
-                                    font.pixelSize: 12
-                                    selectByMouse: true
-                                    clip: true
-                                    verticalAlignment: TextInput.AlignVCenter
-                                    onTextChanged: backtestCombo.searchText = text
-                                    Keys.onPressed: function(event) {
-                                        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && backtestCombo.filteredRows.length > 0) {
-                                            backtestCombo.selectFilteredRow(backtestCombo.filteredRows[0])
-                                            event.accepted = true
-                                        } else if (event.key === Qt.Key_Escape) {
-                                            if (backtestCombo.searchText.length > 0) {
-                                                backtestCombo.searchText = ""
-                                                backtestSearchField.text = ""
-                                            } else {
-                                                backtestCombo.popup.close()
-                                            }
-                                            event.accepted = true
-                                        }
-                                    }
-                                }
-                            }
-
-                            ListView {
-                                id: backtestResultList
-                                width: parent.width
-                                height: Math.min(contentHeight, 290)
-                                clip: true
-                                model: backtestCombo.popup.visible ? backtestCombo.filteredRows : []
-                                currentIndex: 0
-                                delegate: backtestCombo.delegate
-                            }
-
-                            Text {
-                                id: backtestEmptyText
-                                width: parent.width
-                                height: 30
-                                visible: backtestCombo.filteredRows.length === 0
-                                text: "No matches"
-                                color: root.mutedTextColor
-                                font.pixelSize: 12
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                        background: Rectangle {
-                            color: root.panelColor
-                            border.color: root.borderColor
-                            radius: 7
-                        }
-                    }
+                    rows: root.backtestRows
+                    layoutRoot: root
+                    textColor: root.textColor
+                    mutedTextColor: root.mutedTextColor
+                    panelColor: root.panelColor
+                    panelAltColor: root.panelAltColor
+                    panelDeepColor: root.panelDeepColor
+                    borderColor: root.borderColor
+                    accentBuyColor: root.accentBuyColor
+                    onRowChosen: function(index) { root.chooseBacktestRow(index) }
+                    onRefreshRequested: root.refreshBacktestChoices()
                 }
                 Label {
                     Layout.fillWidth: true

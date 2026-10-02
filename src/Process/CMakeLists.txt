@@ -8,6 +8,11 @@ add_executable(hft-recorder
     src/Main.cpp
     src/CaptureCli.cpp
     src/TuiCli.cpp
+    src/Tui/RecorderTuiTerminal.cpp
+    src/Tui/RecorderTuiPresetEditor.cpp
+    src/Tui/RecorderTuiJobs.cpp
+    src/Tui/RecorderTuiDeadSessions.cpp
+    src/Tui/RecorderTuiRendering.cpp
     src/PresetRunnerCli.cpp
     src/ShardRunCli.cpp
     src/AnalyzeCli.cpp

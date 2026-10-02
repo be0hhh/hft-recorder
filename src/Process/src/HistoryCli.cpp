@@ -26,9 +26,9 @@
 extern char** environ;
 #endif
 
-#include "../../Runtime/src/Capture/JsonSerializers.hpp"
-#include "../../Runtime/src/Capture/SessionManifest.hpp"
-#include "../../Runtime/src/Capture/SupportArtifacts.hpp"
+#include "../../Runtime/src/Capture/Serialization/JsonSerializers.hpp"
+#include "../../Runtime/src/Capture/Session/SessionManifest.hpp"
+#include "../../Runtime/src/Capture/Session/SupportArtifacts.hpp"
 #include "../../Runtime/src/Common/Integrity.hpp"
 #include "../../Runtime/src/Common/JsonString.hpp"
 #include "../../Runtime/src/Corpus/InstrumentMetadata.hpp"

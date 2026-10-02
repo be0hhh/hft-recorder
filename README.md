@@ -108,16 +108,15 @@ From this directory in the canonical CXET checkout:
 
 ```bash
 ./compile.sh p
-./compile.sh --force p
 ./compile.sh all p
-./compile.sh --force all portable p
+./compile.sh all portable p
 ```
 
-The default builds only this repository's production targets and requires ready
-prerequisites. `--force` cleans and rebuilds the exact required production
-closure. `all` builds and runs only this repository's registered tests and their
-support libraries; it does not build production daemons or benchmarks. With
-`--force all`, production is rebuilt first, followed by the local tests. If no
+The default incrementally builds this repository's production targets and their
+full required dependency closure, including missing or stale foreign providers.
+Ready targets are reused. `all` builds and runs only this repository's registered
+tests and their required production dependencies; it does not select unrelated
+production daemons, benchmarks or another repository's tests. If no
 local tests are registered, the command reports that and succeeds; an empty
 test registry is not passing test proof.
 

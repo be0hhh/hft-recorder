@@ -9,9 +9,9 @@
 #include <QVariantList>
 #include <QVariantMap>
 
-#include "../Backtests/BacktestSessionSummary.hpp"
+#include "../Backtests/Sessions/BacktestSessionSummary.hpp"
 #include "RecordingCatalog.hpp"
-#include "../Viewmodels/CaptureViewModel.hpp"
+#include "../Viewmodels/Capture/CaptureViewModel.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 
 namespace hftrec::gui {

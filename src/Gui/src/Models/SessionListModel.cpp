@@ -4,7 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 
-#include "../Backtests/BacktestSessionSummary.hpp"
+#include "../Backtests/Sessions/BacktestSessionSummary.hpp"
 #include "RecordingCatalog.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 

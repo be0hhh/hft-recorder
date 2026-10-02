@@ -1,6 +1,6 @@
 #include "RecorderReplaySelection.hpp"
 
-#include "../Capture/SessionManifest.hpp"
+#include "../Capture/Session/SessionManifest.hpp"
 
 #include <fstream>
 #include <string_view>

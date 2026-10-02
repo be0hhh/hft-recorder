@@ -9,7 +9,7 @@
 #include <string>
 #include <utility>
 
-#include "../Capture/SessionManifest.hpp"
+#include "../Capture/Session/SessionManifest.hpp"
 #include "../Common/JsonString.hpp"
 #include "../Corpus/CorpusLoader.hpp"
 #include "../Corpus/SessionCorpus.hpp"

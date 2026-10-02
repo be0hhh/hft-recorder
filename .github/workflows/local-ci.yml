@@ -196,7 +196,7 @@ jobs:
           set -euo pipefail
           bash server/check-openssl-baseline.sh --role build
           python3 tools/Ci/FamilyCiWorkspace.py source --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
-          ./apps/hft-recorder/compile.sh --force portable p -j4
+          ./apps/hft-recorder/compile.sh portable p -j4
           python3 tools/Ci/FamilyCiWorkspace.py record --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON" --build-dir "$CXET_BUILD_DIR"
           python3 tools/Ci/FamilyCiWorkspace.py verify --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON" --build-dir "$CXET_BUILD_DIR"
           if [[ "$GITHUB_EVENT_NAME" == repository_dispatch ]]; then

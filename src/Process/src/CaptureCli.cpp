@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "../../Runtime/src/Capture/CaptureCoordinator.hpp"
+#include "../../Runtime/src/Capture/Coordinator/CaptureCoordinator.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 #include "Tui/RecorderTuiSymbols.hpp"
 

@@ -2,7 +2,7 @@
 # Keep this target independent from Qt, capture runtimes, and hft-trader state.
 
 add_library(hftrec_corpus_contract STATIC
-    ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Capture/SessionManifest.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Capture/Session/SessionManifest.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Corpus/Codec/Crc32c.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Corpus/BinaryMarketCorpusReader.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Corpus/BinaryMarketCorpusWriter.cpp

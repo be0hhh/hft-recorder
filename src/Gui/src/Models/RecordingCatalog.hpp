@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "Corpus/Recordings/RecordingDiscovery.hpp"
-#include "../Backtests/BacktestSessionSummary.hpp"
+#include "../Backtests/Sessions/BacktestSessionSummary.hpp"
 
 namespace hftrec::gui {
 

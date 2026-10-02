@@ -3,7 +3,7 @@
 #include <string>
 #include <system_error>
 
-#include "../../Capture/JsonSerializers.hpp"
+#include "../../Capture/Serialization/JsonSerializers.hpp"
 
 namespace hftrec::storage {
 

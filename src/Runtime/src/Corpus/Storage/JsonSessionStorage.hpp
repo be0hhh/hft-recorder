@@ -6,7 +6,7 @@
 #include <mutex>
 #include <string>
 
-#include "../../Capture/ChannelKind.hpp"
+#include "../../Capture/Session/ChannelKind.hpp"
 #include "../../Common/Status.hpp"
 #include "EventStorage.hpp"
 

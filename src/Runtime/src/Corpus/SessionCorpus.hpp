@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "../Capture/SessionManifest.hpp"
+#include "../Capture/Session/SessionManifest.hpp"
 #include "InstrumentMetadata.hpp"
 #include "LoadReport.hpp"
 #include "../Replay/EventRows.hpp"
