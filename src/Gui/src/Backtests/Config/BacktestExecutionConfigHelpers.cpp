@@ -3,8 +3,6 @@
 #include "../Sessions/BacktestSessionHelpers.hpp"
 
 #include "trading_core/Algorithm/Fees/FeePresets.hpp"
-#include "trading_core/Algorithm/RateLimit/RateLimit.hpp"
-#include "trading_core/Algorithm/RateLimit/RateLimitPresets.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -44,7 +42,7 @@ void addRateLimitBucket(hft_backtest::BacktestRateLimitSchedule& schedule,
     const std::uint64_t intervalMs = positiveUInt64Value(row, intervalKey);
     constexpr std::uint64_t kNsPerMs = 1000000ull;
     if (limit <= 0 || intervalMs == 0u || intervalMs > (std::numeric_limits<std::uint64_t>::max() / kNsPerMs)) return;
-    trading_core::RateLimitBucketConfig bucket{};
+    hft_backtest::BacktestQuotaBucketConfig bucket{};
     bucket.kind = kind;
     bucket.limit = limit;
     bucket.intervalNs = intervalMs * kNsPerMs;
@@ -157,60 +155,6 @@ QString formatBpsE8(std::int64_t bpsE8) {
     return out;
 }
 
-QString bucketKindName(trading_core::RateLimitBucketKind kind) {
-    using trading_core::RateLimitBucketKind;
-    switch (kind) {
-        case RateLimitBucketKind::RequestWeight: return QStringLiteral("weight");
-        case RateLimitBucketKind::Orders: return QStringLiteral("orders");
-        case RateLimitBucketKind::Requests: return QStringLiteral("requests");
-        case RateLimitBucketKind::CancelOrders: return QStringLiteral("cancel");
-        case RateLimitBucketKind::ReduceOnlyOrders: return QStringLiteral("reduce-only");
-        default: return QStringLiteral("unknown");
-    }
-}
-
-QString actionKindName(trading_core::RateLimitActionKind kind) {
-    using trading_core::RateLimitActionKind;
-    switch (kind) {
-        case RateLimitActionKind::LimitOrder: return QStringLiteral("limit");
-        case RateLimitActionKind::MarketOrder: return QStringLiteral("market");
-        case RateLimitActionKind::CancelOrder: return QStringLiteral("cancel");
-        case RateLimitActionKind::ReduceOnlyLimitOrder: return QStringLiteral("RO limit");
-        case RateLimitActionKind::ReduceOnlyMarketOrder: return QStringLiteral("RO market");
-        case RateLimitActionKind::WsSubscribe: return QStringLiteral("WS sub");
-        case RateLimitActionKind::RestOrderQuery: return QStringLiteral("query");
-        default: return QStringLiteral("action");
-    }
-}
-
-QString intervalText(std::uint64_t intervalNs) {
-    constexpr std::uint64_t kNsPerMs = 1000000ull;
-    constexpr std::uint64_t kNsPerSecond = 1000000000ull;
-    constexpr std::uint64_t kNsPerMinute = 60000000000ull;
-    if (intervalNs != 0u && intervalNs % kNsPerMinute == 0u) {
-        return QStringLiteral("%1m").arg(static_cast<qulonglong>(intervalNs / kNsPerMinute));
-    }
-    if (intervalNs != 0u && intervalNs % kNsPerSecond == 0u) {
-        return QStringLiteral("%1s").arg(static_cast<qulonglong>(intervalNs / kNsPerSecond));
-    }
-    if (intervalNs != 0u && intervalNs % kNsPerMs == 0u) {
-        return QStringLiteral("%1ms").arg(static_cast<qulonglong>(intervalNs / kNsPerMs));
-    }
-    return QStringLiteral("%1ns").arg(static_cast<qulonglong>(intervalNs));
-}
-
-QString costSummary(const trading_core::RateLimitActionConfig& action) {
-    if (!action.enabled || action.costCount == 0u) return {};
-    QStringList costs;
-    for (std::uint8_t i = 0u; i < action.costCount && i < action.costs.size(); ++i) {
-        const auto& cost = action.costs[i];
-        if (cost.cost <= 0) continue;
-        costs.push_back(QStringLiteral("%1 %2").arg(cost.cost).arg(bucketKindName(cost.bucket)));
-    }
-    if (costs.isEmpty()) return {};
-    return QStringLiteral("%1: %2").arg(actionKindName(action.action), costs.join(QStringLiteral("+")));
-}
-
 }  // namespace
 
 void applyBacktestExecutionPolicy(hft_backtest::BacktestRunRequest& request,
@@ -291,9 +235,6 @@ QString exchangeExecutionPresetSummary(const QString& exchange, const QString& m
     const canon::MarketType marketType = marketFromText(market);
     const trading_core::ExchangeFeePreset fee =
         trading_core::defaultExchangeFeePreset(exchangeId, marketType);
-    trading_core::RateLimitPreset rate =
-        trading_core::defaultExchangeRateLimitPreset(exchangeId, marketType);
-    (void)trading_core::addDefaultRateLimitActions(rate);
 
     QStringList parts;
     if (fee.available) {
@@ -304,25 +245,7 @@ QString exchangeExecutionPresetSummary(const QString& exchange, const QString& m
     }
 
     if (rateLimitsEnabled) {
-        QStringList buckets;
-        for (std::uint8_t i = 0u; i < rate.bucketCount; ++i) {
-            const auto& bucket = rate.buckets[i];
-            if (!bucket.enabled || bucket.limit <= 0) continue;
-            buckets.push_back(QStringLiteral("%1 %2/%3")
-                                  .arg(bucketKindName(bucket.kind))
-                                  .arg(bucket.limit)
-                                  .arg(intervalText(bucket.intervalNs)));
-        }
-        parts.push_back(buckets.isEmpty()
-                            ? QStringLiteral("RL preset missing")
-                            : QStringLiteral("RL %1").arg(buckets.join(QStringLiteral(", "))));
-
-        QStringList actions;
-        for (std::uint8_t i = 0u; i < rate.actionCount; ++i) {
-            const QString text = costSummary(rate.actions[i]);
-            if (!text.isEmpty()) actions.push_back(text);
-        }
-        if (!actions.isEmpty()) parts.push_back(QStringLiteral("Costs %1").arg(actions.join(QStringLiteral(", "))));
+        parts.push_back(QStringLiteral("RL requires explicit buckets and action costs"));
     } else {
         parts.push_back(QStringLiteral("RL off"));
     }

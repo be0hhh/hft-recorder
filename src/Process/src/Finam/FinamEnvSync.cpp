@@ -305,7 +305,7 @@ Status refreshFinamEnvAndBearer(const FinamEnvSyncRequest& request,
                     Status::Unknown,
                     "Finam bearer refresh failed for FINAM_API_" +
                         std::to_string(normalizedSlot(request.apiSlot)) +
-                        "; check SECRET/JWT, proxy, and api.finam.ru session access");
+                        "; check SECRET/JWT and api.finam.ru session access");
     }
 
     FinamEnvValues values{};

@@ -83,18 +83,21 @@ QVariantMap CompressionViewModel::previewEncodedJson(const QString& path) const 
     std::string content;
     constexpr std::size_t kMaxPreviewBytes = 512u * 1024u;
     std::uint64_t producedBytes = 0;
+    bool previewLimitReached = false;
     const auto status = hft_compressor::inspectCompressedArtifact(
         previewPath.toStdString(),
         selectedPipelineId_.toStdString(),
         std::string_view{"encoded-json"},
-        [&](std::span<const std::uint8_t> block) noexcept -> bool {
+        [&](std::span<const std::uint8_t> block) -> bool {
             producedBytes += static_cast<std::uint64_t>(block.size());
             const std::size_t remaining = content.size() >= kMaxPreviewBytes ? 0u : kMaxPreviewBytes - content.size();
             const std::size_t take = std::min<std::size_t>(remaining, block.size());
             if (take != 0u) content.append(reinterpret_cast<const char*>(block.data()), take);
-            return content.size() < kMaxPreviewBytes;
+            previewLimitReached = content.size() >= kMaxPreviewBytes;
+            return !previewLimitReached;
         });
-    if (!hft_compressor::isOk(status) && status != hft_compressor::Status::CallbackStopped) {
+    if (!hft_compressor::isOk(status) &&
+        !(status == hft_compressor::Status::CallbackStopped && previewLimitReached)) {
         return previewError(previewPath, QStringLiteral("encoded-json inspect is not available for this artifact"));
     }
 

@@ -188,7 +188,6 @@ Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexc
         lastError = "capture env file not found: " + primaryPath;
         return Status::InvalidArgument;
     }
-    (void)cxet::initProxyFromEnv();
 #else
     (void)config;
     (void)lastError;

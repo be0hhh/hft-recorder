@@ -15,9 +15,10 @@ jobs:
     timeout-minutes: 360
     defaults:
       run:
-        shell: /home/gha-runner/github-actions/bin/gha-heavy-shell {0}
+        shell: /opt/cxet-ci/bin/gha-heavy-shell {0}
     steps:
       - name: Require family control token
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
         run: |
@@ -26,7 +27,8 @@ jobs:
             exit 1
           }
 
-      - name: Validate family controller revision
+      - name: Validate source snapshot root identity
+        shell: bash
         env:
           EVENT_PATH: ${{ github.event_path }}
         run: |
@@ -42,7 +44,7 @@ jobs:
               raise SystemExit(1)
 
           def require_sha(value, label):
-              if not isinstance(value, str) or re.fullmatch(r"[0-9a-fA-F]{40}", value) is None:
+              if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
                   fail(f"Invalid {label}.")
               return value
 
@@ -53,7 +55,7 @@ jobs:
           if not isinstance(event, dict) or not isinstance(event.get("client_payload"), dict):
               fail("family-reuse client_payload is required.")
           payload = event["client_payload"]
-          if payload.get("schema_version") != 5:
+          if type(payload.get("schema_version")) is not int or payload.get("schema_version") != 5:
               fail("family-reuse requires schema_version=5.")
           controller_sha = require_sha(payload.get("controller_sha"), "controller_sha")
           snapshot = payload.get("snapshot")
@@ -64,15 +66,9 @@ jobs:
               fail("controller_sha differs from snapshot.cxetcpp.")
           PY
 
-      - name: Checkout canonical family controller
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: be0hhh/CXETCPP
-          ref: ${{ github.event.client_payload.controller_sha }}
-          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
-          persist-credentials: false
-          clean: false
-          path: controller
+      - name: Admit protected installed family controller
+        shell: bash
+        run: /opt/cxet-ci/bin/gha-controller bootstrap
 
       - name: Validate and publish exact reused component
         uses: ./controller/.github/actions/family-reuse

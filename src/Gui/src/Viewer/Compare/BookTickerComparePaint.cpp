@@ -448,7 +448,7 @@ void drawAxisTicks(QPainter& painter,
                    const QRectF& scaleRect,
                    const Ranges& ranges,
                    bool priceAxis,
-                   const QString& lowerAxisLabel("bps")) {
+                   const QString& lowerAxisLabel) {
     const int ticks = priceAxis ? 5 : 4;
     painter.setFont(QFont{painter.font().family(), 10});
     const QColor grid{58, 58, 64};
