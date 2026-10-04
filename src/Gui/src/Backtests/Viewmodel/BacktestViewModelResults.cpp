@@ -56,12 +56,7 @@ QString manifestIssueText(const QJsonValue& value) {
     return lines.join(QLatin1Char('\n'));
 }
 
-QString durationDisplay(std::int64_t ns) {
-    if (ns < 1'000) return QStringLiteral("%1 ns").arg(ns);
-    if (ns < 1'000'000) return QStringLiteral("%1 us").arg(static_cast<double>(ns) / 1'000.0, 0, 'f', 2);
-    if (ns < 1'000'000'000) return QStringLiteral("%1 ms").arg(static_cast<double>(ns) / 1'000'000.0, 0, 'f', 2);
-    return QStringLiteral("%1 s").arg(static_cast<double>(ns) / 1'000'000'000.0, 0, 'f', 2);
-}
+
 
 QVariantMap displayRow(const QString& label, const QString& value) {
     QVariantMap row;
@@ -70,30 +65,7 @@ QVariantMap displayRow(const QString& label, const QString& value) {
     return row;
 }
 
-QVariantList performanceRows(const QJsonObject& performance, bool sweep) {
-    QVariantList rows;
-    const auto appendDuration = [&](const char* key, const QString& label) {
-        const QJsonValue value = performance.value(QLatin1String(key));
-        if (!value.isDouble()) return;
-        rows.push_back(displayRow(label, durationDisplay(value.toInteger())));
-    };
-    if (sweep) {
-        const QJsonValue workers = performance.value(QStringLiteral("worker_count"));
-        if (workers.isDouble()) rows.push_back(displayRow(QStringLiteral("Workers"), QString::number(workers.toInteger())));
-        appendDuration("prepare_ns", QStringLiteral("Prepare"));
-        appendDuration("points_wall_ns", QStringLiteral("Points wall"));
-        appendDuration("points_cpu_sum_ns", QStringLiteral("Points CPU sum"));
-    } else {
-        appendDuration("load_ns", QStringLiteral("Load"));
-        appendDuration("timeline_ns", QStringLiteral("Timeline"));
-        appendDuration("delivery_ns", QStringLiteral("Delivery"));
-        appendDuration("replay_ns", QStringLiteral("Replay"));
-        appendDuration("finalize_ns", QStringLiteral("Finalize"));
-    }
-    appendDuration("artifact_write_ns", QStringLiteral("Artifacts"));
-    appendDuration("total_ns", QStringLiteral("Total"));
-    return rows;
-}
+
 
 QVariantList depthExecutionRows(const QJsonObject& depth, bool sweepAggregate = false) {
     QVariantList rows;
@@ -106,8 +78,6 @@ QVariantList depthExecutionRows(const QJsonObject& depth, bool sweepAggregate = 
         appendCount("rows_read_sum", QStringLiteral("Depth rows sum"));
         appendCount("bbo_fallback_fills_sum", QStringLiteral("BBO fallback fills sum"));
         appendCount("first_bbo_fallback_ts_ns", QStringLiteral("First fallback ts"));
-        const QJsonValue readNs = depth.value(QStringLiteral("read_ns_sum"));
-        if (readNs.isDouble()) rows.push_back(displayRow(QStringLiteral("Depth read sum"), durationDisplay(readNs.toInteger())));
         return rows;
     }
     const QString mode = depth.value(QStringLiteral("mode")).toString();
@@ -119,8 +89,6 @@ QVariantList depthExecutionRows(const QJsonObject& depth, bool sweepAggregate = 
     appendCount("rows_read", QStringLiteral("Depth rows"));
     appendCount("bbo_fallback_fills", QStringLiteral("BBO fallback fills"));
     appendCount("first_bbo_fallback_ts_ns", QStringLiteral("First fallback ts"));
-    const QJsonValue readNs = depth.value(QStringLiteral("read_ns"));
-    if (readNs.isDouble()) rows.push_back(displayRow(QStringLiteral("Depth read"), durationDisplay(readNs.toInteger())));
     return rows;
 }
 
@@ -185,10 +153,7 @@ QString BacktestViewModel::selectedWarningText() const {
     return record == nullptr ? QString{} : record->warningText;
 }
 
-QVariantList BacktestViewModel::selectedPerformanceRows() const {
-    const auto* record = selectedRecord_();
-    return record == nullptr ? QVariantList{} : record->performanceRows;
-}
+
 
 QVariantList BacktestViewModel::selectedDepthExecutionRows() const {
     const auto* record = selectedRecord_();
@@ -605,7 +570,6 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
             .arg(jsonValueString(object, QStringLiteral("budget")),
                  jsonValueString(object, QStringLiteral("search_seed")),
                  jsonValueString(object, QStringLiteral("points_evaluated")));
-        record.performanceRows = performanceRows(object.value(QStringLiteral("performance")).toObject(), true);
         QVariantList sweepDepthRows = depthExecutionRows(
             object.value(QStringLiteral("depth_execution")).toObject(), true);
         const QJsonArray sweepLegs = object.value(QStringLiteral("legs")).toArray();
@@ -685,7 +649,6 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
     record.totalPnlE8 = decodedSummary.totalPnlE8;
     record.pnlText = pnlPercentText(record.totalPnlE8, record.initialBalanceE8);
     record.summaryJson = humanSummaryJson(object.value(QStringLiteral("summary")));
-    record.performanceRows = performanceRows(object.value(QStringLiteral("performance")).toObject(), false);
     record.scopedDepthExecutionRows.insert(
         QStringLiteral("portfolio"),
         depthExecutionRows(object.value(QStringLiteral("depth_execution")).toObject()));
@@ -984,7 +947,6 @@ void BacktestViewModel::applyLoadedPreview_(std::uint64_t generation, const QStr
     record->errorText = loaded.errorText;
     record->warningText = loaded.warningText;
     record->warningCount = loaded.warningCount;
-    record->performanceRows = loaded.performanceRows;
     record->scopedDepthExecutionRows = loaded.scopedDepthExecutionRows;
     record->equityPoints = loaded.equityPoints;
     record->executionQualityPoints = loaded.executionQualityPoints;
@@ -1021,7 +983,6 @@ void BacktestViewModel::applyLoadedDetails_(std::uint64_t generation, const QStr
     record->errorText = loaded.errorText;
     record->warningText = loaded.warningText;
     record->warningCount = loaded.warningCount;
-    record->performanceRows = loaded.performanceRows;
     record->scopedDepthExecutionRows = loaded.scopedDepthExecutionRows;
     record->detailsErrorText = loaded.detailsErrorText;
     record->equityPoints = loaded.equityPoints;

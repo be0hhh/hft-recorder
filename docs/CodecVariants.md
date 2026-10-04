@@ -183,7 +183,8 @@ and possibly different winners per stream type.
 
 The research catalog above stays exploratory. For the first implementation
 pass, these are the seven `codec_id` values enumerated in
-[FILE_FORMAT.md](FILE_FORMAT.md). Every one of them is a candidate that must
+the historical `.cxrec` research vocabulary; the current durable corpus is
+defined in [SessionCorpusFormat.md](SessionCorpusFormat.md). Every one of them is a candidate that must
 be built and benchmarked; the eventual "winner" per stream emerges from the
 bench matrix, not from this document.
 
@@ -198,9 +199,9 @@ bench matrix, not from this document.
 | 7 | `0x07` | `RANS_CTX8` | rANS order-1, 8-bit context, quasi-adaptive rebuild at every 512-event block. AVX2 4-way interleaved decode. | ~1.7× | ~700 MB/s (scalar) / ~1430 MB/s (AVX2) | Replay profile — archive stays in this format for fast backtest load |
 
 See:
-- [ARITHMETIC_CODING.md](ARITHMETIC_CODING.md) for the AC / range-coder theory and the Subbotin & rANS pseudocode.
-- [DELTA_ENCODING.md](DELTA_ENCODING.md) for the per-field input the codecs receive.
-- [BENCHMARK_PLAN.md](../doc/BENCHMARK_PLAN.md) for the 7 × 4 stream measurement grid that decides which hypothesis survives.
+- AC/range/rANS coding remains a research candidate, not a canonical corpus format.
+- Per-field delta encoding must preserve the stream semantics in [Streams.md](Streams.md).
+- [ComparisonMatrix.md](ComparisonMatrix.md) defines per-stream comparison requirements.
 
 All seven codecs share the same delta-encoding front-end; only the entropy
 stage differs. This keeps the implementation cost manageable and means a

@@ -6,7 +6,7 @@ The first supported live source is:
 - `Binance FAPI`
 
 Source-quality policy is defined in shared HFT research docs:
-[MARKET_DATA_FEED_QUALITY_AND_SBE](../../../doc/hft-research/MARKET_DATA_FEED_QUALITY_AND_SBE.md).
+[market delivery/replay contract](../../hft-backtest/docs/MarketDeliveryReplayContract.md).
 In this file, canonical channel means durable corpus channel, not proof that the
 upstream exchange feed is exact microstructure truth.
 

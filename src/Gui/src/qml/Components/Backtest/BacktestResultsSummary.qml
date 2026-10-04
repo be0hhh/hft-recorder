@@ -126,29 +126,6 @@ Rectangle {
         }
 
         ColumnLayout {
-            visible: viewRoot.backtestVm.selectedPerformanceRows.length > 0
-            Layout.fillWidth: true
-            spacing: 6
-            Label {
-                text: "Performance"
-                color: viewRoot.textColor
-                font.pixelSize: 13
-                font.bold: true
-            }
-            Flow {
-                Layout.fillWidth: true
-                Layout.preferredHeight: childrenRect.height
-                spacing: 8
-                Repeater {
-                    model: viewRoot.backtestVm.selectedPerformanceRows
-                    delegate: BacktestMetricCard {
-                        metric: ({ "group": "Stage", "label": modelData.label, "value": modelData.value })
-                    }
-                }
-            }
-        }
-
-        ColumnLayout {
             visible: viewRoot.backtestVm.selectedDepthExecutionRows.length > 0
             Layout.fillWidth: true
             spacing: 6

@@ -4,6 +4,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR OR NOT CXET_ROOT_SOURCE_GR
     message(FATAL_ERROR "hft-recorder requires the canonical CXET root source graph; use its compile.sh wrapper")
 endif()
 set(HFTREC_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+# Corpus checks consume the exact production contract without configuring the
+# GUI or the unfinished Backtest consumer. The root registers this provider.
+if(CXET_LOCAL_TESTS)
+    if(NOT TARGET hftrec::corpus_contract)
+        add_subdirectory(src/Contracts)
+    endif()
+    return()
+endif()
 foreach(required_target IN ITEMS cxet::cxet_lib
         hft_backtest::core hft_compressor::core hftp_client_headers
         hftrec::corpus_contract absl::flat_hash_map)
@@ -31,12 +39,6 @@ if(HFTREC_BUILD_GUI)
 endif()
 
 # Reuse prepared providers. Source/package acquisition is separate from build.
-if(NOT TARGET fmt::fmt)
-    find_package(fmt CONFIG REQUIRED)
-endif()
-if(NOT TARGET spdlog::spdlog)
-    find_package(spdlog CONFIG REQUIRED)
-endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-variable)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

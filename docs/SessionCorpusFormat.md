@@ -13,7 +13,7 @@ Important scope rule:
 - consumer semantics must stay defined by session/materialization contracts, not by filename-specific behavior alone
 
 Market-data source-quality labels follow
-[MARKET_DATA_FEED_QUALITY_AND_SBE](../../../doc/hft-research/MARKET_DATA_FEED_QUALITY_AND_SBE.md).
+[market delivery/replay contract](../../hft-backtest/docs/MarketDeliveryReplayContract.md).
 Every persisted channel must preserve `source_quality`, `source_format`,
 `origin`, `feed_kind`, `sequence_policy`, and `timestamp_policy` in manifest or
 equivalent session metadata.

@@ -7,7 +7,7 @@ This document defines how to capture comparable datasets for the coursework.
 The same protocol should be used for all future measurements so results stay reproducible.
 
 Source-quality policy follows
-[MARKET_DATA_FEED_QUALITY_AND_SBE](../../../doc/hft-research/MARKET_DATA_FEED_QUALITY_AND_SBE.md).
+[market delivery/replay contract](../../hft-backtest/docs/MarketDeliveryReplayContract.md).
 The current canonical JSON corpus is a durable backend; it is not by itself a
 claim that the upstream feed is exact or high-quality.
 

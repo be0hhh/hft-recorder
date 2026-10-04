@@ -15,7 +15,6 @@ set(HFTREC_CORE_SOURCES
     src/Capture/Coordinator/CaptureCoordinator.cpp
     src/Capture/Serialization/JsonSerializers.cpp
     src/Capture/Session/SupportArtifacts.cpp
-    src/Common/Log.cpp
     src/Corpus/Codec/VarInt.cpp
     src/Corpus/CorpusLoader.cpp
     src/Corpus/InstrumentMetadata.cpp
@@ -79,8 +78,6 @@ target_link_libraries(hftrec_core
         cxet::cxet_lib
         Threads::Threads
         absl::flat_hash_map
-        spdlog::spdlog
-        fmt::fmt
         ZLIB::ZLIB
 )
 

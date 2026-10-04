@@ -196,7 +196,7 @@ jobs:
           set -euo pipefail
           bash server/check-openssl-baseline.sh --role build
           python3 tools/Ci/FamilyCiWorkspace.py source --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
-          ./apps/hft-recorder/compile.sh portable p -j4
+          ./apps/hft-recorder/compile.sh --force portable p -j4
           python3 tools/Ci/FamilyCiWorkspace.py record --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON" --build-dir "$CXET_BUILD_DIR"
           python3 tools/Ci/FamilyCiWorkspace.py verify --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON" --build-dir "$CXET_BUILD_DIR"
           if [[ "$GITHUB_EVENT_NAME" == repository_dispatch ]]; then
@@ -206,8 +206,172 @@ jobs:
           fi
       - name: Summarize declared local checks
         run: |
-          echo 'Local tests: undeclared for this owner.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Owner-local release and ASan/UBSan suites gate ready independently.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Compilation and artifact staging establish buildable; ready and family closure are separate publications.' >> "$GITHUB_STEP_SUMMARY"
+
+  tests-local:
+    name: tests-local
+    needs: snapshot
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 180
+    env:
+      FAMILY_SNAPSHOT_JSON: ${{ needs.snapshot.outputs.snapshot_json }}
+      CXET_FAMILY_PROFILE: ${{ fromJSON(needs.snapshot.outputs.snapshot_json)._profile }}
+      GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+      GHA_PRIORITY: 20
+      OFFLINE_PROFILE: release
+      OFFLINE_OWNER: hft-recorder
+    steps:
+      - name: Require family token
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+        run: |
+          [[ -n "$GH_TOKEN" ]] || {
+            echo '::error::CI_FAMILY_READ_TOKEN is required for exact family CI.'
+            exit 1
+          }
+      - name: Checkout exact workflow helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: ${{ needs.snapshot.outputs.cxetcpp_sha }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          persist-credentials: false
+          clean: false
+          sparse-checkout: |
+            .github/actions
+            tools/Ci
+          path: controller
+      - name: Checkout and validate exact source inputs independently
+        uses: ./controller/.github/actions/checkout-family-source
+        with:
+          source-ref: ${{ needs.snapshot.outputs.cxetcpp_sha }}
+          family-read-token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          profile: ${{ fromJSON(needs.snapshot.outputs.snapshot_json)._profile }}
+          source-root: source/CXETCPP
+          snapshot-json: ${{ needs.snapshot.outputs.snapshot_json }}
+      - name: Initialize offline run report
+        working-directory: source/CXETCPP
+        run: |
+          mkdir -p "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports"
+          printf 'owner=%s profile=%s snapshot=%s\n' "$OFFLINE_OWNER" "$OFFLINE_PROFILE" '${{ needs.snapshot.outputs.snapshot_id }}' > "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/result.txt"
+      - name: Set up pinned LLVM
+        uses: ./controller/.github/actions/setup-toolchain
+        with:
+          source-root: source/CXETCPP
+          local-cache-root: /home/gha-runner/github-actions/cache/toolchains/wsl-ci-cxetcpp
+      - name: Run independent owner offline profile
+        id: offline
+        working-directory: source/CXETCPP
+        run: |
+          set -euo pipefail
+          python3 tools/Ci/FamilyCiWorkspace.py source --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
+          python3 tools/Testing/RunOffline.py --owner "$OFFLINE_OWNER" --profile "$OFFLINE_PROFILE" --jobs 4 2>&1 | tee "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/run.log"
+      - name: Record offline outcome
+        if: always()
+        working-directory: source/CXETCPP
+        env:
+          OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
+        run: |
+          mkdir -p "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports"
+          printf 'offline_outcome=%s\n' "$OFFLINE_OUTCOME" >> "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/result.txt"
+          printf 'Offline owner %s, profile %s: %s. Diagnostic sanitizer profiles are separate from production performance evidence.\n' "$OFFLINE_OWNER" "$OFFLINE_PROFILE" "$OFFLINE_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload offline CTest logs and run reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: offline-hft-recorder-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            source/CXETCPP/build/offline-checks/hft-recorder/release/run-reports
+            source/CXETCPP/build/offline-checks/hft-recorder/release/Testing
+            source/CXETCPP/build/offline-checks/hft-recorder/release/CMakeFiles/CMakeConfigureLog.yaml
+            source/CXETCPP/build/offline-checks/hft-recorder/release/CMakeCache.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  tests-offline-safety:
+    name: tests-offline-safety (${{ matrix.profile }})
+    needs: snapshot
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [address-undefined]
+    env:
+      FAMILY_SNAPSHOT_JSON: ${{ needs.snapshot.outputs.snapshot_json }}
+      CXET_FAMILY_PROFILE: ${{ fromJSON(needs.snapshot.outputs.snapshot_json)._profile }}
+      GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+      GHA_PRIORITY: 20
+      OFFLINE_PROFILE: ${{ matrix.profile }}
+      OFFLINE_OWNER: hft-recorder
+    steps:
+      - name: Require family token
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+        run: |
+          [[ -n "$GH_TOKEN" ]] || {
+            echo '::error::CI_FAMILY_READ_TOKEN is required for exact family CI.'
+            exit 1
+          }
+      - name: Checkout exact workflow helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: ${{ needs.snapshot.outputs.cxetcpp_sha }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          persist-credentials: false
+          clean: false
+          sparse-checkout: |
+            .github/actions
+            tools/Ci
+          path: controller
+      - name: Checkout and validate exact source inputs independently
+        uses: ./controller/.github/actions/checkout-family-source
+        with:
+          source-ref: ${{ needs.snapshot.outputs.cxetcpp_sha }}
+          family-read-token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          profile: ${{ fromJSON(needs.snapshot.outputs.snapshot_json)._profile }}
+          source-root: source/CXETCPP
+          snapshot-json: ${{ needs.snapshot.outputs.snapshot_json }}
+      - name: Initialize offline run report
+        working-directory: source/CXETCPP
+        run: |
+          mkdir -p "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports"
+          printf 'owner=%s profile=%s snapshot=%s\n' "$OFFLINE_OWNER" "$OFFLINE_PROFILE" '${{ needs.snapshot.outputs.snapshot_id }}' > "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/result.txt"
+      - name: Set up pinned LLVM
+        uses: ./controller/.github/actions/setup-toolchain
+        with:
+          source-root: source/CXETCPP
+          local-cache-root: /home/gha-runner/github-actions/cache/toolchains/wsl-ci-cxetcpp
+      - name: Run independent owner offline profile
+        id: offline
+        working-directory: source/CXETCPP
+        run: |
+          set -euo pipefail
+          python3 tools/Ci/FamilyCiWorkspace.py source --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
+          python3 tools/Testing/RunOffline.py --owner "$OFFLINE_OWNER" --profile "$OFFLINE_PROFILE" --jobs 4 2>&1 | tee "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/run.log"
+      - name: Record offline outcome
+        if: always()
+        working-directory: source/CXETCPP
+        env:
+          OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
+        run: |
+          mkdir -p "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports"
+          printf 'offline_outcome=%s\n' "$OFFLINE_OUTCOME" >> "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/result.txt"
+          printf 'Offline owner %s, profile %s: %s. Diagnostic sanitizer profiles are separate from production performance evidence.\n' "$OFFLINE_OWNER" "$OFFLINE_PROFILE" "$OFFLINE_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload offline CTest logs and run reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: offline-hft-recorder-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            source/CXETCPP/build/offline-checks/hft-recorder/${{ matrix.profile }}/run-reports
+            source/CXETCPP/build/offline-checks/hft-recorder/${{ matrix.profile }}/Testing
+            source/CXETCPP/build/offline-checks/hft-recorder/${{ matrix.profile }}/CMakeFiles/CMakeConfigureLog.yaml
+            source/CXETCPP/build/offline-checks/hft-recorder/${{ matrix.profile }}/CMakeCache.txt
+          if-no-files-found: error
+          retention-days: 7
 
   publish-buildable:
     name: publish-buildable
@@ -262,10 +426,10 @@ jobs:
 
   publish-ready:
     name: publish-ready
-    needs: [snapshot, production-build, publish-buildable]
+    needs: [snapshot, production-build, publish-buildable, tests-local, tests-offline-safety]
     if: >-
       always() && github.event_name == 'repository_dispatch' && needs.snapshot.result == 'success' &&
-      needs.production-build.result == 'success' && needs.publish-buildable.result == 'success'
+      needs.production-build.result == 'success' && needs.publish-buildable.result == 'success' && needs.tests-local.result == 'success' && needs.tests-offline-safety.result == 'success'
     runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
     defaults:
       run:
@@ -361,3 +525,54 @@ jobs:
           python3 controller/tools/Ci/FamilyCiController.py publish-failed
           --repository "$GITHUB_REPOSITORY" --snapshot-json "$SNAPSHOT_JSON"
           --snapshot-id "$SNAPSHOT_ID" --mode "$CI_MODE" --failure-kind build
+
+  publish-checks-failed:
+    name: publish-checks-failed
+    needs: [snapshot, production-build, tests-local, tests-offline-safety]
+    if: >-
+      always() && github.event_name == 'repository_dispatch' && needs.snapshot.result == 'success' &&
+      needs.production-build.result == 'success' && (needs.tests-local.result == 'failure' || needs.tests-local.result == 'cancelled' || needs.tests-offline-safety.result == 'failure' || needs.tests-offline-safety.result == 'cancelled')
+    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+      SNAPSHOT_JSON: ${{ needs.snapshot.outputs.snapshot_json }}
+      SNAPSHOT_ID: ${{ needs.snapshot.outputs.snapshot_id }}
+      CI_MODE: ${{ needs.snapshot.outputs.mode }}
+    steps:
+      - name: Require family token
+        env:
+          GH_TOKEN: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+        run: |
+          [[ -n "$GH_TOKEN" ]] || {
+            echo '::error::CI_FAMILY_READ_TOKEN is required for exact family CI.'
+            exit 1
+          }
+      - name: Checkout exact workflow helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: be0hhh/CXETCPP
+          ref: ${{ needs.snapshot.outputs.cxetcpp_sha }}
+          token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          persist-credentials: false
+          clean: false
+          sparse-checkout: |
+            .github/actions
+            tools/Ci
+          path: controller
+      - name: Checkout and validate exact source inputs independently
+        uses: ./controller/.github/actions/checkout-family-source
+        with:
+          source-ref: ${{ needs.snapshot.outputs.cxetcpp_sha }}
+          family-read-token: ${{ secrets.CI_FAMILY_READ_TOKEN }}
+          profile: ${{ fromJSON(needs.snapshot.outputs.snapshot_json)._profile }}
+          source-root: source/CXETCPP
+          snapshot-json: ${{ needs.snapshot.outputs.snapshot_json }}
+      - name: publish-checks-failed
+        run: >-
+          python3 controller/tools/Ci/FamilyCiController.py publish-failed
+          --repository "$GITHUB_REPOSITORY" --snapshot-json "$SNAPSHOT_JSON"
+          --snapshot-id "$SNAPSHOT_ID" --mode "$CI_MODE" --failure-kind checks

@@ -101,25 +101,35 @@ provide a passing corpus-contract result.
 
 ## Build
 
-Prepare Qt 6, fmt and spdlog development packages separately. The build reuses
+Prepare Qt 6 development packages separately. The build reuses
 their CMake targets and fails if a required package is absent; it does not fetch them.
 
 From this directory in the canonical CXET checkout:
 
 ```bash
 ./compile.sh p
+./compile.sh --force portable p
 ./compile.sh all p
 ./compile.sh all portable p
 ```
 
-The default incrementally builds this repository's production targets and their
-full required dependency closure, including missing or stale foreign providers.
-Ready targets are reused. `all` builds and runs only this repository's registered
-tests and their required production dependencies; it does not select unrelated
-production daemons, benchmarks or another repository's tests. If no
-local tests are registered, the command reports that and succeeds; an empty
-test registry is not passing test proof.
+The default builds this owner's product incrementally with pinned Clang, GNU
+Make, Release `-O3`, native CPU targeting and LTO OFF. `portable` disables CPU
+targeting. Fresh foreign providers are reused silently; missing or stale foreign
+modules are listed in one combined prompt before rebuilding them. Decline or EOF
+cancels; a noninteractive invocation with stale providers exits with an explanatory
+error. `--force` builds the selected product and necessary closure incrementally
+with FULL LTO, without cleaning or prompting; ThinLTO is never selected.
 
-Libraries are static `.a` archives. Release uses `-O3`, host-native CPU targeting
-and full LTO; `portable` selects portable CPU targeting. Use `p` or `-j N` for
-parallelism and `--help` for the supported options.
+`all` builds and runs only this owner's registered tests and needed dependencies.
+`--force all` first builds the optimized product, then local tests. Unrelated
+products, benchmarks and other owners' tests are not selected. An empty test
+registry is reported explicitly and does not establish passing test proof.
+
+Optimized trees use `build` (native) or `build/modes/portable`; development trees
+use `build/modes/dev-native` or `build/modes/dev-portable`. `CXET_BUILD_DIR` is the
+exact caller-supplied path; an incompatible existing profile is rejected. Only a
+successful product build updates `build/.compile-active/<owner>.json`; default
+launchers resolve that selected tree. Failed, UI-only and test-only runs do not
+switch it. Project-owned libraries remain static `.a`; `p` selects available
+processors and `-j N` overrides it. See `--help` for supported options.

@@ -21,10 +21,8 @@ corpus workflow.
 
 - [CustomIdeaCatalog.md](CustomIdeaCatalog.md)
 - [ComparisonMatrix.md](ComparisonMatrix.md)
-- [BENCHMARK_PLAN.md](../doc/BENCHMARK_PLAN.md)
-- [ORDERBOOK_REPRESENTATION_EXPERIMENTS.md](../doc/ORDERBOOK_REPRESENTATION_EXPERIMENTS.md)
-- [MARKET_MAKING_SIMULATION_NOTES.md](../doc/MARKET_MAKING_SIMULATION_NOTES.md)
 - [SourceLayoutAndVariants.md](SourceLayoutAndVariants.md)
 
 Research and implementation plans are noncanonical when they conflict with
-code, the nearest "AGENTS.md", current corpus contracts or a schema-v4 plan.
+code, the nearest [AGENTS.md](../AGENTS.md) or current corpus contracts.
+Open family requirements and deferred scopes are in [status](../../../docs/STATUS.md).

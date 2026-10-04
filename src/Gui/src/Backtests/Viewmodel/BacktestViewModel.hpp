@@ -112,7 +112,6 @@ class BacktestViewModel : public QObject {
     Q_PROPERTY(QString selectedConfigText READ selectedConfigText NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedErrorText READ selectedErrorText NOTIFY selectionChanged)
     Q_PROPERTY(QString selectedWarningText READ selectedWarningText NOTIFY selectionChanged)
-    Q_PROPERTY(QVariantList selectedPerformanceRows READ selectedPerformanceRows NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedDepthExecutionRows READ selectedDepthExecutionRows NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedEquityPoints READ selectedEquityPoints NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedExecutionQualityPoints READ selectedExecutionQualityPoints NOTIFY selectionChanged)
@@ -233,7 +232,6 @@ class BacktestViewModel : public QObject {
     QString selectedConfigText() const;
     QString selectedErrorText() const;
     QString selectedWarningText() const;
-    QVariantList selectedPerformanceRows() const;
     QVariantList selectedDepthExecutionRows() const;
     QVariantList selectedEquityPoints() const;
     QVariantList selectedExecutionQualityPoints() const;
@@ -412,7 +410,6 @@ class BacktestViewModel : public QObject {
         QVariantList executionQualityPoints{};
         QVariantList resultScopes{};
         QVariantList resultMetrics{};
-        QVariantList performanceRows{};
         QHash<QString, QVariantList> scopedEquityPoints{};
         QHash<QString, QVariantList> scopedResultMetrics{};
         QHash<QString, QVariantList> scopedDepthExecutionRows{};

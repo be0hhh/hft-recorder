@@ -52,7 +52,7 @@ qint64 tsMs         = trade.timestamp.raw / 1'000'000LL;
 Rationale: prices from CXETCPP are already round-trip identical int64 across
 every exchange; going through `double` loses the last two tick digits on some
 pairs and breaks byte-for-byte round-trip tests. The format spec in
-[FILE_FORMAT.md](FILE_FORMAT.md) is defined over the int64 raw values, so
+[SessionCorpusFormat.md](SessionCorpusFormat.md) is defined over the int64 raw values, so
 changing representation mid-pipeline is a correctness bug, not a style issue.
 
 ---
@@ -149,7 +149,9 @@ camelCase (not `snake_case` class names).
 
 - **English first**, Russian allowed after — same as CXETCPP.
 - Comment **why**, not what. Function names already say what.
-- Every `#pragma pack(1)` struct used as a wire format: a one-line comment stating the on-disk offsets match [FILE_FORMAT.md](FILE_FORMAT.md) byte-by-byte.
+- Every packed wire struct documents offsets against its actual owning binary
+  schema. The [current JSON corpus](SessionCorpusFormat.md) is not a packed
+  struct layout; a codec research layout must not be substituted for it.
 - Every `memory_order` other than `seq_cst`: one-line comment naming the pair (e.g. `// acquire — pairs with release in push()`).
 - No `TODO`s without an owner and a ticket ref. Prefer opening a tracked item over leaving a `TODO`.
 

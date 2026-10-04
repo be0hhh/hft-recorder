@@ -4,7 +4,7 @@ Status: implemented source contract, static-only evidence.
 
 The canonical design is documented in
 [`BacktestEngineContract.md`](BacktestEngineContract.md) and the durable JSON
-layout is documented in [`SESSION_CORPUS_FORMAT.md`](../docs/SESSION_CORPUS_FORMAT.md).
+layout is documented in [SessionCorpusFormat.md](SessionCorpusFormat.md).
 This file records the hard cut from the earlier recorder-callback proposal.
 
 ## Clock ownership

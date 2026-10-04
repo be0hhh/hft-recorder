@@ -11,8 +11,11 @@ permissions:
 jobs:
   validate:
     name: validate-reused-build
-    runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
-    timeout-minutes: 15
+    runs-on: [self-hosted, linux, x64, wsl, local-ci, hft-recorder]
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: /home/gha-runner/github-actions/bin/gha-heavy-shell {0}
     steps:
       - name: Require family control token
         env:

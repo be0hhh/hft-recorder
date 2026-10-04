@@ -17,8 +17,7 @@
 //   3. offset += 32 + payload_size; buffered counters reset to 0.
 //   4. Every constants::kCoderResetEveryBlocks blocks, set flags |= kFlagCoderReset
 //      and tell the upstream codec to reset its state. See doc/ARITHMETIC_CODING.md.
-//   5. Every constants::kFsyncEveryBlocks blocks, call fsync(fd). Log slow fsyncs
-//      (> 50 ms) at warn level via hftrec::log::get("writer.<stream>").
+//   5. Every constants::kFsyncEveryBlocks blocks, call fsync(fd).
 //
 // On open:
 //   1. Write FileHeader (64 B) to offset 0; include magic, version, stream,
