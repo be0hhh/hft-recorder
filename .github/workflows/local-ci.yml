@@ -32,8 +32,8 @@ defaults:
 env:
   CCACHE_DIR: /tmp/ccache
   CCACHE_MAXSIZE: 15G
-  CMAKE_BUILD_PARALLEL_LEVEL: 4
-  CTEST_PARALLEL_LEVEL: 4
+  CMAKE_BUILD_PARALLEL_LEVEL: 1
+  CTEST_PARALLEL_LEVEL: 1
 
 jobs:
   snapshot:
@@ -178,7 +178,7 @@ jobs:
           set -euo pipefail
           bash server/check-openssl-baseline.sh --role build
           python3 "$GITHUB_WORKSPACE/controller/tools/Ci/FamilyCiWorkspace.py" source --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
-          ./apps/hft-recorder/compile.sh --force portable p -j4
+          ./apps/hft-recorder/compile.sh --force portable p -j1
           python3 "$GITHUB_WORKSPACE/controller/tools/Ci/FamilyCiWorkspace.py" record --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON" --build-dir "$CXET_BUILD_DIR"
           python3 "$GITHUB_WORKSPACE/controller/tools/Ci/FamilyCiWorkspace.py" verify --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON" --build-dir "$CXET_BUILD_DIR"
       - name: Admit candidate outputs for host consumers
@@ -249,7 +249,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 "$GITHUB_WORKSPACE/controller/tools/Ci/FamilyCiWorkspace.py" source --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
-          python3 tools/Testing/RunOffline.py --owner "$OFFLINE_OWNER" --profile "$OFFLINE_PROFILE" --jobs 4 2>&1 | tee "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/run.log"
+          python3 tools/Testing/RunOffline.py --owner "$OFFLINE_OWNER" --profile "$OFFLINE_PROFILE" --jobs 1 2>&1 | tee "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/run.log"
       - name: Admit candidate outputs for host consumers
         id: output_admission
         if: always()
@@ -329,7 +329,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 "$GITHUB_WORKSPACE/controller/tools/Ci/FamilyCiWorkspace.py" source --root "$PWD" --repository "$GITHUB_REPOSITORY" --snapshot-json "$FAMILY_SNAPSHOT_JSON"
-          python3 tools/Testing/RunOffline.py --owner "$OFFLINE_OWNER" --profile "$OFFLINE_PROFILE" --jobs 4 2>&1 | tee "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/run.log"
+          python3 tools/Testing/RunOffline.py --owner "$OFFLINE_OWNER" --profile "$OFFLINE_PROFILE" --jobs 1 2>&1 | tee "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/run.log"
       - name: Admit candidate outputs for host consumers
         id: output_admission
         if: always()
