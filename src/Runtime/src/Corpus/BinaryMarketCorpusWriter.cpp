@@ -1,6 +1,8 @@
 #include "BinaryMarketCorpusWriter.hpp"
 
 #include "Codec/Crc32c.hpp"
+#include "BinaryMarketBlockCodec.hpp"
+#include "BinaryMarketSourceState.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -42,6 +44,11 @@ struct SegmentState final {
     BinaryMarketSegmentHeader header{};
     std::unordered_map<IndexKey, std::size_t, IndexKeyHash> indexPositions{};
     std::uint64_t projectedBytes{0u};
+    std::vector<BinaryMarketRecord> pending{};
+    std::vector<std::uint8_t> encoded{};
+    std::size_t pendingCount{0u};
+    std::uint64_t previousShardSequence{0u};
+    std::uint64_t previousMonotonicNs{0u};
     bool open{false};
 };
 
@@ -141,6 +148,7 @@ struct BinaryMarketCorpusWriterState final {
     BinaryMarketWriterConfig config{};
     BinaryMarketManifest manifest{};
     std::vector<BinaryMarketSource> sources{};
+    std::vector<BinaryMarketSourceState> sourceStates{};
     std::vector<BinaryMarketIndexEntry> index{};
     std::vector<BinaryMarketGap> gaps{};
     std::vector<SegmentState> segments{};
@@ -165,7 +173,7 @@ namespace {
 }
 
 [[nodiscard]] bool openSegment(BinaryMarketCorpusWriterState& state,
-                               std::uint16_t shardIndex) noexcept {
+                               std::uint16_t shardIndex) {
     if (shardIndex >= state.segments.size()) return false;
     auto& segment = state.segments[shardIndex];
     if (segment.open) return true;
@@ -173,7 +181,14 @@ namespace {
         std::numeric_limits<std::uint32_t>::max()) {
         return false;
     }
+    const auto previousSequence = segment.previousShardSequence;
+    const auto previousMonotonic = segment.previousMonotonicNs;
     segment = {};
+    segment.previousShardSequence = previousSequence;
+    segment.previousMonotonicNs = previousMonotonic;
+    segment.pending.resize(kBinaryMarketBlockRecords);
+    segment.encoded.resize(hft_compressor::byteBlockEncodeBound(
+        binaryMarketBlockLayout(BinaryMarketChannel::Depth), kBinaryMarketBlockRecords));
     segment.header.headerBytes = sizeof(BinaryMarketSegmentHeader);
     segment.header.recordBytes = sizeof(BinaryMarketRecord);
     segment.header.segmentNumber = state.nextSegmentNumber++;
@@ -194,11 +209,49 @@ namespace {
     return true;
 }
 
+[[nodiscard]] bool flushBlock(BinaryMarketCorpusWriterState& state,
+                               SegmentState& segment) noexcept {
+    if (segment.pendingCount == 0u) return true;
+    const auto channel = segment.pending[0].header.channel;
+    const auto raw = std::span<const std::uint8_t>{
+        reinterpret_cast<const std::uint8_t*>(segment.pending.data()),
+        segment.pendingCount * sizeof(BinaryMarketRecord)};
+    std::size_t encodedBytes = 0u;
+    if (hft_compressor::encodeByteBlock(binaryMarketBlockLayout(channel), raw,
+            segment.encoded, encodedBytes) != hft_compressor::Status::Ok ||
+        encodedBytes == 0u || encodedBytes > segment.encoded.size() ||
+        segment.header.blockCount == std::numeric_limits<std::uint32_t>::max()) return false;
+    BinaryMarketBlockHeader block{};
+    block.blockNumber = segment.header.blockCount + 1u;
+    block.recordCount = static_cast<std::uint32_t>(segment.pendingCount);
+    block.rawBytes = static_cast<std::uint32_t>(raw.size());
+    block.encodedBytes = static_cast<std::uint32_t>(encodedBytes);
+    block.rawCrc32c = crcBytes(raw.data(), raw.size());
+    block.encodedCrc32c = crcBytes(segment.encoded.data(), encodedBytes);
+    block.firstShardSequence = segment.pending[0].header.shardSequence;
+    block.lastShardSequence = segment.pending[segment.pendingCount-1u].header.shardSequence;
+    block.channel = channel;
+    block.headerCrc32c = headerCrc(block, &BinaryMarketBlockHeader::headerCrc32c);
+    const auto physicalBytes = sizeof(block) + encodedBytes;
+    const auto reservedBytes = segment.pendingCount * binaryMarketPendingRecordBytes();
+    if (physicalBytes > reservedBytes ||
+        !writeBytes(segment.stream, &block, sizeof(block)) ||
+        !writeBytes(segment.stream, segment.encoded.data(), encodedBytes)) return false;
+    const auto released = reservedBytes - physicalBytes;
+    state.projectedBytes -= released;
+    segment.projectedBytes -= released;
+    segment.header.storedBlockBytes += physicalBytes;
+    ++segment.header.blockCount;
+    segment.pendingCount = 0u;
+    return true;
+}
+
 [[nodiscard]] bool sealSegment(BinaryMarketCorpusWriterState& state,
                                std::uint16_t shardIndex) noexcept {
     if (shardIndex >= state.segments.size()) return false;
     auto& segment = state.segments[shardIndex];
     if (!segment.open) return true;
+    if (!flushBlock(state, segment)) return false;
     segment.header.headerCrc32c = headerCrc(
         segment.header, &BinaryMarketSegmentHeader::headerCrc32c);
     segment.stream.seekp(0, std::ios::beg);
@@ -239,6 +292,8 @@ namespace {
     if (found != segment.indexPositions.end())
         return state.index.data() + found->second;
     const std::size_t position = state.index.size();
+    if (position >= state.config.maximumBytes / sizeof(BinaryMarketIndexEntry) ||
+        position >= std::numeric_limits<std::uint32_t>::max()) return nullptr;
     try {
         state.index.push_back({
             .segmentNumber = segment.header.segmentNumber,
@@ -270,12 +325,12 @@ Status BinaryMarketCorpusWriter::start(
     if (state_ && state_->active) return Status::InvalidArgument;
     if (config.root.empty() || config.sources.empty() ||
         config.producerEpoch == 0u || config.maximumBytes == 0u ||
-        config.shardCount == 0u || config.ringCapacity == 0u ||
+        config.shardCount == 0u || config.shardCount > kBinaryMarketMaximumShards || config.ringCapacity == 0u ||
         config.startedReceiveNs <= 0 || config.startedMonotonicNs == 0u ||
         config.targetDurationNs == 0u ||
         config.segmentTargetBytes < sizeof(BinaryMarketSegmentHeader) +
             sizeof(BinaryMarketRecord) + sizeof(BinaryMarketSegmentFooter) ||
-        config.sources.size() > std::numeric_limits<std::uint32_t>::max()) {
+        config.sources.size() > kBinaryMarketMaximumSources) {
         return Status::InvalidArgument;
     }
     for (std::size_t index = 0u; index < config.sources.size(); ++index)
@@ -286,6 +341,7 @@ Status BinaryMarketCorpusWriter::start(
         state->config = config;
         state->config.sources = {};
         state->sources.assign(config.sources.begin(), config.sources.end());
+        for(const auto& source:state->sources) state->sourceStates.push_back(initialBinaryMarketSourceState(source));
         state->segments.resize(config.shardCount);
         state->manifest.headerBytes = sizeof(BinaryMarketManifest);
         state->manifest.writerAbiFingerprint =
@@ -303,29 +359,28 @@ Status BinaryMarketCorpusWriter::start(
             2u * sizeof(BinaryMarketManifest) +
             3u * sizeof(BinaryMarketTableHeader) +
             state->sources.size() * sizeof(BinaryMarketSource) +
-            state->sources.size() * kBinaryMarketChannelCount *
+            state->sources.size() * kBinaryMarketStoredChannelCount *
                 sizeof(BinaryMarketGap);
-        const std::uint64_t maximumPendingRecords =
-            static_cast<std::uint64_t>(config.shardCount) *
-            static_cast<std::uint64_t>(config.ringCapacity);
-        constexpr std::uint64_t kWorstPersistedBytesPerPendingRecord =
-            sizeof(BinaryMarketRecord) + sizeof(BinaryMarketIndexEntry) +
-            sizeof(BinaryMarketSegmentHeader) +
-            sizeof(BinaryMarketSegmentFooter);
-        if (maximumPendingRecords >
-                std::numeric_limits<std::uint64_t>::max() /
-                    kWorstPersistedBytesPerPendingRecord) {
+        const std::uint64_t ringRecords =
+            static_cast<std::uint64_t>(config.shardCount) * config.ringCapacity;
+        if (config.pendingRecordCapacity > std::numeric_limits<std::uint64_t>::max()-ringRecords)
             return Status::OutOfRange;
-        }
-        const std::uint64_t finalDrainReserve =
-            maximumPendingRecords * kWorstPersistedBytesPerPendingRecord;
+        const std::uint64_t maximumPendingRecords = ringRecords + config.pendingRecordCapacity;
+        const std::uint64_t worstRecordBytes=binaryMarketPendingRecordBytes()+sizeof(BinaryMarketIndexEntry)+
+            sizeof(BinaryMarketSegmentHeader)+sizeof(BinaryMarketSegmentFooter);
+        if(maximumPendingRecords>std::numeric_limits<std::uint64_t>::max()/worstRecordBytes) return Status::OutOfRange;
+        const auto pendingNewSources=std::min<std::uint64_t>(maximumPendingRecords,kBinaryMarketMaximumSources-state->sources.size());
+        const auto newSourceReserve=pendingNewSources*(sizeof(BinaryMarketSource)+kBinaryMarketStoredChannelCount*sizeof(BinaryMarketGap));
+        const auto recordReserve=maximumPendingRecords*worstRecordBytes;
+        if(newSourceReserve>std::numeric_limits<std::uint64_t>::max()-recordReserve) return Status::OutOfRange;
+        const auto finalDrainReserve=recordReserve+newSourceReserve;
         if (!addWithin(0u, fixedMetadata, config.maximumBytes) ||
             finalDrainReserve > config.maximumBytes - fixedMetadata)
             return Status::OutOfRange;
         state->projectedBytes = fixedMetadata;
         state->writeLimitBytes = config.maximumBytes - finalDrainReserve;
         state->maximumGapRecords =
-            state->sources.size() * kBinaryMarketChannelCount;
+            state->sources.size() * kBinaryMarketStoredChannelCount;
 
         std::error_code error;
         if (std::filesystem::exists(config.root, error)) {
@@ -352,36 +407,71 @@ Status BinaryMarketCorpusWriter::start(
     }
 }
 
+Status BinaryMarketCorpusWriter::registerSources(std::span<const BinaryMarketSource> sources) noexcept {
+    if(!state_ || !state_->active || sources.size()>kBinaryMarketMaximumSources) return Status::InvalidArgument;
+    try {
+        std::size_t projectedCount=state_->sources.size();
+        for(const auto& source:sources) {
+            if(source.sourceId==0u || !validBinaryMarketSource(source,source.sourceId-1u)) return Status::InvalidArgument;
+            if(source.sourceId<=state_->sources.size()) {
+                if(!sameBinaryMarketSourceIdentity(state_->sources[source.sourceId-1u],source)) return Status::InvalidArgument;
+            } else if(source.sourceId==projectedCount+1u && projectedCount<kBinaryMarketMaximumSources) ++projectedCount;
+            else return Status::InvalidArgument;
+        }
+        const auto addedCount=projectedCount-state_->sources.size();
+        const auto requiredBytes=addedCount*(sizeof(BinaryMarketSource)+kBinaryMarketStoredChannelCount*sizeof(BinaryMarketGap));
+        if(!addWithin(state_->projectedBytes,requiredBytes,state_->writeLimitBytes)) {
+            state_->quotaReached=true;return Status::OutOfRange;
+        }
+        state_->sources.reserve(projectedCount);state_->sourceStates.reserve(projectedCount);
+        if(!reserveBytes(*state_,requiredBytes)) return Status::OutOfRange;
+        for(const auto& incoming:sources) {
+            if(incoming.sourceId<=state_->sources.size()) continue;
+            auto source=incoming;source.initiallyPresent=0u;source.initialSourceGeneration=0u;
+            state_->sources.push_back(source);state_->sourceStates.push_back(initialBinaryMarketSourceState(source));
+        }
+        state_->manifest.sourceCount=static_cast<std::uint32_t>(state_->sources.size());
+        state_->maximumGapRecords=state_->sources.size()*kBinaryMarketStoredChannelCount;
+        return Status::Ok;
+    } catch(...) {return Status::IoError;}
+}
+
 Status BinaryMarketCorpusWriter::append(
     const BinaryMarketRecord& record) noexcept {
     if (!state_ || !state_->active) return Status::InvalidArgument;
-    if (!validBinaryMarketRecord(record) ||
-        record.header.shardIndex >= state_->segments.size() ||
-        record.header.sourceId > state_->sources.size()) {
-        return Status::InvalidArgument;
-    }
-    const auto& source = state_->sources[record.header.sourceId - 1u];
-    const std::uint16_t channelBit =
-        binaryMarketChannelBit(record.header.channel);
-    const auto compatibility = source.compatibility[
-        binaryMarketChannelIndex(record.header.channel)];
-    const bool replayCompatible =
-        (record.header.flags &
-         BinaryMarketRecordTraderReplayCompatible) != 0u;
-    if (record.header.sourceGeneration != source.initialSourceGeneration ||
-        (source.availableChannelMask & channelBit) == 0u ||
-        compatibility == BinaryMarketCompatibility::Unavailable ||
-        (replayCompatible &&
-         compatibility != BinaryMarketCompatibility::ExactTraderReplay)) {
-        return Status::InvalidArgument;
-    }
+    const bool lifecycle=record.header.channel==BinaryMarketChannel::SourceLifecycle;
+    if (!validBinaryMarketRecord(record) || record.header.shardIndex>=state_->segments.size() ||
+        record.header.sourceId>state_->sources.size()+(lifecycle?1u:0u) ||
+        !std::all_of(record.payload.begin()+record.header.payloadBytes,record.payload.end(),
+                     [](std::byte b) noexcept {return b==std::byte{};})) return Status::InvalidArgument;
+    const bool newSource=record.header.sourceId==state_->sources.size()+1u;
+    if(newSource && (!lifecycle || state_->sources.size()>=kBinaryMarketMaximumSources)) return Status::OutOfRange;
+    BinaryMarketSourceState prospective{};
+    BinaryMarketSource addedSource{};
+    if(newSource) {
+        const auto& p=*binaryMarketPayload<BinaryMarketSourceLifecyclePayload>(&record);
+        if(p.kind!=BinaryMarketSourceLifecycleKind::Added || p.previousSourceGeneration!=0u) return Status::InvalidArgument;
+        addedSource=p.source;addedSource.initiallyPresent=0u;
+        prospective=initialBinaryMarketSourceState(addedSource);
+    } else prospective=state_->sourceStates[record.header.sourceId-1u];
+    if(!advanceBinaryMarketSourceState(record,prospective)) return Status::InvalidArgument;
     try {
         const std::uint16_t shardIndex = record.header.shardIndex;
         auto* segment = &state_->segments[shardIndex];
+        if ((segment->previousShardSequence != 0u &&
+             record.header.shardSequence <= segment->previousShardSequence) ||
+            (segment->previousMonotonicNs != 0u &&
+             record.header.receiveMonotonicNs < segment->previousMonotonicNs))
+            return Status::InvalidArgument;
+        if (segment->open && segment->pendingCount != 0u &&
+            (segment->pendingCount == kBinaryMarketBlockRecords ||
+             segment->pending[0].header.channel != record.header.channel)) {
+            if (!flushBlock(*state_, *segment)) return Status::IoError;
+        }
         const bool rotate = segment->open &&
-            segment->header.recordCount != 0u &&
+            segment->pendingCount == 0u && segment->header.recordCount != 0u &&
             (segment->projectedBytes > state_->config.segmentTargetBytes ||
-             sizeof(BinaryMarketRecord) >
+             binaryMarketPendingRecordBytes() >
                  state_->config.segmentTargetBytes -
                      segment->projectedBytes);
         const bool openNeeded = !segment->open || rotate;
@@ -391,7 +481,8 @@ Status BinaryMarketCorpusWriter::append(
         const bool indexNeeded = openNeeded ||
             segment->indexPositions.find(key) ==
                 segment->indexPositions.end();
-        std::uint64_t requiredBytes = sizeof(BinaryMarketRecord);
+        std::uint64_t requiredBytes = binaryMarketPendingRecordBytes();
+        if(newSource) requiredBytes+=sizeof(BinaryMarketSource)+kBinaryMarketStoredChannelCount*sizeof(BinaryMarketGap);
         if (openNeeded) {
             constexpr std::uint64_t fixedSegmentBytes =
                 sizeof(BinaryMarketSegmentHeader) +
@@ -413,6 +504,10 @@ Status BinaryMarketCorpusWriter::append(
             }
             requiredBytes += sizeof(BinaryMarketIndexEntry);
         }
+        if (!addWithin(state_->projectedBytes, requiredBytes, state_->writeLimitBytes)) {
+            for(auto& pendingSegment:state_->segments)
+                if(pendingSegment.open && !flushBlock(*state_,pendingSegment)) return Status::IoError;
+        }
         if (!reserveBytes(*state_, requiredBytes)) return Status::OutOfRange;
         if (rotate && !sealSegment(*state_, shardIndex))
             return Status::IoError;
@@ -420,18 +515,24 @@ Status BinaryMarketCorpusWriter::append(
             if (!openSegment(*state_, shardIndex)) return Status::IoError;
             segment = &state_->segments[shardIndex];
         }
+        if(newSource) {
+            state_->sources.push_back(addedSource);state_->sourceStates.push_back(prospective);
+            ++state_->manifest.sourceCount;state_->maximumGapRecords+=kBinaryMarketStoredChannelCount;
+        }
         BinaryMarketIndexEntry* index = ensureIndex(
             *state_, *segment, shardIndex, record.header.sourceId,
             record.header.sourceGeneration, record.header.channel);
         if (!index) return state_->quotaReached
             ? Status::OutOfRange : Status::IoError;
-        if (!writeBytes(segment->stream, &record, sizeof(record)))
-            return Status::IoError;
+        copyBinaryMarketRecord(segment->pending[segment->pendingCount++], record);
+        state_->sourceStates[record.header.sourceId-1u]=prospective;
+        segment->previousShardSequence = record.header.shardSequence;
+        segment->previousMonotonicNs = record.header.receiveMonotonicNs;
         segment->header.recordsCrc32c = codec::crc32cUpdate(
             segment->header.recordsCrc32c,
             reinterpret_cast<const std::uint8_t*>(&record), sizeof(record));
         ++segment->header.recordCount;
-        segment->projectedBytes += sizeof(record);
+        segment->projectedBytes += binaryMarketPendingRecordBytes();
         if (segment->header.firstReceiveNs == 0 ||
             record.header.receiveRealtimeNs <
                 segment->header.firstReceiveNs)
@@ -499,12 +600,9 @@ Status BinaryMarketCorpusWriter::appendGap(
           (gap.minimumDroppedReceiveNs == 0 &&
            gap.maximumDroppedReceiveNs == 0)) ||
         gap.shardIndex >= state_->segments.size() ||
-        !validBinaryMarketChannel(gap.channel) || gap.reserved32 != 0u ||
+        !validBinaryMarketRecordChannel(gap.channel) || gap.reserved32 != 0u ||
         gap.reserved8 != 0u) return Status::InvalidArgument;
-    if (gap.sourceGeneration !=
-            state_->sources[gap.sourceId - 1u].initialSourceGeneration ||
-        (state_->sources[gap.sourceId - 1u].availableChannelMask &
-         binaryMarketChannelBit(gap.channel)) == 0u) {
+    if (gap.sourceGeneration < state_->sources[gap.sourceId - 1u].initialSourceGeneration) {
         return Status::InvalidArgument;
     }
     try {

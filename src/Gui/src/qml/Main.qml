@@ -33,7 +33,16 @@ ApplicationWindow {
 
     Item { id: inactiveTabStorage; visible: false; anchors.fill: parent }
     Component { id: compressionVmComponent; CompressionViewModel { objectName: "compressionVm"; recordingCatalog: rootRecordingCatalog } }
-    Component { id: captureComponent; CaptureView { captureVm: rootCaptureVm; tabActive: false } }
+    Component {
+        id: captureComponent
+        CaptureView {
+            captureVm: rootCaptureVm; tabActive: false
+            onOpenCorpusForBacktest: function(path) {
+                rootBacktestVm.sessionPath = path
+                rootWorkspaceVm.setActiveTab(rootWorkspaceVm.tabHost("backtests"), "backtests")
+            }
+        }
+    }
     Component { id: viewerComponent; ViewerView { appVm: rootAppVm; captureVm: rootCaptureVm; backtestVm: rootBacktestVm; recordingCatalog: rootRecordingCatalog; tabActive: false } }
     Component { id: moexBasisComponent; MoexBasisView { appVm: rootAppVm; backtestVm: rootBacktestVm; recordingCatalog: rootRecordingCatalog; tabActive: false } }
     Component { id: compressComponent; CompressView { compressionVm: root.ensureCompressionVm(); tabActive: false } }

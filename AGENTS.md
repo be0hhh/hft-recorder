@@ -85,7 +85,8 @@ The GUI is part of the deliverable, not a thin CLI wrapper:
 
 Follow the canonical GPT-6.1 Sol model/effort routing in
 `../../docs/Agents/Subagents.md`; do not keep an app-local model matrix.
-Fast and priority service tiers are forbidden.
+Follow the same canonical owner for service-tier selection: standard/default
+by default; Fast mode may be selected manually by the user.
 
 Read-only explorer and reviewer subagents may be used automatically for non-trivial recorder work. Editing worker subagents may be used automatically only with explicit implementation authorization for the active task, for example with `делай`, `implement`, or an equivalent direct instruction. Read-only requests such as `изучи`, `посмотри`, or `пока не делай` never authorize editing workers.
 

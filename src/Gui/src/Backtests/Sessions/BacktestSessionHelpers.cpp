@@ -4,6 +4,8 @@
 #include "Corpus/Recordings/RecordingRoot.hpp"
 #include "../../../../Runtime/src/Capture/Session/SessionManifest.hpp"
 #include "../Results/BacktestResultHelpers.hpp"
+#include "../Config/BacktestExecutionConfigHelpers.hpp"
+#include "hftrec/CorpusContract/BinaryMarketCorpusReader.hpp"
 
 #include <QDir>
 #include <QDateTime>
@@ -19,6 +21,46 @@
 #include <utility>
 
 namespace hftrec::gui {
+
+bool isBinaryCorpusPath(const QString& path) {
+    return QFileInfo(QDir(path).absoluteFilePath(QStringLiteral("manifest.bin"))).isFile();
+}
+
+BacktestPreparedSessions prepareBinaryCorpusSessions(const QString& path,
+                                                     const QString& canonicalSymbol) {
+    BacktestPreparedSessions prepared;
+    corpus::BinaryMarketManifest manifest{};
+    std::vector<corpus::BinaryMarketSource> sources;
+    std::string error;
+    if (corpus::BinaryMarketCorpusReader{}.catalog(path.toStdString(), manifest, sources, error) != Status::Ok) {
+        prepared.error = QString::fromStdString(error);
+        return prepared;
+    }
+    if (manifest.recordCount == 0u) {
+        prepared.error = QStringLiteral("Recording contains no captured messages");
+        return prepared;
+    }
+    const QString requested = canonicalSymbol.trimmed().toUpper();
+    for (const auto& source : sources) {
+        const QString symbol = QString::fromLatin1(source.canonicalSymbol.data(), source.canonicalSymbolBytes);
+        if (!requested.isEmpty() && requested != symbol) continue;
+        BacktestPreparedSession session;
+        session.binaryCorpus = true;
+        session.path = path;
+        session.exchange = QString::fromLatin1(source.venue.data(), source.venueBytes).toLower();
+        session.market = QString::fromLatin1(source.market.data(), source.marketBytes).toLower();
+        session.venue = venueSectionFor(session.exchange, session.market);
+        session.symbol = symbol;
+        session.configSymbol = symbol;
+        if (session.venue.isEmpty()) {
+            prepared.error = QStringLiteral("Unsupported captured venue: %1 %2").arg(session.exchange, session.market);
+            return prepared;
+        }
+        prepared.sessions.push_back(std::move(session));
+    }
+    if (prepared.sessions.empty()) prepared.error = QStringLiteral("Selected instrument is absent from the recording");
+    return prepared;
+}
 
 SessionManifestSnapshot::SessionManifestSnapshot(SessionManifestStatus status,
                                                  QString sessionPath,
@@ -237,6 +279,11 @@ bool sessionSupportsCurrentBacktestContract(const SessionManifestSnapshot& snaps
 }
 
 bool sessionSupportsCurrentBacktestContract(const QString& sessionPath, QString* error) {
+    if (isBinaryCorpusPath(sessionPath)) {
+        const auto prepared = prepareBinaryCorpusSessions(sessionPath, {});
+        if (!prepared.ready() && error != nullptr) *error = prepared.error;
+        return prepared.ready();
+    }
     return sessionSupportsCurrentBacktestContract(loadSessionManifestSnapshot(sessionPath), error);
 }
 

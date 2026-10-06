@@ -25,6 +25,8 @@ struct BinaryMarketWriterConfig final {
     std::uint64_t startedMonotonicNs{0u};
     std::uint32_t ringCapacity{0u};
     std::uint16_t shardCount{0u};
+    // Additional records already accepted into the asynchronous writer queue.
+    std::uint64_t pendingRecordCapacity{0u};
 };
 
 struct BinaryMarketWriterSnapshot final {
@@ -46,6 +48,9 @@ class BinaryMarketCorpusWriter final {
     BinaryMarketCorpusWriter& operator=(const BinaryMarketCorpusWriter&) = delete;
 
     [[nodiscard]] Status start(const BinaryMarketWriterConfig& config) noexcept;
+    // Cold catalog registration only: new stable identities start inactive
+    // with unknown initial generation until their real producer Added marker.
+    [[nodiscard]] Status registerSources(std::span<const BinaryMarketSource> sources) noexcept;
     [[nodiscard]] Status append(const BinaryMarketRecord& record) noexcept;
     [[nodiscard]] Status appendGap(const BinaryMarketGap& gap) noexcept;
     // Switches from the normal capture budget to the hard byte ceiling after

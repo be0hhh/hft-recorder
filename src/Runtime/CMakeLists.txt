@@ -8,11 +8,10 @@ set(HFTREC_CORE_SOURCES
     src/Capture/Session/SessionId.cpp
     src/Capture/Serialization/Candles2BulkState.cpp
     src/Capture/Serialization/ChannelJsonWriter.cpp
-    src/Capture/Parser/ParserMarketCaptureClient.cpp
-    src/Capture/Parser/Private/CorpusConversion.cpp
     src/Capture/Coordinator/CaptureChannelSupport.cpp
     src/Capture/Coordinator/CaptureCoordinatorInternal.cpp
     src/Capture/Coordinator/CaptureCoordinator.cpp
+    src/Capture/Coordinator/RecorderCaptureSession.cpp
     src/Capture/Serialization/JsonSerializers.cpp
     src/Capture/Session/SupportArtifacts.cpp
     src/Corpus/Codec/VarInt.cpp
@@ -74,6 +73,8 @@ target_include_directories(hftrec_core
 target_link_libraries(hftrec_core
     PUBLIC
         hftrec::corpus_contract
+        hftrec::capture_launch
+        hftrec::capture_client
         hftp_client_headers
         cxet::cxet_lib
         Threads::Threads

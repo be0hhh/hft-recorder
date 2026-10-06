@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "../../../../Runtime/src/Capture/Coordinator/CaptureCoordinator.hpp"
+#include "../../../../Runtime/src/Capture/Coordinator/RecorderCaptureSession.hpp"
 
 namespace hftrec::gui {
 
@@ -23,6 +24,13 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, Cap
 
 class CaptureViewModel : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool captureComplete READ captureComplete NOTIFY channelStateChanged)
+    Q_PROPERTY(int capturedSourceCount READ capturedSourceCount NOTIFY activeLiveSourcesChanged)
+    Q_PROPERTY(bool fullUniverse READ fullUniverse WRITE setFullUniverse NOTIFY captureSelectionChanged)
+    Q_PROPERTY(int captureChannels READ captureChannels WRITE setCaptureChannels NOTIFY captureSelectionChanged)
+    Q_PROPERTY(int captureDurationSec READ captureDurationSec WRITE setCaptureDurationSec NOTIFY captureSelectionChanged)
+    Q_PROPERTY(qulonglong captureMaximumBytes READ captureMaximumBytes WRITE setCaptureMaximumBytes NOTIFY captureSelectionChanged)
+    Q_PROPERTY(QString parserTemplatePath READ parserTemplatePath WRITE setParserTemplatePath NOTIFY captureSelectionChanged)
     Q_PROPERTY(QString outputDirectory READ outputDirectory WRITE setOutputDirectory NOTIFY outputDirectoryChanged)
     Q_PROPERTY(QString envPath READ envPath WRITE setEnvPath NOTIFY envSettingsChanged)
     Q_PROPERTY(int apiSlot READ apiSlot WRITE setApiSlot NOTIFY envSettingsChanged)
@@ -80,6 +88,18 @@ class CaptureViewModel : public QObject {
   public:
     explicit CaptureViewModel(QObject* parent = nullptr);
 
+    bool captureComplete() const noexcept { return parserCapture_ && parserCapture_->snapshot().complete; }
+    int capturedSourceCount() const noexcept { return parserCapture_?static_cast<int>(parserCapture_->snapshot().sourceCount):0; }
+    bool fullUniverse() const noexcept { return fullUniverse_; }
+    int captureChannels() const noexcept { return captureChannels_; }
+    int captureDurationSec() const noexcept { return captureDurationSec_; }
+    qulonglong captureMaximumBytes() const noexcept { return captureMaximumBytes_; }
+    QString parserTemplatePath() const { return parserTemplatePath_; }
+    void setFullUniverse(bool value);
+    void setCaptureChannels(int value);
+    void setCaptureDurationSec(int value);
+    void setCaptureMaximumBytes(qulonglong value);
+    void setParserTemplatePath(const QString& value);
     QString outputDirectory() const;
     QString envPath() const;
     int apiSlot() const noexcept;
@@ -187,6 +207,7 @@ class CaptureViewModel : public QObject {
     Q_INVOKABLE void refreshStats();
 
   signals:
+    void captureSelectionChanged();
     void outputDirectoryChanged();
     void envSettingsChanged();
     void venueChanged();
@@ -209,6 +230,7 @@ class CaptureViewModel : public QObject {
     };
 
     std::vector<capture::CaptureConfig> makeConfigs() const;
+    capture::RecorderCaptureSessionConfig makeParserCaptureConfig_() const;
     QStringList* selectedAliasesForChannel_(const QString& channel);
     const QStringList* selectedAliasesForChannel_(const QString& channel) const;
     const QStringList* availableAliasesForChannel_(const QString& channel) const;
@@ -227,6 +249,13 @@ class CaptureViewModel : public QObject {
     void loadSettings_();
     void saveSettings_();
 
+    std::unique_ptr<capture::RecorderCaptureSession> parserCapture_{};
+    std::uint16_t desiredParserChannels_{0u};
+    bool fullUniverse_{false};
+    int captureChannels_{3};
+    int captureDurationSec_{3600};
+    qulonglong captureMaximumBytes_{1024ull*1024ull*1024ull};
+    QString parserTemplatePath_{};
     std::vector<CoordinatorEntry> coordinators_{};
     QTimer refreshTimer_{};
     QString outputDirectory_{QStringLiteral("/mnt/d/recordings")};
@@ -234,11 +263,7 @@ class CaptureViewModel : public QObject {
     int apiSlot_{1};
     QStringList selectedVenueKeys_{
         QStringLiteral("binance_futures"),
-        QStringLiteral("binance_spot"),
         QStringLiteral("bybit_futures"),
-        QStringLiteral("kucoin_futures"),
-        QStringLiteral("gate_futures"),
-        QStringLiteral("bitget_futures"),
     };
     QStringList venueSymbolsTexts_{};
     QString symbolsText_{"ETH_USDT"};
@@ -263,7 +288,7 @@ class CaptureViewModel : public QObject {
     QStringList selectedTradesAliases_{};
     QStringList selectedBookTickerAliases_{};
     QStringList selectedOrderbookAliases_{};
-    QString statusText_{"Ready to capture symbols into canonical JSON session folders"};
+    QString statusText_{"Ready to capture one Parser batch into compressed binary corpus"};
     QString lastSkippedChannelsSummary_{};
     QVariantList activeLiveSources_{};
     QString lastSessionId_{};
@@ -271,6 +296,12 @@ class CaptureViewModel : public QObject {
     bool lastTradesRunning_{false};
     bool lastBookTickerRunning_{false};
     bool lastOrderbookRunning_{false};
+    bool lastCaptureComplete_{false};
+    bool lastSessionOpen_{false};
+    bool lastSelectionPending_{false};
+    std::uint64_t lastAppliedSelectionRevision_{0u};
+    std::uint64_t lastSourceMetadataRevision_{0u};
+    std::uint32_t lastCapturedSourceCount_{0u};
     bool desiredTradesRunning_{false};
     bool desiredBookTickerRunning_{false};
     bool desiredOrderbookRunning_{false};

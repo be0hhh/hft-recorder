@@ -9,11 +9,11 @@ CapturedTradeRow CxetCaptureBridge::captureTrade(const cxet::runtime::market::Tr
                                                  std::string_view symbol) {
     CapturedTradeRow row{};row.symbol=symbol;row.exchangeId=trade.metadata.exchangeRaw;
     row.tradeId=trade.value.eventId.raw;row.tsNs=trade.value.ts.raw;
-    row.priceE8=trade.value.price.raw;row.qtyE8=trade.value.qty.raw;
-    row.side=trade.value.initiatorSide==cxet::composite::TradeInitiatorSide::Buyer?1:
-        trade.value.initiatorSide==cxet::composite::TradeInitiatorSide::Seller?0:-1;
-    row.sideBuy=trade.value.initiatorSide==cxet::composite::TradeInitiatorSide::Buyer;
-    row.isBuyerMaker=trade.value.initiatorSide==cxet::composite::TradeInitiatorSide::Seller;
+    row.priceE8=trade.value.price().raw;row.qtyE8=trade.value.qty().raw;
+    row.side=trade.value.initiatorSide()==cxet::composite::TradeInitiatorSide::Buyer?1:
+        trade.value.initiatorSide()==cxet::composite::TradeInitiatorSide::Seller?0:-1;
+    row.sideBuy=trade.value.initiatorSide()==cxet::composite::TradeInitiatorSide::Buyer;
+    row.isBuyerMaker=trade.value.initiatorSide()==cxet::composite::TradeInitiatorSide::Seller;
     // The canonical trade carries no aggregate-id span or quote amount; absent
     // native evidence remains zero rather than synthesized from the event id.
     return row;

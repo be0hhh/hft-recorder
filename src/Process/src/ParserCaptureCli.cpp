@@ -1,4 +1,5 @@
 #include "../../Runtime/src/Capture/Parser/ParserMarketCaptureClient.hpp"
+#include "../../Runtime/src/Capture/Parser/BufferedCorpusWriter.hpp"
 #include "../../Runtime/src/Corpus/BinaryMarketCorpusWriter.hpp"
 
 #include <array>
@@ -277,6 +278,7 @@ void renderDashboard(
         return 1;
     }
     corpus::BinaryMarketCorpusWriter writer{};
+    constexpr std::uint32_t queueCapacity=8192u;
     status = writer.start({
         .root = options.output,
         .sources = sources,
@@ -287,7 +289,8 @@ void renderDashboard(
         .startedReceiveNs = attached.captureStartedReceiveNs,
         .startedMonotonicNs = attached.captureStartedMonotonicNs,
         .ringCapacity = attached.ringCapacity,
-        .shardCount = attached.shardCount});
+        .shardCount = attached.shardCount,
+        .pendingRecordCapacity=queueCapacity});
     if (!isOk(status)) {
         std::fprintf(stderr,
                      "parser-capture writer start failed: %s; output must be absent/empty and max-bytes must cover metadata plus the bounded final ring drain\n",
@@ -295,6 +298,13 @@ void renderDashboard(
         return 1;
     }
 
+    capture::BufferedCorpusWriter buffered(writer);
+    if(!isOk(buffered.start(queueCapacity))) {
+        (void)client.stop(error);
+        (void)writer.finalize(corpus::BinaryMarketStopReason::Error,realtimeNowNs());
+        std::fputs("parser-capture: capture writer queue unavailable\n",stderr);
+        return 1;
+    }
     const auto previousInt = std::signal(SIGINT, handleParserCaptureSignal);
     const auto previousTerm = std::signal(SIGTERM, handleParserCaptureSignal);
     gParserCaptureInterrupted = 0;
@@ -339,7 +349,11 @@ void renderDashboard(
             break;
         }
         std::uint64_t drained = 0u;
-        status = client.drain(writer, 0u, drained, error);
+        status = client.drainTo([](void* context,const corpus::BinaryMarketRecord& record) noexcept {
+            return static_cast<capture::BufferedCorpusWriter*>(context)->append(record);
+        },&buffered,8192u,drained,error,[](void* context,const corpus::BinaryMarketSource& source) noexcept {
+            return static_cast<capture::BufferedCorpusWriter*>(context)->appendSource(source);
+        });
         if (status == Status::OutOfRange) {
             stopReason = corpus::BinaryMarketStopReason::Quota;
             break;
@@ -356,7 +370,7 @@ void renderDashboard(
             const auto remaining = std::chrono::duration_cast<
                 std::chrono::seconds>(std::chrono::nanoseconds(
                     deadlineMonotonicNs - nowMonotonicNs));
-            renderDashboard(options, client.snapshot(), writer.snapshot(),
+            renderDashboard(options, client.snapshot(), buffered.snapshot(),
                             sources.size(), remaining);
             nextDashboard = now + std::chrono::milliseconds(250);
         }
@@ -388,6 +402,10 @@ void renderDashboard(
         }
     }
 
+    const auto bufferedStatus=buffered.finish();
+    if(bufferedStatus!=Status::Ok && bufferedStatus!=Status::OutOfRange) {
+        failed=true;stopReason=corpus::BinaryMarketStopReason::Error;
+    }
     if (frozen) {
         const Status drainModeStatus = writer.beginFinalDrain();
         if (!isOk(drainModeStatus)) {
@@ -396,6 +414,10 @@ void renderDashboard(
             std::fprintf(stderr,
                          "parser-capture final drain budget activation failed: %s\n",
                          statusToString(drainModeStatus).data());
+        }
+        if(isOk(drainModeStatus) && !isOk(buffered.drainFrozen())) {
+            failed=true;stopReason=corpus::BinaryMarketStopReason::Error;
+            std::fputs("parser-capture: queued final drain failed\n",stderr);
         }
     }
     if (frozen && !failed) {
@@ -431,6 +453,10 @@ void renderDashboard(
         }
     }
 
+    if(client.snapshot().lossEpoch!=0u) {
+        failed=true;stopReason=corpus::BinaryMarketStopReason::Error;
+        std::fputs("parser-capture: records lost; corpus incomplete\n",stderr);
+    }
     const std::int64_t finalizedReceiveNs = realtimeNowNs();
     const Status finalizeStatus = writer.finalize(
         stopReason, finalizedReceiveNs > 0 ? finalizedReceiveNs

@@ -1,4 +1,4 @@
-﻿#include "viewmodels/CaptureViewModel.hpp"
+﻿#include "CaptureViewModel.hpp"
 
 #include "CaptureViewModelInternal.hpp"
 
@@ -8,6 +8,7 @@
 #include <QVariantMap>
 
 #include <filesystem>
+#include <algorithm>
 
 #include "Corpus/Recordings/RecordingRoot.hpp"
 
@@ -101,7 +102,9 @@ void syncDetailedVenueFields(const QString& venueKey, QString& exchange, QString
 CaptureViewModel::CaptureViewModel(QObject* parent)
     : QObject(parent) {
     outputDirectory_ = defaultOutputDirectory();
-    envPath_ = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../.env"));
+    const auto workspace=capture::findRecorderWorkspaceRoot();
+    parserTemplatePath_=QString::fromStdString((workspace/"apps/hft-parser/parser.ini").string());
+    envPath_=QString::fromStdString((workspace/"apps/hft-parser/.env").string());
     tradesAvailableAliases_ = detail::loadAliasesForChannel("trades");
     bookTickerAvailableAliases_ = detail::loadAliasesForChannel("bookticker");
     orderbookAvailableAliases_ = detail::loadAliasesForChannel("orderbook");
@@ -114,6 +117,26 @@ CaptureViewModel::CaptureViewModel(QObject* parent)
     });
     refreshTimer_.start();
     refreshState(detail::CaptureRefreshMode::Full);
+}
+
+void CaptureViewModel::setFullUniverse(bool value) {
+    if(fullUniverse_==value) return;fullUniverse_=value;saveSettings_();emit captureSelectionChanged();reconcileActiveChannels_();
+}
+void CaptureViewModel::setCaptureChannels(int value) {
+    if(value<=0 || value>255 || captureChannels_==value) return;
+    captureChannels_=value;saveSettings_();emit captureSelectionChanged();
+    if(parserCapture_ && parserCapture_->snapshot().active) {
+        desiredParserChannels_=static_cast<std::uint16_t>(captureChannels_);reconcileActiveChannels_();
+    }
+}
+void CaptureViewModel::setCaptureDurationSec(int value) {
+    if(value<=0 || captureDurationSec_==value) return;captureDurationSec_=value;saveSettings_();emit captureSelectionChanged();
+}
+void CaptureViewModel::setCaptureMaximumBytes(qulonglong value) {
+    if(value==0 || captureMaximumBytes_==value) return;captureMaximumBytes_=value;saveSettings_();emit captureSelectionChanged();
+}
+void CaptureViewModel::setParserTemplatePath(const QString& value) {
+    if(parserTemplatePath_==value.trimmed()) return;parserTemplatePath_=value.trimmed();saveSettings_();emit captureSelectionChanged();reconcileActiveChannels_();
 }
 
 QString CaptureViewModel::outputDirectory() const { return outputDirectory_; }
@@ -144,7 +167,13 @@ QString CaptureViewModel::captureUnavailableReason() const {
     return QStringLiteral("Built without CXETCPP: live capture and exchange parsing are unavailable.");
 #endif
 }
-bool CaptureViewModel::sessionOpen() const { return !coordinators_.empty(); }
+bool CaptureViewModel::sessionOpen() const {
+    if(parserCapture_) {
+        const auto capture=parserCapture_->snapshot();
+        if(capture.active || capture.producerRetained) return true;
+    }
+    return !coordinators_.empty();
+}
 bool CaptureViewModel::tradesRunning() const { return lastTradesRunning_; }
 bool CaptureViewModel::bookTickerRunning() const { return lastBookTickerRunning_; }
 bool CaptureViewModel::orderbookRunning() const { return lastOrderbookRunning_; }
@@ -167,35 +196,20 @@ QString CaptureViewModel::normalizedSymbolsText() const {
 }
 
 QString CaptureViewModel::tradesRequestPreview() const {
-    return detail::buildRequestPreview(QStringLiteral("trades"),
-                                       tradesAvailableAliases_,
-                                       selectedTradesAliases_,
-                                       selectedVenueKeys_,
-                                       venueSymbolsTexts_,
-                                       symbolsText_,
-                                       apiSlot_);
+    return QStringLiteral("Parser batch · Trade · %1 · %2 · exact compressed binary records")
+        .arg(selectedVenueKeys_.join(QStringLiteral(", ")), fullUniverse_?QStringLiteral("full universe"):normalizedSymbolsText());
 }
 
 
 
 QString CaptureViewModel::bookTickerRequestPreview() const {
-    return detail::buildRequestPreview(QStringLiteral("bookticker"),
-                                       bookTickerAvailableAliases_,
-                                       selectedBookTickerAliases_,
-                                       selectedVenueKeys_,
-                                       venueSymbolsTexts_,
-                                       symbolsText_,
-                                       apiSlot_);
+    return QStringLiteral("Parser batch · BookTicker · %1 · %2 · exact compressed binary records")
+        .arg(selectedVenueKeys_.join(QStringLiteral(", ")), fullUniverse_?QStringLiteral("full universe"):normalizedSymbolsText());
 }
 
 QString CaptureViewModel::orderbookRequestPreview() const {
-    return detail::buildRequestPreview(QStringLiteral("orderbook"),
-                                       orderbookAvailableAliases_,
-                                       selectedOrderbookAliases_,
-                                       selectedVenueKeys_,
-                                       venueSymbolsTexts_,
-                                       symbolsText_,
-                                       apiSlot_);
+    return QStringLiteral("Parser batch · Depth · %1 · %2 · exact compressed binary records")
+        .arg(selectedVenueKeys_.join(QStringLiteral(", ")), fullUniverse_?QStringLiteral("full universe"):normalizedSymbolsText());
 }
 
 QString CaptureViewModel::detailedCandlesVenueKey() const { return detailedCandlesVenueKey_; }
@@ -596,6 +610,11 @@ void CaptureViewModel::setStatusFromStatus(hftrec::Status status, const QString&
 }
 
 void CaptureViewModel::loadSettings_() {
+    fullUniverse_=settings_.value(QStringLiteral("capture/full_universe"),fullUniverse_).toBool();
+    captureChannels_=std::clamp(settings_.value(QStringLiteral("capture/channel_mask"),captureChannels_).toInt(),1,255);
+    captureDurationSec_=std::max(1,settings_.value(QStringLiteral("capture/duration_sec"),captureDurationSec_).toInt());
+    captureMaximumBytes_=std::max<qulonglong>(1,settings_.value(QStringLiteral("capture/maximum_bytes"),captureMaximumBytes_).toULongLong());
+    parserTemplatePath_=settings_.value(QStringLiteral("capture/parser_template"),parserTemplatePath_).toString();
     const auto outputDirectory = settings_.value(QStringLiteral("capture/output_directory"), outputDirectory_).toString().trimmed();
     if (!outputDirectory.isEmpty()) {
         const auto normalized = normalizeSavedOutputDirectory(outputDirectory);
@@ -693,6 +712,11 @@ void CaptureViewModel::loadSettings_() {
 }
 
 void CaptureViewModel::saveSettings_() {
+    settings_.setValue(QStringLiteral("capture/full_universe"),fullUniverse_);
+    settings_.setValue(QStringLiteral("capture/channel_mask"),captureChannels_);
+    settings_.setValue(QStringLiteral("capture/duration_sec"),captureDurationSec_);
+    settings_.setValue(QStringLiteral("capture/maximum_bytes"),captureMaximumBytes_);
+    settings_.setValue(QStringLiteral("capture/parser_template"),parserTemplatePath_);
     settings_.setValue(QStringLiteral("capture/output_directory"), outputDirectory_);
     settings_.setValue(QStringLiteral("capture/env_path"), envPath_);
     settings_.setValue(QStringLiteral("capture/api_slot"), apiSlot_);

@@ -44,7 +44,7 @@ QVariantList paramGroupChoices(const hft_backtest::StrategyMetadata& metadata, s
 bool paramExistsInExclusiveGroup(const hft_backtest::StrategyMetadata& metadata, std::uint8_t group, const QString& key);
 bool metadataHasParam(const hft_backtest::StrategyMetadata& metadata, const QString& key);
 const hft_backtest::StrategyParamMetadata* paramMetadataFor(const QString& strategy, const QString& key);
-QString filteredBaseConfig(const QString& base);
+QString filteredBaseConfig(const QString& base, bool preserveUniverseSections = false);
 QString defaultIndicatorProfileForStrategy(const QString& strategy);
 QVariantMap indicatorChoice(const hft_backtest::StrategyIndicatorMetadata& indicator);
 QString strategySessionRangeText(const hft_backtest::StrategyMetadata& metadata);

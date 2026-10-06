@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 Rectangle {
     id: card
+    signal openCorpusForBacktest(string path)
 
     required property var captureVm
     required property color panelColor
@@ -46,6 +47,26 @@ Rectangle {
         Label { text: "Session ID: " + (card.captureVm.sessionId === "" ? "<not started>" : card.captureVm.sessionId); color: card.textColor }
         Label { text: "Session Path: " + (card.captureVm.sessionPath === "" ? "<not created>" : card.captureVm.sessionPath); color: card.textColor }
         Label { text: "Status: " + card.captureVm.statusText; wrapMode: Text.WordWrap; color: card.mutedTextColor }
+        Label { text: "Captured sources: " + card.captureVm.capturedSourceCount; color: card.textColor }
+        CaptureAccentActionButton {
+            text: "Use this corpus in Backtests"
+            accentColor: card.accentBuyColor
+            actionTextColor: "#071419"
+            mutedTextColor: card.mutedTextColor
+            enabled: card.captureVm.captureComplete && card.captureVm.sessionPath !== "" && !card.captureVm.sessionOpen
+            onClicked: card.openCorpusForBacktest(card.captureVm.sessionPath)
+        }
+
+        Repeater {
+            model: card.captureVm.activeLiveSources
+            Label {
+                required property var modelData
+                Layout.fillWidth: true
+                text: modelData.label + " | generation " + modelData.sourceGeneration + " | channels " + modelData.capturedChannels
+                color: card.mutedTextColor; wrapMode: Text.WordWrap
+            }
+        }
+
 
         RowLayout {
             Layout.fillWidth: true

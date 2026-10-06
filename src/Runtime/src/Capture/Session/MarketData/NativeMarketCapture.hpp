@@ -27,10 +27,10 @@ struct NativeCaptureHooks final {
     cxet::runtime::market::TradeCommit value{};
     value.metadata = metadata;
     value.value.eventId.raw = view.template get<role::TradeId>().value;
-    value.value.price.raw = view.template get<role::Price>().value;
-    value.value.qty.raw = view.template get<role::Quantity>().value;
+    Price price{}; price.raw = view.template get<role::Price>().value;
+    Amount quantity{}; quantity.raw = view.template get<role::Quantity>().value;
     value.value.ts.raw = view.template get<role::EventTime>().value;
-    value.value.initiatorSide = view.template get<role::Side>().value;
+    if (!value.value.setValues(price, quantity, view.template get<role::Side>().value)) return;
     retainTrade(value);
   }
   template<class View>

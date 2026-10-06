@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import HftRecorder 1.0
 
 Pane {
@@ -215,6 +216,30 @@ Pane {
         anchors.fill: parent
         spacing: 8
 
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 10
+            Layout.rightMargin: 10
+            Button {
+                text: "Open recording folder"
+                enabled: !root.backtestVm.running
+                onClicked: recordingFolder.open()
+            }
+            TextField {
+                Layout.fillWidth: true
+                placeholderText: "Recording folder"
+                text: root.backtestVm.sessionPath
+                enabled: !root.backtestVm.running
+                onEditingFinished: root.backtestVm.sessionPath = text
+            }
+            TextField {
+                placeholderText: "Instrument (empty: whole market)"
+                text: root.backtestVm.selectedSymbol === "whole-market" ? "" : root.backtestVm.selectedSymbol
+                enabled: !root.backtestVm.running
+                onEditingFinished: root.backtestVm.selectedSymbol = text
+            }
+        }
+
         BacktestResultsToolbar { id: resultsToolbar; viewRoot: root }
 
         BacktestStrategyParametersPanel {
@@ -233,5 +258,11 @@ Pane {
 
             BacktestResultsSummary { viewRoot: root }
         }
+    }
+
+    FolderDialog {
+        id: recordingFolder
+        title: "Select a completed recording"
+        onAccepted: root.backtestVm.sessionPath = decodeURIComponent(selectedFolder.toString().replace(/^file:\/\//, ""))
     }
 }

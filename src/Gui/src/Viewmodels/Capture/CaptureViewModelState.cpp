@@ -13,6 +13,20 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, Cap
     QStringList errors;
     const bool fullRefresh = mode == CaptureRefreshMode::Full;
 
+    if(viewModel.parserCapture_) {
+        const auto state=viewModel.parserCapture_->snapshot();
+        snapshot.sessionId=QString::fromStdString(state.sessionPath.filename().string());
+        snapshot.sessionPath=QString::fromStdString(state.sessionPath.string());
+        snapshot.tradesRunning=state.active && (state.channelMask&2u)!=0u;
+        snapshot.bookTickerRunning=state.active && (state.channelMask&1u)!=0u;
+        snapshot.orderbookRunning=state.active && (state.channelMask&4u)!=0u;
+        snapshot.tradesCount=state.channelRecords[1];snapshot.bookTickerCount=state.channelRecords[0];snapshot.depthCount=state.channelRecords[2];
+        if(!state.error.empty()) {
+            auto message=QString::fromStdString(state.error);
+            if(state.producerRetained) message+=QStringLiteral(" · Parser continues (PID %1); Finalize Session to stop it").arg(static_cast<qlonglong>(state.producerPid));
+            errors.push_back(message);
+        }
+    }
     for (const auto& entry : viewModel.coordinators_) {
         const auto& coordinator = entry.coordinator;
         if (!coordinator) continue;
@@ -41,7 +55,7 @@ CaptureBatchSnapshot collectBatchSnapshot(const CaptureViewModel& viewModel, Cap
         if (!error.isEmpty() && !errors.contains(error)) errors.push_back(error);
     }
 
-    if (fullRefresh) {
+    if (fullRefresh && !viewModel.parserCapture_) {
         if (sessionIds.size() == 1) {
             snapshot.sessionId = sessionIds.front();
             snapshot.sessionPath = sessionPaths.isEmpty() ? QString{} : sessionPaths.front();
@@ -66,11 +80,13 @@ void CaptureViewModel::refreshState(detail::CaptureRefreshMode mode) {
     }
 
     const auto snapshot = detail::collectBatchSnapshot(*this, mode);
-    const bool fullRefresh = mode == detail::CaptureRefreshMode::Full;
+    const bool fullRefresh = mode == detail::CaptureRefreshMode::Full || parserCapture_!=nullptr;
 
     bool sessionChanged = false;
     bool channelChanged = false;
     bool countersChangedLocal = false;
+    const bool open=sessionOpen();
+    if(open!=lastSessionOpen_) {lastSessionOpen_=open;sessionChanged=true;}
 
     if (fullRefresh && (snapshot.sessionId != lastSessionId_ || snapshot.sessionPath != lastSessionPath_)) {
         lastSessionId_ = snapshot.sessionId;
@@ -107,16 +123,34 @@ void CaptureViewModel::refreshState(detail::CaptureRefreshMode mode) {
 
     if (sessionChanged) emit sessionStateChanged();
     if (channelChanged) {
-        if (snapshot.errorText.isEmpty()) reconcileActiveChannels_();
         registerLiveSources_();
         emit channelStateChanged();
     }
     if (countersChangedLocal) {
         emit countersChanged();
-        if (!activeLiveSources_.isEmpty()) registerLiveSources_();
     }
-    if (!fullRefresh && !activeLiveSources_.isEmpty()) registerLiveSources_();
+    if(parserCapture_) {
+        const auto capture=parserCapture_->snapshot();
+        const bool metadataChanged=capture.sourceCount!=lastCapturedSourceCount_ ||
+            capture.sourceMetadataRevision!=lastSourceMetadataRevision_;
+        const bool selectionChanged=capture.appliedSelectionRevision!=lastAppliedSelectionRevision_ ||
+            capture.selectionPending!=lastSelectionPending_;
+        if(metadataChanged || selectionChanged || (capture.connected && activeLiveSources_.isEmpty())) registerLiveSources_();
+        if(selectionChanged && snapshot.errorText.isEmpty() && capture.active) {
+            if(capture.selectionPending) setStatusText(QStringLiteral("Selection requested; waiting for producer confirmation"));
+            else if(capture.appliedSelectionRevision!=0u)
+                setStatusText(QStringLiteral("Selection applied by Parser; capture continues"));
+        }
+        if(capture.complete!=lastCaptureComplete_) emit channelStateChanged();
+        if(capture.sourceCount!=lastCapturedSourceCount_) emit activeLiveSourcesChanged();
+        lastCaptureComplete_=capture.complete;lastSelectionPending_=capture.selectionPending;
+        lastAppliedSelectionRevision_=capture.appliedSelectionRevision;
+        lastSourceMetadataRevision_=capture.sourceMetadataRevision;lastCapturedSourceCount_=capture.sourceCount;
+        if(!capture.active && capture.complete && snapshot.errorText.isEmpty())
+            setStatusText(QStringLiteral("Compressed corpus complete: %1 records, %2 sources, %3 stored/reserved bytes")
+                .arg(capture.writer.recordCount).arg(capture.sourceCount).arg(capture.writer.projectedBytes)+
+                (capture.producerRetained?QStringLiteral(" · Parser continues (PID %1); Finalize Session before a new capture").arg(static_cast<qlonglong>(capture.producerPid)):QString{}));
+    }
 }
 
 }  // namespace hftrec::gui
-

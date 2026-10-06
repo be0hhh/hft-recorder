@@ -1,4 +1,4 @@
-﻿#include "viewmodels/CaptureViewModelInternal.hpp"
+﻿#include "CaptureViewModelInternal.hpp"
 #include "FinamCatalog.hpp"
 
 #if defined(HFTREC_WITH_CXET) && HFTREC_WITH_CXET
@@ -446,6 +446,8 @@ QVariantList venueChoices() {
         QVariantMap item;
         item.insert(QStringLiteral("key"), QString::fromLatin1(venue.key));
         item.insert(QStringLiteral("label"), QString::fromLatin1(venue.label));
+        item.insert(QStringLiteral("exchange"), QString::fromLatin1(venue.exchange));
+        item.insert(QStringLiteral("market"), QString::fromLatin1(venue.market));
         choices.push_back(item);
     }
     return choices;
@@ -458,6 +460,8 @@ QVariantList detailedCandlesVenueChoices() {
         QVariantMap item;
         item.insert(QStringLiteral("key"), QString::fromLatin1(venue.key));
         item.insert(QStringLiteral("label"), QString::fromLatin1(venue.label));
+        item.insert(QStringLiteral("exchange"), QString::fromLatin1(venue.exchange));
+        item.insert(QStringLiteral("market"), QString::fromLatin1(venue.market));
         choices.push_back(item);
     }
     return choices;

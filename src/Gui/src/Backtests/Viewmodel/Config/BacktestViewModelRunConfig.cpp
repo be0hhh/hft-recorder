@@ -139,6 +139,7 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForPrep
         return {{}, QStringLiteral("failed to read config template: %1").arg(templatePath)};
     }
     if (sessions.empty()) return {{}, QStringLiteral("no session paths selected")};
+    const bool binaryCorpus = sessions.front().binaryCorpus;
     const QString session = sessions.front().path;
     QStringList sessionPaths;
     sessionPaths.reserve(static_cast<qsizetype>(sessions.size()));
@@ -212,7 +213,7 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForPrep
     out << "# recorder backtest metadata\n";
     out << "# display_name=" << displayNameForSymbol_(sessions.front().configSymbol) << "\n";
     out << "# config_summary=" << configSummary_(overrides) << "\n\n";
-    const QString filteredBase = filteredBaseConfig(base);
+    const QString filteredBase = filteredBaseConfig(base, binaryCorpus);
     out << filteredBase;
     if (!filteredBase.endsWith(QLatin1Char('\n'))) out << "\n";
     out << "\n# recorder backtest overrides\n";
@@ -268,7 +269,7 @@ BacktestViewModel::RunConfigWriteResult BacktestViewModel::writeRunConfigForPrep
         if (!takerFee.isEmpty()) out << "taker_fee_bps=" << takerFee << "\n";
         writeRuntimeRateLimitConfig(out, execution);
     }
-    if (legRefs.size() > 1) {
+    if (!binaryCorpus && legRefs.size() > 1) {
         out << "\n[portfolio.recorder]\n";
         out << "legs=" << legRefs.join(QLatin1Char(',')) << "\n";
         out << "primary_leg_index=" << selectedPrimaryLegIndexForPaths_(sessionPaths) << "\n";

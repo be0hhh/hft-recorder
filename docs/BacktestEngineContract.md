@@ -49,15 +49,28 @@ Live parser feed передаётся через bounded shared-memory rings, а
 disk I/O и sealed binary corpus. ABI/schema/version, CRC, source directory,
 segments, index и gap ledger проверяются fail-closed.
 
-Текущие binary guards: market-capture record schema `2`, corpus schema `3` и
-binary record schema `2`. Несовпадение любого guard запрещает attach/load;
-совместимый fallback отсутствует.
+Текущие binary guards: market-capture arena version `6`, record schema `8`,
+control version `2`, corpus schema `7` и binary record schema `6`.
+Несовпадение любого guard запрещает attach/load;
+совместимый fallback отсутствует. UUID trade identity хранит только tail64
+(shape `4`, second `0`), включая нулевой tail; исходные 128 бит восстановить нельзя.
 
 Retained product channels:
 
 - bookticker;
 - trades;
 - depth;
+
+Административный `SourceLifecycle` имеет отдельный tag `9` и не является
+market event. Он сохраняет фактическую membership/health границу и её clocks.
+
+Source metadata отдельно сохраняет точную quantity authority выбранного BBO,
+Trade и Depth descriptor. `CanonicalBase` обозначает уже выполненную Core
+нормализацию; native Base/Contract/Lot имеют исходные multipliers и CB/lot E8
+до denomination rescale. Corpus сохраняет native payload без преобразования.
+Backtest переводит его копии через существующую exact Core math; неизвестная
+единица, недостающий фактор, overflow или неточное деление запрещают replay.
+
 Immutable corpus protocol также сохраняет numeric tags liquidations, mark,
 index, funding и price limit. Эти retired channels не читаются в product rows,
 не воспроизводятся и не отображаются. Их framing/count evidence сохраняется;
@@ -119,8 +132,19 @@ JSON-сессия допускается только если одноврем�
 - depth tape и sidecar образуют точные пары.
 
 Для binary corpus дополнительно обязательны sealed manifest, точный ABI/schema,
-CRC всех таблиц/segments, отсутствие capture/source gaps, stale/degraded replay
-records и пересечения source generations в выбранном интервале.
+CRC всех таблиц/segments и отсутствие необъяснённых capture-loss gaps. Точные
+membership и native-health записи приостанавливают затронутые контексты и
+сохраняют заявки и позиции; они не заменяют недостающие market payloads.
+Переходы поколений допустимы только с точными записанными границами.
+
+При выборе всего binary рынка Backtest расширяет symbols настроенных продуктов
+по записанному каталогу и одной доказанной валюте котировки. Исходные strategy
+params, группы, balances и risk policy сохраняются. Неизвестная или смешанная
+валюта котировки отклоняется до создания торговых контекстов.
+Требуемая возможность канала должна быть настроена в source metadata. Если у
+такого источника ещё нет данных, его контексты остаются на паузе, а здоровые
+соседние инструменты продолжают replay. Явный выбор интервала сохраняет строгую
+проверку наличия требуемых rows. Пустой источник не создаёт синтетических events.
 
 Optional channel может отсутствовать с явным warning. Required channel никогда
 не заменяется другим каналом и не фабрикуется.
@@ -145,11 +169,12 @@ record в выбранном интервале сам устанавливае�
 
 ### Venue execution plane
 
-Exchange timestamp проецируется на ту же replay coordinate с использованием
-наблюдавшегося transit. Venue event никогда не планируется позже captured
-delivery. Если exchange timestamp отсутствует или не даёт допустимую
-координату, venue schedule явно корректируется до delivery и это попадает в
-result evidence.
+В binary folder replay venue state обновляется в captured arrival. Поздний
+frame нельзя применить раньше по его exchange timestamp. Биржевое время
+сохраняется как payload evidence. Legacy JSON остаётся доступен для структурного
+чтения и анализа архива; исполняемый replay требует текущую binary quantity
+authority. Старые JSON не дают точных единиц рыночного объёма, а их объединение
+также не доказывает общую валюту котировки.
 
 Venue plane обновляет только venue snapshot/order book и обслуживает fills,
 stops и execution state. Он не делает market data видимой стратегии раньше
@@ -162,6 +187,10 @@ Rebase является локальной recovery-транзакцией, а �
 
 Order submit/cancel/user-data latency остаётся отдельной синтетической моделью
 исполнения. Она не должна смешиваться с наблюдённой задержкой market data.
+Venue fills меняют финансовый результат в момент исполнения. Стратегия видит
+позицию, общий кошелёк и ACK/terminal только после exact private delivery.
+Private source FIFO продолжает ingestion при paused контексте, без callback
+его стратегии.
 
 ## Clock anomalies
 
@@ -195,16 +224,38 @@ Backtest владеет:
 
 GUI только отображает результат и не пересчитывает торговую математику.
 
+Спот использует общий quote cash и резервы покупок аккаунта, а также base
+inventory и резервы продаж источника. Покупка списывает principal и комиссию,
+продажа зачисляет principal за вычетом комиссии. Недостаток денег или актива
+запрещает исполнение. Линейные Futures/Swaps сохраняют модель PnL wallet.
+Локальные pending-резервы известны сразу; venue cash, fills, rejects и terminal
+не становятся observed фактами до соответствующей private delivery. Порядок
+private событий одного аккаунта сохраняется между всеми его источниками.
+
+Spot equity включает положительный base inventory. При паузе источника его
+valuation использует последний полученный bid отдельно на actual/observed
+плоскостях. Эта историческая оценка не создаёт готовность котировки или
+ликвидность. Service unwind для Spot и Futures требует доступную встречную
+цену и количество; отсутствие данных сохраняет экспозицию и вызывает отказ.
+Warmup ACK и service exposure в strategy view принадлежат private delivery.
+
+Source PnL curves включают realized и unrealized Core PnL. Итоговые wallet и
+risk/PnL артефакты суммируют quote-деноминированные факты источников; смешанное
+количество разных базовых активов не оценивается одной общей ценой.
+Canonical simulation evidence ограничен 1024 заявками на источник, включая
+terminal records; исчерпание явно запрещает продолжение без удаления evidence.
+
 ## Result contract
 
 Текущий final artifact имеет `type = run.result` и обязательный
-`schema_version = 4`. Recorder отклоняет отсутствующий или несовпадающий guard.
+`schema_version = 5`. Recorder может читать старые финансовые summaries schema
+`4` без исполнения; неизвестный или отсутствующий guard отклоняется.
 В нём replay-clock evidence
 должен явно указывать:
 
 - `arrival_boundary = hft-parser.application-frame-ready`;
 - `market_data_delivery = captured_application_frame_arrival`;
-- `venue_schedule = exchange_projected_not_after_delivery`;
+- `venue_schedule = captured_arrival_no_future_lookahead` для binary folders;
 - captured/replay/venue ranges и anomaly counters.
 
 Финальный watermark берётся из максимальной реально обработанной replay
@@ -219,8 +270,8 @@ GUI только отображает результат и не пересчи�
 - every-row arrival identity и paired depth проходят corpus tests;
 - legacy JSON/depth paths детерминированно отвергаются;
 - backtest test доказывает, что стратегия не видит event до captured delivery;
-- venue fills могут происходить до local visibility, но не ретроактивно для
-  ещё не активированной заявки;
+- venue fills не происходят ретроактивно для ещё не активированной заявки;
+- private position/account/order facts не видны до их delivery;
 - market-data latency knobs отсутствуют, execution latency остаётся;
 - одинаковые corpus/config/strategy дают одинаковый result.
 

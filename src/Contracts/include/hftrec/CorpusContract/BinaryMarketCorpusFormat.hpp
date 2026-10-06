@@ -9,9 +9,10 @@
 
 namespace hftrec::corpus {
 
-inline constexpr std::uint16_t kBinaryMarketCorpusSchemaVersion = 3u;
-inline constexpr std::uint16_t kBinaryMarketRecordSchemaVersion = 2u;
+inline constexpr std::uint16_t kBinaryMarketCorpusSchemaVersion = 7u;
+inline constexpr std::uint16_t kBinaryMarketRecordSchemaVersion = 6u;
 inline constexpr std::size_t kBinaryMarketChannelCount = 8u;
+inline constexpr std::size_t kBinaryMarketStoredChannelCount = 9u;
 inline constexpr std::size_t kBinaryMarketVenueBytes = 16u;
 inline constexpr std::size_t kBinaryMarketMarketBytes = 16u;
 inline constexpr std::size_t kBinaryMarketSymbolBytes = 48u;
@@ -26,6 +27,11 @@ inline constexpr std::uint32_t kBinaryMarketGapsMagic = 0x47435248u;
 inline constexpr std::uint32_t kBinaryMarketSegmentMagic = 0x53475248u;
 inline constexpr std::uint32_t kBinaryMarketSegmentFooterMagic = 0x46475248u;
 
+inline constexpr std::size_t kBinaryMarketBlockRecords = 256u;
+inline constexpr std::uint16_t kBinaryMarketMaximumShards = 64u;
+inline constexpr std::uint32_t kBinaryMarketMaximumSources = 65536u;
+inline constexpr std::uint32_t kBinaryMarketBlockMagic = 0x42435248u;
+
 enum class BinaryMarketChannel : std::uint8_t {
     BookTicker = 1u,
     Trade = 2u,
@@ -35,12 +41,17 @@ enum class BinaryMarketChannel : std::uint8_t {
     IndexPrice = 6u,
     Funding = 7u,
     PriceLimit = 8u,
+    SourceLifecycle = 9u,
 };
 
 [[nodiscard]] inline constexpr bool validBinaryMarketChannel(
     BinaryMarketChannel channel) noexcept {
     return channel >= BinaryMarketChannel::BookTicker &&
            channel <= BinaryMarketChannel::PriceLimit;
+}
+
+[[nodiscard]] inline constexpr bool validBinaryMarketRecordChannel(BinaryMarketChannel channel) noexcept {
+    return validBinaryMarketChannel(channel) || channel==BinaryMarketChannel::SourceLifecycle;
 }
 
 [[nodiscard]] inline constexpr std::size_t binaryMarketChannelIndex(
@@ -64,11 +75,15 @@ enum class BinaryMarketCompatibility : std::uint8_t {
 enum BinaryMarketInstrumentMetadataFlags : std::uint32_t {
     BinaryMarketInstrumentStepSize = 1u << 0u,
     BinaryMarketInstrumentContractBaseQty = 1u << 1u,
+    BinaryMarketInstrumentCanonicalStepSize = 1u << 2u,
+    BinaryMarketInstrumentExecutionQuantityStep = 1u << 3u,
 };
 
 inline constexpr std::uint32_t kBinaryMarketInstrumentMetadataFlags =
     BinaryMarketInstrumentStepSize |
-    BinaryMarketInstrumentContractBaseQty;
+    BinaryMarketInstrumentContractBaseQty |
+    BinaryMarketInstrumentCanonicalStepSize |
+    BinaryMarketInstrumentExecutionQuantityStep;
 
 enum BinaryMarketDirectoryFlags : std::uint16_t {
     BinaryMarketDirectoryBookTicker = 1u << 0u,
@@ -107,6 +122,7 @@ enum BinaryMarketRecordFlags : std::uint32_t {
     BinaryMarketRecordMonotonicNonIncreasing = 1u << 9u,
     BinaryMarketRecordExchangeAheadOfReceive = 1u << 10u,
     BinaryMarketRecordDepthState = 1u << 11u,
+    BinaryMarketRecordSourceLifecycle = 1u << 12u,
 };
 
 inline constexpr std::uint32_t kBinaryMarketKnownRecordFlags =
@@ -121,7 +137,8 @@ inline constexpr std::uint32_t kBinaryMarketKnownRecordFlags =
     BinaryMarketRecordRealtimeRegression |
     BinaryMarketRecordMonotonicNonIncreasing |
     BinaryMarketRecordExchangeAheadOfReceive |
-    BinaryMarketRecordDepthState;
+    BinaryMarketRecordDepthState |
+    BinaryMarketRecordSourceLifecycle;
 
 enum BinaryMarketSourceFlags : std::uint16_t {
     BinaryMarketSourceHealthy = 0u,
@@ -140,6 +157,41 @@ inline constexpr std::uint16_t kBinaryMarketKnownSourceFlags =
     BinaryMarketSourceBookTickerBidPresent |
     BinaryMarketSourceBookTickerAskPresent;
 
+enum class BinaryMarketQuantityKind : std::uint8_t {
+    Unknown=0u, CanonicalBase=1u, NativeBase=2u, NativeContract=3u, NativeLot=4u,
+};
+
+// Channel-specific authority for the stored normalized payload, with exact
+// original native factors retained before denomination rescaling.
+struct BinaryMarketQuantityConversion final {
+    std::array<BinaryMarketQuantityKind,3u> kinds{};
+    std::array<std::byte,5u> reserved{};
+    std::uint32_t canonicalBaseMultiplier{0u};
+    std::uint32_t nativeBaseMultiplier{0u};
+    std::int64_t nativeContractBaseQtyRaw{0};
+    std::int64_t nativeLotBaseQtyRaw{0};
+    bool operator==(const BinaryMarketQuantityConversion&) const = default;
+};
+static_assert(sizeof(BinaryMarketQuantityConversion)==32u);
+
+[[nodiscard]] inline constexpr bool validBinaryMarketQuantityConversion(
+    const BinaryMarketQuantityConversion& conversion) noexcept {
+    if (conversion.reserved!=decltype(conversion.reserved){} ||
+        conversion.nativeContractBaseQtyRaw<0 || conversion.nativeLotBaseQtyRaw<0) return false;
+    bool known=false,contract=false,lot=false;
+    for (const auto kind:conversion.kinds) {
+        if (static_cast<std::uint8_t>(kind)>4u) return false;
+        known|=kind!=BinaryMarketQuantityKind::Unknown;
+        contract|=kind==BinaryMarketQuantityKind::NativeContract;
+        lot|=kind==BinaryMarketQuantityKind::NativeLot;
+    }
+    if (!known) return !conversion.canonicalBaseMultiplier && !conversion.nativeBaseMultiplier &&
+        !conversion.nativeContractBaseQtyRaw && !conversion.nativeLotBaseQtyRaw;
+    return conversion.canonicalBaseMultiplier && conversion.nativeBaseMultiplier &&
+        (contract ? conversion.nativeContractBaseQtyRaw>0 : conversion.nativeContractBaseQtyRaw==0) &&
+        (lot ? conversion.nativeLotBaseQtyRaw>0 : conversion.nativeLotBaseQtyRaw==0);
+}
+
 struct BinaryMarketSource final {
     std::uint32_t sourceId{0u};
     std::uint32_t canonicalSymbolId{0u};
@@ -147,6 +199,9 @@ struct BinaryMarketSource final {
     std::int64_t tickSizeRaw{0};
     std::int64_t stepSizeRaw{0};
     std::int64_t contractBaseQtyRaw{0};
+    std::int64_t canonicalStepSizeRaw{0};
+    std::int64_t executionQuantityStepRaw{0};
+    BinaryMarketQuantityConversion quantityConversion{};
     std::int64_t priceBasisQtyRaw{0};
     std::uint32_t economicBaseAssetId{0u};
     std::uint32_t quoteAssetId{0u};
@@ -167,7 +222,9 @@ struct BinaryMarketSource final {
     std::uint8_t nativeSymbolBytes{0u};
     std::array<BinaryMarketCompatibility, kBinaryMarketChannelCount>
         compatibility{};
-    std::array<std::byte, 6u> reserved{};
+    // Initial capture membership; late-listed final catalog entries stay inactive until Added.
+    std::uint8_t initiallyPresent{1u};
+    std::array<std::byte, 5u> reserved{};
     std::array<char, kBinaryMarketVenueBytes> venue{};
     std::array<char, kBinaryMarketMarketBytes> market{};
     std::array<char, kBinaryMarketSymbolBytes> canonicalSymbol{};
@@ -215,7 +272,7 @@ template <std::size_t Capacity>
     std::size_t index) noexcept {
     if (source.sourceId != index + 1u ||
         source.canonicalSymbolId == 0u ||
-        source.initialSourceGeneration == 0u || source.venueId == 0u ||
+        (source.initialSourceGeneration == 0u && source.initiallyPresent!=0u) || source.venueId == 0u ||
         (source.marketKindRaw != 1u && source.marketKindRaw != 2u) ||
         source.assetDomainRaw > 2u ||
         source.priceScale > 18u || source.quantityScale > 18u ||
@@ -228,6 +285,8 @@ template <std::size_t Capacity>
                                source.nativeSymbolBytes) ||
         source.tickSizeRaw < 0 || source.stepSizeRaw < 0 ||
         source.contractBaseQtyRaw < 0 || source.priceBasisQtyRaw < 0 ||
+        source.canonicalStepSizeRaw < 0 || source.executionQuantityStepRaw < 0 ||
+        !validBinaryMarketQuantityConversion(source.quantityConversion) ||
         source.economicBaseAssetId == 0u || source.quoteAssetId == 0u ||
         (source.directoryFlags & ~kBinaryMarketKnownDirectoryFlags) != 0u ||
         (((source.directoryFlags & BinaryMarketDirectoryTickSize) != 0u) !=
@@ -237,6 +296,10 @@ template <std::size_t Capacity>
           BinaryMarketDirectoryMarginEligibilityKnown) == 0u) ||
         (source.instrumentMetadataFlags &
          ~kBinaryMarketInstrumentMetadataFlags) != 0u ||
+        (((source.instrumentMetadataFlags & BinaryMarketInstrumentCanonicalStepSize) != 0u) !=
+         (source.canonicalStepSizeRaw > 0)) ||
+        (((source.instrumentMetadataFlags & BinaryMarketInstrumentExecutionQuantityStep) != 0u) !=
+         (source.executionQuantityStepRaw > 0)) ||
         (((source.instrumentMetadataFlags &
            BinaryMarketInstrumentStepSize) != 0u) !=
          (source.stepSizeRaw > 0)) ||
@@ -247,7 +310,7 @@ template <std::size_t Capacity>
         (source.availableChannelMask & ~source.configuredChannelMask) != 0u ||
         (source.traderReplayChannelMask &
          ~source.availableChannelMask) != 0u ||
-        source.reserved != decltype(source.reserved){}) {
+        source.initiallyPresent>1u || source.reserved != decltype(source.reserved){}) {
         return false;
     }
     const std::uint16_t directoryChannels =
@@ -266,6 +329,9 @@ template <std::size_t Capacity>
         binaryMarketChannelBit(BinaryMarketChannel::Depth);
     if ((source.configuredChannelMask & directoryOwnedChannelMask) !=
         directoryChannels) return false;
+    for (std::size_t channel=0u;channel<source.quantityConversion.kinds.size();++channel)
+        if (source.quantityConversion.kinds[channel]!=BinaryMarketQuantityKind::Unknown &&
+            (source.configuredChannelMask&(std::uint16_t{1u}<<channel))==0u) return false;
     for (std::size_t channel = 0u;
          channel < kBinaryMarketChannelCount; ++channel) {
         const std::uint16_t bit = std::uint16_t{1u} << channel;
@@ -283,6 +349,32 @@ template <std::size_t Capacity>
     }
     return true;
 }
+
+enum class BinaryMarketSourceLifecycleKind : std::uint8_t {
+    Added=1u, Removed=2u, Readded=3u, DirectoryChanged=4u,
+};
+enum class BinaryMarketSourceTransitionCause : std::uint8_t {
+    Subscription=0u, NativeStale=1u, NativeDegraded=2u, NativeSequenceGap=3u,
+    NativeRecovered=4u, NativeClosed=5u,
+};
+[[nodiscard]] inline constexpr bool binaryMarketTransitionIsUnhealthy(BinaryMarketSourceTransitionCause cause) noexcept {
+    return cause==BinaryMarketSourceTransitionCause::NativeStale || cause==BinaryMarketSourceTransitionCause::NativeDegraded ||
+        cause==BinaryMarketSourceTransitionCause::NativeSequenceGap || cause==BinaryMarketSourceTransitionCause::NativeClosed;
+}
+struct BinaryMarketSourceLifecyclePayload final {
+    std::uint64_t directoryRevision{0u};
+    std::uint64_t previousSourceGeneration{0u};
+    std::uint64_t requestSequence{0u};
+    std::uint16_t channelMaskBefore{0u};
+    std::uint16_t channelMaskAfter{0u};
+    BinaryMarketSourceLifecycleKind kind{BinaryMarketSourceLifecycleKind::Added};
+    std::uint8_t affectedChannel{0u};
+    std::uint8_t reason{0u};
+    BinaryMarketSourceTransitionCause cause{BinaryMarketSourceTransitionCause::Subscription};
+    // Exact producer metadata at the transition. initialSourceGeneration is
+    // the effective generation here; sources.bin preserves initial metadata.
+    BinaryMarketSource source{};
+};
 
 struct BinaryMarketRecordHeader final {
     std::uint32_t sourceId{0u};
@@ -425,6 +517,23 @@ struct BinaryMarketDepthChunkPayload final {
         levels{};
 };
 
+// Captured native availability evidence. These rows retain their exact payload
+// and arrival identity but must never be consumed as market prices or fills.
+// Capture loss (RecordGapBoundary / loss ledger) is a separate hard error.
+[[nodiscard]] inline bool binaryMarketRecordIsSourceHealth(
+    const BinaryMarketRecord& record) noexcept {
+    const auto& h=record.header;
+    if(!validBinaryMarketChannel(h.channel)) return false;
+    if((h.sourceFlags&(BinaryMarketSourceStale|BinaryMarketSourceDegraded|
+                      BinaryMarketSourceSequenceGap))!=0u) return true;
+    if(h.channel!=BinaryMarketChannel::Depth ||
+       (h.flags&BinaryMarketRecordDepthState)==0u ||
+       h.payloadBytes!=sizeof(BinaryMarketDepthChunkPayload)) return false;
+    const auto& p=*binaryMarketPayload<BinaryMarketDepthChunkPayload>(&record);
+    return p.frameKind==BinaryMarketDepthFrameKind::State &&
+           p.state==BinaryMarketDepthState::Gap;
+}
+
 enum class BinaryMarketStopReason : std::uint8_t {
     Requested = 1u,
     Duration = 2u,
@@ -488,7 +597,27 @@ struct alignas(64) BinaryMarketSegmentHeader final {
     std::uint16_t reserved16{0u};
     std::uint32_t recordsCrc32c{0u};
     std::uint32_t headerCrc32c{0u};
-    std::array<std::byte, 64u> reserved{};
+    std::uint64_t storedBlockBytes{0u};
+    std::uint32_t blockCount{0u};
+    std::uint32_t codecId{1u};
+    std::array<std::byte, 48u> reserved{};
+};
+
+struct BinaryMarketBlockHeader final {
+    std::uint32_t magic{kBinaryMarketBlockMagic};
+    std::uint16_t schemaVersion{kBinaryMarketCorpusSchemaVersion};
+    std::uint16_t headerBytes{64u};
+    std::uint32_t blockNumber{0u};
+    std::uint32_t recordCount{0u};
+    std::uint32_t rawBytes{0u};
+    std::uint32_t encodedBytes{0u};
+    std::uint32_t rawCrc32c{0u};
+    std::uint32_t encodedCrc32c{0u};
+    std::uint64_t firstShardSequence{0u};
+    std::uint64_t lastShardSequence{0u};
+    std::uint32_t headerCrc32c{0u};
+    BinaryMarketChannel channel{BinaryMarketChannel::BookTicker};
+    std::array<std::byte, 11u> reserved{};
 };
 
 struct alignas(64) BinaryMarketSegmentFooter final {
@@ -548,9 +677,29 @@ struct BinaryMarketGap final {
 [[nodiscard]] inline bool validBinaryMarketRecord(
     const BinaryMarketRecord& record) noexcept {
     const auto& header = record.header;
+    const bool lifecycle=header.channel==BinaryMarketChannel::SourceLifecycle;
+    if(lifecycle) {
+        const auto* p=binaryMarketPayload<BinaryMarketSourceLifecyclePayload>(&record);
+        if(header.payloadBytes!=sizeof(*p) || p->directoryRevision==0u ||
+           p->cause>BinaryMarketSourceTransitionCause::NativeClosed ||
+           (p->cause!=BinaryMarketSourceTransitionCause::Subscription &&
+            (p->kind!=BinaryMarketSourceLifecycleKind::DirectoryChanged || p->channelMaskBefore!=p->channelMaskAfter ||
+             p->affectedChannel==0u || p->affectedChannel>3u || p->requestSequence!=0u)) ||
+           (p->cause!=BinaryMarketSourceTransitionCause::Subscription &&
+            (p->source.configuredChannelMask&binaryMarketChannelBit(static_cast<BinaryMarketChannel>(p->affectedChannel)))==0u) ||
+           p->kind<BinaryMarketSourceLifecycleKind::Added || p->kind>BinaryMarketSourceLifecycleKind::DirectoryChanged ||
+           p->source.sourceId!=header.sourceId || p->source.initialSourceGeneration!=header.sourceGeneration ||
+           p->source.sourceId==0u || !validBinaryMarketSource(p->source,p->source.sourceId-1u) ||
+           (p->channelMaskBefore&~std::uint16_t{0xffu})!=0u || p->channelMaskAfter!=p->source.availableChannelMask ||
+           (p->affectedChannel!=0u && !validBinaryMarketChannel(static_cast<BinaryMarketChannel>(p->affectedChannel))) ||
+           (p->previousSourceGeneration==0u && p->kind!=BinaryMarketSourceLifecycleKind::Added) ||
+           (header.flags&BinaryMarketRecordTraderReplayCompatible)==0u || header.sourceFlags!=0u || header.nativeIdentityShape!=0u)
+            return false;
+    }
     return header.sourceId != 0u && header.sourceGeneration != 0u &&
-           header.sessionEpoch != 0u && header.eventSequence != 0u &&
-           header.frameSequence != 0u &&
+           (lifecycle || header.sessionEpoch != 0u) && header.eventSequence != 0u &&
+           (lifecycle || header.frameSequence != 0u) &&
+           (((header.flags&BinaryMarketRecordSourceLifecycle)!=0u)==lifecycle) &&
            header.exchangeTimestampNs >= 0 &&
            (((header.flags &
               BinaryMarketRecordExchangeTimestampMissing) != 0u) ==
@@ -560,7 +709,15 @@ struct BinaryMarketGap final {
            header.payloadBytes != 0u &&
            header.payloadBytes <= kBinaryMarketPayloadBytes &&
            header.schemaVersion == kBinaryMarketRecordSchemaVersion &&
-           validBinaryMarketChannel(header.channel) &&
+           validBinaryMarketRecordChannel(header.channel) &&
+           (header.nativeIdentityShape == 0u
+                ? header.nativeIdentityFirst == 0u && header.nativeIdentitySecond == 0u
+                : header.nativeIdentityShape == 1u
+                      ? header.nativeIdentityFirst != 0u && header.nativeIdentitySecond == 0u
+                      : header.nativeIdentityShape == 2u ||
+                            (header.nativeIdentityShape == 4u &&
+                             header.channel == BinaryMarketChannel::Trade &&
+                             header.nativeIdentitySecond == 0u)) &&
            (header.flags & ~kBinaryMarketKnownRecordFlags) == 0u &&
            (header.sourceFlags & ~kBinaryMarketKnownSourceFlags) == 0u &&
            (((header.sourceFlags &
@@ -572,7 +729,8 @@ struct BinaryMarketGap final {
 
 [[nodiscard]] inline constexpr std::uint64_t
 binaryMarketCorpusAbiFingerprint() noexcept {
-    return 0x4852434f52500003ull ^
+    return 0x4852434f52500007ull ^
+        (static_cast<std::uint64_t>(sizeof(BinaryMarketBlockHeader)) << 17u) ^
         (static_cast<std::uint64_t>(sizeof(BinaryMarketManifest)) << 1u) ^
         (static_cast<std::uint64_t>(sizeof(BinaryMarketSource)) << 11u) ^
         (static_cast<std::uint64_t>(sizeof(BinaryMarketRecord)) << 27u) ^
@@ -589,6 +747,7 @@ static_assert(sizeof(BinaryMarketManifest) == 192u);
 static_assert(sizeof(BinaryMarketRecord) == 960u);
 static_assert(sizeof(BinaryMarketTableHeader) == 64u);
 static_assert(sizeof(BinaryMarketSegmentHeader) == 128u);
+static_assert(sizeof(BinaryMarketBlockHeader) == 64u);
 static_assert(sizeof(BinaryMarketSegmentFooter) == 64u);
 static_assert(std::is_trivially_copyable_v<BinaryMarketManifest>);
 static_assert(std::is_trivially_copyable_v<BinaryMarketSource>);

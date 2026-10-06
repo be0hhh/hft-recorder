@@ -34,12 +34,16 @@ enum EventArrivalFlags : std::uint32_t {
     // The venue did not supply a usable exchange timestamp. Arrival replay is
     // still possible, but venue-plane scheduling cannot claim exactness.
     EventArrivalExchangeTimestampMissing = 1u << 5u,
+    // Producer administrative source membership, sampled at its effective
+    // transition. It is neither a market application frame nor archive data.
+    EventArrivalSourceLifecycle = 1u << 6u,
 };
 
 inline constexpr std::uint32_t kEventArrivalKnownFlags =
     EventArrivalApplicationFrame | EventArrivalHistoricalBackfill |
     EventArrivalRealtimeRegression | EventArrivalMonotonicNonIncreasing |
-    EventArrivalExchangeAheadOfReceive | EventArrivalExchangeTimestampMissing;
+    EventArrivalExchangeAheadOfReceive | EventArrivalExchangeTimestampMissing |
+    EventArrivalSourceLifecycle;
 
 struct EventArrival {
     std::int64_t receiveRealtimeNs{0};
@@ -60,11 +64,22 @@ struct EventArrival {
 [[nodiscard]] inline constexpr bool hasCapturedApplicationArrival(
     const EventArrival& arrival) noexcept {
     return (arrival.flags & EventArrivalApplicationFrame) != 0u &&
-        (arrival.flags & EventArrivalHistoricalBackfill) == 0u &&
+        (arrival.flags & (EventArrivalHistoricalBackfill | EventArrivalSourceLifecycle)) == 0u &&
         (arrival.flags & ~kEventArrivalKnownFlags) == 0u &&
         arrival.receiveRealtimeNs > 0 && arrival.receiveMonotonicNs != 0u &&
         arrival.producerEpoch != 0u && arrival.sourceGeneration != 0u &&
         arrival.sessionEpoch != 0u && arrival.frameSequence != 0u &&
+        arrival.shardSequence != 0u && arrival.sourceId != 0u;
+}
+
+[[nodiscard]] inline constexpr bool hasCapturedSourceLifecycleArrival(
+    const EventArrival& arrival) noexcept {
+    constexpr auto allowed = EventArrivalSourceLifecycle |
+        EventArrivalRealtimeRegression | EventArrivalMonotonicNonIncreasing;
+    return (arrival.flags & EventArrivalSourceLifecycle) != 0u &&
+        (arrival.flags & ~allowed) == 0u && arrival.frameSequence == 0u &&
+        arrival.receiveRealtimeNs > 0 && arrival.receiveMonotonicNs != 0u &&
+        arrival.producerEpoch != 0u && arrival.sourceGeneration != 0u &&
         arrival.shardSequence != 0u && arrival.sourceId != 0u;
 }
 

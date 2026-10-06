@@ -179,7 +179,7 @@ void NativeMarketCapture::drainWorker() noexcept {
 void NativeMarketCapture::consume(const Event& event) noexcept {
     const auto* src=source(event.metadata.sourceId);if (!src) return;
     if (event.object==cxet::api::market::PublicMarketObject::Trade) {
-        if (event.trade.initiatorSide == cxet::composite::TradeInitiatorSide::Unknown) {
+        if (event.trade.initiatorSide() == cxet::composite::TradeInitiatorSide::Unknown) {
             const std::string detail="canonical JSON trade corpus cannot represent an unknown initiator side";
             {std::lock_guard lock(errorMutex_);error_=detail;}
             lost(event.metadata.sourceId);src->sink->noteExternalChannelError("trades",detail);return;

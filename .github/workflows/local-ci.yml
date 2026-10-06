@@ -266,7 +266,7 @@ jobs:
           printf 'offline_outcome=%s\n' "$OFFLINE_OUTCOME" >> "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/result.txt"
           printf 'Offline owner %s, profile %s: %s. Diagnostic sanitizer profiles are separate from production performance evidence.\n' "$OFFLINE_OWNER" "$OFFLINE_PROFILE" "$OFFLINE_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload offline CTest logs and run reports
-        if: always() && steps.output_admission.outcome == 'success'
+        if: always() && (failure() || cancelled()) && steps.output_admission.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: offline-hft-recorder-release-${{ github.run_id }}-${{ github.run_attempt }}
@@ -276,7 +276,7 @@ jobs:
             source/CXETCPP/build/offline-checks/hft-recorder/release/CMakeFiles/CMakeConfigureLog.yaml
             source/CXETCPP/build/offline-checks/hft-recorder/release/CMakeCache.txt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   tests-offline-safety:
     name: tests-offline-safety (${{ matrix.profile }})
@@ -346,7 +346,7 @@ jobs:
           printf 'offline_outcome=%s\n' "$OFFLINE_OUTCOME" >> "build/offline-checks/$OFFLINE_OWNER/$OFFLINE_PROFILE/run-reports/result.txt"
           printf 'Offline owner %s, profile %s: %s. Diagnostic sanitizer profiles are separate from production performance evidence.\n' "$OFFLINE_OWNER" "$OFFLINE_PROFILE" "$OFFLINE_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload offline CTest logs and run reports
-        if: always() && steps.output_admission.outcome == 'success'
+        if: always() && (failure() || cancelled()) && steps.output_admission.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: offline-hft-recorder-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -356,7 +356,7 @@ jobs:
             source/CXETCPP/build/offline-checks/hft-recorder/${{ matrix.profile }}/CMakeFiles/CMakeConfigureLog.yaml
             source/CXETCPP/build/offline-checks/hft-recorder/${{ matrix.profile }}/CMakeCache.txt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   publish-buildable:
     name: publish-buildable
@@ -492,10 +492,11 @@ jobs:
 
   publish-checks-failed:
     name: publish-checks-failed
-    needs: [snapshot, production-build, tests-local, tests-offline-safety]
+    needs: [snapshot, production-build, publish-buildable, tests-local, tests-offline-safety]
     if: >-
       always() && github.event_name == 'repository_dispatch' && needs.snapshot.result == 'success' &&
-      needs.production-build.result == 'success' && (needs.tests-local.result == 'failure' || needs.tests-local.result == 'cancelled' || needs.tests-offline-safety.result == 'failure' || needs.tests-offline-safety.result == 'cancelled')
+      needs.production-build.result == 'success' &&
+      (needs.publish-buildable.result != 'success' || needs.tests-local.result != 'success' || needs.tests-offline-safety.result != 'success')
     runs-on: [self-hosted, linux, x64, wsl, local-control, hft-recorder]
     defaults:
       run:

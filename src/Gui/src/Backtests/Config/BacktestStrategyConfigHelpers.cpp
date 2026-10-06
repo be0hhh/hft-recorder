@@ -239,7 +239,7 @@ const hft_backtest::StrategyParamMetadata* paramMetadataFor(const QString& strat
     return nullptr;
 }
 
-QString filteredBaseConfig(const QString& base) {
+QString filteredBaseConfig(const QString& base, bool preserveUniverseSections) {
     QString out;
     QTextStream stream(&out);
     bool skipSection = false;
@@ -251,7 +251,11 @@ QString filteredBaseConfig(const QString& base) {
         if (hash >= 0) probe = probe.left(hash);
         probe = probe.trimmed();
         if (probe.startsWith(QLatin1Char('[')) && probe.endsWith(QLatin1Char(']'))) {
-            skipSection = true;
+            const QString section = probe.mid(1, probe.size() - 2).trimmed().toLower();
+            skipSection = !preserveUniverseSections || section == QStringLiteral("strategy") ||
+                section == QStringLiteral("risk") || section == QStringLiteral("backtest") ||
+                section.startsWith(QStringLiteral("venue."));
+            if (!skipSection) stream << line << "\n";
             continue;
         }
         if (skipSection) continue;

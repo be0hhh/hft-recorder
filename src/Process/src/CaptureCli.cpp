@@ -20,26 +20,8 @@ namespace {
 constexpr long kDetailedCandlesMaxLimit = 1'000'000;
 
 void printUsage() {
-    std::puts("Usage:");
-    std::puts("  hft-recorder capture [--env path] [--api-slot n] [--timeframe tf] [--limit n] [--candles-page-limit n] [--end-ns ns] [--history-sec n] [--history-page-limit n] [--history-max-rows n] <trades|bookticker|orderbook|candles|candles2|candles2_bulk> [seconds] [output_dir] [exchange] [symbol] [market] [trades_warmup_sec]");
-    std::puts("  hft-recorder capture [--env path] [--api-slot n] bookticker all [seconds] [output_dir]");
-    std::puts("  Current scope: canonical JSON corpus output, one session folder per exchange/symbol.");
-    std::puts("");
-    std::puts("Examples:");
-    std::puts("  hft-recorder capture bookticker all 60 /mnt/d/recordings");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings binance BTC_USDT");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings bybit BTC_USDT futures");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings kucoin BTC_USDT futures");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings gate BTC_USDT");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings aster ASTER_USDT spot");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings gate BTC_USDT margin");
-    std::puts("  hft-recorder capture bookticker 10 /mnt/d/recordings okx BTC_USDT futures");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 bookticker 30 /mnt/d/recordings finam SBER@MISX spot");
-    std::puts("  hft-recorder capture trades 30 /mnt/d/recordings binance ETH_USDT futures 300");
-    std::puts("  hft-recorder capture --history-sec 3600 trades_history 1 /mnt/d/recordings mexc BTC_USDT spot");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 trades 30 /mnt/d/recordings binance ETH_USDT futures 300");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 100000 candles2 1 /mnt/d/recordings finam SBER@MISX spot");
-    std::puts("  hft-recorder capture --env ./.env --api-slot 1 --timeframe 1m --limit 1000000 candles2_bulk 1 /mnt/d/recordings finam GAZP@MISX spot");
+    std::puts("Explicit history capture: capture <candles|candles2|candles2_bulk|trades_history> [seconds] [output] [exchange] [symbol] [market]");
+    std::puts("Live compressed capture: capture --venue exchange/market --symbol CANONICAL [--full-universe] --channels bookticker,trades --duration-sec N --output DIR --max-bytes N");
 }
 
 capture::CaptureConfig makeDefaultConfig() {
@@ -53,10 +35,6 @@ capture::CaptureConfig makeDefaultConfig() {
     config.tradesHistoryWarmupSec = 0;
     config.liveCacheMode = capture::LiveCacheMode::Off;
     return config;
-}
-
-std::vector<tui::RecorderTuiJob> bookTickerAllJobs() {
-    return tui::generateJobsForSymbols({"BTC_USDT"}, tui::allCryptoVenueSpecs(), 0u);
 }
 
 void applyTransientRouteSymbol(capture::CaptureConfig& config) {
@@ -90,9 +68,6 @@ bool isTradesHistoryChannel(std::string_view channel) noexcept {
 Status startChannel(capture::CaptureCoordinator& coordinator,
                     const std::string& channel,
                     const capture::CaptureConfig& config) {
-    if (channel == "trades") return coordinator.startTrades(config);
-    if (channel == "bookticker") return coordinator.startBookTicker(config);
-    if (channel == "orderbook") return coordinator.startOrderbook(config);
     if (channel == "candles" || channel == "candle" || channel == "klines") {
         const auto sessionStatus = coordinator.ensureSession(config);
         if (!isOk(sessionStatus)) return sessionStatus;
@@ -312,181 +287,33 @@ bool stripCaptureOptions(capture::CaptureConfig& config,
 
 }  // namespace
 
+int runManagedCapture(int argc,char** argv);
+
 int runCapture(int argc, char** argv) {
-    if (argc < 2) {
-        printUsage();
-        return 2;
+    if(argc<2) return runManagedCapture(argc,argv);
+    // History is an explicit cold action; normal realtime capture always uses
+    // the one Recorder-managed Parser session and compressed binary corpus.
+    bool history=false;
+    for(int i=1;i<argc;++i) {
+        const std::string_view token=argv[i];
+        history=history || token=="candles" || token=="candle" || token=="klines" ||
+            isDetailedCandlesChannel(token) || isDetailedCandlesBulkChannel(token) || isTradesHistoryChannel(token);
     }
-
-    auto config = makeDefaultConfig();
-    std::vector<char*> positional;
-    if (!stripCaptureOptions(config, argc, argv, positional)) return 2;
-    argc = static_cast<int>(positional.size());
-    argv = positional.data();
-    if (argc < 2) {
-        printUsage();
-        return 2;
-    }
-
-    const std::string channel = argv[1];
-    const bool allBookTickers = channel == "bookticker" && argc >= 3 && std::string{argv[2]} == "all";
-    const int secondsArgIndex = allBookTickers ? 3 : 2;
-    const int outputArgIndex = allBookTickers ? 4 : 3;
-
-    if (argc >= secondsArgIndex + 1) {
-        config.durationSec = std::strtoll(argv[secondsArgIndex], nullptr, 10);
-        if (config.durationSec <= 0) {
-            std::fputs("capture: seconds must be > 0\n", stderr);
-            return 2;
-        }
-    }
-    if (argc >= outputArgIndex + 1) {
-        config.outputDir = recordings::normalizeExplicitRecordingsPath(argv[outputArgIndex]);
-    }
-
-    if (allBookTickers) {
-        std::vector<std::unique_ptr<capture::CaptureCoordinator>> coordinators;
-        const auto jobs = bookTickerAllJobs();
-        coordinators.reserve(jobs.size());
-
-        for (const auto& job : jobs) {
-            auto venueConfig = config;
-            venueConfig.exchange = job.exchange;
-            venueConfig.market = job.market;
-            venueConfig.symbols = {job.symbol};
-            venueConfig.routeSymbols.clear();
-
-            auto coordinator = std::make_unique<capture::CaptureCoordinator>();
-            const auto startStatus = coordinator->startBookTicker(venueConfig);
-            if (!isOk(startStatus)) {
-                const auto error = coordinator->lastError();
-                std::fprintf(stderr,
-                             "capture start failed: exchange=%s market=%s symbol=%s %s\n",
-                             job.exchange.c_str(),
-                             job.market.c_str(),
-                             job.symbol.c_str(),
-                             !error.empty() ? error.c_str() : statusToString(startStatus).data());
-                for (auto& running : coordinators) (void)running->finalizeSession();
-                return 1;
-            }
-            std::printf("capture started: channel=bookticker exchange=%s market=%s symbol=%s duration=%llds dir=%s env=%s api_slot=%u\n",
-                        job.exchange.c_str(),
-                        job.market.c_str(),
-                        job.symbol.c_str(),
-                        static_cast<long long>(venueConfig.durationSec),
-                        venueConfig.outputDir.string().c_str(),
-                        venueConfig.envPath.string().c_str(),
-                        static_cast<unsigned>(venueConfig.apiSlot == 0u ? 1u : venueConfig.apiSlot));
-            coordinators.push_back(std::move(coordinator));
-        }
-
-        std::this_thread::sleep_for(std::chrono::seconds(config.durationSec));
-        bool ok = true;
-        for (auto& coordinator : coordinators) {
-            const auto finalizeStatus = coordinator->finalizeSession();
-            if (!isOk(finalizeStatus)) {
-                ok = false;
-                const auto error = coordinator->lastError();
-                std::fprintf(stderr,
-                             "capture finalize failed: %s\n",
-                             !error.empty() ? error.c_str() : statusToString(finalizeStatus).data());
-            }
-        }
-        if (!ok) return 1;
-        std::puts("capture finished");
-        return 0;
-    }
-
-    if (!applyOptionalSingleVenueArgs(config, argc, argv)) return 2;
-
-    if (argc >= 3) {
-        config.durationSec = std::strtoll(argv[2], nullptr, 10);
-        if (config.durationSec <= 0) {
-            std::fputs("capture: seconds must be > 0\n", stderr);
-            return 2;
-        }
-    }
-    if (argc >= 4) {
-        config.outputDir = recordings::normalizeExplicitRecordingsPath(argv[3]);
-    }
-    applyTransientRouteSymbol(config);
-    capture::CaptureCoordinator coordinator{};
-    Status startStatus = startChannel(coordinator, channel, config);
-    if (startStatus == Status::InvalidArgument && coordinator.lastError().empty()) {
-        std::fprintf(stderr, "capture: unknown channel '%s'\n", channel.c_str());
-        printUsage();
-        return 2;
-    }
-
-    if (!isOk(startStatus)) {
-        const auto error = coordinator.lastError();
-        if (!error.empty()) {
-            std::fprintf(stderr, "capture start failed: %s\n", error.c_str());
-        } else {
-            std::fprintf(stderr, "capture start failed: %s\n", statusToString(startStatus).data());
-        }
-        return 1;
-    }
-
-    if (isDetailedCandlesChannel(channel) || isDetailedCandlesBulkChannel(channel)) {
-        std::printf("capture finished: channel=%s exchange=%s market=%s symbol=%s dir=%s env=%s api_slot=%u timeframe=%s limit=%u candles_page_limit=%u candles2_rows=%llu session=%s\n",
-                    channel.c_str(),
-                    config.exchange.c_str(),
-                    config.market.c_str(),
-                    config.symbols.empty() ? "" : config.symbols.front().c_str(),
-                    config.outputDir.string().c_str(),
-                    config.envPath.string().c_str(),
-                    static_cast<unsigned>(config.apiSlot == 0u ? 1u : config.apiSlot),
-                    config.detailedCandlesTimeframe.c_str(),
-                    static_cast<unsigned>(config.detailedCandlesLimit),
-                    static_cast<unsigned>(config.detailedCandlesPageLimit),
-                    static_cast<unsigned long long>(coordinator.candles2Count()),
-                    coordinator.sessionDirCopy().string().c_str());
-        return 0;
-    }
-
-    if (isTradesHistoryChannel(channel)) {
-        std::printf("capture finished: channel=%s exchange=%s market=%s symbol=%s dir=%s env=%s api_slot=%u history_sec=%lld history_rows=%llu session=%s\n",
-                    channel.c_str(),
-                    config.exchange.c_str(),
-                    config.market.c_str(),
-                    config.symbols.empty() ? "" : config.symbols.front().c_str(),
-                    config.outputDir.string().c_str(),
-                    config.envPath.string().c_str(),
-                    static_cast<unsigned>(config.apiSlot == 0u ? 1u : config.apiSlot),
-                    static_cast<long long>(config.tradesHistoryWarmupSec),
-                    static_cast<unsigned long long>(coordinator.manifestCopy().tradesHistoryRows),
-                    coordinator.sessionDirCopy().string().c_str());
-        return 0;
-    }
-
-    std::printf("capture started: channel=%s exchange=%s market=%s symbol=%s duration=%llds dir=%s env=%s api_slot=%u trades_warmup=%llds timeframe=%s limit=%u\n",
-                channel.c_str(),
-                config.exchange.c_str(),
-                config.market.c_str(),
-                config.symbols.empty() ? "" : config.symbols.front().c_str(),
-                static_cast<long long>(config.durationSec),
-                config.outputDir.string().c_str(),
-                config.envPath.string().c_str(),
-                static_cast<unsigned>(config.apiSlot == 0u ? 1u : config.apiSlot),
-                static_cast<long long>(config.tradesHistoryWarmupSec),
-                config.detailedCandlesTimeframe.c_str(),
-                static_cast<unsigned>(config.detailedCandlesLimit));
-
-    std::this_thread::sleep_for(std::chrono::seconds(config.durationSec));
-    const auto finalizeStatus = coordinator.finalizeSession();
-    if (!isOk(finalizeStatus)) {
-        const auto error = coordinator.lastError();
-        if (!error.empty()) {
-            std::fprintf(stderr, "capture finalize failed: %s\n", error.c_str());
-        } else {
-            std::fprintf(stderr, "capture finalize failed: %s\n", statusToString(finalizeStatus).data());
-        }
-        return 1;
-    }
-
-    std::puts("capture finished");
-    return 0;
+    if(!history) return runManagedCapture(argc,argv);
+    auto config=makeDefaultConfig();std::vector<char*> positional;
+    if(!stripCaptureOptions(config,argc,argv,positional) || positional.size()<2u) return 2;
+    argc=static_cast<int>(positional.size());argv=positional.data();const std::string channel=argv[1];
+    if(!(channel=="candles" || channel=="candle" || channel=="klines" || isDetailedCandlesChannel(channel) ||
+         isDetailedCandlesBulkChannel(channel) || isTradesHistoryChannel(channel))) {printUsage();return 2;}
+    if(argc>=3) config.durationSec=std::strtoll(argv[2],nullptr,10);
+    if(argc>=4) config.outputDir=recordings::normalizeExplicitRecordingsPath(argv[3]);
+    if(!applyOptionalSingleVenueArgs(config,argc,argv)) return 2;
+    applyTransientRouteSymbol(config);capture::CaptureCoordinator coordinator;
+    const auto status=startChannel(coordinator,channel,config);
+    if(!isOk(status)) {std::fprintf(stderr,"history capture failed: %s\n",coordinator.lastError().c_str());return 1;}
+    const auto finalized=coordinator.finalizeSession();
+    if(!isOk(finalized)) {std::fprintf(stderr,"history finalize failed: %s\n",coordinator.lastError().c_str());return 1;}
+    std::printf("history capture complete: session=%s\n",coordinator.sessionDirCopy().c_str());return 0;
 }
 
 }  // namespace hftrec::app

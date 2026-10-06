@@ -234,7 +234,7 @@ BacktestRunSummary decodeBacktestRunSummary(const QJsonObject& root) {
         QStringLiteral("run.result");
     const QJsonValue schemaVersion = root.value(QStringLiteral("schema_version"));
     if (!out.canonicalRunResult || !schemaVersion.isDouble() ||
-        schemaVersion.toDouble() != 4.0) {
+        (schemaVersion.toDouble() != 5.0 && schemaVersion.toDouble() != 4.0)) {
         out.status = BacktestRunSummaryStatus::UnsupportedSchema;
         out.error = QStringLiteral("unsupported backtest result type or schema_version");
         return out;

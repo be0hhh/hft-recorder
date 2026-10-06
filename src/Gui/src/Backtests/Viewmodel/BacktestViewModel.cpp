@@ -740,6 +740,14 @@ BacktestPreparedSessions BacktestViewModel::prepareSelectedSessions_() const {
         return prepared;
     }
 
+    if (isBinaryCorpusPath(paths.front())) {
+        if (paths.size() != 1) {
+            prepared.error = QStringLiteral("Select one recording folder for a market replay");
+            return prepared;
+        }
+        return prepareBinaryCorpusSessions(paths.front(), symbolOverride_);
+    }
+
     std::vector<BacktestPreparedSession> candidates;
     candidates.reserve(static_cast<std::size_t>(paths.size()));
     for (const QString& path : paths) {
@@ -881,6 +889,7 @@ BacktestExecutionPolicy BacktestViewModel::executionPolicyForSessions_(
 QString BacktestViewModel::selectedSymbol() const {
     const QString manual = symbolOverride_.trimmed().toUpper();
     if (!manual.isEmpty()) return manual;
+    if (isBinaryCorpusPath(selectedSessionPath())) return QStringLiteral("whole-market");
     const QString fromManifest = manifestValue(selectedSessionPath(), QStringLiteral("symbols")).trimmed().toUpper();
     if (!fromManifest.isEmpty()) return fromManifest;
     return symbolFromSessionId(selectedSessionId_).toUpper();
@@ -1080,8 +1089,9 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         return;
     }
     const QStringList sessionPaths = preparedSessionPaths(prepared.sessions);
+    const bool binaryCorpus = prepared.sessions.front().binaryCorpus;
     const std::vector<hft_backtest::BacktestSessionRequest> secondarySessions =
-        preparedSecondarySessions(prepared.sessions);
+        binaryCorpus ? std::vector<hft_backtest::BacktestSessionRequest>{} : preparedSecondarySessions(prepared.sessions);
     const QString outputSessionPath = sessionPaths.front();
 
     setRunning_(true);
@@ -1089,7 +1099,7 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
     setStatusText_(QStringLiteral("Backtest running"));
 
     const QString strategy = selectedStrategy_;
-    QString runId = runIdForSymbol_(prepared.sessions.front().configSymbol);
+    QString runId = runIdForSymbol_(binaryCorpus ? selectedSymbol() : prepared.sessions.front().configSymbol);
     if (!suffix.trimmed().isEmpty()) runId += QStringLiteral("-") + cleanRunSlugPart(suffix);
     activeRunId_ = runId;
     const RunConfigWriteResult config =
@@ -1101,21 +1111,27 @@ void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString
         return;
     }
     const QString configPath = config.path;
-    const BacktestExecutionPolicy executionPolicy =
+    BacktestExecutionPolicy executionPolicy =
         executionPolicyForSessions_(prepared.sessions, false);
+    // Binary universe balances are owned by the venue sections in config.ini.
+    // Per-leg overrides would multiply one account balance across its symbols.
+    if (binaryCorpus) executionPolicy.legInitialBalancesE8.clear();
     const QString indicatorProfile = selectedIndicatorProfile_;
     const int primaryLegIndex = selectedPrimaryLegIndexForPaths_(sessionPaths);
     const QString tradeMode = selectedTradeMode_;
     configureWorkerThreadStack_();
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, secondarySessions, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, executionPolicy] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, secondarySessions, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, executionPolicy, binaryCorpus] {
         try {
         hft_backtest::BacktestRunRequest request{};
-        request.sessionPath = sessionPaths.front().toStdString();
-        request.sessions = secondarySessions;
+        if (binaryCorpus) request.corpusPath = outputSessionPath.toStdString();
+        else {
+            request.sessionPath = sessionPaths.front().toStdString();
+            request.sessions = secondarySessions;
+        }
         request.configPath = configPath.toStdString();
         request.strategy = strategy.toStdString();
         request.indicatorProfile = indicatorProfile.toStdString();
-        request.hasPrimaryLegIndex = true;
+        request.hasPrimaryLegIndex = !binaryCorpus;
         request.primaryLegIndex = static_cast<std::uint32_t>(primaryLegIndex);
         request.tradeMode = tradeMode == QStringLiteral("primary")
             ? hft_backtest::BacktestTradeMode::PrimaryOnly
@@ -1243,8 +1259,9 @@ void BacktestViewModel::startSweep_(bool includeExecutionLatency) {
         return;
     }
     const QStringList sessionPaths = preparedSessionPaths(prepared.sessions);
+    const bool binaryCorpus = prepared.sessions.front().binaryCorpus;
     const std::vector<hft_backtest::BacktestSessionRequest> secondarySessions =
-        preparedSecondarySessions(prepared.sessions);
+        binaryCorpus ? std::vector<hft_backtest::BacktestSessionRequest>{} : preparedSecondarySessions(prepared.sessions);
     const QString outputSessionPath = sessionPaths.front();
 
     setRunning_(true);
@@ -1253,7 +1270,7 @@ void BacktestViewModel::startSweep_(bool includeExecutionLatency) {
 
     const QString strategy = selectedStrategy_;
     const QString runId = QStringLiteral("sweep-") +
-        runIdForSymbol_(prepared.sessions.front().configSymbol);
+        runIdForSymbol_(binaryCorpus ? selectedSymbol() : prepared.sessions.front().configSymbol);
     const RunConfigWriteResult config = writeRunConfigForPreparedSessions_(
         QStringLiteral("sweeps/%1").arg(runId), prepared.sessions, {}, true);
     if (!config.ok()) {
@@ -1264,22 +1281,26 @@ void BacktestViewModel::startSweep_(bool includeExecutionLatency) {
     const QString configPath = config.path;
     const quint64 searchSeed = latencyValue_(sweepSeed_, 0);
     const quint64 runBudget = latencyValue_(sweepBudget_, 64);
-    const BacktestExecutionPolicy executionPolicy =
+    BacktestExecutionPolicy executionPolicy =
         executionPolicyForSessions_(prepared.sessions, includeExecutionLatency);
+    if (binaryCorpus) executionPolicy.legInitialBalancesE8.clear();
     const QString indicatorProfile = selectedIndicatorProfile_;
     const int primaryLegIndex = selectedPrimaryLegIndexForPaths_(sessionPaths);
     const QString tradeMode = selectedTradeMode_;
 
     configureWorkerThreadStack_();
-    worker_ = std::thread([this, outputSessionPath, sessionPaths, secondarySessions, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, searchSeed, runBudget, executionPolicy, ranges = std::move(ranges)] {
+    worker_ = std::thread([this, outputSessionPath, sessionPaths, secondarySessions, strategy, runId, configPath, indicatorProfile, primaryLegIndex, tradeMode, searchSeed, runBudget, executionPolicy, binaryCorpus, ranges = std::move(ranges)] {
         try {
         hft_backtest::BacktestSweepRequest request{};
-        request.baseRun.sessionPath = sessionPaths.front().toStdString();
-        request.baseRun.sessions = secondarySessions;
+        if (binaryCorpus) request.baseRun.corpusPath = outputSessionPath.toStdString();
+        else {
+            request.baseRun.sessionPath = sessionPaths.front().toStdString();
+            request.baseRun.sessions = secondarySessions;
+        }
         request.baseRun.configPath = configPath.toStdString();
         request.baseRun.strategy = strategy.toStdString();
         request.baseRun.indicatorProfile = indicatorProfile.toStdString();
-        request.baseRun.hasPrimaryLegIndex = true;
+        request.baseRun.hasPrimaryLegIndex = !binaryCorpus;
         request.baseRun.primaryLegIndex = static_cast<std::uint32_t>(primaryLegIndex);
         request.baseRun.tradeMode = tradeMode == QStringLiteral("primary")
             ? hft_backtest::BacktestTradeMode::PrimaryOnly

@@ -31,6 +31,7 @@ struct BacktestExecutionPolicy {
 };
 
 struct BacktestPreparedSession {
+    bool binaryCorpus{false};
     QString path{};
     QString exchange{};
     QString market{};

@@ -12,6 +12,11 @@
 
 namespace hftrec::gui {
 
+struct BacktestPreparedSessions;
+bool isBinaryCorpusPath(const QString& path);
+BacktestPreparedSessions prepareBinaryCorpusSessions(const QString& path,
+                                                     const QString& canonicalSymbol);
+
 enum class SessionManifestStatus {
     Ready,
     Missing,

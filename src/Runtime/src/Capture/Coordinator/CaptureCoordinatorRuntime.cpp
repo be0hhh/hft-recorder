@@ -126,12 +126,12 @@ replay::TradeRow makeHistoricalTradeRow(const cxet::composite::Trade& trade,
     row.tsNs = static_cast<std::int64_t>(trade.ts.raw);
     row.captureSeq = static_cast<std::int64_t>(sequenceIds.captureSeq);
     row.ingestSeq = static_cast<std::int64_t>(sequenceIds.ingestSeq);
-    row.priceE8 = static_cast<std::int64_t>(trade.price.raw);
-    row.qtyE8 = static_cast<std::int64_t>(trade.qty.raw);
-    row.side = trade.initiatorSide == cxet::composite::TradeInitiatorSide::Buyer ? 1
-        : trade.initiatorSide == cxet::composite::TradeInitiatorSide::Seller ? 0 : -1;
-    row.isBuyerMaker = trade.initiatorSide == cxet::composite::TradeInitiatorSide::Seller ? 1u : 0u;
-    row.sideBuy = trade.initiatorSide == cxet::composite::TradeInitiatorSide::Buyer ? 1u : 0u;
+    row.priceE8 = static_cast<std::int64_t>(trade.price().raw);
+    row.qtyE8 = static_cast<std::int64_t>(trade.qty().raw);
+    row.side = trade.initiatorSide() == cxet::composite::TradeInitiatorSide::Buyer ? 1
+        : trade.initiatorSide() == cxet::composite::TradeInitiatorSide::Seller ? 0 : -1;
+    row.isBuyerMaker = trade.initiatorSide() == cxet::composite::TradeInitiatorSide::Seller ? 1u : 0u;
+    row.sideBuy = trade.initiatorSide() == cxet::composite::TradeInitiatorSide::Buyer ? 1u : 0u;
     row.arrival.flags = replay::EventArrivalHistoricalBackfill;
     return row;
 }
@@ -185,14 +185,14 @@ bool appendHistoricalTradesToWarmup(void* userData,
     if (context == nullptr || context->state == nullptr || context->tradesCaptureSeq == nullptr || context->ingestSeq == nullptr) return false;
     std::lock_guard<std::mutex> lock(context->state->mutex);
     for (std::size_t i = 0u; i < rowCount; ++i) {
-        if (rows[i].initiatorSide == cxet::composite::TradeInitiatorSide::Unknown) {
+        if (rows[i].initiatorSide() == cxet::composite::TradeInitiatorSide::Unknown) {
             context->state->error = "canonical JSON trade corpus cannot represent an unknown initiator side";
             return false;
         }
     }
     context->state->historyRows.reserve(context->state->historyRows.size() + rowCount);
     for (std::size_t i = 0u; i < rowCount; ++i) {
-        if (rows[i].ts.raw == 0u || rows[i].price.raw == 0u || rows[i].qty.raw == 0u) continue;
+        if (rows[i].ts.raw == 0u || rows[i].price().raw == 0u || rows[i].qty().raw == 0u) continue;
         if (context->maxRows != 0u && context->state->historyRows.size() >= context->maxRows) {
             context->hitRowLimit = true;
             return false;

@@ -1,4 +1,4 @@
-﻿#include "viewmodels/CaptureViewModel.hpp"
+﻿#include "CaptureViewModel.hpp"
 
 #include <QDateTime>
 #include <QDir>
@@ -38,13 +38,7 @@ QString buildViewerSourceId(const QString& exchange, const QString& market, cons
         .arg(exchange.trimmed().toLower(), market.trimmed().toLower(), symbol.trimmed().toUpper());
 }
 
-QString buildLiveLabel(const QString& exchange, const QString& market, const QString& symbol) {
-    const auto normalizedSymbol = symbol.trimmed().toUpper();
-    return QStringLiteral("LIVE | %1 | %2 | %3")
-        .arg(exchange.trimmed().isEmpty() ? QStringLiteral("Unknown Exchange") : exchange.trimmed(),
-             market.trimmed().isEmpty() ? QStringLiteral("Unknown Market") : market.trimmed(),
-             normalizedSymbol.isEmpty() ? QStringLiteral("Unknown Symbol") : normalizedSymbol);
-}
+
 
 qint64 currentUtcNs() {
     return QDateTime::currentMSecsSinceEpoch() * kNsPerMs;
@@ -304,74 +298,31 @@ recordings::RecordingGroupInfo makeBasisRecordingGroup(const std::filesystem::pa
     return group;
 }
 
+
+
+
+
 bool hasRunningChannel(const capture::CaptureCoordinator& coordinator) noexcept {
-    return coordinator.tradesRunning()
-        || coordinator.bookTickerRunning()
-        || coordinator.orderbookRunning();
-}
-
-bool startDesiredChannels(capture::CaptureCoordinator& coordinator,
-                          const capture::CaptureConfig& config,
-                          bool trades,
-                          bool bookTicker,
-                          bool orderbook,
-                          std::string* skippedSummary) {
-    const bool requested = trades || bookTicker || orderbook;
-    std::vector<capture::CaptureChannel> requestedChannels;
-    requestedChannels.reserve(3u);
-    if (trades) requestedChannels.push_back(capture::CaptureChannel::Trades);
-    if (bookTicker) requestedChannels.push_back(capture::CaptureChannel::BookTicker);
-    if (orderbook) requestedChannels.push_back(capture::CaptureChannel::Orderbook);
-
-    const auto launchPlan = capture::buildCaptureLaunchPlan(config, requestedChannels);
-    const std::string skipped = launchPlan.skippedSummary();
-    if (!skipped.empty() && skippedSummary != nullptr) {
-        if (!skippedSummary->empty()) *skippedSummary += " | ";
-        *skippedSummary += config.exchange + "/" + config.market + " ";
-        *skippedSummary += config.symbols.empty() ? std::string{} : config.symbols.front();
-        *skippedSummary += ": ";
-        *skippedSummary += skipped;
-    }
-    trades = launchPlan.channelEnabled(capture::CaptureChannel::Trades);
-    bookTicker = launchPlan.channelEnabled(capture::CaptureChannel::BookTicker);
-    orderbook = launchPlan.channelEnabled(capture::CaptureChannel::Orderbook);
-    if (requested && !launchPlan.anyEnabled()) return false;
-    bool running = hasRunningChannel(coordinator);
-
-    if (trades && !coordinator.tradesRunning()) {
-        if (isOk(coordinator.startTrades(config))) running = true;
-    }
-
-    if (bookTicker && !coordinator.bookTickerRunning()) {
-        if (isOk(coordinator.startBookTicker(config))) running = true;
-    }
-    if (orderbook && !coordinator.orderbookRunning()) {
-        if (isOk(coordinator.startOrderbook(config))) running = true;
-    }
-
-
-
-
-    return !requested || running;
+    return coordinator.tradesRunning() || coordinator.bookTickerRunning() || coordinator.orderbookRunning();
 }
 
 }  // namespace
 
 bool CaptureViewModel::startTrades() {
-    desiredTradesRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("Trades capture desired for %1 stream(s)").arg(coordinators_.size()));
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return true;
+    const auto previous=desiredParserChannels_;desiredParserChannels_|=2u;
+    if(!reconcileCoordinatorBatch_()) {desiredParserChannels_=previous;return false;}
+    desiredTradesRunning_=true;
+    setStatusText(QStringLiteral("Shared Parser capture starting; compressed binary corpus"));
+    refreshState(detail::CaptureRefreshMode::Full);return true;
 }
 
 void CaptureViewModel::stopTrades() {
-    desiredTradesRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (entry.coordinator) entry.coordinator->requestStopTrades();
-    }
-    setStatusText(QStringLiteral("Trades stop requested"));
+    const auto next=std::uint16_t(desiredParserChannels_&~std::uint16_t{2u});
+    if(next==0u) {stopAllChannels();return;}
+    const auto previous=desiredParserChannels_;desiredParserChannels_=next;
+    if(!reconcileCoordinatorBatch_()) {desiredParserChannels_=previous;return;}
+    desiredTradesRunning_=false;
+    setStatusText(QStringLiteral("Channel removal requested; waiting for producer confirmation"));
     refreshState(detail::CaptureRefreshMode::Full);
 }
 
@@ -397,20 +348,20 @@ bool CaptureViewModel::startTradesHistory() {
 
 
 bool CaptureViewModel::startBookTicker() {
-    desiredBookTickerRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("BookTicker capture desired for %1 stream(s)").arg(coordinators_.size()));
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return true;
+    const auto previous=desiredParserChannels_;desiredParserChannels_|=1u;
+    if(!reconcileCoordinatorBatch_()) {desiredParserChannels_=previous;return false;}
+    desiredBookTickerRunning_=true;
+    setStatusText(QStringLiteral("Shared Parser capture starting; compressed binary corpus"));
+    refreshState(detail::CaptureRefreshMode::Full);return true;
 }
 
 void CaptureViewModel::stopBookTicker() {
-    desiredBookTickerRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (entry.coordinator) entry.coordinator->requestStopBookTicker();
-    }
-    setStatusText(QStringLiteral("BookTicker stop requested"));
+    const auto next=std::uint16_t(desiredParserChannels_&~std::uint16_t{1u});
+    if(next==0u) {stopAllChannels();return;}
+    const auto previous=desiredParserChannels_;desiredParserChannels_=next;
+    if(!reconcileCoordinatorBatch_()) {desiredParserChannels_=previous;return;}
+    desiredBookTickerRunning_=false;
+    setStatusText(QStringLiteral("Channel removal requested; waiting for producer confirmation"));
     refreshState(detail::CaptureRefreshMode::Full);
 }
 
@@ -839,20 +790,20 @@ bool CaptureViewModel::startDetailedCandlesBasisChain() {
 }
 
 bool CaptureViewModel::startOrderbook() {
-    desiredOrderbookRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-    setStatusText(QStringLiteral("Orderbook capture desired for %1 stream(s)").arg(coordinators_.size()));
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return true;
+    const auto previous=desiredParserChannels_;desiredParserChannels_|=4u;
+    if(!reconcileCoordinatorBatch_()) {desiredParserChannels_=previous;return false;}
+    desiredOrderbookRunning_=true;
+    setStatusText(QStringLiteral("Shared Parser capture starting; compressed binary corpus"));
+    refreshState(detail::CaptureRefreshMode::Full);return true;
 }
 
 void CaptureViewModel::stopOrderbook() {
-    desiredOrderbookRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (entry.coordinator) entry.coordinator->requestStopOrderbook();
-    }
-    setStatusText(QStringLiteral("Orderbook stop requested"));
+    const auto next=std::uint16_t(desiredParserChannels_&~std::uint16_t{4u});
+    if(next==0u) {stopAllChannels();return;}
+    const auto previous=desiredParserChannels_;desiredParserChannels_=next;
+    if(!reconcileCoordinatorBatch_()) {desiredParserChannels_=previous;return;}
+    desiredOrderbookRunning_=false;
+    setStatusText(QStringLiteral("Channel removal requested; waiting for producer confirmation"));
     refreshState(detail::CaptureRefreshMode::Full);
 }
 
@@ -875,191 +826,104 @@ void CaptureViewModel::stopOrderbook() {
 
 
 bool CaptureViewModel::startAllChannels() {
-    desiredTradesRunning_ = true;
-    desiredBookTickerRunning_ = true;
-    desiredOrderbookRunning_ = true;
-    if (!reconcileCoordinatorBatch_()) return false;
-
-    bool candlesOk = true;
-    for (auto& entry : coordinators_) {
-        if (!entry.coordinator) continue;
-        const auto candleStatus = entry.coordinator->captureCandlesOnce(entry.config);
-        if (!isOk(candleStatus)) candlesOk = false;
-    }
-
-    if (candlesOk && !lastSkippedChannelsSummary_.isEmpty()) {
-        setStatusText(QStringLiteral("All supported capture channels desired for %1 stream(s); skipped: %2")
-                          .arg(coordinators_.size())
-                          .arg(lastSkippedChannelsSummary_));
-    } else {
-        setStatusText(candlesOk
-            ? QStringLiteral("All available capture channels desired for %1 stream(s)").arg(coordinators_.size())
-            : joinCoordinatorErrors_());
-    }
-    registerLiveSources_();
-    refreshState(detail::CaptureRefreshMode::Full);
-    return candlesOk;
+    const auto previous=desiredParserChannels_;desiredParserChannels_=static_cast<std::uint16_t>(captureChannels_);
+    if(!reconcileCoordinatorBatch_()) {desiredParserChannels_=previous;return false;}
+    desiredTradesRunning_=(desiredParserChannels_&2u)!=0u;
+    desiredBookTickerRunning_=(desiredParserChannels_&1u)!=0u;
+    desiredOrderbookRunning_=(desiredParserChannels_&4u)!=0u;
+    setStatusText(QStringLiteral("One shared Parser capture starting for the selected batch"));
+    refreshState(detail::CaptureRefreshMode::Full);return true;
 }
 
 void CaptureViewModel::stopAllChannels() {
-    desiredTradesRunning_ = false;
-    desiredBookTickerRunning_ = false;
-    desiredOrderbookRunning_ = false;
-    for (auto& entry : coordinators_) {
-        if (!entry.coordinator) continue;
-        entry.coordinator->requestStopTrades();
-        entry.coordinator->requestStopBookTicker();
-        entry.coordinator->requestStopOrderbook();
-    }
-    setStatusText(QStringLiteral("All capture channels stop requested"));
+    if(parserCapture_) parserCapture_->requestStop();
+    desiredParserChannels_=0u;desiredTradesRunning_=desiredBookTickerRunning_=desiredOrderbookRunning_=false;
+    setStatusText(QStringLiteral("Shared capture stop requested; freezing Parser and draining compressed writer"));
     refreshState(detail::CaptureRefreshMode::Full);
 }
 
 void CaptureViewModel::finalizeSession() {
-    bool ok = true;
-    for (auto& entry : coordinators_) {
-        if (!entry.coordinator) continue;
-        const auto status = entry.coordinator->finalizeSession();
-        if (!isOk(status)) ok = false;
-    }
-    setStatusText(ok ? QStringLiteral("Session batch finalized") : joinCoordinatorErrors_());
-    viewer::LiveDataRegistry::instance().clear();
-    publishActiveLiveSources_();
-    clearCoordinatorBatch_();
-    refreshState(detail::CaptureRefreshMode::Full);
+    stopAllChannels();
+    bool okay=!parserCapture_ || isOk(parserCapture_->stop());
+    for(auto& entry:coordinators_) if(entry.coordinator && !isOk(entry.coordinator->finalizeSession())) okay=false;
+    setStatusText(okay?QStringLiteral("Capture finalized into compressed binary corpus"):joinCoordinatorErrors_());
+    viewer::LiveDataRegistry::instance().clear();publishActiveLiveSources_();
+    clearCoordinatorBatch_();refreshState(detail::CaptureRefreshMode::Full);
 }
 
 bool CaptureViewModel::ensureCoordinatorBatch_() {
-    return reconcileCoordinatorBatch_();
+    // Explicit cold history actions keep their own history coordinator. The
+    // realtime GUI never opens a native market session through this path.
+    const auto configs=makeConfigs();if(configs.empty()) return false;
+    for(const auto& config:configs) {
+        const auto found=std::find_if(coordinators_.begin(),coordinators_.end(),[&](const auto& entry){return configsMatch(entry.config,config);});
+        if(found==coordinators_.end()) {CoordinatorEntry entry;entry.config=config;entry.coordinator=std::make_unique<capture::CaptureCoordinator>();coordinators_.push_back(std::move(entry));}
+    }
+    return true;
+}
+
+capture::RecorderCaptureSessionConfig CaptureViewModel::makeParserCaptureConfig_() const {
+    capture::RecorderCaptureSessionConfig config;
+    config.workspaceRoot=capture::findRecorderWorkspaceRoot();config.parserTemplate=parserTemplatePath_.toStdString();
+    config.envPath=envPath_.toStdString();config.outputRoot=outputDirectory_.toStdString();
+    config.channelMask=desiredParserChannels_==0u?static_cast<std::uint16_t>(captureChannels_):desiredParserChannels_;
+    config.durationSec=static_cast<std::uint64_t>(captureDurationSec_);config.maximumBytes=captureMaximumBytes_;
+    for(const auto& item:venueChoices()) {
+        const auto choice=item.toMap();const auto key=choice.value(QStringLiteral("key")).toString();
+        if(!isVenueSelected(key)) continue;
+        capture::RecorderCaptureVenue venue;
+        venue.exchange=choice.value(QStringLiteral("exchange")).toString().toStdString();
+        venue.market=choice.value(QStringLiteral("market")).toString().toStdString();venue.fullUniverse=fullUniverse_;
+        if(!fullUniverse_) venue.instruments=detail::normalizedSymbols(venueSymbolsText(key));
+        config.venues.push_back(std::move(venue));
+    }
+    return config;
 }
 
 bool CaptureViewModel::reconcileCoordinatorBatch_() {
-    const auto configs = makeConfigs();
-    const QString missingSymbols = detail::missingVenueSymbolsText(selectedVenueKeys_, venueSymbolsTexts_);
-    if (configs.empty()) {
-        for (auto& entry : coordinators_) {
-            if (entry.coordinator) (void)entry.coordinator->finalizeSession();
-        }
-        coordinators_.clear();
-        viewer::LiveDataRegistry::instance().clear();
-        publishActiveLiveSources_();
-        setStatusText(missingSymbols.isEmpty() ? QStringLiteral("Enter at least one venue symbol") : missingSymbols);
-        return false;
-    }
-    if (!missingSymbols.isEmpty()) {
-        setStatusText(missingSymbols);
-    }
-
-    for (auto it = coordinators_.begin(); it != coordinators_.end();) {
-        const bool stillDesired = std::any_of(configs.begin(), configs.end(), [&](const capture::CaptureConfig& config) {
-            return configsMatch(it->config, config);
-        });
-        if (stillDesired) {
-            ++it;
-            continue;
-        }
-        if (it->coordinator) (void)it->coordinator->finalizeSession();
-        it = coordinators_.erase(it);
-    }
-
-    for (const auto& config : configs) {
-        const auto existing = std::find_if(coordinators_.begin(), coordinators_.end(), [&](const CoordinatorEntry& entry) {
-            return configsMatch(entry.config, config);
-        });
-        if (existing != coordinators_.end()) continue;
-
-        CoordinatorEntry entry{};
-        entry.config = config;
-        entry.coordinator = std::make_unique<capture::CaptureCoordinator>();
-        coordinators_.push_back(std::move(entry));
-    }
-
-    bool anyRunning = false;
-    bool anyFailed = false;
-    std::string skippedSummary;
-    for (auto& entry : coordinators_) {
-        if (!entry.coordinator) continue;
-        if (!startDesiredChannels(*entry.coordinator,
-                                  entry.config,
-                                  desiredTradesRunning_,
-                                  desiredBookTickerRunning_,
-                                  desiredOrderbookRunning_,
-                                  &skippedSummary)) {
-            anyFailed = true;
-        }
-        anyRunning = anyRunning || hasRunningChannel(*entry.coordinator);
-    }
-
-    if (anyFailed && !anyRunning) {
-        lastSkippedChannelsSummary_ = QString::fromStdString(skippedSummary);
-        setStatusText(lastSkippedChannelsSummary_.isEmpty()
-            ? joinCoordinatorErrors_()
-            : QStringLiteral("No supported capture channels for requested stream(s): %1").arg(lastSkippedChannelsSummary_));
-        refreshState(detail::CaptureRefreshMode::Full);
-        return false;
-    }
-
-    lastSkippedChannelsSummary_ = QString::fromStdString(skippedSummary);
-    if (!lastSkippedChannelsSummary_.isEmpty()) {
-        setStatusText(QStringLiteral("Skipped unsupported channel(s): %1").arg(lastSkippedChannelsSummary_));
-    }
-
+    const auto config=makeParserCaptureConfig_();std::string error;
+    if(!parserCapture_) parserCapture_=std::make_unique<capture::RecorderCaptureSession>();
+    const bool active=parserCapture_->snapshot().active;
+    const auto status=active?parserCapture_->updateSelection(config,error):parserCapture_->start(config,error);
+    if(!active && isOk(status)) publishActiveLiveSources_();
+    if(!isOk(status)) {setStatusText(QString::fromStdString(error));return false;}
     return true;
 }
 
 void CaptureViewModel::reconcileActiveChannels_() {
-    if (!(desiredTradesRunning_ || desiredBookTickerRunning_ || desiredOrderbookRunning_)) return;
-    (void)reconcileCoordinatorBatch_();
-    registerLiveSources_();
+    if(!parserCapture_ || !parserCapture_->snapshot().active) return;
+    std::string error;const auto status=parserCapture_->updateSelection(makeParserCaptureConfig_(),error);
+    if(!isOk(status)) setStatusText(QString::fromStdString(error));
+    else if(parserCapture_->snapshot().selectionPending) setStatusText(QStringLiteral("Selection requested; waiting for producer confirmation"));
 }
 
 void CaptureViewModel::registerLiveSources_() {
-    std::vector<viewer::LiveDataRegistry::RegisteredSource> sources;
     QVariantList descriptors;
-    sources.reserve(coordinators_.size());
-    descriptors.reserve(static_cast<qsizetype>(coordinators_.size()));
-
-    for (const auto& entry : coordinators_) {
-        const auto& coordinator = entry.coordinator;
-        if (!coordinator) continue;
-        const auto manifest = coordinator->manifestCopy();
-        const bool hasLiveChannel=coordinator->tradesRunning() || coordinator->bookTickerRunning() || coordinator->orderbookRunning();
-        if (!hasLiveChannel) continue;
-        if (coordinator->eventSource() == nullptr) continue;
-
-        const QString exchange = QString::fromStdString(manifest.exchange);
-        const QString market = QString::fromStdString(manifest.market);
-        const QString symbol = QString::fromStdString(manifest.symbols.empty() ? std::string{} : manifest.symbols.front()).trimmed().toUpper();
-        const QString sourceId = buildViewerSourceId(exchange, market, symbol);
-        sources.push_back(viewer::LiveDataRegistry::RegisteredSource{
-            sourceId.toStdString(),
-            exchange.toStdString(),
-            market.toStdString(),
-            symbol.toStdString(),
-            manifest.sessionId,
-            coordinator->sessionDirCopy(),
-            coordinator.get()});
-
-        QVariantMap descriptor;
-        descriptor.insert(QStringLiteral("id"), sourceId);
-        descriptor.insert(QStringLiteral("label"), buildLiveLabel(exchange, market, symbol));
-        descriptor.insert(QStringLiteral("exchange"), exchange);
-        descriptor.insert(QStringLiteral("market"), market);
-        descriptor.insert(QStringLiteral("symbol"), symbol);
-        descriptor.insert(QStringLiteral("sessionId"), QString::fromStdString(manifest.sessionId));
-        descriptor.insert(QStringLiteral("sessionPath"), QString::fromStdString(coordinator->sessionDirCopy().string()));
-        descriptor.insert(QStringLiteral("startedAtNs"), static_cast<qlonglong>(manifest.startedAtNs));
-        descriptor.insert(QStringLiteral("liveAvailable"), true);
-        descriptor.insert(QStringLiteral("bookTickerRunning"), coordinator->bookTickerRunning());
-        descriptor.insert(QStringLiteral("bookTickerCount"), static_cast<int>(coordinator->bookTickerCount()));
-        descriptors.push_back(descriptor);
+    if(parserCapture_) {
+        const auto snapshot=parserCapture_->snapshot();
+        const auto directory=parserCapture_->sourceDirectory();
+        const auto displayed=std::min<std::size_t>(directory.size(),256u);
+        for(std::size_t sourceIndex=0u;sourceIndex<displayed;++sourceIndex) {
+            const auto& source=directory[sourceIndex];
+            const QString exchange=QString::fromUtf8(source.venue.data(),source.venueBytes);
+            const QString market=QString::fromUtf8(source.market.data(),source.marketBytes);
+            const QString symbol=QString::fromUtf8(source.canonicalSymbol.data(),source.canonicalSymbolBytes);
+            QVariantMap descriptor;
+            descriptor.insert(QStringLiteral("id"),buildViewerSourceId(exchange,market,symbol));
+            descriptor.insert(QStringLiteral("label"),QStringLiteral("Captured source | %1 | %2 | %3").arg(exchange,market,symbol));
+            descriptor.insert(QStringLiteral("exchange"),exchange);descriptor.insert(QStringLiteral("market"),market);descriptor.insert(QStringLiteral("symbol"),symbol);
+            descriptor.insert(QStringLiteral("sessionId"),QString::fromStdString(snapshot.sessionPath.filename().string()));
+            descriptor.insert(QStringLiteral("sessionPath"),QString::fromStdString(snapshot.sessionPath.string()));
+            descriptor.insert(QStringLiteral("sourceGeneration"),static_cast<qulonglong>(source.initialSourceGeneration));
+            descriptor.insert(QStringLiteral("capturedChannels"),source.availableChannelMask);
+            descriptor.insert(QStringLiteral("traderReplayChannels"),source.traderReplayChannelMask);
+            descriptor.insert(QStringLiteral("liveAvailable"),false);
+            descriptors.push_back(descriptor);
+        }
     }
-
-    viewer::LiveDataRegistry::instance().setSources(std::move(sources));
-    if (activeLiveSources_ != descriptors) {
-        activeLiveSources_ = descriptors;
-        emit activeLiveSourcesChanged();
-    }
+    // Preview must use a bounded binary adapter; a native session is never opened.
+    viewer::LiveDataRegistry::instance().clear();
+    if(activeLiveSources_!=descriptors) {activeLiveSources_=descriptors;emit activeLiveSourcesChanged();}
 }
 
 void CaptureViewModel::publishActiveLiveSources_() {
@@ -1097,6 +961,7 @@ void CaptureViewModel::abortCoordinatorBatch_(const QString& fallbackStatus) {
 
 QString CaptureViewModel::joinCoordinatorErrors_() const {
     QStringList errors;
+    if(parserCapture_ && !parserCapture_->snapshot().error.empty()) errors.push_back(QString::fromStdString(parserCapture_->snapshot().error));
     for (const auto& entry : coordinators_) {
         const auto& coordinator = entry.coordinator;
         if (!coordinator) continue;

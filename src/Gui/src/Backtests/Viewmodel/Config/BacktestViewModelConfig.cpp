@@ -597,6 +597,7 @@ void BacktestViewModel::loadStrategyDefaults_() {
 bool BacktestViewModel::strategySupportsSelectedSessionCount_() const {
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata == nullptr) return false;
+    if (isBinaryCorpusPath(selectedSessionPath())) return true;
     return strategyMetadataSupportsSessionCount(*metadata, selectedSessionCount());
 }
 

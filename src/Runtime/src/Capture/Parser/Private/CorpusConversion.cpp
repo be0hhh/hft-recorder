@@ -41,11 +41,18 @@ namespace parser = hft_parser::ipc;
                         source.market.nativeSymbolBytes) ||
         !fixedTextValid(source.marketCode.data(), source.marketCode.size(),
                         source.marketCodeBytes) ||
-        source.market.directoryReserved !=
-            decltype(source.market.directoryReserved){} ||
+        source.market.listingReserved != decltype(source.market.listingReserved){} ||
+        source.market.identityReserved != decltype(source.market.identityReserved){} ||
+        !parser::validMarketDirectoryListingIdentity(source.market) ||
         (source.instrument.flags &
          ~parser::kMarketCaptureInstrumentMetadataFlags) != 0u ||
         source.instrument.reserved != 0u ||
+        !parser::validMarketCaptureQuantityConversion(source.instrument.quantityConversion) ||
+        source.instrument.canonicalStepSizeRaw < 0 || source.instrument.executionQuantityStepRaw < 0 ||
+        (((source.instrument.flags & parser::MarketCaptureInstrumentCanonicalStepSize) != 0u) !=
+         (source.instrument.canonicalStepSizeRaw > 0)) ||
+        (((source.instrument.flags & parser::MarketCaptureInstrumentExecutionQuantityStep) != 0u) !=
+         (source.instrument.executionQuantityStepRaw > 0)) ||
         (((source.instrument.flags &
            parser::MarketCaptureInstrumentStepSize) != 0u) !=
          (source.instrument.stepSizeRaw > 0)) ||
@@ -60,6 +67,9 @@ namespace parser = hft_parser::ipc;
          ~source.availableChannelMask) != 0u) {
         return false;
     }
+    for (std::size_t channel=0u;channel<source.instrument.quantityConversion.kinds.size();++channel)
+        if (source.instrument.quantityConversion.kinds[channel]!=parser::MarketCaptureQuantityKind::Unknown &&
+            (source.configuredChannelMask&(std::uint16_t{1u}<<channel))==0u) return false;
     for (std::size_t channel = 0u;
          channel < parser::kMarketCaptureChannelCount; ++channel) {
         const std::uint16_t bit = std::uint16_t{1u} << channel;
@@ -103,6 +113,17 @@ namespace parser = hft_parser::ipc;
     output.tickSizeRaw = input.market.tickSizeRaw;
     output.stepSizeRaw = input.instrument.stepSizeRaw;
     output.contractBaseQtyRaw = input.instrument.contractBaseQtyRaw;
+    output.canonicalStepSizeRaw = input.instrument.canonicalStepSizeRaw;
+    output.executionQuantityStepRaw = input.instrument.executionQuantityStepRaw;
+    const auto& conversion=input.instrument.quantityConversion;
+    auto& target=output.quantityConversion;
+    for (std::size_t channel=0u;channel<target.kinds.size();++channel)
+        target.kinds[channel]=static_cast<corpus::BinaryMarketQuantityKind>(conversion.kinds[channel]);
+    target.reserved=conversion.reserved;
+    target.canonicalBaseMultiplier=conversion.canonicalBaseMultiplier;
+    target.nativeBaseMultiplier=conversion.nativeBaseMultiplier;
+    target.nativeContractBaseQtyRaw=conversion.nativeContractBaseQtyRaw;
+    target.nativeLotBaseQtyRaw=conversion.nativeLotBaseQtyRaw;
     output.priceBasisQtyRaw = input.market.priceBasisQtyRaw;
     output.economicBaseAssetId = input.market.economicBaseAssetId;
     output.quoteAssetId = input.market.quoteAssetId;
@@ -144,6 +165,48 @@ namespace parser = hft_parser::ipc;
     corpus::BinaryMarketRecord& output) noexcept {
     using ParserChannel = parser::MarketCaptureChannel;
     switch (input.header.channel) {
+        case ParserChannel::Membership: {
+            if (input.header.payloadBytes != sizeof(parser::MarketCaptureMembershipPayload)) return false;
+            const auto& source = *parser::marketCapturePayload<parser::MarketCaptureMembershipPayload>(&input);
+            if (!validSourceDescriptor(source.source, input.header.sourceId - 1u) ||
+                source.source.market.sourceGeneration != input.header.sourceGeneration ||
+                source.sourceGeneration != input.header.sourceGeneration ||
+                source.sessionEpoch != input.header.sessionEpoch ||
+                source.canonicalSymbolId != source.source.market.canonicalSymbolId ||
+                source.venueId != source.source.market.venueId ||
+                source.marketRaw != source.source.market.marketRaw ||
+                source.channelMaskAfter != source.source.availableChannelMask ||
+                source.reserved != decltype(source.reserved){} ||
+                source.affectedChannel < ParserChannel::BookTicker || source.affectedChannel > ParserChannel::Depth ||
+                (source.action != static_cast<std::uint8_t>(parser::MarketCaptureSubscriptionAction::Add) &&
+                 source.action != static_cast<std::uint8_t>(parser::MarketCaptureSubscriptionAction::Remove))) return false;
+            auto& target = *corpus::binaryMarketPayload<corpus::BinaryMarketSourceLifecyclePayload>(&output);
+            target.directoryRevision = source.directoryRevision;
+            target.previousSourceGeneration = source.previousSourceGeneration;
+            target.requestSequence = source.requestSequence;
+            target.channelMaskBefore = source.channelMaskBefore;
+            target.channelMaskAfter = source.channelMaskAfter;
+            target.kind = source.previousSourceGeneration != 0u && source.channelMaskBefore == source.channelMaskAfter
+                ? corpus::BinaryMarketSourceLifecycleKind::DirectoryChanged
+                : source.action == static_cast<std::uint8_t>(parser::MarketCaptureSubscriptionAction::Remove)
+                ? corpus::BinaryMarketSourceLifecycleKind::Removed
+                : source.previousSourceGeneration == 0u ? corpus::BinaryMarketSourceLifecycleKind::Added
+                : corpus::BinaryMarketSourceLifecycleKind::Readded;
+            target.affectedChannel = static_cast<std::uint8_t>(source.affectedChannel);
+            target.reason = source.status;
+            switch(source.cause) {
+                case parser::MarketCaptureSourceTransitionCause::Subscription: target.cause=corpus::BinaryMarketSourceTransitionCause::Subscription;break;
+                case parser::MarketCaptureSourceTransitionCause::NativeStale: target.cause=corpus::BinaryMarketSourceTransitionCause::NativeStale;break;
+                case parser::MarketCaptureSourceTransitionCause::NativeDegraded: target.cause=corpus::BinaryMarketSourceTransitionCause::NativeDegraded;break;
+                case parser::MarketCaptureSourceTransitionCause::NativeSequenceGap: target.cause=corpus::BinaryMarketSourceTransitionCause::NativeSequenceGap;break;
+                case parser::MarketCaptureSourceTransitionCause::NativeRecovered: target.cause=corpus::BinaryMarketSourceTransitionCause::NativeRecovered;break;
+                case parser::MarketCaptureSourceTransitionCause::NativeClosed: target.cause=corpus::BinaryMarketSourceTransitionCause::NativeClosed;break;
+                default:return false;
+            }
+            target.source = convertSource(source.source);
+            output.header.payloadBytes = sizeof(target);
+            return true;
+        }
         case ParserChannel::BookTicker: {
             if (input.header.payloadBytes !=
                 sizeof(parser::MarketCaptureBookTickerPayload)) return false;
@@ -410,9 +473,10 @@ namespace parser = hft_parser::ipc;
     const bool recordCompatible =
         (input.header.flags &
          parser::MarketCaptureRecordTraderReplayCompatible) != 0u;
-    if (compatibility == parser::MarketCaptureCompatibility::Unavailable ||
+    if (input.header.channel != parser::MarketCaptureChannel::Membership &&
+        (compatibility == parser::MarketCaptureCompatibility::Unavailable ||
         (recordCompatible && compatibility !=
-             parser::MarketCaptureCompatibility::ExactTraderReplay)) {
+             parser::MarketCaptureCompatibility::ExactTraderReplay))) {
         return false;
     }
     const bool bboOnly =
@@ -447,6 +511,8 @@ namespace parser = hft_parser::ipc;
     output = {};
     output.header.sourceId = input.header.sourceId;
     output.header.flags = convertRecordFlags(input.header.flags);
+    if (input.header.channel == parser::MarketCaptureChannel::Membership)
+        output.header.flags |= corpus::BinaryMarketRecordSourceLifecycle;
     output.header.sourceGeneration = input.header.sourceGeneration;
     output.header.sessionEpoch = input.header.sessionEpoch;
     output.header.eventSequence = input.header.eventSequence;
@@ -462,8 +528,9 @@ namespace parser = hft_parser::ipc;
     output.header.sourceFlags = input.header.sourceFlags;
     output.header.nativeIdentityShape = input.header.nativeIdentityShape;
     output.header.eventOrdinal = input.header.eventOrdinal;
-    output.header.channel = static_cast<corpus::BinaryMarketChannel>(
-        static_cast<std::uint8_t>(input.header.channel));
+    output.header.channel = input.header.channel == parser::MarketCaptureChannel::Membership
+        ? corpus::BinaryMarketChannel::SourceLifecycle : static_cast<corpus::BinaryMarketChannel>(
+            static_cast<std::uint8_t>(input.header.channel));
     return copyRecordPayload(input, output) &&
         corpus::validBinaryMarketRecord(output);
 }

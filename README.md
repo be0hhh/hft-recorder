@@ -8,8 +8,8 @@ product in the CXET source family.
 ## Current product contract
 
 - Qt 6 + QML desktop workflow;
-- normalized JSON session corpus for direct Recorder capture;
-- sealed sharded binary corpus for Parser-wide capture;
+- Parser-backed realtime BBO, trades and depth capture;
+- sealed sharded compressed binary corpus, decoded directly into RAM;
 - replay, validation and charts over canonical corpus data;
 - baseline and custom compression experiments over the same corpus;
 - active WSL recordings under "/mnt/d/recordings" when that directory exists.
@@ -36,43 +36,54 @@ graph is absent.
 
 ## Capture modes
 
-### Direct GUI capture
+### Realtime capture
 
-The first direct capture milestone records normalized Binance FAPI streams into
-one user-selected session directory:
+The GUI and `capture` CLI manage one Parser process for the complete selected
+batch. The secret-free generated INI is private and adjacent to the selected
+template's existing `.env`; credentials are not copied. Parser owns native
+subscriptions, normalization and receive clocks. Historical candle capture
+remains a separate cold action.
 
-- Trades;
-- BookTicker;
-- Depth deltas from the native stream.
-
-Direct capture uses the shared CXET Core `MarketRuntime`. The current canonical
-JSON writer cannot represent depth snapshot/rebase metadata or Trade
-`Unknown` initiator side: those inputs stop recording with an explicit error
-and loss evidence. It does not seed the JSON corpus with an initial snapshot.
-
-The session JSON files are the canonical input for validation, charts and the
-compression lab.
-
-### Parser-wide capture
-
-Recorder attaches to Parser's same-UID capture contract. It does not launch,
-replace or configure parserd. A capture has explicit duration and byte limits;
+A capture has explicit duration and physical byte limits;
 the first limit reached stops admission, drains committed records within the
 reserved final budget, imports loss evidence and seals the corpus.
+Automatic duration/quota/error termination keeps the owned Parser running.
+Stop the session explicitly to close that producer and its private launch
+resources before another capture; closing Recorder also stops only its child.
 
-Backtest selection over the sealed corpus is explicit by source, receive-time
-range and strategy-required channels. Missing, stale, degraded, gapped or
-generation-crossing input fails closed.
+Records preserve exchange timestamps and Parser application arrival in realtime
+and monotonic nanoseconds. Bounded channel blocks use the Compressor's lossless
+trade/BBO/depth transforms and entropy coding; recording creates no raw spool or
+JSON intermediate. Replay decodes each checked block directly into bounded RAM.
+
+The arrival boundary is the accepted complete application message, rather than
+kernel/NIC receive time. Corpus schema 7 and record schema 6 also retain native
+quantity rules separately from the canonical executable E8 grid proven by the
+selected connector. Per-channel quantity authority and original native factors
+let Backtest project Spot and linear Futures/Swap volumes exactly while keeping
+the recorded payload lossless. Missing market or execution authority stays explicit.
+
+Dynamic selection commands go to the Parser owner. Applied transitions are
+recorded as administrative markers in the same shard stream. Unsupported native
+routes are rejected explicitly. Capture loss remains an exact-replay blocker.
+Current dynamic changes require isolated WS BBO/trade lanes. New-source append
+requires an already active product in standalone one-shard capture; shared,
+native-all-market and depth mutations, and an entirely empty startup product,
+are refused. Shared-lane health markers carry their bounded application-drain
+time; they do not certify the original kernel closing time.
+
+The `parser-capture` CLI can attach to an already running same-UID Parser.
 
 ## User workflow
 
 1. Choose an output directory, normally below "/mnt/d/recordings".
 2. Select exchange, market, symbols, logical streams and limits.
 3. Capture a session.
-4. Validate the corpus and inspect charts.
-5. Run baseline and custom compression pipelines.
-6. Compare ratio, encode/decode speed and lossless verification per stream
-   family.
+4. Stop and finalize the recording.
+5. Open its folder in Backtests; choose an instrument or the whole eligible
+   market and use the canonical strategy configuration.
+6. Compression measurements remain a separate offline research step. No live
+   market capacity or four-core/four-GB throughput is established by source edits.
 
 ## Repository map
 
@@ -91,8 +102,9 @@ Start with [docs/README.md](docs/README.md).
 
 The `corpus-contract` workflow overlays the triggering Recorder revision into
 the private CXETCPP direct-source family graph. Its retired Backtest
-session-loader test target provides no current corpus acceptance evidence. New
-meaningful corpus and GUI checks are deferred. The badge is a workflow link,
+session-loader test target provides no current corpus acceptance evidence. The
+registered owner offline suites cover current corpus and capture contracts;
+actual Qt/QML actions require separate acceptance. The badge is a workflow link,
 not evidence of current passing CI or Qt/QML product acceptance.
 
 The root checkout requires the repository secret `CI_CXETCPP_SSH_KEY`. Fork

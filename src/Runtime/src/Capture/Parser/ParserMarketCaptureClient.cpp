@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
+#include <cstring>
 #include <fcntl.h>
 #include <limits>
 #include <poll.h>
@@ -53,10 +54,20 @@ struct CaptureShardView final {
         rounded, static_cast<std::uint64_t>(std::numeric_limits<int>::max())));
 }
 
+[[nodiscard]] bool deadlineElapsed(std::uint64_t deadlineNs) noexcept {
+    const auto now=clockNowNs(CLOCK_MONOTONIC);
+    return now==0u || now>=deadlineNs;
+}
+
 [[nodiscard]] bool waitForFd(int descriptor,
                              short events,
                              std::uint64_t deadlineNs) noexcept {
+    bool firstPoll=true;
     while (descriptor >= 0) {
+        // Subscription polling gets one zero-timeout attempt. Interrupted
+        // retries still obey the original absolute deadline.
+        if(!firstPoll && deadlineElapsed(deadlineNs)) return false;
+        firstPoll=false;
         pollfd pollDescriptor{descriptor,
                               static_cast<short>(events | POLLERR | POLLHUP),
                               0};
@@ -137,6 +148,7 @@ template <typename T>
                                      const parser::MarketCaptureControlPacket& packet,
                                      std::uint64_t deadlineNs) noexcept {
     while (descriptor >= 0) {
+        if(deadlineElapsed(deadlineNs)) return false;
         const ssize_t sent = ::send(descriptor, &packet, sizeof(packet),
                                     MSG_DONTWAIT | MSG_NOSIGNAL);
         if (sent == static_cast<ssize_t>(sizeof(packet))) return true;
@@ -163,10 +175,13 @@ void closeAttached(ReceivedControl& received) noexcept {
                                         ReceivedControl& output) noexcept {
     output = {};
     output.attachedFd = -1;
+    bool firstReceive=true;
     while (descriptor >= 0) {
+        if(!firstReceive && deadlineElapsed(deadlineNs)) return false;
+        firstReceive=false;
         if (!waitForFd(descriptor, POLLIN, deadlineNs)) return false;
         iovec vector{&output.packet, sizeof(output.packet)};
-        std::array<std::byte, CMSG_SPACE(sizeof(int) * 2u)> control{};
+        alignas(cmsghdr) std::array<std::byte, CMSG_SPACE(sizeof(int) * 2u)> control{};
         msghdr message{};
         message.msg_iov = &vector;
         message.msg_iovlen = 1u;
@@ -179,26 +194,35 @@ void closeAttached(ReceivedControl& received) noexcept {
                 continue;
             return false;
         }
-        if (received != static_cast<ssize_t>(sizeof(output.packet)) ||
-            (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) != 0) {
-            return false;
-        }
+        // recvmsg installs SCM_RIGHTS descriptors even when the data packet
+        // is short/truncated. Visit every delivered descriptor before refusal.
         std::size_t descriptorCount = 0u;
+        bool validAncillary=true;
         for (cmsghdr* current = CMSG_FIRSTHDR(&message); current;
              current = CMSG_NXTHDR(&message, current)) {
-            if (current->cmsg_level != SOL_SOCKET ||
-                current->cmsg_type != SCM_RIGHTS ||
-                current->cmsg_len != CMSG_LEN(sizeof(int))) {
-                closeAttached(output);
-                return false;
+            const auto offset=static_cast<std::size_t>(
+                reinterpret_cast<const std::byte*>(current)-control.data());
+            if(offset>message.msg_controllen || current->cmsg_len<CMSG_LEN(0u) ||
+               current->cmsg_len>message.msg_controllen-offset) {
+                validAncillary=false;break;
             }
-            const int receivedFd =
-                *reinterpret_cast<const int*>(CMSG_DATA(current));
-            ++descriptorCount;
-            if (descriptorCount == 1u) output.attachedFd = receivedFd;
-            else if (receivedFd >= 0) ::close(receivedFd);
+            if (current->cmsg_level != SOL_SOCKET ||
+                current->cmsg_type != SCM_RIGHTS) {
+                validAncillary=false;continue;
+            }
+            const auto bytes=current->cmsg_len-CMSG_LEN(0u);
+            if(bytes!=sizeof(int)) validAncillary=false;
+            for(std::size_t position=0u;position+sizeof(int)<=bytes;position+=sizeof(int)) {
+                int receivedFd=-1;
+                std::memcpy(&receivedFd,CMSG_DATA(current)+position,sizeof(receivedFd));
+                ++descriptorCount;
+                if(descriptorCount==1u) output.attachedFd=receivedFd;
+                else if(receivedFd>=0) ::close(receivedFd);
+            }
         }
-        if (descriptorCount > 1u) {
+        if (!validAncillary || descriptorCount > 1u ||
+            received != static_cast<ssize_t>(sizeof(output.packet)) ||
+            (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) != 0) {
             closeAttached(output);
             return false;
         }
@@ -264,6 +288,11 @@ struct ParserMarketCaptureClientState final {
     std::vector<parser::MarketCaptureSourceDescriptor> sources{};
     std::uint64_t consumerEpoch{0u};
     std::uint64_t directoryGeneration{0u};
+    std::uint64_t nextControlSequence{3u};
+    std::uint64_t pendingControlSequence{0u};
+    std::uint64_t pendingControlDeadline{0u};
+    parser::MarketCaptureSubscriptionChange pendingChange{};
+    std::size_t registeredSourceCount{0u};
     std::uint64_t recordsDrained{0u};
     std::uint64_t gapsWritten{0u};
     std::uint64_t finalLossEpoch{0u};
@@ -639,16 +668,33 @@ Status ParserMarketCaptureClient::loadSourceDirectory(
                 }
                 sources.push_back(std::move(source));
             }
-            state_->sources = std::move(copied);
+            const bool initial = state_->sources.empty();
+            if (copied.size() < state_->sources.size()) {
+                error = "parser capture source IDs were retired instead of remaining stable";
+                return Status::CorruptData;
+            }
+            if (initial) {
+                state_->sources = copied;
+                state_->registeredSourceCount = copied.size();
+            } else {
+                for (std::size_t index=state_->sources.size();index<copied.size();++index) {
+                    auto baseline=copied[index];
+                    baseline.market.sourceGeneration=0u;
+                    baseline.availableChannelMask=baseline.traderReplayChannelMask=0u;
+                    baseline.compatibility={};
+                    state_->sources.push_back(baseline);
+                }
+            }
             state_->directoryGeneration = generation;
             // Ready only attaches the arena. A capture interval starts after
             // the complete cross-lane directory is stable; records committed
             // between directory publication and this sample remain in the
             // ring and the writer moves its replay anchor to their first
             // monotonic coordinate.
-            state_->captureStartedMonotonicNs = captureMonotonicNs;
-            state_->captureStartedReceiveNs =
-                static_cast<std::int64_t>(captureReceiveNs);
+            if (initial) {
+                state_->captureStartedMonotonicNs = captureMonotonicNs;
+                state_->captureStartedReceiveNs = static_cast<std::int64_t>(captureReceiveNs);
+            }
             return Status::Ok;
         }
         error = "parser capture source directory did not become ready";
@@ -664,54 +710,100 @@ Status ParserMarketCaptureClient::drain(
     std::uint64_t maximumRecords,
     std::uint64_t& drained,
     std::string& error) noexcept {
+    return drainTo([](void* context,const corpus::BinaryMarketRecord& record) noexcept {
+        return static_cast<corpus::BinaryMarketCorpusWriter*>(context)->append(record);
+    },&writer,maximumRecords,drained,error,
+    [](void* context,const corpus::BinaryMarketSource& source) noexcept {
+        return static_cast<corpus::BinaryMarketCorpusWriter*>(context)->registerSources({&source,1});
+    });
+}
+
+Status ParserMarketCaptureClient::drainTo(ParserCaptureRecordSink sink,void* context,
+    std::uint64_t maximumRecords,std::uint64_t& drained,std::string& error,
+    ParserCaptureSourceSink sourceSink) noexcept {
     drained = 0u;
     error.clear();
-    if (!state_ || !state_->header || state_->sources.empty()) {
+    if (!sink || !state_ || !state_->header || state_->sources.empty()) {
         error = "parser capture directory was not loaded";
         return Status::InvalidArgument;
     }
-    if (state_->header->producerEpoch == 0u ||
-        state_->header->directoryGeneration.load(std::memory_order_acquire) !=
-            state_->directoryGeneration ||
-        state_->header->directoryCount.load(std::memory_order_acquire) !=
-            state_->sources.size()) {
-        error = "parser capture directory generation changed during capture";
+    if (state_->header->producerEpoch == 0u) {
+        error = "parser capture producer epoch is unavailable";
         return Status::CorruptData;
+    }
+    if (!state_->stopped && state_->header->lossEpoch.load(std::memory_order_acquire) != 0u) {
+        error = "parser capture lost records; freeze capture and retain the loss ledger";
+        return Status::IoError;
+    }
+    if (state_->header->directoryGeneration.load(std::memory_order_acquire) != state_->directoryGeneration ||
+        state_->header->directoryCount.load(std::memory_order_acquire) != state_->sources.size()) {
+        std::vector<corpus::BinaryMarketSource> current;
+        const auto status=loadSourceDirectory(current,error);
+        if (!isOk(status)) return status;
+    }
+    while (state_->registeredSourceCount < state_->sources.size()) {
+        if (!sourceSink) { error="capture sink has no source catalog consumer";return Status::Unimplemented; }
+        auto source=detail::convertSource(state_->sources[state_->registeredSourceCount]);
+        source.initiallyPresent=0u;
+        const auto status=sourceSink(context,source);
+        if (!isOk(status)) { error="capture source catalog registration failed";return status; }
+        ++state_->registeredSourceCount;
     }
     const std::uint64_t limit = maximumRecords == 0u
         ? std::numeric_limits<std::uint64_t>::max() : maximumRecords;
-    for (std::uint16_t shardIndex = 0u;
-         shardIndex < state_->shards.size() && drained < limit;
-         ++shardIndex) {
-        auto& shard = state_->shards[shardIndex];
-        std::uint64_t read = shard.ring->read.load(std::memory_order_relaxed);
-        const std::uint64_t write =
-            shard.ring->write.load(std::memory_order_acquire);
-        const std::uint64_t capacity = shard.header->ringCapacity;
-        if (read > write || write - read > capacity) {
-            error = "parser capture ring cursor invariant failed";
-            return Status::CorruptData;
+    while (drained < limit) {
+        std::uint16_t shardIndex=static_cast<std::uint16_t>(state_->shards.size());
+        std::uint64_t firstArrival=UINT64_MAX;
+        for (std::uint16_t candidate=0;candidate<state_->shards.size();++candidate) {
+            const auto& view=state_->shards[candidate];
+            const auto read=view.ring->read.load(std::memory_order_relaxed);
+            const auto write=view.ring->write.load(std::memory_order_acquire);
+            if (read>write || write-read>view.header->ringCapacity) {
+                error="parser capture ring cursor invariant failed";return Status::CorruptData;
+            }
+            if (read==write) continue;
+            const auto arrival=view.records[read&(view.header->ringCapacity-1u)].header.receiveMonotonicNs;
+            if (shardIndex==state_->shards.size() || arrival<firstArrival) {
+                firstArrival=arrival;shardIndex=candidate;
+            }
         }
-        while (read < write && drained < limit) {
+        if (shardIndex==state_->shards.size()) break;
+        auto& shard=state_->shards[shardIndex];
+        auto read=shard.ring->read.load(std::memory_order_relaxed);
+        const auto capacity=shard.header->ringCapacity;
             const parser::MarketCaptureRecord input =
                 shard.records[read & (capacity - 1u)];
+            // The producer commits the membership marker before releasing its
+            // directory revision. Defer this head until that publication is visible.
+            if (input.header.sourceId>state_->sources.size() ||
+                (input.header.channel==parser::MarketCaptureChannel::Membership &&
+                 parser::marketCapturePayload<parser::MarketCaptureMembershipPayload>(&input)->directoryRevision>
+                    state_->directoryGeneration)) {
+                if (input.header.sourceId>state_->header->directoryCapacity) {
+                    error="capture source exceeds admitted directory capacity";return Status::CorruptData;
+                }
+                break;
+            }
             corpus::BinaryMarketRecord output{};
             if (!detail::convertRecord(input, shardIndex, state_->sources, output)) {
                 error = "parser capture record contract mismatch";
                 return Status::CorruptData;
             }
-            const Status status = writer.append(output);
+            const Status status = sink(context,output);
             if (!isOk(status)) {
                 error = status == Status::OutOfRange
                     ? "binary market corpus byte quota reached"
                     : "binary market corpus record write failed";
                 return status;
             }
+            if (input.header.channel==parser::MarketCaptureChannel::Membership) {
+                state_->sources[input.header.sourceId-1u]=
+                    parser::marketCapturePayload<parser::MarketCaptureMembershipPayload>(&input)->source;
+            }
             ++read;
             shard.ring->read.store(read, std::memory_order_release);
             ++drained;
             ++state_->recordsDrained;
-        }
     }
     return Status::Ok;
 }
@@ -727,11 +819,15 @@ Status ParserMarketCaptureClient::stop(std::string& error) noexcept {
         error = "parserd disconnected before capture Stop acknowledgement";
         return Status::IoError;
     }
+    if (state_->pendingControlSequence != 0u) {
+        error="subscription command is still pending before Stop";
+        return Status::InvalidArgument;
+    }
     const std::uint64_t deadline =
         clockNowNs(CLOCK_MONOTONIC) + kHandshakeTimeoutNs;
     parser::MarketCaptureControlPacket stop{};
     stop.header.message = parser::MarketCaptureControlMessage::Stop;
-    stop.header.sequence = 3u;
+    stop.header.sequence = state_->nextControlSequence++;
     stop.header.producerEpoch = state_->header->producerEpoch;
     stop.header.consumerEpoch = state_->consumerEpoch;
     if (!sendControlPacket(state_->socketFd, stop, deadline)) {
@@ -747,20 +843,101 @@ Status ParserMarketCaptureClient::stop(std::string& error) noexcept {
     closeAttached(received);
     if (hasUnexpectedFd || !validControlReply(
             received.packet, parser::MarketCaptureControlMessage::Stopped,
-            2u, state_->header->producerEpoch, state_->consumerEpoch)) {
+            stop.header.sequence, state_->header->producerEpoch, state_->consumerEpoch)) {
         error = "parser capture Stopped contract mismatch";
         return Status::CorruptData;
     }
     const auto& stopped = *parser::marketCaptureControlPayload<
         parser::MarketCaptureStopped>(&received.packet);
-    if (stopped.directoryGeneration != state_->directoryGeneration ||
+    if (stopped.directoryGeneration == 0u ||
         stopped.reserved != decltype(stopped.reserved){} ||
         state_->header->consumerEpoch.load(std::memory_order_acquire) != 0u) {
         error = "parser capture producer did not freeze cleanly";
         return Status::CorruptData;
     }
     state_->finalLossEpoch = stopped.finalLossEpoch;
+    state_->directoryGeneration = stopped.directoryGeneration;
     state_->stopped = true;
+    return Status::Ok;
+}
+
+Status ParserMarketCaptureClient::beginSubscriptionChange(std::uint32_t sourceId,
+    corpus::BinaryMarketChannel channel,bool add,std::string& error) noexcept {
+    error.clear();
+    if (!state_ || !state_->header || state_->stopped || state_->pendingControlSequence ||
+        sourceId==0u || sourceId>state_->sources.size() ||
+        channel<corpus::BinaryMarketChannel::BookTicker || channel>corpus::BinaryMarketChannel::Depth ||
+        state_->nextControlSequence==UINT64_MAX) {
+        error="invalid or busy capture subscription command";return Status::InvalidArgument;
+    }
+    std::vector<corpus::BinaryMarketSource> current;
+    auto status=loadSourceDirectory(current,error);
+    if (!isOk(status)) return status;
+    const auto& source=current[sourceId-1u];
+    parser::MarketCaptureControlPacket packet{};
+    packet.header.message=parser::MarketCaptureControlMessage::ChangeSubscription;
+    packet.header.sequence=state_->nextControlSequence;
+    packet.header.producerEpoch=state_->header->producerEpoch;
+    packet.header.consumerEpoch=state_->consumerEpoch;
+    auto& change=*parser::marketCaptureControlPayload<parser::MarketCaptureSubscriptionChange>(&packet);
+    change.expectedDirectoryRevision=state_->directoryGeneration;
+    change.sourceId=sourceId;change.canonicalSymbolId=source.canonicalSymbolId;
+    change.venueId=source.venueId;change.marketRaw=source.marketRaw;
+    change.channel=static_cast<parser::MarketCaptureChannel>(channel);
+    change.action=add?parser::MarketCaptureSubscriptionAction::Add:parser::MarketCaptureSubscriptionAction::Remove;
+    if (!parser::validMarketCaptureSubscriptionChange(change)) {
+        error="capture source has no exact command identity";return Status::CorruptData;
+    }
+    const auto sent=::send(state_->socketFd,&packet,sizeof(packet),MSG_DONTWAIT|MSG_NOSIGNAL);
+    if (sent!=static_cast<ssize_t>(sizeof(packet))) {
+        error="capture subscription command was not accepted by the local socket";return Status::IoError;
+    }
+    state_->pendingChange=change;
+    state_->pendingControlSequence=state_->nextControlSequence++;
+    state_->pendingControlDeadline=clockNowNs(CLOCK_MONOTONIC)+kHandshakeTimeoutNs;
+    return Status::Ok;
+}
+
+Status ParserMarketCaptureClient::pollSubscriptionChange(bool& complete,Status& outcome,
+    std::string& error) noexcept {
+    complete=false;outcome=Status::Unknown;error.clear();
+    if (!state_ || !state_->pendingControlSequence) {
+        error="no pending capture subscription command";return Status::InvalidArgument;
+    }
+    ReceivedControl received{};
+    // Zero timeout consumes only an already available SOCK_SEQPACKET reply.
+    if (!receiveControlPacket(state_->socketFd,clockNowNs(CLOCK_MONOTONIC),received)) {
+        if (producerDisconnected() || clockNowNs(CLOCK_MONOTONIC)>=state_->pendingControlDeadline) {
+            error="capture subscription outcome is unknown after disconnect or timeout";return Status::IoError;
+        }
+        return Status::Ok;
+    }
+    const bool unexpectedFd=received.attachedFd>=0;closeAttached(received);
+    if (unexpectedFd || !validControlReply(received.packet,parser::MarketCaptureControlMessage::SubscriptionResult,
+        state_->pendingControlSequence,state_->header->producerEpoch,state_->consumerEpoch)) {
+        error="capture subscription reply contract mismatch";return Status::CorruptData;
+    }
+    const auto& result=*parser::marketCaptureControlPayload<parser::MarketCaptureSubscriptionResult>(&received.packet);
+    const auto& expected=state_->pendingChange;
+    if (result.sourceId!=expected.sourceId || result.canonicalSymbolId!=expected.canonicalSymbolId ||
+        result.channel!=expected.channel || result.action!=expected.action ||
+        result.status>parser::MarketCaptureSubscriptionStatus::LifecycleFailed || result.reserved!=decltype(result.reserved){} ||
+        (result.availableChannelMask&~parser::kMarketCaptureNativeChannelMask)!=0u ||
+        (result.status==parser::MarketCaptureSubscriptionStatus::Applied &&
+         (!result.sourceGeneration || !result.sessionEpoch || !result.markerShardSequence ||
+          result.effectiveRealtimeNs<=0 || !result.effectiveMonotonicNs || result.shardIndex>=state_->shards.size()))) {
+        error="capture subscription result identity or evidence mismatch";return Status::CorruptData;
+    }
+    complete=true;state_->pendingControlSequence=0u;
+    switch (result.status) {
+        case parser::MarketCaptureSubscriptionStatus::Applied:
+        case parser::MarketCaptureSubscriptionStatus::NoChange: outcome=Status::Ok;break;
+        case parser::MarketCaptureSubscriptionStatus::UnsupportedChannel:
+        case parser::MarketCaptureSubscriptionStatus::UnsupportedSharedSession: outcome=Status::Unimplemented;break;
+        case parser::MarketCaptureSubscriptionStatus::CapacityExceeded: outcome=Status::OutOfRange;break;
+        default: outcome=Status::InvalidArgument;break;
+    }
+    if (!isOk(outcome)) error="Parser refused subscription change, status="+std::to_string(static_cast<unsigned>(result.status));
     return Status::Ok;
 }
 
@@ -888,8 +1065,8 @@ Status ParserMarketCaptureClient::appendFrozenLosses(
                 : static_cast<std::int64_t>(maximumReceive);
             gap.observedReceiveNs = static_cast<std::int64_t>(observed);
             gap.shardIndex = static_cast<std::uint16_t>(shard);
-            gap.channel = static_cast<corpus::BinaryMarketChannel>(
-                channelIndex + 1u);
+            gap.channel = channelIndex==parser::marketCaptureChannelIndex(parser::MarketCaptureChannel::Membership)
+                ? corpus::BinaryMarketChannel::SourceLifecycle : static_cast<corpus::BinaryMarketChannel>(channelIndex + 1u);
             const Status status = writer.appendGap(gap);
             if (!isOk(status)) {
                 error = "binary market corpus gap ledger write failed";

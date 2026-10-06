@@ -7,6 +7,7 @@ Pane {
     id: root
 
     required property CaptureViewModel captureVm
+    signal openCorpusForBacktest(string path)
     required property bool tabActive
     property bool anyChannelRunning: root.captureVm.tradesRunning || root.captureVm.bookTickerRunning || root.captureVm.orderbookRunning
 
@@ -32,9 +33,10 @@ Pane {
             spacing: 16
 
             Label { text: "Live Capture"; font.pixelSize: 26; font.bold: true; color: root.textColor }
-            Label { text: root.captureVm.captureAvailable ? "Multi-venue spot / futures / margin / canonical normalized JSON corpus" : root.captureVm.captureUnavailableReason; color: root.captureVm.captureAvailable ? root.mutedTextColor : root.accentSellColor; wrapMode: Text.WordWrap }
+            Label { text: root.captureVm.captureAvailable ? "One shared Parser session / selected market universe / compressed binary corpus" : root.captureVm.captureUnavailableReason; color: root.captureVm.captureAvailable ? root.mutedTextColor : root.accentSellColor; wrapMode: Text.WordWrap }
 
             CaptureSessionSummaryCard {
+                onOpenCorpusForBacktest: function(path) { root.openCorpusForBacktest(path) }
                 captureVm: root.captureVm
                 panelColor: root.panelColor
                 panelAltColor: root.panelAltColor
@@ -60,6 +62,53 @@ Pane {
                     spacing: 12
 
                     Label { text: "Capture Controls"; font.bold: true; color: root.textColor }
+                    CheckBox {
+                        text: "Capture the full instrument universe of selected venues"
+                        checked: root.captureVm.fullUniverse
+                        onToggled: root.captureVm.fullUniverse = checked
+                    }
+                    TextField {
+                        Layout.fillWidth: true
+                        text: root.captureVm.parserTemplatePath
+                        placeholderText: "Existing Parser configuration template"
+                        onTextEdited: root.captureVm.parserTemplatePath = text
+                    }
+                    RowLayout {
+                        Label { text: "Duration (seconds)"; color: root.mutedTextColor }
+                        SpinBox {
+                            from: 1; to: 31536000; value: root.captureVm.captureDurationSec; editable: true
+                            onValueModified: root.captureVm.captureDurationSec = value
+                        }
+                        Label { text: "Storage ceiling (GiB)"; color: root.mutedTextColor }
+                        SpinBox {
+                            from: 1; to: 4096; value: Math.max(1, Math.round(root.captureVm.captureMaximumBytes / 1073741824)); editable: true
+                            onValueModified: root.captureVm.captureMaximumBytes = value * 1073741824
+                        }
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: implicitHeight
+                        Repeater {
+                            model: ["BookTicker", "Trade", "Depth", "Liquidation", "MarkPrice", "IndexPrice", "Funding", "PriceLimit"]
+                            CheckBox {
+                                required property int index
+                                required property string modelData
+                                text: modelData
+                                checked: (root.captureVm.captureChannels & (1 << index)) !== 0
+                                onToggled: {
+                                    const bit = 1 << index
+                                    const next = checked ? (root.captureVm.captureChannels | bit) : (root.captureVm.captureChannels & ~bit)
+                                    if (next !== 0) root.captureVm.captureChannels = next
+                                }
+                            }
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: "Selection changes use the Parser subscription owner. Unsupported shared connections and channels are refused."
+                        color: root.mutedTextColor; wrapMode: Text.WordWrap
+                    }
+
 
                     ColumnLayout {
                         Layout.fillWidth: true

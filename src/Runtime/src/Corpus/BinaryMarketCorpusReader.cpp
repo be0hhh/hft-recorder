@@ -1,6 +1,8 @@
 #include "BinaryMarketCorpusReader.hpp"
 
 #include "Codec/Crc32c.hpp"
+#include "BinaryMarketBlockCodec.hpp"
+#include "BinaryMarketSourceState.hpp"
 
 #include <algorithm>
 #include <array>
@@ -45,7 +47,9 @@ template <typename Record>
                              std::uint32_t magic,
                              std::vector<Record>& records,
                              std::uint32_t expectedCrc,
-                             std::string& error) noexcept {
+                             std::string& error,
+                             std::uint64_t maximumBytes,
+                             std::uint64_t expectedRecords) noexcept {
     std::ifstream stream(path, std::ios::binary);
     BinaryMarketTableHeader header{};
     if (!stream.is_open() || !readBytes(stream, &header, sizeof(header))) {
@@ -57,12 +61,13 @@ template <typename Record>
     if (header.magic != magic ||
         header.schemaVersion != kBinaryMarketCorpusSchemaVersion ||
         header.headerBytes != sizeof(header) ||
-        header.recordBytes != sizeof(Record) ||
+        header.recordBytes != sizeof(Record) || header.recordCount != expectedRecords ||
         header.reserved != decltype(header.reserved){} ||
         header.headerCrc32c !=
             headerCrc(header, &BinaryMarketTableHeader::headerCrc32c) ||
         header.recordsCrc32c != expectedCrc ||
         recordsBytes > std::numeric_limits<std::size_t>::max() ||
+        recordsBytes > maximumBytes ||
         !exactFileBytes(path, sizeof(header) + recordsBytes)) {
         error = "binary corpus table contract mismatch: " + path.string();
         return false;
@@ -106,7 +111,7 @@ template <typename Record>
     const bool hasRecords = manifest.recordCount != 0u;
     const std::uint64_t maximumGapCount =
         static_cast<std::uint64_t>(manifest.sourceCount) *
-        kBinaryMarketChannelCount;
+        kBinaryMarketStoredChannelCount;
     if (manifest.magic != kBinaryMarketManifestMagic ||
         manifest.schemaVersion != kBinaryMarketCorpusSchemaVersion ||
         manifest.headerBytes != sizeof(manifest) ||
@@ -122,11 +127,13 @@ template <typename Record>
             sizeof(BinaryMarketRecord) + sizeof(BinaryMarketSegmentFooter) ||
         manifest.projectedBytes == 0u ||
         manifest.projectedBytes > manifest.maximumBytes ||
-        manifest.sourceCount == 0u ||
-        manifest.shardCount == 0u || manifest.complete != 1u ||
+        manifest.sourceCount == 0u || manifest.sourceCount > kBinaryMarketMaximumSources ||
+        manifest.shardCount == 0u || manifest.shardCount > kBinaryMarketMaximumShards || manifest.complete != 1u ||
         manifest.stopReason < BinaryMarketStopReason::Requested ||
         manifest.stopReason > BinaryMarketStopReason::ParserDisconnected ||
         manifest.gapCount > maximumGapCount ||
+        manifest.indexCount > manifest.maximumBytes / sizeof(BinaryMarketIndexEntry) ||
+        manifest.segmentCount > manifest.indexCount ||
         (hasRecords != (manifest.segmentCount != 0u)) ||
         (hasRecords != (manifest.indexCount != 0u)) ||
         (hasRecords ? manifest.firstReceiveNs <= 0
@@ -205,132 +212,183 @@ struct IndexIdentityHash final {
     return first != 0 && last >= first && last >= begin && first < end;
 }
 
-[[nodiscard]] bool readSelectedSegment(
-    const std::filesystem::path& root,
-    SegmentKey key,
-    std::uint64_t producerEpoch,
-    const std::vector<BinaryMarketSource>& sources,
-    std::uint32_t sourceId,
-    std::uint16_t channelMask,
-    std::int64_t beginReceiveNs,
-    std::int64_t endReceiveNs,
-    std::vector<BinaryMarketRecord>& output,
-    std::string& error) noexcept {
-    const auto path = segmentPath(root, key.shard, key.number);
-    std::ifstream stream(path, std::ios::binary);
+struct SegmentDecoder final {
+    std::ifstream stream{};
     BinaryMarketSegmentHeader header{};
-    if (!stream.is_open() || !readBytes(stream, &header, sizeof(header))) {
-        error = "binary corpus segment is unavailable: " + path.string();
-        return false;
+    std::vector<std::uint8_t> encoded{};
+    std::vector<BinaryMarketRecord> decoded{};
+    std::size_t position{0u}, count{0u};
+    std::uint64_t recordsSeen{0u}, bodyBytes{0u}, previousSequence{0u}, previousMonotonic{0u};
+    std::uint32_t blocksSeen{0u}, recordsCrc{0u};
+    std::int64_t firstReceive{0}, lastReceive{0};
+    bool finished{false};
+
+    bool open(const std::filesystem::path& root, SegmentKey key,
+              std::uint64_t epoch, std::string& error) {
+        stream.open(segmentPath(root,key.shard,key.number), std::ios::binary);
+        if (!stream.is_open() || !readBytes(stream,&header,sizeof(header)) ||
+            header.magic != kBinaryMarketSegmentMagic ||
+            header.schemaVersion != kBinaryMarketCorpusSchemaVersion ||
+            header.headerBytes != sizeof(header) || header.recordBytes != sizeof(BinaryMarketRecord) ||
+            header.recordCount == 0u || header.blockCount == 0u ||
+            header.blockCount > header.recordCount || header.codecId != 1u ||
+            header.firstReceiveNs <= 0 || header.lastReceiveNs < header.firstReceiveNs ||
+            header.segmentNumber != key.number || header.shardIndex != key.shard ||
+            header.producerEpoch != epoch || header.reserved16 != 0u ||
+            header.reserved != decltype(header.reserved){} ||
+            header.headerCrc32c != headerCrc(header,&BinaryMarketSegmentHeader::headerCrc32c) ||
+            header.storedBlockBytes > std::numeric_limits<std::uint64_t>::max()-sizeof(header)-sizeof(BinaryMarketSegmentFooter) ||
+            !exactFileBytes(segmentPath(root,key.shard,key.number),
+                sizeof(header)+header.storedBlockBytes+sizeof(BinaryMarketSegmentFooter))) {
+            error="binary corpus compressed segment header mismatch"; return false;
+        }
+        decoded.resize(kBinaryMarketBlockRecords);
+        encoded.resize(hft_compressor::byteBlockEncodeBound(
+            binaryMarketBlockLayout(BinaryMarketChannel::Depth), kBinaryMarketBlockRecords));
+        return true;
     }
-    if (header.recordCount >
-        std::numeric_limits<std::uint64_t>::max() /
-            sizeof(BinaryMarketRecord)) {
-        error = "binary corpus segment record count overflow: " + path.string();
-        return false;
-    }
-    const std::uint64_t recordBytes =
-        header.recordCount * sizeof(BinaryMarketRecord);
-    const std::uint64_t expectedBytes = sizeof(header) + recordBytes +
-        sizeof(BinaryMarketSegmentFooter);
-    if (header.magic != kBinaryMarketSegmentMagic ||
-        header.schemaVersion != kBinaryMarketCorpusSchemaVersion ||
-        header.headerBytes != sizeof(header) ||
-        header.recordBytes != sizeof(BinaryMarketRecord) ||
-        header.recordCount == 0u || header.firstReceiveNs <= 0 ||
-        header.lastReceiveNs < header.firstReceiveNs ||
-        header.segmentNumber != key.number || header.shardIndex != key.shard ||
-        header.producerEpoch != producerEpoch || header.reserved16 != 0u ||
-        header.reserved != decltype(header.reserved){} ||
-        header.headerCrc32c !=
-            headerCrc(header, &BinaryMarketSegmentHeader::headerCrc32c) ||
-        !exactFileBytes(path, expectedBytes)) {
-        error = "binary corpus segment header mismatch: " + path.string();
-        return false;
-    }
-    std::uint32_t recordsCrc = 0u;
-    std::int64_t observedFirstReceiveNs = 0;
-    std::int64_t observedLastReceiveNs = 0;
-    std::uint64_t previousShardSequence = 0u;
-    for (std::uint64_t index = 0u; index < header.recordCount; ++index) {
-        BinaryMarketRecord record{};
-        if (!readBytes(stream, &record, sizeof(record)) ||
-            !validBinaryMarketRecord(record) ||
-            record.header.shardIndex != key.shard ||
-            record.header.sourceId > sources.size() ||
-            record.header.sourceGeneration !=
-                sources[record.header.sourceId - 1u].initialSourceGeneration ||
-            (sources[record.header.sourceId - 1u].availableChannelMask &
-             binaryMarketChannelBit(record.header.channel)) == 0u ||
-            (previousShardSequence != 0u &&
-             record.header.shardSequence <= previousShardSequence) ||
-            !std::all_of(
-                record.payload.begin() + record.header.payloadBytes,
-                record.payload.end(),
-                [](std::byte value) noexcept {
-                    return value == std::byte{};
-                })) {
-            error = "binary corpus segment record mismatch: " + path.string();
-            return false;
-        }
-        const auto recordCompatibility =
-            sources[record.header.sourceId - 1u].compatibility[
-                binaryMarketChannelIndex(record.header.channel)];
-        if (recordCompatibility == BinaryMarketCompatibility::Unavailable ||
-            (((record.header.flags &
-               BinaryMarketRecordTraderReplayCompatible) != 0u) &&
-             recordCompatibility !=
-                 BinaryMarketCompatibility::ExactTraderReplay)) {
-            error = "binary corpus record contradicts source compatibility: " +
-                path.string();
-            return false;
-        }
-        previousShardSequence = record.header.shardSequence;
-        if (observedFirstReceiveNs == 0 ||
-            record.header.receiveRealtimeNs < observedFirstReceiveNs) {
-            observedFirstReceiveNs = record.header.receiveRealtimeNs;
-        }
-        if (record.header.receiveRealtimeNs > observedLastReceiveNs) {
-            observedLastReceiveNs = record.header.receiveRealtimeNs;
-        }
-        recordsCrc = codec::crc32cUpdate(
-            recordsCrc, reinterpret_cast<const std::uint8_t*>(&record),
-            sizeof(record));
-        if (record.header.sourceId == sourceId &&
-            (channelMask & binaryMarketChannelBit(record.header.channel)) != 0u &&
-            record.header.receiveRealtimeNs >= beginReceiveNs &&
-            record.header.receiveRealtimeNs < endReceiveNs) {
-            try {
-                output.push_back(record);
-            } catch (...) {
-                error = "binary corpus selection allocation failed";
-                return false;
+    bool next(BinaryMarketRecord& record, bool& available,
+              const std::vector<BinaryMarketSource>& sources, std::string& error) {
+        available=false;
+        if(finished) return true;
+        if(position==count) {
+            if(blocksSeen==header.blockCount) {
+                BinaryMarketSegmentFooter footer{};
+                if(!readBytes(stream,&footer,sizeof(footer)) ||
+                    footer.magic!=kBinaryMarketSegmentFooterMagic ||
+                    footer.schemaVersion!=kBinaryMarketCorpusSchemaVersion || footer.footerBytes!=sizeof(footer) ||
+                    footer.segmentNumber!=header.segmentNumber || footer.recordCount!=header.recordCount ||
+                    footer.recordsCrc32c!=header.recordsCrc32c || footer.firstReceiveNs!=header.firstReceiveNs ||
+                    footer.lastReceiveNs!=header.lastReceiveNs || footer.reserved!=decltype(footer.reserved){} ||
+                    footer.footerCrc32c!=headerCrc(footer,&BinaryMarketSegmentFooter::footerCrc32c) ||
+                    recordsSeen!=header.recordCount || bodyBytes!=header.storedBlockBytes ||
+                    recordsCrc!=header.recordsCrc32c || firstReceive!=header.firstReceiveNs || lastReceive!=header.lastReceiveNs) {
+                    error="binary corpus segment footer or CRC mismatch"; return false;
+                }
+                finished=true; return true;
             }
+            BinaryMarketBlockHeader block{};
+            if(!readBytes(stream,&block,sizeof(block)) || block.magic!=kBinaryMarketBlockMagic ||
+                block.schemaVersion!=kBinaryMarketCorpusSchemaVersion || block.headerBytes!=sizeof(block) ||
+                block.blockNumber!=blocksSeen+1u || block.recordCount==0u || block.recordCount>kBinaryMarketBlockRecords ||
+                block.rawBytes!=block.recordCount*sizeof(BinaryMarketRecord) || !validBinaryMarketRecordChannel(block.channel) ||
+                block.encodedBytes==0u || block.encodedBytes>hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(block.channel),block.recordCount) ||
+                block.reserved!=decltype(block.reserved){} || block.firstShardSequence==0u ||
+                block.lastShardSequence<block.firstShardSequence ||
+                block.headerCrc32c!=headerCrc(block,&BinaryMarketBlockHeader::headerCrc32c) ||
+                bodyBytes>header.storedBlockBytes || sizeof(block)+block.encodedBytes>header.storedBlockBytes-bodyBytes ||
+                recordsSeen>header.recordCount || block.recordCount>header.recordCount-recordsSeen ||
+                !readBytes(stream,encoded.data(),block.encodedBytes) ||
+                crcBytes(encoded.data(),block.encodedBytes)!=block.encodedCrc32c) {
+                error="binary corpus compressed block header or CRC mismatch"; return false;
+            }
+            std::size_t rawBytes=0u;
+            if(hft_compressor::decodeByteBlock(binaryMarketBlockLayout(block.channel),
+                std::span<const std::uint8_t>{encoded.data(),block.encodedBytes},
+                std::span<std::uint8_t>{reinterpret_cast<std::uint8_t*>(decoded.data()),block.rawBytes},rawBytes)
+                !=hft_compressor::Status::Ok || rawBytes!=block.rawBytes ||
+                crcBytes(decoded.data(),rawBytes)!=block.rawCrc32c ||
+                decoded[0].header.shardSequence!=block.firstShardSequence ||
+                decoded[block.recordCount-1u].header.shardSequence!=block.lastShardSequence) {
+                error="binary corpus compressed block decode mismatch"; return false;
+            }
+            // Validate the complete block before releasing even its first row.
+            for(std::size_t n=0u;n<block.recordCount;++n) {
+                const auto& row=decoded[n]; const auto& h=row.header;
+                if(!validBinaryMarketRecord(row) || h.channel!=block.channel || h.shardIndex!=header.shardIndex ||
+                    h.sourceId>sources.size() ||
+                    (previousSequence!=0u && h.shardSequence<=previousSequence) ||
+                    (previousMonotonic!=0u && h.receiveMonotonicNs<previousMonotonic) ||
+                    !std::all_of(row.payload.begin()+h.payloadBytes,row.payload.end(),
+                        [](std::byte b) noexcept {return b==std::byte{};})) {
+                    error="binary corpus segment record mismatch"; return false;
+                }
+                previousSequence=h.shardSequence; previousMonotonic=h.receiveMonotonicNs;
+                if(firstReceive==0 || h.receiveRealtimeNs<firstReceive) firstReceive=h.receiveRealtimeNs;
+                lastReceive=std::max(lastReceive,h.receiveRealtimeNs);
+            }
+            recordsCrc=codec::crc32cUpdate(recordsCrc,reinterpret_cast<const std::uint8_t*>(decoded.data()),rawBytes);
+            recordsSeen+=block.recordCount; bodyBytes+=sizeof(block)+block.encodedBytes; ++blocksSeen;
+            position=0u; count=block.recordCount;
         }
+        copyBinaryMarketRecord(record,decoded[position++]); available=true; return true;
     }
-    BinaryMarketSegmentFooter footer{};
-    if (!readBytes(stream, &footer, sizeof(footer)) ||
-        footer.magic != kBinaryMarketSegmentFooterMagic ||
-        footer.schemaVersion != kBinaryMarketCorpusSchemaVersion ||
-        footer.footerBytes != sizeof(footer) ||
-        footer.segmentNumber != header.segmentNumber ||
-        footer.recordCount != header.recordCount ||
-        footer.recordsCrc32c != header.recordsCrc32c ||
-        footer.firstReceiveNs != header.firstReceiveNs ||
-        footer.lastReceiveNs != header.lastReceiveNs ||
-        observedFirstReceiveNs != header.firstReceiveNs ||
-        observedLastReceiveNs != header.lastReceiveNs ||
-        footer.reserved != decltype(footer.reserved){} ||
-        footer.footerCrc32c !=
-            headerCrc(footer, &BinaryMarketSegmentFooter::footerCrc32c) ||
-        recordsCrc != header.recordsCrc32c) {
-        error = "binary corpus segment footer or CRC mismatch: " + path.string();
-        return false;
-    }
-    return true;
+};
+
+[[nodiscard]] bool recordBefore(const BinaryMarketRecord& left,
+                                 const BinaryMarketRecord& right) noexcept {
+    const auto& l=left.header; const auto& r=right.header;
+    if(l.receiveMonotonicNs!=r.receiveMonotonicNs) return l.receiveMonotonicNs<r.receiveMonotonicNs;
+    if(l.shardIndex!=r.shardIndex) return l.shardIndex<r.shardIndex;
+    if(l.shardSequence!=r.shardSequence) return l.shardSequence<r.shardSequence;
+    if(l.receiveRealtimeNs!=r.receiveRealtimeNs) return l.receiveRealtimeNs<r.receiveRealtimeNs;
+    if(l.frameSequence!=r.frameSequence) return l.frameSequence<r.frameSequence;
+    if(l.eventOrdinal!=r.eventOrdinal) return l.eventOrdinal<r.eventOrdinal;
+    return l.eventSequence<r.eventSequence;
 }
 
 }  // namespace
+
+struct BinaryMarketCorpusCursorState final {
+    struct Shard final {
+        std::vector<SegmentKey> segments{};
+        std::size_t position{0u};
+        std::unique_ptr<SegmentDecoder> decoder{};
+        BinaryMarketRecord head{};
+        std::uint64_t previousSequence{0u}, previousMonotonic{0u};
+        bool ready{false};
+    };
+    BinaryMarketSelectionRequest request{};
+    BinaryMarketManifest manifest{};
+    std::vector<BinaryMarketSource> sources{};
+    std::vector<BinaryMarketSourceState> sourceStates{};
+    std::vector<Shard> shards{};
+    std::uint32_t sourceId{0u};
+    std::vector<bool> includedSources{};
+    bool failed{false};
+};
+
+namespace {
+bool fillHead(BinaryMarketCorpusCursorState& state,
+              BinaryMarketCorpusCursorState::Shard& shard, std::string& error) {
+    shard.ready=false;
+    for(;;) {
+        if(!shard.decoder) {
+            if(shard.position==shard.segments.size()) return true;
+            shard.decoder=std::make_unique<SegmentDecoder>();
+            if(!shard.decoder->open(state.request.root,shard.segments[shard.position++],state.manifest.producerEpoch,error)) return false;
+        }
+        BinaryMarketRecord record{}; bool available=false;
+        if(!shard.decoder->next(record,available,state.sources,error)) return false;
+        if(!available) {shard.decoder.reset();continue;}
+        const auto& h=record.header;
+        if(!advanceBinaryMarketSourceState(record,state.sourceStates[h.sourceId-1u])) {
+            error="binary corpus changed membership/generation boundary";return false;
+        }
+        if((shard.previousSequence!=0u && h.shardSequence<=shard.previousSequence) ||
+           (shard.previousMonotonic!=0u && h.receiveMonotonicNs<shard.previousMonotonic)) {
+            error="binary corpus arrival order crosses shard segments"; return false;
+        }
+        shard.previousSequence=h.shardSequence; shard.previousMonotonic=h.receiveMonotonicNs;
+        if(state.includedSources[h.sourceId] &&
+           (h.channel==BinaryMarketChannel::SourceLifecycle || (state.request.channelMask&binaryMarketChannelBit(h.channel))!=0u) &&
+           h.receiveRealtimeNs>=state.request.beginReceiveNs && h.receiveRealtimeNs<state.request.endReceiveNs) {
+            if((h.flags&BinaryMarketRecordGapBoundary)!=0u ||
+               (state.request.requireTraderReplayCompatibility &&
+                !binaryMarketRecordIsSourceHealth(record) &&
+                (h.flags&BinaryMarketRecordTraderReplayCompatible)==0u)) {
+                error="selected corpus changed to missing or incompatible records";return false;
+            }
+            copyBinaryMarketRecord(shard.head,record);shard.ready=true;return true;
+        }
+    }
+}
+} // namespace
+
+BinaryMarketCorpusCursor::BinaryMarketCorpusCursor() noexcept = default;
+BinaryMarketCorpusCursor::~BinaryMarketCorpusCursor() noexcept = default;
+BinaryMarketCorpusCursor::BinaryMarketCorpusCursor(BinaryMarketCorpusCursor&&) noexcept = default;
+BinaryMarketCorpusCursor& BinaryMarketCorpusCursor::operator=(BinaryMarketCorpusCursor&&) noexcept = default;
 
 Status BinaryMarketCorpusReader::catalog(
     const std::filesystem::path& root,
@@ -344,7 +402,7 @@ Status BinaryMarketCorpusReader::catalog(
         if (root.empty() || !readManifest(root, manifest, error))
             return Status::CorruptData;
         if (!readTable(root / "sources.bin", kBinaryMarketSourcesMagic,
-                       sources, manifest.sourcesCrc32c, error) ||
+                       sources, manifest.sourcesCrc32c, error, manifest.maximumBytes, manifest.sourceCount) ||
             sources.size() != manifest.sourceCount) return Status::CorruptData;
         for (std::size_t index = 0u; index < sources.size(); ++index) {
             if (!validBinaryMarketSource(sources[index], index)) {
@@ -359,14 +417,17 @@ Status BinaryMarketCorpusReader::catalog(
     }
 }
 
-Status BinaryMarketCorpusReader::select(
+Status BinaryMarketCorpusCursor::open(
     const BinaryMarketSelectionRequest& request,
     BinaryMarketSelection& output,
-    std::string& error) const noexcept {
+    std::string& error) noexcept {
+    state_.reset();
     output = {};
     error.clear();
-    if (request.root.empty() || request.exchange.empty() ||
-        request.market.empty() || request.canonicalSymbol.empty() ||
+    if (request.root.empty() ||
+        (request.allSources ? (!request.exchange.empty() || !request.market.empty() || !request.canonicalSymbol.empty()) :
+            (request.exchange.empty() || request.market.empty() || request.canonicalSymbol.empty())) ||
+        (!request.allSources && !request.sourceIds.empty()) ||
         request.beginReceiveNs <= 0 ||
         request.endReceiveNs <= request.beginReceiveNs ||
         request.channelMask == 0u ||
@@ -377,15 +438,23 @@ Status BinaryMarketCorpusReader::select(
     }
     try {
         std::vector<BinaryMarketSource> sources;
-        Status status = catalog(request.root, output.manifest, sources, error);
+        Status status = BinaryMarketCorpusReader{}.catalog(request.root, output.manifest, sources, error);
         if (!isOk(status)) return status;
         if (request.beginReceiveNs < output.manifest.startedReceiveNs ||
             request.endReceiveNs > output.manifest.finalizedReceiveNs) {
             error = "selected receive interval is outside sealed capture coverage";
             return Status::OutOfRange;
         }
+        std::vector<bool> includedSources(sources.size()+1u,request.allSources && request.sourceIds.empty());
+        includedSources[0]=false;
+        if(request.sourceIds.size()>sources.size()) {error="oversized selected corpus source set";return Status::InvalidArgument;}
+        for(const auto id:request.sourceIds) {
+            if(id==0u || id>sources.size() || includedSources[id]) {error="invalid or duplicate selected corpus source ID";return Status::InvalidArgument;}
+            includedSources[id]=true;
+        }
         const BinaryMarketSource* selected = nullptr;
         for (const auto& source : sources) {
+            if(request.allSources) break;
             if (fixedText(source.venue.data(), source.venue.size(),
                           source.venueBytes) == request.exchange &&
                 fixedText(source.market.data(), source.market.size(),
@@ -401,29 +470,19 @@ Status BinaryMarketCorpusReader::select(
                 selected = &source;
             }
         }
-        if (!selected) {
+        if (!selected && !request.allSources) {
             error = "binary corpus source was not found";
             return Status::OutOfRange;
         }
-        output.source = *selected;
-        if ((request.channelMask & ~selected->availableChannelMask) != 0u) {
-            error = "selected binary corpus channels were not captured";
-            return Status::OutOfRange;
-        }
-        if (request.requireTraderReplayCompatibility &&
-            (request.requiredChannelMask &
-             ~selected->traderReplayChannelMask) != 0u) {
-            error = "required binary corpus channel is not trader-replay compatible";
-            return Status::Unimplemented;
-        }
+        if(selected) {output.source = *selected;includedSources[selected->sourceId]=true;}
 
         std::vector<BinaryMarketIndexEntry> index;
         std::vector<BinaryMarketGap> gaps;
         if (!readTable(request.root / "index.bin", kBinaryMarketIndexMagic,
-                       index, output.manifest.indexCrc32c, error) ||
+                       index, output.manifest.indexCrc32c, error, output.manifest.maximumBytes, output.manifest.indexCount) ||
             index.size() != output.manifest.indexCount ||
             !readTable(request.root / "gaps.bin", kBinaryMarketGapsMagic,
-                       gaps, output.manifest.gapsCrc32c, error)) {
+                       gaps, output.manifest.gapsCrc32c, error, output.manifest.maximumBytes, output.manifest.gapCount)) {
             return Status::CorruptData;
         }
         if (gaps.size() != output.manifest.gapCount) {
@@ -432,7 +491,6 @@ Status BinaryMarketCorpusReader::select(
         }
         std::unordered_set<SegmentKey, SegmentKeyHash> allSegments;
         std::unordered_set<IndexIdentity, IndexIdentityHash> indexIdentities;
-        std::unordered_set<SegmentKey, SegmentKeyHash> segments;
         std::vector<std::uint16_t> segmentShards(
             static_cast<std::size_t>(output.manifest.segmentCount) + 1u,
             std::numeric_limits<std::uint16_t>::max());
@@ -456,7 +514,7 @@ Status BinaryMarketCorpusReader::select(
                 entry.firstReceiveNs <= 0 ||
                 entry.lastReceiveNs < entry.firstReceiveNs ||
                 entry.shardIndex >= output.manifest.shardCount ||
-                !validBinaryMarketChannel(entry.channel) ||
+                !validBinaryMarketRecordChannel(entry.channel) ||
                 (entry.flags & ~knownIndexFlags) != 0u ||
                 (hasGap != (entry.gapCount != 0u)) ||
                 !validBinaryMarketCompatibility(entry.compatibility) ||
@@ -468,23 +526,9 @@ Status BinaryMarketCorpusReader::select(
                 error = "binary corpus index entry mismatch";
                 return Status::CorruptData;
             }
-            const auto& indexedSource = sources[entry.sourceId - 1u];
-            const std::uint16_t channelBit =
-                binaryMarketChannelBit(entry.channel);
-            const auto declaredCompatibility =
-                indexedSource.compatibility[
-                    binaryMarketChannelIndex(entry.channel)];
-            if (entry.sourceGeneration !=
-                    indexedSource.initialSourceGeneration ||
-                (indexedSource.availableChannelMask & channelBit) == 0u ||
-                declaredCompatibility ==
-                    BinaryMarketCompatibility::Unavailable ||
-                (entry.compatibility ==
-                     BinaryMarketCompatibility::ExactTraderReplay &&
-                 declaredCompatibility !=
-                     BinaryMarketCompatibility::ExactTraderReplay)) {
-                error = "binary corpus index contradicts source directory";
-                return Status::CorruptData;
+            const auto& indexedSource=sources[entry.sourceId-1u];
+            if(entry.sourceGeneration<indexedSource.initialSourceGeneration) {
+                error="binary corpus index predates source catalog generation";return Status::CorruptData;
             }
             const SegmentKey segmentKey{entry.segmentNumber,
                                         entry.shardIndex};
@@ -506,26 +550,11 @@ Status BinaryMarketCorpusReader::select(
             }
             indexedRecordCount += entry.recordCount;
             allSegments.insert(segmentKey);
-            if (entry.sourceId != selected->sourceId ||
-                (request.channelMask &
-                 binaryMarketChannelBit(entry.channel)) == 0u ||
-                !rangesOverlap(entry.firstReceiveNs, entry.lastReceiveNs,
-                               request.beginReceiveNs,
-                               request.endReceiveNs)) continue;
-            segments.insert(segmentKey);
         }
         if (indexedRecordCount != output.manifest.recordCount ||
             allSegments.size() != output.manifest.segmentCount) {
             error = "binary corpus index totals do not match manifest";
             return Status::CorruptData;
-        }
-        for (const auto& segment : segments) {
-            if (!readSelectedSegment(
-                    request.root, segment, output.manifest.producerEpoch,
-                    sources,
-                    selected->sourceId, request.channelMask,
-                    request.beginReceiveNs, request.endReceiveNs,
-                    output.records, error)) return Status::CorruptData;
         }
         for (const auto& gap : gaps) {
             if (gap.sourceId == 0u || gap.sourceId > sources.size() ||
@@ -540,28 +569,24 @@ Status BinaryMarketCorpusReader::select(
                 gap.lastDroppedEventSequence == 0u ||
                 gap.gapEpoch != gap.droppedRecords ||
                 gap.shardIndex >= output.manifest.shardCount ||
-                !validBinaryMarketChannel(gap.channel) || gap.reserved32 != 0u ||
+                !validBinaryMarketRecordChannel(gap.channel) || gap.reserved32 != 0u ||
                 gap.reserved8 != 0u) {
                 error = "binary corpus gap entry mismatch";
                 return Status::CorruptData;
             }
-            if (gap.sourceGeneration !=
-                    sources[gap.sourceId - 1u].initialSourceGeneration ||
-                (sources[gap.sourceId - 1u].availableChannelMask &
-                 binaryMarketChannelBit(gap.channel)) == 0u) {
-                error = "binary corpus gap contradicts source directory";
-                return Status::CorruptData;
+            if(gap.sourceGeneration<sources[gap.sourceId-1u].initialSourceGeneration) {
+                error="binary corpus gap predates source catalog generation";return Status::CorruptData;
             }
             const bool arrivalRangeUnavailable =
                 gap.minimumDroppedReceiveNs == 0 &&
                 gap.maximumDroppedReceiveNs == 0;
-            if (gap.sourceId == selected->sourceId &&
+            if (gap.channel==BinaryMarketChannel::SourceLifecycle || (includedSources[gap.sourceId] &&
                 (request.channelMask & binaryMarketChannelBit(gap.channel)) != 0u &&
                 (arrivalRangeUnavailable ||
                  rangesOverlap(gap.minimumDroppedReceiveNs,
                                gap.maximumDroppedReceiveNs,
                                request.beginReceiveNs,
-                               request.endReceiveNs))) {
+                               request.endReceiveNs)))) {
                 output.gaps.push_back(gap);
             }
         }
@@ -569,60 +594,155 @@ Status BinaryMarketCorpusReader::select(
             error = "selected binary corpus interval contains capture gaps";
             return Status::CorruptData;
         }
-        std::sort(output.records.begin(), output.records.end(),
-                  [](const BinaryMarketRecord& left,
-                     const BinaryMarketRecord& right) noexcept {
-            if (left.header.receiveMonotonicNs != right.header.receiveMonotonicNs)
-                return left.header.receiveMonotonicNs < right.header.receiveMonotonicNs;
-            if (left.header.shardIndex != right.header.shardIndex)
-                return left.header.shardIndex < right.header.shardIndex;
-            if (left.header.shardSequence != right.header.shardSequence)
-                return left.header.shardSequence < right.header.shardSequence;
-            if (left.header.receiveRealtimeNs != right.header.receiveRealtimeNs)
-                return left.header.receiveRealtimeNs < right.header.receiveRealtimeNs;
-            if (left.header.frameSequence != right.header.frameSequence)
-                return left.header.frameSequence < right.header.frameSequence;
-            if (left.header.eventOrdinal != right.header.eventOrdinal)
-                return left.header.eventOrdinal < right.header.eventOrdinal;
-            return left.header.eventSequence < right.header.eventSequence;
-        });
-        std::uint64_t generation = 0u;
-        for (const auto& record : output.records) {
-            const std::uint16_t bit = binaryMarketChannelBit(record.header.channel);
-            output.presentChannelMask |= bit;
-            if ((record.header.sourceFlags &
-                 BinaryMarketSourceSequenceGap) != 0u) {
-                error = "selected binary corpus interval contains a source sequence gap";
-                return Status::CorruptData;
+        auto state=std::make_unique<BinaryMarketCorpusCursorState>();
+        state->request=request; state->manifest=output.manifest;state->sources=sources;
+        for(const auto& source:sources) state->sourceStates.push_back(initialBinaryMarketSourceState(source));
+        state->sourceId=selected?selected->sourceId:0u;state->includedSources=std::move(includedSources);state->shards.resize(output.manifest.shardCount);
+        // Full corpus preflight: bounded blocks, no rows accumulated. Index ranges
+        // and counts are checked against actual records rather than trusted for filtering.
+        output.sourcePresentChannelMasks.resize(sources.size(),0u);
+        output.sourceObservedChannelMasks.resize(sources.size(),0u);
+        output.sourceLifecycleRevisionsAtBegin.resize(sources.size(),0u);
+        output.sourceUnhealthyChannelMasksAtBegin.resize(sources.size(),0u);
+        for(const auto& initial:state->sourceStates) output.sourcesAtBegin.push_back(effectiveBinaryMarketSource(initial));
+        std::uint64_t generation=0u;
+        std::uint64_t observedCorpusRecords=0u;
+        std::uint64_t physicalBytes=sizeof(BinaryMarketManifest)+3u*sizeof(BinaryMarketTableHeader)+
+            sources.size()*sizeof(BinaryMarketSource)+index.size()*sizeof(BinaryMarketIndexEntry)+gaps.size()*sizeof(BinaryMarketGap);
+        for(std::uint32_t number=1u;number<=output.manifest.segmentCount;++number) {
+            const SegmentKey key{number,segmentShards[number]};
+            SegmentDecoder decoder;
+            if(!decoder.open(request.root,key,output.manifest.producerEpoch,error)) return Status::CorruptData;
+            const auto segmentBytes=sizeof(BinaryMarketSegmentHeader)+decoder.header.storedBlockBytes+sizeof(BinaryMarketSegmentFooter);
+            if(physicalBytes>output.manifest.projectedBytes || segmentBytes>output.manifest.projectedBytes-physicalBytes) {
+                error="binary corpus physical storage exceeds sealed quota";return Status::CorruptData;
             }
-            if ((record.header.sourceFlags &
-                 (BinaryMarketSourceStale |
-                  BinaryMarketSourceDegraded)) != 0u) {
-                error = "selected binary corpus interval is stale or degraded";
-                return Status::CorruptData;
+            physicalBytes+=segmentBytes;
+            std::vector<BinaryMarketIndexEntry> observed;
+            for(;;) {
+                BinaryMarketRecord record{};bool available=false;
+                if(!decoder.next(record,available,sources,error)) return Status::CorruptData;
+                if(!available) break;
+                ++observedCorpusRecords;
+                const auto& h=record.header;
+                if(!advanceBinaryMarketSourceState(record,state->sourceStates[h.sourceId-1u])) {
+                    error="binary corpus membership/generation boundary mismatch";return Status::CorruptData;
+                }
+                if(h.receiveRealtimeNs<request.beginReceiveNs) {
+                    output.sourcesAtBegin[h.sourceId-1u]=effectiveBinaryMarketSource(state->sourceStates[h.sourceId-1u]);
+                    output.sourceLifecycleRevisionsAtBegin[h.sourceId-1u]=state->sourceStates[h.sourceId-1u].directoryRevision;
+                    output.sourceUnhealthyChannelMasksAtBegin[h.sourceId-1u]=state->sourceStates[h.sourceId-1u].unhealthyMask;
+                }
+                auto& shard=state->shards[key.shard];
+                if((shard.previousSequence!=0u && h.shardSequence<=shard.previousSequence) ||
+                   (shard.previousMonotonic!=0u && h.receiveMonotonicNs<shard.previousMonotonic)) {
+                    error="binary corpus arrival order crosses segments";return Status::CorruptData;
+                }
+                shard.previousSequence=h.shardSequence;shard.previousMonotonic=h.receiveMonotonicNs;
+                auto found=std::find_if(observed.begin(),observed.end(),[&](const auto& e) {
+                    return e.sourceId==h.sourceId && e.sourceGeneration==h.sourceGeneration && e.channel==h.channel;
+                });
+                if(found==observed.end()) {
+                    observed.push_back({.segmentNumber=number,.sourceId=h.sourceId,.sourceGeneration=h.sourceGeneration,
+                        .shardIndex=key.shard,.channel=h.channel,.compatibility=BinaryMarketCompatibility::ExactTraderReplay});
+                    found=observed.end()-1;
+                }
+                ++found->recordCount;
+                if(found->firstEventSequence==0u) found->firstEventSequence=h.eventSequence;
+                found->lastEventSequence=h.eventSequence;
+                if(found->firstReceiveNs==0 || h.receiveRealtimeNs<found->firstReceiveNs) found->firstReceiveNs=h.receiveRealtimeNs;
+                found->lastReceiveNs=std::max(found->lastReceiveNs,h.receiveRealtimeNs);
+                if((h.flags&BinaryMarketRecordTraderReplayCompatible)==0u) {
+                    found->flags|=BinaryMarketIndexHasRecordedOnly;found->compatibility=BinaryMarketCompatibility::RecordedOnly;
+                }
+                if((h.flags&BinaryMarketRecordGapBoundary)!=0u) {found->flags|=BinaryMarketIndexHasGap;++found->gapCount;}
+                if(!state->includedSources[h.sourceId] || (h.channel!=BinaryMarketChannel::SourceLifecycle && (request.channelMask&binaryMarketChannelBit(h.channel))==0u) ||
+                   h.receiveRealtimeNs<request.beginReceiveNs || h.receiveRealtimeNs>=request.endReceiveNs) continue;
+                if((h.flags&BinaryMarketRecordGapBoundary)!=0u) {
+                    error="selected binary corpus interval contains capture loss";return Status::CorruptData;
+                }
+                const bool health=binaryMarketRecordIsSourceHealth(record);
+                const bool compatible=(h.flags&BinaryMarketRecordTraderReplayCompatible)!=0u;
+                if(h.channel==BinaryMarketChannel::SourceLifecycle) {
+                    const auto& lifecycle=*binaryMarketPayload<BinaryMarketSourceLifecyclePayload>(&record);
+                    if(lifecycle.cause!=BinaryMarketSourceTransitionCause::Subscription)
+                        output.sourceObservedChannelMasks[h.sourceId-1u]|=binaryMarketChannelBit(
+                            static_cast<BinaryMarketChannel>(lifecycle.affectedChannel));
+                }
+                if(health || compatible)
+                    output.sourceObservedChannelMasks[h.sourceId-1u]|=binaryMarketChannelBit(h.channel);
+                if(!health && compatible) {
+                    output.presentChannelMask|=binaryMarketChannelBit(h.channel);
+                    output.sourcePresentChannelMasks[h.sourceId-1u]|=binaryMarketChannelBit(h.channel);
+                }
+                if(selected && generation==0u) generation=h.sourceGeneration;
+                if(request.requireTraderReplayCompatibility && !health && !compatible) {
+                    error="selected binary corpus record is not trader-replay compatible";return Status::Unimplemented;
+                }
             }
-            if (generation == 0u) generation = record.header.sourceGeneration;
-            else if (generation != record.header.sourceGeneration) {
-                error = "selected binary corpus interval crosses source generations";
-                return Status::CorruptData;
+            const auto indexedForSegment=std::count_if(index.begin(),index.end(),[&](const auto& e){return e.segmentNumber==number;});
+            if(static_cast<std::size_t>(indexedForSegment)!=observed.size()) {error="binary corpus index identity totals mismatch";return Status::CorruptData;}
+            for(const auto& actual:observed) {
+                const auto expected=std::find_if(index.begin(),index.end(),[&](const auto& e){
+                    return e.segmentNumber==number && e.sourceId==actual.sourceId && e.sourceGeneration==actual.sourceGeneration && e.channel==actual.channel;
+                });
+                if(expected==index.end() || expected->sourceGeneration!=actual.sourceGeneration ||
+                   expected->recordCount!=actual.recordCount || expected->gapCount!=actual.gapCount ||
+                   expected->firstEventSequence!=actual.firstEventSequence || expected->lastEventSequence!=actual.lastEventSequence ||
+                   expected->firstReceiveNs!=actual.firstReceiveNs || expected->lastReceiveNs!=actual.lastReceiveNs ||
+                   expected->flags!=actual.flags || expected->compatibility!=actual.compatibility) {
+                    error="binary corpus index disagrees with compressed records";return Status::CorruptData;
+                }
             }
-            if (request.requireTraderReplayCompatibility &&
-                (record.header.flags &
-                 BinaryMarketRecordTraderReplayCompatible) == 0u) {
-                error = "selected binary corpus record is not trader-replay compatible";
-                return Status::Unimplemented;
-            }
+            state->shards[key.shard].segments.push_back(key);
         }
+        if(physicalBytes>output.manifest.projectedBytes) {error="binary corpus physical metadata exceeds sealed quota";return Status::CorruptData;}
+        if(observedCorpusRecords!=output.manifest.recordCount) {error="binary corpus observed record totals mismatch";return Status::CorruptData;}
+        for(auto& shard:state->shards) {shard.previousSequence=0u;shard.previousMonotonic=0u;}
+        for(std::size_t i=0u;i<sources.size();++i) state->sourceStates[i]=initialBinaryMarketSourceState(sources[i]);
         if ((request.requiredChannelMask & ~output.presentChannelMask) != 0u) {
             error = "selected binary corpus interval lacks required channel data";
             return Status::OutOfRange;
         }
         output.sourceGeneration = generation;
+        for(auto& shard:state->shards)
+            if(!fillHead(*state,shard,error)) return Status::CorruptData;
+        state_=std::move(state);
         return Status::Ok;
     } catch (...) {
         error = "binary corpus selection failed";
         return Status::IoError;
     }
+}
+
+Status BinaryMarketCorpusCursor::next(BinaryMarketRecord& output,bool& available,std::string& error) noexcept {
+    available=false;error.clear();
+    if(!state_ || state_->failed) return Status::InvalidArgument;
+    try {
+        auto* selected=static_cast<BinaryMarketCorpusCursorState::Shard*>(nullptr);
+        for(auto& shard:state_->shards)
+            if(shard.ready && (!selected || recordBefore(shard.head,selected->head))) selected=&shard;
+        if(!selected) return Status::Ok;
+        copyBinaryMarketRecord(output,selected->head);
+        if(!fillHead(*state_,*selected,error)) {state_->failed=true;return Status::CorruptData;}
+        available=true;return Status::Ok;
+    } catch(...) {state_->failed=true;error="binary corpus cursor read failed";return Status::IoError;}
+}
+
+Status BinaryMarketCorpusReader::select(const BinaryMarketSelectionRequest& request,
+    BinaryMarketSelection& output,std::string& error) const noexcept {
+    BinaryMarketCorpusCursor cursor;
+    auto status=cursor.open(request,output,error);
+    if(!isOk(status)) return status;
+    try {
+        for(;;) {
+            BinaryMarketRecord record{};bool available=false;
+            status=cursor.next(record,available,error);
+            if(!isOk(status)) {output.records.clear();return status;}
+            if(!available) return Status::Ok;
+            output.records.push_back(record);
+        }
+    } catch(...) {output.records.clear();error="binary corpus selection allocation failed";return Status::IoError;}
 }
 
 }  // namespace hftrec::corpus

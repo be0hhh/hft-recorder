@@ -90,7 +90,8 @@ QJsonObject readManifestObject(const QString& manifestPath) {
 bool isBacktestResultManifest(const QJsonObject& manifest) {
     const QString type = manifest.value(QStringLiteral("type")).toString();
     return (type == QStringLiteral("run.result") &&
-            manifest.value(QStringLiteral("schema_version")).toDouble(-1.0) == 4.0) ||
+            (manifest.value(QStringLiteral("schema_version")).toDouble(-1.0) == 5.0 ||
+             manifest.value(QStringLiteral("schema_version")).toDouble(-1.0) == 4.0)) ||
            type == QStringLiteral("sweep.result.v1");
 }
 

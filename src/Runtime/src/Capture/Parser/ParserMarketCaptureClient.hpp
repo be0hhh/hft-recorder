@@ -16,6 +16,8 @@ class BinaryMarketCorpusWriter;
 namespace hftrec::capture {
 
 struct ParserMarketCaptureClientState;
+using ParserCaptureRecordSink=Status (*)(void*,const corpus::BinaryMarketRecord&) noexcept;
+using ParserCaptureSourceSink=Status (*)(void*,const corpus::BinaryMarketSource&) noexcept;
 
 struct ParserMarketCaptureSnapshot final {
     bool connected{false};
@@ -55,6 +57,14 @@ class ParserMarketCaptureClient final {
         corpus::BinaryMarketCorpusWriter& writer,
         std::uint64_t maximumRecords,
         std::uint64_t& drained,
+        std::string& error) noexcept;
+    [[nodiscard]] Status drainTo(ParserCaptureRecordSink sink,void* context,
+        std::uint64_t maximumRecords,std::uint64_t& drained,std::string& error,
+        ParserCaptureSourceSink sourceSink=nullptr) noexcept;
+    // Cold capture-owner thread only: the socket has one reply reader.
+    [[nodiscard]] Status beginSubscriptionChange(std::uint32_t sourceId,
+        corpus::BinaryMarketChannel channel,bool add,std::string& error) noexcept;
+    [[nodiscard]] Status pollSubscriptionChange(bool& complete,Status& outcome,
         std::string& error) noexcept;
     [[nodiscard]] Status stop(std::string& error) noexcept;
     [[nodiscard]] Status freezeDisconnected(std::string& error) noexcept;
