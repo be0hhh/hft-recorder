@@ -10,8 +10,8 @@ on:
       profile:
         description: Family CI composition
         type: choice
-        options: [essential, full]
-        default: essential
+        options: [full]
+        default: full
       mode:
         description: Build own revision or revalidate dependencies
         type: choice
@@ -95,7 +95,7 @@ jobs:
                       raise SystemExit(f'invalid family-build {field}')
           else:
               revisions = json.loads(os.environ['MANUAL_REVISIONS'])
-              profile = os.environ['MANUAL_PROFILE'] or 'essential'
+              profile = os.environ['MANUAL_PROFILE'] or 'full'
               graph = FamilyGraph.load(DEFAULT_GRAPH, profile=profile)
               snapshot = {graph.snapshot_key(name): revisions[graph.snapshot_key(name) + '_sha'] for name in graph.active_repositories}
               snapshot['_profile'] = profile

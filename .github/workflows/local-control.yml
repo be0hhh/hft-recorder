@@ -9,6 +9,13 @@ on:
     workflows: [local-ci, family-reuse]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Family composition profile
+        type: choice
+        required: true
+        default: full
+        options: [full]
 
 permissions:
   contents: read
