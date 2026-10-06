@@ -237,6 +237,74 @@ BinaryMarketRecord lifecycle(Fixture& fixture,std::uint64_t sequence,std::int64_
   payload->kind=kind;payload->channelMaskBefore=before;payload->channelMaskAfter=after;payload->source=source;
   return record;
 }
+// One source is intentionally retained on both shards. Lifecycle state must
+// follow merged arrival order, never segment-number order or eager lookahead.
+void multishardLifecycleMerge() {
+  for (const bool reverseSegments : {false,true}) {
+    for (const bool refillBeforeTransition : {false,true}) {
+      Fixture f(4*1024*1024,2);
+      const std::uint16_t dataShard=reverseSegments?1u:0u;
+      const std::uint16_t lifeShard=1u-dataShard;
+      if(reverseSegments) {
+        auto primer=f.record(1,150);primer.header.shardIndex=lifeShard;
+        CXET_CHECK(f.writer.append(primer)==Status::Ok);
+      }
+      auto first=f.record(1,200);first.header.shardIndex=dataShard;
+      CXET_CHECK(f.writer.append(first)==Status::Ok);
+      std::uint64_t sequence=2u;
+      if(refillBeforeTransition) {
+        auto before=f.record(sequence++,250);before.header.shardIndex=dataShard;
+        CXET_CHECK(f.writer.append(before)==Status::Ok);
+      }
+      auto generation=f.sources[0];generation.initialSourceGeneration=12u;
+      auto transition=lifecycle(f,reverseSegments?2u:1u,300,BinaryMarketSourceLifecycleKind::DirectoryChanged,generation,12,3,3);
+      transition.header.shardIndex=lifeShard;
+      auto& life=*binaryMarketPayload<BinaryMarketSourceLifecyclePayload>(&transition);
+      life.requestSequence=0u;life.affectedChannel=1u;life.cause=BinaryMarketSourceTransitionCause::NativeRecovered;
+      CXET_CHECK(f.writer.append(transition)==Status::Ok);
+      auto filtered=f.record(reverseSegments?3u:2u,325);filtered.header.shardIndex=lifeShard;
+      filtered.header.sourceGeneration=12u;filtered.header.channel=BinaryMarketChannel::Trade;
+      filtered.header.payloadBytes=sizeof(BinaryMarketTradePayload);filtered.payload={};
+      filtered.header.sourceFlags=BinaryMarketSourceStale;filtered.header.flags=0u;
+      *binaryMarketPayload<BinaryMarketTradePayload>(&filtered)={100,1,1,{}};
+      CXET_CHECK(f.writer.append(filtered)==Status::Ok);
+      // Cross enough blocks/rotations to exercise per-shard decoder refill.
+      for(std::size_t i=0u;i<1025u;++i) {
+        auto after=f.record(sequence++,400+i);after.header.shardIndex=dataShard;after.header.sourceGeneration=12u;
+        CXET_CHECK(f.writer.append(after)==Status::Ok);
+      }
+      f.seal();
+      for(const auto begin:{100,275,350}) {
+        auto request=f.request();request.beginReceiveNs=begin;
+        BinaryMarketCorpusCursor cursor;BinaryMarketSelection metadata;std::string error;
+        CXET_CHECK(cursor.open(request,metadata,error)==Status::Ok);
+        CXET_CHECK(metadata.sourcesAtBegin[0].initialSourceGeneration==(begin>300?12u:11u));
+        CXET_CHECK(metadata.sourceUnhealthyChannelMasksAtBegin[0]==(begin>325?2u:0u));
+        std::uint64_t count=0u,previous=0u;bool available=false;BinaryMarketRecord row;
+        do {
+          CXET_CHECK(cursor.next(row,available,error)==Status::Ok);
+          if(available) {CXET_CHECK(row.header.receiveMonotonicNs>=previous);previous=row.header.receiveMonotonicNs;++count;}
+        } while(available);
+        CXET_CHECK(count==1025u+(begin<300?1u:0u)+(begin<200?1u:0u)+(begin<250 && refillBeforeTransition?1u:0u)+(begin<150 && reverseSegments?1u:0u));
+      }
+    }
+  }
+}
+void multishardStaleGenerationFailsBeforeEmission() {
+  Fixture f(4*1024*1024,2);
+  auto old=f.record(1,400);CXET_CHECK(f.writer.append(old)==Status::Ok);
+  auto generation=f.sources[0];generation.initialSourceGeneration=12u;
+  auto transition=lifecycle(f,1,300,BinaryMarketSourceLifecycleKind::DirectoryChanged,generation,12,3,3);
+  transition.header.shardIndex=1u;
+  auto& life=*binaryMarketPayload<BinaryMarketSourceLifecyclePayload>(&transition);
+  life.requestSequence=0u;life.affectedChannel=1u;life.cause=BinaryMarketSourceTransitionCause::NativeRecovered;
+  // Writer append order is valid; actual merged order makes the t400 old row stale.
+  CXET_CHECK(f.writer.append(transition)==Status::Ok);f.seal();
+  BinaryMarketCorpusCursor cursor;BinaryMarketSelection metadata;std::string error;
+  CXET_CHECK(cursor.open(f.request(),metadata,error)==Status::CorruptData);
+  BinaryMarketRecord row;bool available=true;
+  CXET_CHECK(cursor.next(row,available,error)==Status::InvalidArgument && !available);
+}
 void lifecycleRemoveAndReadd() {
   Fixture f(4*1024*1024);CXET_CHECK(f.writer.append(f.record(1,200))==Status::Ok);
   auto removed=f.sources[0];removed.initialSourceGeneration=11;removed.availableChannelMask=removed.traderReplayChannelMask=0;removed.compatibility.fill(BinaryMarketCompatibility::Unavailable);
@@ -566,6 +634,8 @@ void malformedQuantityAuthorityIsNotRecordable() {
 }
 int main(int argc,char** argv) {
   const cxet::testing::Case cases[]{
+    cxet::testing::Case{"recorder.multishard_lifecycle_uses_global_merge_not_lookahead",multishardLifecycleMerge},
+    cxet::testing::Case{"recorder.multishard_stale_generation_refused_before_emission",multishardStaleGenerationFailsBeforeEmission},
     cxet::testing::Case{"recorder.native_quantity_authority_roundtrip_preserves_raw_and_health_identity",nativeQuantityAuthorityRoundtrip},
     cxet::testing::Case{"recorder.malformed_quantity_authority_is_not_recordable",malformedQuantityAuthorityIsNotRecordable},
     cxet::testing::Case{"recorder.native_health_cannot_apply_future_sibling_selection",nativeHealthSampleCannotApplyFutureSiblingSelection},

@@ -38,8 +38,9 @@ inline bool sameBinaryMarketSourceRules(const BinaryMarketSource& left,const Bin
         left.quantityScale==right.quantityScale && left.economicBaseAssetId==right.economicBaseAssetId &&
         left.quoteAssetId==right.quoteAssetId && left.assetDomainRaw==right.assetDomainRaw && left.marketKindRaw==right.marketKindRaw;
 }
-// Per-source lifecycle is producer ordered on the same shard as its market
-// records. This state never infers membership from stale data or missing BBO.
+// Writers validate producer append order; readers advance this shared state
+// only after the global shard merge selects a record. A source may span shards.
+// This state never infers membership from stale data or missing BBO.
 inline bool advanceBinaryMarketSourceState(const BinaryMarketRecord& record,
                                            BinaryMarketSourceState& state) noexcept {
     const auto& h=record.header;

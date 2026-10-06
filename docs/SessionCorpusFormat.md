@@ -318,3 +318,20 @@ durable contract.
 Binary and JSON corpora must preserve `source_format`, `origin`, `feed_kind` and
 exact channel compatibility. They must not be merged as one anonymous stream or
 used as silent fallbacks for one another.
+
+
+Binary lifecycle validation uses the same global merge order as replay:
+monotonic receive time, shard ID, and shard sequence. One source may occur on
+multiple shards. Segment CRC/index validation and per-shard arrival checks
+remain physical checks; decoder lookahead never advances shared source state.
+The whole merged stream passes lifecycle preflight before any selected row is
+emitted. Interval-start metadata includes all preceding lifecycle and health
+facts, including facts on filtered channels.
+
+For JSON multiplex capture, native-owner terminal failure is fanned out to
+every coordinator before finalization. Retained rows remain readable, while
+`session_status=incomplete` and `exact_replay_eligible=false` are durable and
+finalization reports failure. The preset runner's existing finalization-status
+gate therefore reports failure even when earlier clean rows exist. Reopening
+and integrity-report generation retain finalized negative exactness and capture
+incidents. Empty optional channels are clean only when they have no incident.

@@ -12,6 +12,8 @@
 #include "BookState.hpp"
 #include "EventRows.hpp"
 
+namespace hftrec::capture {struct SessionManifest;}
+
 namespace hftrec::replay {
 
 // Loads a captured session from disk, provides parsed event rows plus a
@@ -116,6 +118,7 @@ class SessionReplay {
         bool orderbookEnabled{true};
         bool orderbookRequired{true};
         std::int64_t endedAtNs{0};
+        bool capturedExactReplayEligible{true};
     };
 
     void rewindToSnapshot_();
@@ -133,6 +136,7 @@ class SessionReplay {
     Status addDepthFile_(const std::filesystem::path& path, bool allowPartial, std::size_t reserveHint) noexcept;
     void restorePartialDepthIncident_() noexcept;
     bool loadManifestHints_(const std::filesystem::path& sessionDir) noexcept;
+    void applyManifestHints_(const capture::SessionManifest& manifest) noexcept;
     void maybeWriteIntegrityReport_() noexcept;
 
     std::vector<TradeRow>      trades_{};

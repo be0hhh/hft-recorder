@@ -1,6 +1,6 @@
 #pragma once
 
-#include <MarketData/MarketDataIngress.hpp>
+#include "../Session/MarketData/MarketDataIngress.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -95,6 +95,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status appendExternalBookTicker(const replay::BookTickerRow& row) noexcept;
     Status appendExternalDepth(const replay::DepthRow& row) noexcept;
     void noteExternalCaptureLoss(std::string_view channel,std::uint64_t count) noexcept;
+    void noteExternalCaptureTerminal(std::string_view error) noexcept;
     void noteExternalChannelError(std::string_view channel, std::string_view error) noexcept;
     void noteExternalUnsupportedChannel(std::string_view channel, std::string_view error) noexcept;
     void noteExternalUnroutableEvent(std::string_view channel, std::string_view error) noexcept;

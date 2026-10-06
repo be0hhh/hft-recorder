@@ -460,12 +460,7 @@ Status SessionReplay::open(const std::filesystem::path& sessionDir) noexcept {
     status_ = loader.loadDetailed(sessionDir, corpus, loadReport_);
 
     if (loadReport_.manifestPresent) {
-        manifestHints_.present = true;
-        manifestHints_.exchange = corpus.manifest.exchange;
-        manifestHints_.tradesEnabled = corpus.manifest.tradesEnabled;
-        manifestHints_.bookTickerEnabled = corpus.manifest.bookTickerEnabled;
-        manifestHints_.orderbookEnabled = corpus.manifest.orderbookEnabled;
-        manifestHints_.endedAtNs = corpus.manifest.endedAtNs;
+        applyManifestHints_(corpus.manifest);
     } else {
         (void)loadManifestHints_(sessionDir);
     }
@@ -641,6 +636,11 @@ bool SessionReplay::loadManifestHints_(const std::filesystem::path& sessionDir) 
     capture::SessionManifest manifest{};
     if (!isOk(capture::parseManifestJson(blob, manifest))) return false;
 
+    applyManifestHints_(manifest);
+    return true;
+}
+
+void SessionReplay::applyManifestHints_(const capture::SessionManifest& manifest) noexcept {
     manifestHints_.present = true;
     manifestHints_.exchange = manifest.exchange;
     manifestHints_.tradesEnabled = manifest.tradesEnabled;
@@ -650,7 +650,19 @@ bool SessionReplay::loadManifestHints_(const std::filesystem::path& sessionDir) 
     manifestHints_.orderbookEnabled = manifest.orderbookEnabled;
     manifestHints_.orderbookRequired = manifest.orderbookRequiredWhenEnabled;
     manifestHints_.endedAtNs = manifest.endedAtNs;
-    return true;
+    manifestHints_.capturedExactReplayEligible=manifest.sessionStatus=="recording" ||
+        (manifest.sessionStatus=="complete" && manifest.exactReplayEligible);
+    const auto retainIncident=[&](IntegrityChannel channel,const capture::ChannelRuntimeHealth& runtime,
+                                  const ChannelIntegritySummary& captured) {
+        if(runtime.reconnectCount==0u && runtime.droppedEventCount==0u && runtime.unroutableEventCount==0u &&
+           runtime.lastError.empty() && runtime.state!="terminal" && captured.incidentCount==0u) return;
+        noteIncident_(IntegrityIncident{channel,IntegrityIncidentKind::CaptureAborted,IntegritySeverity::Warning,
+            "captured_runtime_incident",runtime.lastError.empty()?"capture manifest retains a channel incident":runtime.lastError,
+            0,0,{},{},true});
+    };
+    retainIncident(IntegrityChannel::Trades,manifest.tradesRuntime,manifest.tradesIntegrity);
+    retainIncident(IntegrityChannel::BookTicker,manifest.bookTickerRuntime,manifest.bookTickerIntegrity);
+    retainIncident(IntegrityChannel::Depth,manifest.depthRuntime,manifest.depthIntegrity);
 }
 
 void SessionReplay::markStaleLiveChannels_() noexcept {
@@ -710,6 +722,11 @@ void SessionReplay::finalizeChannelStates_() noexcept {
             summary.exactReplayEligible = false;
             return;
         }
+        if (summary.incidentCount != 0u) {
+            if (summary.state != ChannelHealthState::Corrupt) summary.state = ChannelHealthState::Degraded;
+            summary.exactReplayEligible = false;
+            return;
+        }
         if (count == 0u) {
             if (!required) {
                 summary.state = ChannelHealthState::Clean;
@@ -734,11 +751,6 @@ void SessionReplay::finalizeChannelStates_() noexcept {
                 {},
                 true
             });
-            return;
-        }
-        if (summary.incidentCount != 0u) {
-            if (summary.state != ChannelHealthState::Corrupt) summary.state = ChannelHealthState::Degraded;
-            summary.exactReplayEligible = false;
             return;
         }
         summary.state = ChannelHealthState::Clean;
@@ -815,9 +827,9 @@ void SessionReplay::refreshHealthSummary_() noexcept {
                    integritySummary_.bookTicker);
     includeTracked(manifestHints_.orderbookEnabled, integritySummary_.depth);
 
-    integritySummary_.exactReplayEligible = anyLiveChannel && exact;
+    integritySummary_.exactReplayEligible = anyLiveChannel && exact && manifestHints_.capturedExactReplayEligible;
 
-    integritySummary_.sessionHealth = SessionHealth::Clean;
+    integritySummary_.sessionHealth = manifestHints_.capturedExactReplayEligible ? SessionHealth::Clean : SessionHealth::Degraded;
     const ChannelIntegritySummary* channels[] = {
         &integritySummary_.trades,
         &integritySummary_.liquidations,

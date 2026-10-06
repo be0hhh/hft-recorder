@@ -37,7 +37,8 @@ struct VenueMultiplexCapture::Impl final {
     std::vector<NativeCaptureSource> sources{};
     std::vector<CaptureChannel> sourceChannels{};
     std::vector<std::uint8_t> connectionSeen{},connectionState{};
-    bool running{false};bool finalized{false};
+    bool running{false};bool finalized{false};bool terminal{false};
+    Status finalStatus{Status::Ok};
     std::uint64_t finalRows{0u};std::size_t skippedJobCount{0u};
     std::string error{};
     std::chrono::steady_clock::time_point nextManifest{};
@@ -101,6 +102,10 @@ bool VenueMultiplexCapture::pollOnce() noexcept {
     const auto prior=impl_->native->committedRows();
     if (!impl_->native->iterate(cxet::os::nowMonotonicNs().raw)) {
         impl_->error=impl_->native->error();if (impl_->error.empty()) impl_->error="native capture owner terminal";
+        impl_->terminal=true;
+        // No successful connection sample follows a terminal iterate. Publish
+        // the negative fact directly to every durable session before shutdown.
+        for(auto& sink:impl_->sinks) sink.coordinator->noteExternalCaptureTerminal(impl_->error);
         impl_->running=false;return false;
     }
     impl_->sampleConnections();
@@ -108,12 +113,14 @@ bool VenueMultiplexCapture::pollOnce() noexcept {
 }
 void VenueMultiplexCapture::requestStop() noexcept {if (impl_) impl_->running=false;}
 Status VenueMultiplexCapture::finalize() noexcept {
-    if (!impl_ || impl_->finalized) return Status::Ok;
+    if (!impl_) return Status::Ok;
+    if (impl_->finalized) return impl_->finalStatus;
     impl_->running=false;
     if (impl_->native) {impl_->native->shutdown();const auto detail=impl_->native->error();if (!detail.empty()) impl_->error=detail;}
     Status status=Status::Ok;impl_->finalRows=0u;
     for (auto& sink:impl_->sinks) {impl_->finalRows+=rows(*sink.coordinator);status=aggregateStatus(status,sink.coordinator->finalizeSession());}
-    impl_->finalized=true;return status;
+    if(impl_->terminal && isOk(status)) status=Status::Unknown;
+    impl_->finalStatus=status;impl_->finalized=true;return status;
 }
 bool VenueMultiplexCapture::running() const noexcept {return impl_ && impl_->running;}
 std::uint64_t VenueMultiplexCapture::totalRows() const noexcept {

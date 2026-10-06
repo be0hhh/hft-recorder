@@ -248,7 +248,7 @@ Status CaptureCoordinator::startExternalCapture(const CaptureConfig& config,
 void CaptureCoordinator::noteExternalRow_(ChannelRuntimeHealth& health, std::int64_t tsNs) noexcept {
     if (health.firstRowNs == 0) health.firstRowNs = tsNs;
     health.lastRowNs = tsNs;
-    health.state = "live";
+    if(health.state!="terminal") health.state = "live";
 }
 
 void CaptureCoordinator::noteArrival_(const replay::EventArrival& arrival,
@@ -350,6 +350,19 @@ void CaptureCoordinator::noteExternalCaptureLoss(std::string_view channel,std::u
     }
 }
 
+void CaptureCoordinator::noteExternalCaptureTerminal(std::string_view error) noexcept {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    manifest_.sessionStatus="incomplete";
+    manifest_.sessionHealth=SessionHealth::Degraded;
+    manifest_.exactReplayEligible=false;
+    for(auto* health:{&manifest_.tradesRuntime,&manifest_.bookTickerRuntime,&manifest_.depthRuntime}) {
+        if(health->state=="not_requested") continue;
+        health->state="terminal";health->lastError.assign(error);
+    }
+    if(!lastError_.empty()) lastError_+=" | ";
+    lastError_.append(error);
+}
+
 void CaptureCoordinator::noteExternalChannelError(std::string_view channel, std::string_view error) noexcept {
     std::lock_guard<std::mutex> lock(stateMutex_);
     ChannelRuntimeHealth* health = runtimeHealthForChannel(manifest_, channel);
@@ -410,6 +423,10 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
     internal::ensureCxetInitialized();
     CaptureConfig normalizedConfig = config;
     normalizedConfig.outputDir = recordings::normalizeExplicitRecordingsPath(config.outputDir);
+    if(normalizedConfig.outputDir.empty()) {
+        lastError_="capture output directory must be a valid nonempty path";
+        return Status::InvalidArgument;
+    }
     if (const auto identityStatus = internal::validateCryptoIdentitySymbols(normalizedConfig, lastError_); !isOk(identityStatus)) {
         return identityStatus;
     }
@@ -421,6 +438,14 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
 
     if (const auto validateStatus = internal::validateSupportedConfig(normalizedConfig, lastError_, allowMultiSymbol); !isOk(validateStatus)) {
         return validateStatus;
+    }
+    const auto storageSymbol=recordings::recordingFolderSymbol(
+        normalizedConfig.exchange,normalizedConfig.market,normalizedConfig.symbols.front());
+    const auto sessionId=makeSessionId(normalizedConfig.exchange,normalizedConfig.market,
+                                      storageSymbol,internal::nowNs());
+    if(storageSymbol.empty() || sessionId.empty()) {
+        lastError_="capture recording identity has no exact public symbol route or valid session folder";
+        return Status::InvalidArgument;
     }
     if (const auto authStatus = internal::refreshFinamAuthForConfig(
             normalizedConfig,
@@ -442,11 +467,8 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
 
     config_ = normalizedConfig;
     manifest_ = {};
-    manifest_.storageSymbol = recordings::recordingFolderSymbol(
-        normalizedConfig.exchange,
-        normalizedConfig.market,
-        normalizedConfig.symbols.front());
-    manifest_.sessionId = makeSessionId(normalizedConfig.exchange, normalizedConfig.market, normalizedConfig.symbols.front(), internal::nowNs());
+    manifest_.storageSymbol = storageSymbol;
+    manifest_.sessionId = sessionId;
     manifest_.exchange = normalizedConfig.exchange;
     manifest_.market = normalizedConfig.market;
     manifest_.symbols = normalizedConfig.symbols;
@@ -534,6 +556,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
         return Status::Ok;
     }
 
+    const bool terminal=manifest_.sessionStatus=="incomplete";
     manifest_.endedAtNs = internal::nowNs();
     if (manifest_.startedAtNs > 0 && manifest_.endedAtNs >= manifest_.startedAtNs) {
         manifest_.actualDurationSec = (manifest_.endedAtNs - manifest_.startedAtNs) / 1000000000LL;
@@ -571,7 +594,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
             lastError_ = "no canonical rows captured";
             manifest_.warningSummary = lastError_;
         }
-        manifest_.sessionStatus = "failed_empty";
+        manifest_.sessionStatus = terminal ? "incomplete" : "failed_empty";
         manifest_.sessionHealth = SessionHealth::Degraded;
         manifest_.exactReplayEligible = false;
         if (std::find(manifest_.supportArtifacts.begin(),
@@ -588,7 +611,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
             return supportStatus;
         }
         resetSessionState();
-        return Status::Ok;
+        return terminal ? Status::Unknown : Status::Ok;
     }
 
     if (const auto seedStatus = writeManifestFile_(); !isOk(seedStatus)) {
@@ -610,8 +633,9 @@ Status CaptureCoordinator::finalizeSession() noexcept {
         if (degradedArrival)
             manifest_.warningSummary += "captured application-frame arrival is missing for canonical rows";
     }
-    manifest_.sessionStatus = (degradedRuntime || degradedArrival)
-        ? "complete_degraded" : "complete";
+    manifest_.sessionStatus = terminal ? "incomplete" : ((degradedRuntime || degradedArrival)
+        ? "complete_degraded" : "complete");
+    if(terminal) {manifest_.exactReplayEligible=false;manifest_.sessionHealth=SessionHealth::Degraded;}
 
     if (const auto supportStatus = writeSupportArtifacts(); !isOk(supportStatus)) {
         lastError_ = "failed to write support artifacts";
@@ -624,7 +648,7 @@ Status CaptureCoordinator::finalizeSession() noexcept {
     }
 
     resetSessionState();
-    return Status::Ok;
+    return terminal ? Status::Unknown : Status::Ok;
 }
 
 std::string CaptureCoordinator::lastError() const {
@@ -703,7 +727,7 @@ bool CaptureCoordinator::sessionOpen() const noexcept {
 }
 
 void CaptureCoordinator::refreshRecordingManifestLocked_(std::int64_t nowNs) noexcept {
-    manifest_.sessionStatus = "recording";
+    if(manifest_.sessionStatus!="incomplete") manifest_.sessionStatus = "recording";
     manifest_.endedAtNs = nowNs;
     if (manifest_.startedAtNs > 0 && manifest_.endedAtNs >= manifest_.startedAtNs) {
         manifest_.actualDurationSec = (manifest_.endedAtNs - manifest_.startedAtNs) / 1000000000LL;
@@ -871,5 +895,3 @@ Status CaptureCoordinator::writeSupportArtifacts() noexcept {
 }
 
 }  // namespace hftrec::capture
-
-
