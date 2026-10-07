@@ -143,5 +143,8 @@ use `build/modes/dev-native` or `build/modes/dev-portable`. `CXET_BUILD_DIR` is 
 exact caller-supplied path; an incompatible existing profile is rejected. Only a
 successful product build updates `build/.compile-active/<owner>.json`; default
 launchers resolve that selected tree. Failed, UI-only and test-only runs do not
-switch it. Project-owned libraries remain static `.a`; `p` selects available
-processors and `-j N` overrides it. See `--help` for supported options.
+switch it. Project-owned libraries remain static `.a`; `p` selects automatic
+memory-aware parallelism, using available processors as an upper bound and
+reserving 2 GiB per compilation job below `MemoryHigh`, with at least one job.
+An explicit positive `-j N` overrides this selection. See `--help` for supported
+options.
