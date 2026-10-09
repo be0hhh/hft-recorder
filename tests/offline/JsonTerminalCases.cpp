@@ -11,12 +11,14 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 #include <unistd.h>
 
 // Retained native boundary fixture, isolated to this test executable. The
 // multiplex, coordinator, JSON serializer, durable manifest and replay owners
 // are production code. No socket or real-provider behavior is exercised.
 namespace hftrec::capture {
+std::atomic<bool> fixtureStopAfterRow{false};
 bool NativeMarketCapture::configure(std::span<const NativeCaptureSource> sources,
     const char*,std::string&) noexcept {
   sources_.assign(sources.begin(),sources.end());return true;
@@ -36,6 +38,11 @@ bool NativeMarketCapture::iterate(std::uint64_t now) noexcept {
     row.arrival.flags=replay::EventArrivalApplicationFrame;
     CXET_CHECK(source.sink->appendExternalBookTicker(row)==Status::Ok);
     committedRows_.fetch_add(1u);
+    if(fixtureStopAfterRow.load()) {
+      (void)source.sink->requestStopBookTicker();
+      error_="native iterate ended after operator stop";
+      return false;
+    }
   }
   return true;
 }
@@ -103,6 +110,31 @@ void terminalReopenCannotRegainExactness() {
     ++count;
   }
   CXET_CHECK(count==2u);
+}
+void directTerminalCannotRegainExactness(bool operatorStop) {
+  Fixture fixture;hftrec::capture::CaptureCoordinator capture;
+  auto config=fixture.jobs().front().config;
+  hftrec::capture::fixtureStopAfterRow.store(operatorStop);
+  CXET_CHECK(capture.startBookTicker(config)==hftrec::Status::Ok);
+  const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+  while(capture.bookTickerRunning() && std::chrono::steady_clock::now()<deadline) std::this_thread::yield();
+  CXET_CHECK(!capture.bookTickerRunning());
+  (void)capture.stopBookTicker();
+  capture.reapStoppedThreads();
+  hftrec::capture::fixtureStopAfterRow.store(false);
+  CXET_CHECK(capture.bookTickerCount()==1u);
+  const auto session=capture.sessionDirCopy();
+  const auto status=capture.finalizeSession();
+  hftrec::capture::SessionManifest manifest{};
+  CXET_CHECK(hftrec::capture::parseManifestJson(read(session/"manifest.json"),manifest)==hftrec::Status::Ok);
+  if(operatorStop) {
+    CXET_CHECK(status==hftrec::Status::Ok && manifest.sessionStatus!="incomplete");
+  } else {
+    CXET_CHECK(status!=hftrec::Status::Ok && manifest.sessionStatus=="incomplete" && !manifest.exactReplayEligible);
+    hftrec::replay::SessionReplay replay;(void)replay.open(session);
+    CXET_CHECK(replay.bookTickers().size()==1u && !replay.exactReplayEligible());
+    replay.finalize();CXET_CHECK(!replay.exactReplayEligible());
+  }
 }
 void optionalEmptyIncidentIsNotClean() {
   Fixture fixture;hftrec::capture::VenueMultiplexCapture capture;
@@ -201,6 +233,8 @@ const cxet::testing::Case cases[]{
   cxet::testing::Case{"recorder.json_recording_paths_preserve_saved_and_explicit_policy",recordingPathsPreserveHistoricalPolicy},
   cxet::testing::Case{"recorder.json_recording_symbols_use_public_resolver_and_encoding",recordingSymbolsUseCanonicalOwnerAndSafeEncoding},
   cxet::testing::Case{"recorder.json_native_terminal_fanout_is_durable_incomplete",terminalFanoutDurableManifest},
+  cxet::testing::Case{"recorder.json_direct_terminal_is_durable_incomplete",+[] {directTerminalCannotRegainExactness(false);}},
+  cxet::testing::Case{"recorder.json_direct_operator_stop_is_not_terminal",+[] {directTerminalCannotRegainExactness(true);}},
   cxet::testing::Case{"recorder.json_native_terminal_reopen_preserves_negative_evidence",terminalReopenCannotRegainExactness},
   cxet::testing::Case{"recorder.json_optional_empty_channel_retains_capture_incident",optionalEmptyIncidentIsNotClean},
 };

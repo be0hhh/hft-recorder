@@ -30,14 +30,18 @@ void CaptureCoordinator::marketDataManagerLoop_(CaptureConfig config) noexcept {
             native=std::make_unique<NativeMarketCapture>();
             const auto envPath=config.envPath.string();
             if (!error.empty() || !native->configure(sources,envPath.c_str(),error)) {
-                {std::lock_guard lock(stateMutex_);lastError_=error.empty()?"native capture startup rejected":error;}
+                if (!marketDataStop_.load(std::memory_order_acquire) && anyManagedMarketDataDesired_())
+                    noteExternalCaptureTerminal(error.empty()?"native capture startup rejected":error);
                 break;
             }
             activeMask=desired;
         }
         if (!native->iterate(cxet::os::nowMonotonicNs().raw)) {
             auto error=native->error();if (error.empty()) error="native capture owner terminal";
-            {std::lock_guard lock(stateMutex_);lastError_=std::move(error);}
+            // An explicit operator stop may end an in-flight iteration. Only
+            // an unexpected owner terminal fences the durable session.
+            if (!marketDataStop_.load(std::memory_order_acquire) && anyManagedMarketDataDesired_())
+                noteExternalCaptureTerminal(error);
             break;
         }
     }

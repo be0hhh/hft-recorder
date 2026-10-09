@@ -2,7 +2,7 @@ find_package(Threads REQUIRED)
 cxet_add_offline_suite(hftrec_offline_corpus OWNER hft-recorder EXPECTED 33
   SOURCES CorpusCases.cpp LIBRARIES hftrec::corpus_contract
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS corpus)
-cxet_add_offline_suite(hftrec_offline_json_terminal OWNER hft-recorder EXPECTED 5
+cxet_add_offline_suite(hftrec_offline_json_terminal OWNER hft-recorder EXPECTED 7
   SOURCES JsonTerminalCases.cpp LIBRARIES hftrec_json_capture
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS capture replay)
 cxet_add_offline_suite(hftrec_offline_capture_writer OWNER hft-recorder EXPECTED 2
