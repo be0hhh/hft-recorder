@@ -62,8 +62,6 @@ set(HFTREC_CORE_SOURCES
     src/Replay/RecorderApi.cpp
     src/Replay/RecorderReplaySelection.cpp
     src/Replay/RecorderReplayRows.cpp
-    src/Corpus/Recordings/BasisChainManifest.cpp
-    src/Corpus/Recordings/BasisChainSeries.cpp
     ../Process/src/Tui/RecorderTuiLaunch.cpp
     ../Process/src/Tui/RecorderTuiPreset.cpp
     ../Process/src/Tui/RecorderTuiShard.cpp
