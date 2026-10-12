@@ -98,6 +98,7 @@ Every subagent must read this file before acting. Subagents must not run Git com
 
 ## Development workflow
 
-Follow `../../docs/Agents/DevelopmentWorkflow.md` for behavioral TDD, refactor coverage and exact authorized
-offline checks. Implementation alone permits edits only; local RED/GREEN and
-CI, runtime and live evidence remain separate.
+Follow `../../docs/Agents/DevelopmentWorkflow.md` for useful regression tests,
+optional test-first and user-selected check commands. Finish requested edits
+independently of unrequested runs; implementation, CI, runtime and live evidence
+remain separate.
