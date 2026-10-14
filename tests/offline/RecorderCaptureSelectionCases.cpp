@@ -7,14 +7,12 @@ using namespace hftrec;
 using namespace hftrec::capture;
 constexpr auto parserTemplate=
   "[runtime]\nca_file=/etc/ssl/certs/ca-certificates.crt\n"
-  "[venue.Bybit/Futures]\nreference_binding=ref\nbbo_binding=bbo\ntrade_binding=trade\ndepth_binding=depth\nsnapshot_binding=snapshot\n"
-  "[venue.Binance/Futures]\nreference_binding=unused\ntrade_binding=unused\n"
+  "[venue.Bybit/Futures]\nreference_binding=ref\nsnapshot_binding=snapshot\n"
+  "[venue.Binance/Futures]\nreference_binding=unused\n"
   "[connection.ref]\nvenue=Bybit/Futures\ndomain=Reference\nnative=LinearV5/Rest/Json\noperations=Get/ExchangeInfo\n"
-  "[connection.bbo]\nvenue=Bybit/Futures\ndomain=MarketData\nnative=LinearV5/Ws/Json\nstreams=Bbo\n"
-  "[connection.trade]\nvenue=Bybit/Futures\ndomain=MarketData\nnative=LinearV5/Ws/Json\nstreams=Trade\n"
-  "[connection.depth]\nvenue=Bybit/Futures\ndomain=MarketData\nnative=LinearV5/Ws/Json\nstreams=OrderBook\n"
-  "[connection.snapshot]\nvenue=Bybit/Futures\ndomain=MarketData\nnative=LinearV5/Rest/Json\noperations=Get/OrderBook\n"
-  "[connection.unused]\nvenue=Binance/Futures\ndomain=MarketData\nnative=FapiStreamsUnversioned/Ws/Json\nstreams=Trade\n";
+  "[connection.market]\nvenue=Bybit/Futures\ndomain=MarketData\nnative=LinearV5/Ws/Json\n"
+  "[connection.snapshot]\nvenue=Bybit/Futures\ndomain=MarketData\nnative=LinearV5/Rest/Json\n"
+  "[connection.unused]\nvenue=Binance/Futures\ndomain=MarketData\nnative=FapiStreamsUnversioned/Ws/Json\n";
 RecorderCaptureSessionConfig config(bool all=false) {
   RecorderCaptureSessionConfig out;
   out.venues.push_back({"Bybit","Futures",{"BTC_USDT","ETH_USDT"},all});
@@ -28,8 +26,10 @@ void exactBatchSelection() {
   CXET_CHECK(output.find("whitelist_instruments=BTC_USDT,ETH_USDT")!=std::string::npos);
   CXET_CHECK(output.find("[venue.Binance/Futures]")==std::string::npos);
   CXET_CHECK(output.find("[connection.unused]")==std::string::npos);
-  CXET_CHECK(output.find("[connection.depth]")==std::string::npos);
+  CXET_CHECK(output.find("[connection.snapshot]")==std::string::npos);
   CXET_CHECK(output.find("[connection.ref]")!=std::string::npos);
+  CXET_CHECK(output.find("[connection.market]")!=std::string::npos);
+  CXET_CHECK(output.find("streams=")==std::string::npos);
 }
 void allSelectionDropsOldWhitelist() {
   auto selection=config(true);std::string output,error;
@@ -48,6 +48,12 @@ void unsupportedSelectionRefuses() {
   selection=config();selection.venues[0].instruments={"BTC_USDT,BAD"};
   CXET_CHECK(renderRecorderParserConfig(parserTemplate,selection,output,error)!=Status::Ok);
   CXET_CHECK(output.empty());
+  for(const auto* retired:{"streams", "bbo_binding", "trade_binding", "depth_binding"}) {
+    std::string oldTemplate=parserTemplate;
+    oldTemplate += std::string{retired}+"=legacy\n";
+    CXET_CHECK(renderRecorderParserConfig(oldTemplate,config(),output,error)==Status::CorruptData);
+    CXET_CHECK(output.empty() && error.find("removed")!=std::string::npos);
+  }
 }
 }
 int main(int argc,char** argv) {

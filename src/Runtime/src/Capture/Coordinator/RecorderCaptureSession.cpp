@@ -152,13 +152,27 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
         const auto binaryRoot=build/"apps/hft-parser";
         const auto parserBinary=binaryRoot/"hft-parserd",plannerBinary=binaryRoot/"hft-resource-planner";
         if(!executable(parserBinary) || !executable(plannerBinary)) {publishError(Status::IoError,"selected Parser product binaries are missing; build the Parser product first");throw Status::IoError;}
+        const auto requiredMarketFlags = std::to_string(
+            ((state.config.channelMask & 1u) ? 1u : 0u) |
+            ((state.config.channelMask & 2u) ? 2u : 0u) |
+            ((state.config.channelMask & 4u) ? 8u : 0u));
+        // Recorder channel choices are consumer input, never persisted native
+        // stream membership. The planner and producer receive the same demand.
+        const std::vector<std::string> demandArguments{
+            "--market-demand-consumer", "1380270916",
+            "--market-demand-required", requiredMarketFlags,
+            "--market-demand-preferred", "0"};
         OwnedChild planner;
-        if(!runChild(planner,{plannerBinary.string(),"--config",transientConfig.string(),"--runtime-dir",runtime.string()},logFd,state.stopRequested,error)) {
+        std::vector<std::string> plannerArguments{plannerBinary.string(),"--config",transientConfig.string(),"--runtime-dir",runtime.string()};
+        plannerArguments.insert(plannerArguments.end(),demandArguments.begin(),demandArguments.end());
+        if(!runChild(planner,plannerArguments,logFd,state.stopRequested,error)) {
             publishError(Status::IoError,error);throw Status::IoError;
         }
         const auto topology=runtime/"resource-topology.v3";
         if(!std::filesystem::is_regular_file(topology)) {publishError(Status::IoError,"Parser planner did not produce resource topology");throw Status::IoError;}
-        if(!parser.spawn({parserBinary.string(),transientConfig.string(),"--runtime-dir",runtime.string(),"--state-dir",(runtime/"state").string(),"--resource-topology",topology.string()},logFd,error)) {
+        std::vector<std::string> parserArguments{parserBinary.string(),transientConfig.string(),"--runtime-dir",runtime.string(),"--state-dir",(runtime/"state").string(),"--resource-topology",topology.string()};
+        parserArguments.insert(parserArguments.end(),demandArguments.begin(),demandArguments.end());
+        if(!parser.spawn(parserArguments,logFd,error)) {
             publishError(Status::IoError,error);throw Status::IoError;
         }
         {std::lock_guard lock(state.mutex);state.snapshot.producerPid=parser.pid;}

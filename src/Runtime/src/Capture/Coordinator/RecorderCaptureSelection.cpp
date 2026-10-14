@@ -49,16 +49,6 @@ bool parseSections(std::string_view text,std::vector<Section>& sections) {
     }
     return !sections.empty();
 }
-std::vector<std::string> commaValues(std::string_view text) {
-    std::vector<std::string> output;
-    while(!text.empty()) {
-        const auto end=text.find(',');auto item=trim(text.substr(0,end));
-        if(!item.empty()) output.push_back(std::move(item));
-        if(end==std::string_view::npos) break;
-        text.remove_prefix(end+1u);
-    }
-    return output;
-}
 void appendSection(std::string& output,const Section& section) {
     output+='[';output+=section.name;output+="]\n";
     for(const auto& pair:section.values) output+=pair.first+"="+pair.second+"\n";
@@ -82,6 +72,18 @@ Status renderRecorderParserConfig(std::string_view parserTemplate,
         }
         std::vector<Section> sections;
         if(!parseSections(parserTemplate,sections)) {error="invalid or oversized Parser template";return Status::CorruptData;}
+        for (const auto& section : sections) for (const auto& pair : section.values) {
+            if (pair.first == "streams" || pair.first == "bbo_binding" ||
+                pair.first == "trade_binding" || pair.first == "depth_binding" ||
+                pair.first == "bbo" || pair.first == "trades" || pair.first == "depth") {
+                error="market stream selection keys were removed; migrate the Parser template to consumer demands";
+                return Status::CorruptData;
+            }
+        }
+        for(const auto& section:sections)if(value(section,"domain")=="MarketData"&&!value(section,"operations").empty()) {
+            error="MarketData operations selection was removed; migrate the Parser template to consumer demands";
+            return Status::CorruptData;
+        }
         std::vector<Section> selected;
         std::unordered_set<std::string> bindings;
         std::unordered_set<std::string> identities;
@@ -99,20 +101,30 @@ Status renderRecorderParserConfig(std::string_view parserTemplate,
             Section venue{found->name,{}};
             bool reference=false;
             for(const auto& pair:found->values) {
-                const bool bbo=pair.first=="bbo_binding",trade=pair.first=="trade_binding",depth=pair.first=="depth_binding";
-                if((bbo && (config.channelMask&1u)==0u) || (trade && (config.channelMask&2u)==0u) ||
-                    (depth && (config.channelMask&4u)==0u) || pair.first=="whitelist_instruments" ||
+                if(pair.first=="whitelist_instruments" ||
                     (pair.first=="snapshot_binding" && (config.channelMask&4u)==0u) ||
                     pair.first=="user_binding" || pair.first=="order_binding" ||
-                    pair.first=="candle_history" || pair.first=="candle_backfill" || pair.first=="universe_scope") continue;
+                    pair.first=="candle_history" || pair.first=="candle_backfill" ||
+                    pair.first=="universe_scope" || pair.first=="algorithms") continue;
                 venue.values.push_back(pair);
-                if(bbo || trade || depth || pair.first=="reference_binding" || pair.first=="snapshot_binding") bindings.insert(pair.second);
+                if(pair.first=="reference_binding" || pair.first=="snapshot_binding") bindings.insert(pair.second);
                 reference=reference || pair.first=="reference_binding";
             }
-            if(!reference || ((config.channelMask&1u)!=0u && value(venue,"bbo_binding").empty()) ||
-               ((config.channelMask&2u)!=0u && value(venue,"trade_binding").empty()) ||
-               ((config.channelMask&4u)!=0u && value(venue,"depth_binding").empty())) {
-                error="selected channel has no Parser-owned binding for "+identity;return Status::Unimplemented;
+            if(!reference) {
+                error="selected product has no Parser-owned reference binding for "+identity;return Status::Unimplemented;
+            }
+            bool marketRoute=false;
+            for(const auto& connection:sections) {
+                if(!connection.name.starts_with("connection.") ||
+                    lower(value(connection,"venue"))!=identity || value(connection,"domain")!="MarketData") continue;
+                // Exact native metadata stays producer-owned; no exchange wire
+                // guess or logical Trade/AggregateTrade alias is made here.
+                if(!value(connection,"native").empty() && connection.name!="connection."+value(*found,"snapshot_binding")) {
+                    bindings.insert(connection.name.substr(11u));marketRoute=true;
+                }
+            }
+            if(!marketRoute) {
+                error="selected product has no exact Parser-owned market connection for "+identity;return Status::Unimplemented;
             }
             venue.values.emplace_back("universe_scope","all");
             if(!requested.fullUniverse) {
@@ -128,25 +140,14 @@ Status renderRecorderParserConfig(std::string_view parserTemplate,
             selected.push_back(std::move(venue));
         }
         for(const auto& section:sections) {
-            if(section.name=="runtime" || section.name.starts_with("algorithm.")) appendSection(output,section);
+            if(section.name=="runtime") appendSection(output,section);
         }
         if(std::none_of(sections.begin(),sections.end(),[](const auto& section){return section.name=="runtime";})) {output.clear();error="Parser template lacks runtime policy";return Status::CorruptData;}
         for(const auto& section:selected) appendSection(output,section);
         for(const auto& name:bindings) {
             const auto found=std::find_if(sections.begin(),sections.end(),[&](const auto& s){return s.name=="connection."+name;});
             if(found==sections.end()) {output.clear();error="Parser template binding has no connection: "+name;return Status::CorruptData;}
-            Section connection=*found;
-            for(auto& pair:connection.values) if(pair.first=="streams") {
-                auto streams=commaValues(pair.second);std::string retained;
-                for(const auto& stream:streams) {
-                    const bool enabled=(stream=="Bbo" && (config.channelMask&1u)!=0u) ||
-                        ((stream=="Trade" || stream=="AggregateTrade") && (config.channelMask&2u)!=0u) ||
-                        ((stream=="Depth" || stream=="OrderBook") && (config.channelMask&4u)!=0u);
-                    if(enabled) {if(!retained.empty()) retained+=',';retained+=stream;}
-                }
-                if(retained.empty()) {output.clear();error="selected Parser connection has no requested stream";return Status::Unimplemented;}
-                pair.second=std::move(retained);
-            }
+            const Section& connection=*found;
             appendSection(output,connection);
         }
         return Status::Ok;

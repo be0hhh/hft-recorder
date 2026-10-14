@@ -148,3 +148,14 @@ memory-aware parallelism, using available processors as an upper bound and
 reserving 2 GiB per compilation job below `MemoryHigh`, with at least one job.
 An explicit positive `-j N` overrides this selection. See `--help` for supported
 options.
+
+## Consumer demand configuration
+
+Recorder GUI/CLI logical channel choices remain capture input. Parser templates
+now contain exact native connection selectors and reference/snapshot policy;
+remove `streams`, market `operations`, `bbo`/`trades`/`depth` flags and
+`bbo_binding`/`trade_binding`/`depth_binding`. Old selection keys fail with a
+migration error. The launcher passes its required logical channel mask to both
+the resource planner and Parser process, preserving Trade versus AggregateTrade.
+Live capture selection changes continue through the owned Parser subscription
+control; another consumer's demand is not Recorder cancellation authority.
