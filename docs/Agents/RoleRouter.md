@@ -29,13 +29,14 @@ CXET public API, shared-library boundary, cross-app artifact, schema change
 ## Worker routing
 
 - Use read-only explorers/reviewers automatically only for non-trivial work.
-- Start editing workers only after explicit implementation authorization in the current user message.
+- Start editing workers only with explicit implementation authorization for the
+  active task; an incidental later message does not revoke that authorization.
 - Use no more than three workers and assign non-overlapping files or modules.
 - Keep shared integration, registry, and manifest files with the primary agent.
-- Use GPT-6 Sol medium for substantive work and high for complex work. Use
-  GPT-6 Luna xhigh/max for mechanical edits, grep, and light checks. Use GPT-6
-  Astra medium for H0/H1, hot-path, cache-critical, strategy-quant, or
-  trader-runtime reviews, or when explicitly requested. Fast and priority
-  service tiers are forbidden.
-- Never infer Git, build, test, generated-rewrite, runtime, or remote permission from implementation authorization.
+- Follow [canonical model and service-tier routing](../../../../docs/Agents/Subagents.md)
+  instead of maintaining an app-local matrix.
+- Read-only Git inspection is allowed. Never infer Git-write, build, test,
+  generated-rewrite, runtime or remote permission from implementation authorization.
+  Check consent and explicitly authorized exact-command repeats follow
+  [DevelopmentWorkflow.md](../../../../docs/Agents/DevelopmentWorkflow.md).
 - Stop when ownership overlaps, a public contract is ambiguous, or no single safe design exists.

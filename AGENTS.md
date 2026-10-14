@@ -14,13 +14,12 @@
   read-only migration code. The current writer is unique; external protocol
   tokens and immutable historical evidence remain unchanged.
 
-## Hard safety stop - no Git / no remote automation
+## Git and remote actions
 
-- Do not run any Git command in this repository unless the user explicitly asks for that exact Git action for the active task.
-- This ban includes read-only commands such as `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git grep`, and `git -C ...`.
-- Use filesystem tools instead: `rg`, targeted file reads, direct path inspection.
+- Read-only Git inspection is allowed when useful to the active task, including
+  `git status`, `git diff`, `git log`, `git show`, `git ls-files` and `git grep`.
+- Every Git write requires separate explicit authorization for the active task.
 - Do not check GitHub, remotes, CI status, pull requests, releases, or other network-backed repository state unless the user explicitly asks for that exact remote/GitHub action.
-- If repository state is needed, ask the user to run the Git command or paste the relevant output.
 
 ## Core contract
 
@@ -94,7 +93,12 @@ Allowed scopes: capture, corpus, validation, GUI, lab, compression variants, doc
 
 Use at most three recorder workers concurrently. Give each worker a concrete, non-overlapping file scope; keep shared integration, registry, and manifest files with the primary agent. Stop and ask the user if ownership overlaps or the implementation has no single safe design.
 
-Every subagent must read this file before acting. Subagents must not run Git commands, GitHub/remote checks, CI/release inspection, builds, tests, compiles, generated-file rewrites, runtime binaries, or long-running processes unless explicit active-task authorization covers that exact action. Implementation authorization alone does not grant any of those actions.
+Every subagent must read this file before acting. Read-only Git inspection is
+allowed. Git writes, GitHub/remote checks, CI/release inspection, builds, tests,
+compiles, generated-file rewrites, runtime binaries and long-running processes
+need their own active-task authorization. Check selection and explicitly
+authorized exact-command repeats follow `../../docs/Agents/DevelopmentWorkflow.md`.
+Implementation authorization alone does not grant those actions.
 
 ## Development workflow
 

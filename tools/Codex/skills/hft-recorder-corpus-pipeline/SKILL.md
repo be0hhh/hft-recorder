@@ -14,7 +14,10 @@ description: Build and review hft-recorder capture, canonical corpus, replay, ma
 5. Preserve canonical corpus row contracts, ingest/sequence ordering, manifest counters, partial-session behavior, and deterministic replay.
 6. Keep recorder requests logical. Leave exchange endpoint selection, wire routing, and message fanout in CXETCPP public contracts.
 7. Implement only after explicit authorization. Give editing workers non-overlapping files and retain shared manifests or registries in the primary agent.
-8. Run no Git, build, test, generated rewrite, runtime, or remote command unless the current message explicitly grants that exact action.
+8. Read-only Git inspection is allowed. Git writes, generated rewrites, runtime
+   and remote/network actions require their own active-task authorization.
+   Build/test consent and explicitly authorized repeats of the same exact
+   command follow root `docs/Agents/DevelopmentWorkflow.md`.
 
 ## Safety gates
 

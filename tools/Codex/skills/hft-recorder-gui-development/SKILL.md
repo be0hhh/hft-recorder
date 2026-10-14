@@ -16,7 +16,10 @@ description: Build and review robust Qt 6/QML hft-recorder product workflows. Us
 7. Show loading, empty, stale, failed, canceled, partial, and completed states explicitly. Keep errors actionable and failure-visible.
 8. Keep the GUI a complete product surface for capture, sessions, validation, compression lab, and results; do not make required flows CLI-only.
 9. Implement only after explicit authorization and keep worker file ownership disjoint.
-10. Run no Git or verification command unless separately and exactly authorized in the current message.
+10. Read-only Git inspection is allowed. Git writes, browser/runtime and
+    remote/network actions require their own active-task authorization.
+    Build/test consent and explicitly authorized exact-command repeats follow
+    root `docs/Agents/DevelopmentWorkflow.md`.
 
 ## Safety gates
 

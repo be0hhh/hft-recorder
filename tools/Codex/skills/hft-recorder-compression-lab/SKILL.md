@@ -16,7 +16,10 @@ description: Build and review hft-recorder compression-lab pipelines and reports
 7. Require byte- or row-equivalent lossless decode verification for every lossless result. Exercise partial, corrupt, truncated, and incompatible artifact behavior when verification is authorized.
 8. Keep experimental codecs in recorder lab or compressor-owned code; do not move them into CXETCPP core.
 9. Implement only after explicit authorization and give workers non-overlapping files.
-10. Run no Git, benchmark, build, test, generated rewrite, runtime, or remote command unless the current message explicitly grants that exact action.
+10. Read-only Git inspection is allowed. Git writes, benchmarks, generated
+    rewrites, runtime and remote/network actions need their own active-task
+    authorization. Build/test consent and explicitly authorized exact-command
+    repeats follow root `docs/Agents/DevelopmentWorkflow.md`.
 
 ## Safety gates
 

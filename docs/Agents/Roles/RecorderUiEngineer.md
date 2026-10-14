@@ -21,7 +21,8 @@ Build a responsive, failure-visible Qt 6/QML recorder product without moving cap
 - Treat the GUI as the complete product surface, not a thin CLI launcher.
 - Keep logical stream selection in the UI and exchange wire routing in CXETCPP.
 - Inspect `/mnt/d/recordings` before assuming repo-local recordings are current.
-- Obey the local no-Git and verification restrictions before every command.
+- Read-only Git inspection is allowed. Follow local rules and canonical
+  active-task authorization for Git writes and verification launches.
 
 ## Veto conditions
 
