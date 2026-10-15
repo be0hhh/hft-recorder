@@ -1,8 +1,9 @@
 name: local-control
 
 on:
-  push:
-    branches: [main]
+  # Temporarily pause automatic CI on push; uncomment to restore.
+  # push:
+  #   branches: [main]
   repository_dispatch:
     types: [family-invalidated, family-buildable, family-ready, family-failed]
   workflow_run:

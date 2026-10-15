@@ -5,7 +5,7 @@
 #include "../Session/Bridge/CxetCaptureBridge.hpp"
 #include "cxet/Runtime/Reference/ReferenceVenueConfig.hpp"
 #include "cxet/Api/History/Candles/CandleHistoryLoader.hpp"
-#include "cxet/Api/History/Trades/TradeHistoryLoader.hpp"
+#include "cxet/Api/History/Trades/HistoricalTradesFetch.hpp"
 #include "cxet/Primitives/Composite/StreamMeta.hpp"
 #include "cxet/Primitives/Composite/TieredCandleHistory.hpp"
 

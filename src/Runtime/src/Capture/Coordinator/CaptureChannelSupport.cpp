@@ -259,7 +259,7 @@ bool makeConfiguredCaptureSource(const CaptureConfig& config,CaptureChannel chan
     }
     out={};out.exchange=exchangeIdFromConfig(config.exchange);out.market=marketTypeFromConfig(out.exchange,config.market);
     out.object=objectForCaptureChannel(channel);out.apiSlot=internal::normalizedApiSlot(config);
-    out.symbol.copyFrom(std::string{routeText}.c_str());
+    (void)out.symbol.copyFrom(std::string{routeText}.c_str());
     cxet::api::InstrumentRouteInfo route{};
     if (cxet::api::looksLikeLocalCryptoSymbol(out.symbol)) {
         if (!cxet::api::resolveExchangeProductInstrumentRoute(out.exchange,out.market,out.symbol,&route,out.apiProtocolProfile) ||

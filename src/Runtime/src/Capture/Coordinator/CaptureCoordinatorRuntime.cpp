@@ -23,7 +23,7 @@
 #include "../Session/Bridge/CxetCaptureBridge.hpp"
 #include "cxet/Runtime/Reference/ReferenceVenueConfig.hpp"
 #include "cxet/Api/History/Candles/CandleHistoryLoader.hpp"
-#include "cxet/Api/History/Trades/TradeHistoryLoader.hpp"
+#include "cxet/Api/History/Trades/HistoricalTradesFetch.hpp"
 #include "cxet/Primitives/Composite/Trade.hpp"
 #include "cxet/Primitives/Composite/TieredCandleHistory.hpp"
 #include "cxet/Primitives/Composite/StreamMeta.hpp"
@@ -39,7 +39,7 @@ void copySymbolFromText(Symbol& out, std::string_view text) noexcept {
     char buffer[rawdata::SymbolMaxBytes]{};
     const std::size_t copyLen = std::min(text.size(), sizeof(buffer) - 1u);
     for (std::size_t i = 0u; i < copyLen; ++i) buffer[i] = text[i];
-    out.copyFrom(buffer);
+    (void)out.copyFrom(buffer);
 }
 
 std::int64_t candleTierFromTimeframe(std::string_view timeframe) noexcept {
@@ -367,7 +367,7 @@ bool fetchDetailedCandlesRows(const CaptureConfig& config,
 
     TimeframeBuf timeframe{};
     tfText = config.detailedCandlesTimeframe.empty() ? std::string{"15m"} : config.detailedCandlesTimeframe;
-    timeframe.copyFrom(tfText.c_str());
+    (void)timeframe.copyFrom(tfText.c_str());
     if (timeframe.data[0] == '\0') {
         errorText = "candles2: invalid timeframe";
         return false;
@@ -805,13 +805,19 @@ Status CaptureCoordinator::captureTradesHistoryOnce(const CaptureConfig& config)
     TimeNs endTime{};
     startTime.raw = static_cast<std::uint64_t>(startNs > 0 ? startNs : 0);
     endTime.raw = static_cast<std::uint64_t>(endNs > 0 ? endNs : 0);
-    const bool fetched = cxet::api::trades::loadPublicTradeHistoryForVenue(
-        makeReferenceVenueConfig(config),
-        symbol,
-        startTime,
-        endTime,
-        pageLimit,
-        true,
+    const auto venue = makeReferenceVenueConfig(config);
+    cxet::api::trades::HistoricalTradesRequest historyRequest{};
+    historyRequest.exchange = venue.exchange;
+    historyRequest.market = venue.market;
+    historyRequest.symbol = symbol;
+    historyRequest.startTime = startTime;
+    historyRequest.endTime = endTime;
+    historyRequest.pageLimit = pageLimit;
+    historyRequest.apiSlot = venue.apiSlot;
+    historyRequest.apiProtocolProfile = venue.apiProtocolProfile;
+    historyRequest.allowRecentFallback = true;
+    const bool fetched = cxet::api::trades::fetchHistoricalTrades(
+        historyRequest,
         appendHistoricalTradesToWarmup,
         &sinkContext,
         result,

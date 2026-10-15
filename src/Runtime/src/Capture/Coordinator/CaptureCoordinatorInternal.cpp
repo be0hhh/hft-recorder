@@ -103,7 +103,7 @@ Symbol makeSymbol(std::string_view symbolText) noexcept {
     char text[rawdata::SymbolMaxBytes]{};
     const std::size_t copyLen = std::min(symbolText.size(), sizeof(text) - 1u);
     for (std::size_t i = 0u; i < copyLen; ++i) text[i] = symbolText[i];
-    symbol.copyFrom(text);
+    (void)symbol.copyFrom(text);
     return symbol;
 }
 
