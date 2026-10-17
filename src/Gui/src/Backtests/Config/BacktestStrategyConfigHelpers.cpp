@@ -47,7 +47,7 @@ QString firstDiscoveredStrategyForSessionCount(int selectedCount) {
 QString configTemplatePathForStrategy(const QString& strategy) {
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(strategy);
     if (metadata == nullptr || metadata->configTemplateFile == nullptr || metadata->configTemplateFile[0] == '\0') return {};
-    return QDir(QStringLiteral(HFT_BACKTEST_TRADER_SOURCE_DIR)).absoluteFilePath(qString(metadata->configTemplateFile));
+    return QDir(QStringLiteral(HFT_BACKTEST_STRATEGY_PROFILES_DIR)).absoluteFilePath(qString(metadata->configTemplateFile));
 }
 
 QString readTextFile(const QString& path) {

@@ -1,5 +1,5 @@
 # Recorder-owned canonical corpus contract shared with offline consumers.
-# Keep this target independent from Qt, capture runtimes, and hft-trader state.
+# Keep this target independent from Qt, capture runtimes, and trading runtime state.
 find_package(Threads REQUIRED)
 
 add_library(hftrec_corpus_contract STATIC

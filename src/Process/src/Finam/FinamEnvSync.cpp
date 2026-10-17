@@ -1,6 +1,5 @@
 #include "FinamEnvSync.hpp"
 
-#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <chrono>
@@ -56,14 +55,10 @@ std::filesystem::path absoluteNormalized(const std::filesystem::path& path) {
     return absolute.lexically_normal();
 }
 
-bool samePathLexical(const std::filesystem::path& lhs, const std::filesystem::path& rhs) {
-    return absoluteNormalized(lhs).generic_string() == absoluteNormalized(rhs).generic_string();
-}
-
 bool standardEnvLayoutExists(const std::filesystem::path& root) {
     std::error_code ec;
     return std::filesystem::exists(root / "apps" / "hft-recorder", ec) &&
-           std::filesystem::exists(root / "apps" / "hft-trader", ec);
+           std::filesystem::exists(root / "CMakeLists.txt", ec);
 }
 
 std::optional<std::filesystem::path> findRepoRootFrom(std::filesystem::path start) {
@@ -109,18 +104,6 @@ std::vector<std::filesystem::path> targetEnvPaths(const FinamEnvSyncRequest& req
     }
 
     targets.push_back(primary);
-    if (!request.mirrorStandardEnv || !root.has_value()) return targets;
-
-    const auto recorderEnv = root.value() / "apps" / "hft-recorder" / ".env";
-    const auto traderEnv = root.value() / "apps" / "hft-trader" / ".env";
-    const bool selectedRecorder = samePathLexical(primary, recorderEnv);
-    const bool selectedTrader = samePathLexical(primary, traderEnv);
-    if (!selectedRecorder && !selectedTrader) return targets;
-
-    const auto mirror = selectedRecorder ? traderEnv : recorderEnv;
-    if (std::none_of(targets.begin(), targets.end(), [&](const auto& path) { return samePathLexical(path, mirror); })) {
-        targets.push_back(mirror);
-    }
     return targets;
 }
 

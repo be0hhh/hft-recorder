@@ -170,7 +170,6 @@ Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexc
     if (!loaded && primaryPath == ".env") {
         static constexpr const char* kLegacyEnvPaths[] = {
             "apps/hft-recorder/.env",
-            "apps/hft-trader/.env",
             "../.env",
             "../../.env",
             "../../../.env",
@@ -209,7 +208,6 @@ Status refreshFinamAuthForConfig(const CaptureConfig& config,
     request.envPath = config.envPath;
     request.apiSlot = normalizedApiSlot(config);
     request.requireAccountId = requireAccountId;
-    request.mirrorStandardEnv = true;
     hftrec::finam::FinamEnvSyncResult result{};
     const auto status = hftrec::finam::refreshFinamEnvAndBearer(request, &result);
     if (!isOk(status)) {
@@ -224,7 +222,6 @@ Status persistFinamAuthForConfig(const CaptureConfig& config, std::string& lastE
     request.envPath = config.envPath;
     request.apiSlot = normalizedApiSlot(config);
     request.requireAccountId = finamConfigNeedsAccountId(config);
-    request.mirrorStandardEnv = true;
     hftrec::finam::FinamEnvSyncResult result{};
     const auto status = hftrec::finam::persistCurrentFinamBearer(request, &result);
     if (!isOk(status)) {

@@ -184,6 +184,6 @@ target_compile_definitions(hft-recorder-gui
         _GNU_SOURCE
         HFTRREC_SOURCE_DIR="${HFTREC_SOURCE_DIR}"
         HFT_COMPRESSOR_SOURCE_DIR="${HFTREC_SOURCE_DIR}/../hft-compressor"
-        HFT_BACKTEST_TRADER_SOURCE_DIR="${HFTREC_SOURCE_DIR}/../hft-trader"
+        HFT_BACKTEST_STRATEGY_PROFILES_DIR="${HFTREC_SOURCE_DIR}/../trading-core/StrategyProfiles"
 )
 

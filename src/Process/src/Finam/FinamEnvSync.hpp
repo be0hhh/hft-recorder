@@ -14,7 +14,6 @@ struct FinamEnvSyncRequest {
     std::filesystem::path envPath{".env"};
     std::uint8_t apiSlot{1u};
     bool requireAccountId{false};
-    bool mirrorStandardEnv{true};
 };
 
 struct FinamEnvValues {

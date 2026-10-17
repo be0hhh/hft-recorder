@@ -7,6 +7,7 @@
 #include "Capture/Session/SessionId.hpp"
 #include "cxet/Api/Dispatch/BuildDispatch.hpp"
 #include "cxet/Os/ClockSource.hpp"
+#include "../../src/Process/src/Finam/FinamEnvSync.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -229,7 +230,44 @@ void recordingSymbolsUseCanonicalOwnerAndSafeEncoding() {
   CXET_CHECK(coordinator.lastError().find("output directory")!=std::string::npos);
   CXET_CHECK(!std::filesystem::exists(fixture.root));
 }
+void finamEnvUsesRecorderWithoutSiblingMirroring() {
+  Fixture fixture;
+  const auto previousDirectory=std::filesystem::current_path();
+  struct RestoreDirectory {
+    std::filesystem::path path;
+    ~RestoreDirectory() {std::error_code error;std::filesystem::current_path(path,error);}
+  } restoreDirectory{previousDirectory};
+  const char* previousJwt=std::getenv("FINAM_API_255_JWT");
+  struct RestoreEnv {
+    bool existed;
+    std::string value;
+    ~RestoreEnv() {
+      if(existed)(void)::setenv("FINAM_API_255_JWT",value.c_str(),1);
+      else (void)::unsetenv("FINAM_API_255_JWT");
+    }
+  } restoreEnv{previousJwt!=nullptr,previousJwt?previousJwt:""};
+  const auto recorder=fixture.root/"apps/hft-recorder";
+  std::filesystem::create_directories(recorder);
+  std::ofstream(fixture.root/"CMakeLists.txt")<<"# synthetic family root\n";
+  std::filesystem::current_path(fixture.root);
+  hftrec::finam::FinamEnvSyncRequest request;
+  request.apiSlot=255;
+  hftrec::finam::FinamEnvSyncResult result;
+  CXET_CHECK(hftrec::finam::writeFinamEnvValues(request,{"synthetic-token",{}},&result)==hftrec::Status::Ok);
+  CXET_CHECK(result.writtenPaths.size()==1u && result.writtenPaths.front()==recorder/".env");
+  CXET_CHECK(read(recorder/".env")=="FINAM_API_255_JWT=synthetic-token\n");
+  const auto retired=fixture.root/"apps/hft-trader";
+  CXET_CHECK(!std::filesystem::exists(retired));
+  std::filesystem::create_directories(retired);
+  std::ofstream(retired/".env")<<"# preserved synthetic retired input\n";
+  request.envPath=recorder/".env";
+  CXET_CHECK(hftrec::finam::writeFinamEnvValues(request,{"updated-synthetic-token",{}},&result)==hftrec::Status::Ok);
+  CXET_CHECK(result.writtenPaths.size()==1u);
+  CXET_CHECK(read(retired/".env")=="# preserved synthetic retired input\n");
+  CXET_CHECK(read(recorder/".env")=="FINAM_API_255_JWT=updated-synthetic-token\n");
+}
 const cxet::testing::Case cases[]{
+  cxet::testing::Case{"recorder.finam_env_uses_recorder_without_sibling_mirroring",finamEnvUsesRecorderWithoutSiblingMirroring},
   cxet::testing::Case{"recorder.json_recording_paths_preserve_saved_and_explicit_policy",recordingPathsPreserveHistoricalPolicy},
   cxet::testing::Case{"recorder.json_recording_symbols_use_public_resolver_and_encoding",recordingSymbolsUseCanonicalOwnerAndSafeEncoding},
   cxet::testing::Case{"recorder.json_native_terminal_fanout_is_durable_incomplete",terminalFanoutDurableManifest},
