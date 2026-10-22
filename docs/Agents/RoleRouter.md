@@ -31,12 +31,13 @@ CXET public API, shared-library boundary, cross-app artifact, schema change
 - Use read-only explorers/reviewers automatically only for non-trivial work.
 - Start editing workers only with explicit implementation authorization for the
   active task; an incidental later message does not revoke that authorization.
-- Use no more than three workers and assign non-overlapping files or modules.
+- Follow the canonical concurrency policy in `docs/Agents/Subagents.md` and
+  assign non-overlapping files or modules.
 - Keep shared integration, registry, and manifest files with the primary agent.
 - Follow [canonical model and service-tier routing](../../../../docs/Agents/Subagents.md)
   instead of maintaining an app-local matrix.
 - Read-only Git inspection is allowed. Never infer Git-write, build, test,
   generated-rewrite, runtime or remote permission from implementation authorization.
-  Check consent and explicitly authorized exact-command repeats follow
+  Check classification, command-package approval and task-scoped repeats follow
   [DevelopmentWorkflow.md](../../../../docs/Agents/DevelopmentWorkflow.md).
 - Stop when ownership overlaps, a public contract is ambiguous, or no single safe design exists.

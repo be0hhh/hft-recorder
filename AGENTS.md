@@ -91,13 +91,16 @@ Read-only explorer and reviewer subagents may be used automatically for non-triv
 
 Allowed scopes: capture, corpus, validation, GUI, lab, compression variants, documentation.
 
-Use at most three recorder workers concurrently. Give each worker a concrete, non-overlapping file scope; keep shared integration, registry, and manifest files with the primary agent. Stop and ask the user if ownership overlaps or the implementation has no single safe design.
+Follow `../../docs/Agents/Subagents.md` for useful delegation and configured
+concurrency. Give each worker a concrete, non-overlapping file scope; keep shared
+integration, registry, and manifest files with the primary agent. Stop and ask
+the user if ownership overlaps or the implementation has no single safe design.
 
 Every subagent must read this file before acting. Read-only Git inspection is
 allowed. Git writes, GitHub/remote checks, CI/release inspection, builds, tests,
 compiles, generated-file rewrites, runtime binaries and long-running processes
-need their own active-task authorization. Check selection and explicitly
-authorized exact-command repeats follow `../../docs/Agents/DevelopmentWorkflow.md`.
+need their own active-task authorization. Check classification, command-package
+approval and task-scoped repeats follow `../../docs/Agents/DevelopmentWorkflow.md`.
 Implementation authorization alone does not grant those actions.
 
 ## Development workflow
