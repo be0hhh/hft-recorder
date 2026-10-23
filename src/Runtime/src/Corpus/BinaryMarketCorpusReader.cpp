@@ -217,6 +217,7 @@ struct SegmentDecoder final {
     BinaryMarketSegmentHeader header{};
     std::vector<std::uint8_t> encoded{};
     std::vector<BinaryMarketRecord> decoded{};
+    hft_compressor::ByteBlockWorkspace workspace{};
     std::size_t position{0u}, count{0u};
     std::uint64_t recordsSeen{0u}, bodyBytes{0u}, previousSequence{0u}, previousMonotonic{0u};
     std::uint32_t blocksSeen{0u}, recordsCrc{0u};
@@ -242,6 +243,7 @@ struct SegmentDecoder final {
                 sizeof(header)+header.storedBlockBytes+sizeof(BinaryMarketSegmentFooter))) {
             error="binary corpus compressed segment header mismatch"; return false;
         }
+        if(workspace.prepare()!=hft_compressor::Status::Ok) {error="corpus decoder workspace unavailable";return false;}
         decoded.resize(kBinaryMarketBlockRecords);
         encoded.resize(hft_compressor::byteBlockEncodeBound(
             binaryMarketBlockLayout(BinaryMarketChannel::Depth), kBinaryMarketBlockRecords));
@@ -283,7 +285,7 @@ struct SegmentDecoder final {
                 error="binary corpus compressed block header or CRC mismatch"; return false;
             }
             std::size_t rawBytes=0u;
-            if(hft_compressor::decodeByteBlock(binaryMarketBlockLayout(block.channel),
+            if(hft_compressor::decodeByteBlock(workspace,binaryMarketBlockLayout(block.channel),
                 std::span<const std::uint8_t>{encoded.data(),block.encodedBytes},
                 std::span<std::uint8_t>{reinterpret_cast<std::uint8_t*>(decoded.data()),block.rawBytes},rawBytes)
                 !=hft_compressor::Status::Ok || rawBytes!=block.rawBytes ||

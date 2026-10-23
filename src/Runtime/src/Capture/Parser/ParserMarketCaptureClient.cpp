@@ -715,12 +715,16 @@ Status ParserMarketCaptureClient::drain(
     },&writer,maximumRecords,drained,error,
     [](void* context,const corpus::BinaryMarketSource& source) noexcept {
         return static_cast<corpus::BinaryMarketCorpusWriter*>(context)->registerSources({&source,1});
+    },[](void* context,const corpus::CorpusProducerProgress& progress) noexcept {
+        return static_cast<corpus::BinaryMarketCorpusWriter*>(context)->updateProgress(progress);
+    },[](void* context,const corpus::BinaryMarketGap& gap) noexcept {
+        return static_cast<corpus::BinaryMarketCorpusWriter*>(context)->appendGap(gap);
     });
 }
 
 Status ParserMarketCaptureClient::drainTo(ParserCaptureRecordSink sink,void* context,
     std::uint64_t maximumRecords,std::uint64_t& drained,std::string& error,
-    ParserCaptureSourceSink sourceSink) noexcept {
+    ParserCaptureSourceSink sourceSink,ParserCaptureProgressSink progressSink,ParserCaptureGapSink gapSink) noexcept {
     drained = 0u;
     error.clear();
     if (!sink || !state_ || !state_->header || state_->sources.empty()) {
@@ -730,10 +734,6 @@ Status ParserMarketCaptureClient::drainTo(ParserCaptureRecordSink sink,void* con
     if (state_->header->producerEpoch == 0u) {
         error = "parser capture producer epoch is unavailable";
         return Status::CorruptData;
-    }
-    if (!state_->stopped && state_->header->lossEpoch.load(std::memory_order_acquire) != 0u) {
-        error = "parser capture lost records; freeze capture and retain the loss ledger";
-        return Status::IoError;
     }
     if (state_->header->directoryGeneration.load(std::memory_order_acquire) != state_->directoryGeneration ||
         state_->header->directoryCount.load(std::memory_order_acquire) != state_->sources.size()) {
@@ -805,7 +805,7 @@ Status ParserMarketCaptureClient::drainTo(ParserCaptureRecordSink sink,void* con
             ++drained;
             ++state_->recordsDrained;
     }
-    return Status::Ok;
+    return publishProgressTo(context,progressSink,gapSink,error);
 }
 
 Status ParserMarketCaptureClient::stop(std::string& error) noexcept {
@@ -981,112 +981,86 @@ Status ParserMarketCaptureClient::freezeDisconnected(
     }
 }
 
-Status ParserMarketCaptureClient::appendFrozenLosses(
-    corpus::BinaryMarketCorpusWriter& writer,
-    std::string& error) noexcept {
-    error.clear();
-    if (!state_ || !state_->header || state_->sources.empty()) {
-        error = "parser capture directory was not loaded";
-        return Status::InvalidArgument;
-    }
-    if (state_->lossesAppended) return Status::Ok;
-    if (!state_->stopped && !producerDisconnected()) {
-        error = "parser capture loss ledger is not frozen";
-        return Status::InvalidArgument;
-    }
-    const std::uint64_t globalLossEpoch =
-        state_->header->lossEpoch.load(std::memory_order_acquire);
-    if (state_->stopped && globalLossEpoch != state_->finalLossEpoch) {
-        error = "parser capture loss epoch changed after Stop";
-        return Status::CorruptData;
-    }
-    const std::uint64_t observed = clockNowNs(CLOCK_REALTIME);
-    if (observed == 0u ||
-        observed > static_cast<std::uint64_t>(
-            std::numeric_limits<std::int64_t>::max())) {
-        error = "failed to timestamp parser capture loss observation";
-        return Status::IoError;
-    }
-    std::uint64_t countedLossEpoch = 0u;
-    for (std::size_t sourceIndex = 0u;
-         sourceIndex < state_->sources.size(); ++sourceIndex) {
-        for (std::size_t channelIndex = 0u;
-             channelIndex < parser::kMarketCaptureChannelCount;
-             ++channelIndex) {
-            const auto& cell = state_->lossLedger[
-                sourceIndex * parser::kMarketCaptureChannelCount +
-                channelIndex];
-            const std::uint64_t gapEpoch =
-                cell.gapEpoch.load(std::memory_order_acquire);
-            if (gapEpoch == 0u) continue;
-            const std::uint64_t dropped =
-                cell.droppedRecords.load(std::memory_order_relaxed);
-            const std::uint64_t minimumReceive =
-                cell.minimumDroppedReceiveRealtimeNs.load(
-                    std::memory_order_relaxed);
-            const std::uint64_t maximumReceive =
-                cell.maximumDroppedReceiveRealtimeNs.load(
-                    std::memory_order_relaxed);
-            const std::uint64_t generation =
-                cell.lastSourceGeneration.load(std::memory_order_relaxed);
-            const std::uint32_t shard =
-                cell.lastShardIndex.load(std::memory_order_relaxed);
-            const std::uint32_t lossFlags =
-                cell.flags.load(std::memory_order_relaxed);
-            const bool arrivalUnavailable =
-                (lossFlags & parser::MarketCaptureLossArrivalUnavailable) !=
-                0u;
-            const bool receiveRangeKnown = !arrivalUnavailable &&
-                minimumReceive != 0u && maximumReceive >= minimumReceive;
-            const bool receiveRangeUnavailable = arrivalUnavailable;
-            if (dropped == 0u || gapEpoch != dropped ||
-                (lossFlags & ~parser::kMarketCaptureKnownLossFlags) != 0u ||
-                (!receiveRangeKnown && !receiveRangeUnavailable) ||
-                maximumReceive > static_cast<std::uint64_t>(
-                    std::numeric_limits<std::int64_t>::max()) ||
-                generation == 0u || shard >= state_->shards.size()) {
-                error = "parser capture loss ledger contract mismatch";
-                return Status::CorruptData;
-            }
-            corpus::BinaryMarketGap gap{};
-            gap.sourceId = static_cast<std::uint32_t>(sourceIndex + 1u);
-            gap.sourceGeneration = generation;
-            gap.gapEpoch = gapEpoch;
-            gap.droppedRecords = dropped;
-            gap.firstDroppedEventSequence =
-                cell.firstDroppedEventSequence.load(std::memory_order_relaxed);
-            gap.lastDroppedEventSequence =
-                cell.lastDroppedEventSequence.load(std::memory_order_relaxed);
-            gap.minimumDroppedReceiveNs = arrivalUnavailable
-                ? 0
-                : static_cast<std::int64_t>(minimumReceive);
-            gap.maximumDroppedReceiveNs = arrivalUnavailable
-                ? 0
-                : static_cast<std::int64_t>(maximumReceive);
-            gap.observedReceiveNs = static_cast<std::int64_t>(observed);
-            gap.shardIndex = static_cast<std::uint16_t>(shard);
-            gap.channel = channelIndex==parser::marketCaptureChannelIndex(parser::MarketCaptureChannel::Membership)
-                ? corpus::BinaryMarketChannel::SourceLifecycle : static_cast<corpus::BinaryMarketChannel>(channelIndex + 1u);
-            const Status status = writer.appendGap(gap);
-            if (!isOk(status)) {
-                error = "binary market corpus gap ledger write failed";
-                return status;
-            }
-            if (countedLossEpoch >
-                std::numeric_limits<std::uint64_t>::max() - gapEpoch) {
-                error = "parser capture global loss epoch overflow";
-                return Status::CorruptData;
-            }
-            countedLossEpoch += gapEpoch;
-            ++state_->gapsWritten;
+Status ParserMarketCaptureClient::publishProgressTo(void* context,ParserCaptureProgressSink progressSink,
+    ParserCaptureGapSink gapSink,std::string& error) noexcept {
+    if(!state_ || !state_->header) return Status::InvalidArgument;
+    try {
+        // One bounded attempt: a busy producer causes a deferred cut, never a
+        // synthetic watermark or ingestion failure. Validate loss and identity
+        // around the whole vector, not independently sampled ledger cells.
+        if(state_->header->lossSnapshotFlags.load(std::memory_order_acquire)!=0u) {
+            error="Parser loss ledger cannot certify an exact prefix";return Status::CorruptData;
         }
+        std::uint64_t lossRevision{};
+        if(!parser::beginMarketCaptureLossSnapshot(*state_->header,&lossRevision)) return Status::Ok;
+        const auto directory=state_->header->directoryGeneration.load(std::memory_order_acquire);
+        const auto count=state_->header->directoryCount.load(std::memory_order_acquire);
+        if(!directory || directory!=state_->directoryGeneration || count!=state_->sources.size()) return Status::Ok;
+        corpus::CorpusProducerProgress progress{};
+        progress.producerEpoch=state_->header->producerEpoch;progress.shardCount=state_->header->shardCount;
+        progress.directoryRevision=directory;progress.lossEpoch=lossRevision;progress.safeMonotonicNs=UINT64_MAX;
+        bool progressAvailable=true;
+        for(std::size_t n=0;n<state_->shards.size();++n) {
+            const auto& shard=state_->shards[n];parser::MarketCaptureShardProgress value{};
+            if(!parser::tryReadMarketCaptureShardProgress(*shard.header,state_->consumerEpoch,&value) ||
+               shard.ring->read.load(std::memory_order_acquire)<value.completedWrite ||
+               value.lossEpoch>lossRevision || value.directoryRevision>directory) {progressAvailable=false;break;}
+            progress.safeMonotonicNs=std::min(progress.safeMonotonicNs,value.receiveMonotonicNs);
+            progress.shardSequences[n]=value.completedShardSequence;
+        }
+        std::vector<corpus::BinaryMarketGap> gaps;
+        std::uint64_t total{};
+        const auto observed=clockNowNs(CLOCK_REALTIME);
+        if(!observed || observed>static_cast<std::uint64_t>(INT64_MAX)) return Status::IoError;
+        for(std::size_t source=0;source<state_->sources.size();++source)
+            for(std::size_t channel=0;channel<parser::kMarketCaptureChannelCount;++channel) {
+                const auto value=parser::readMarketCaptureLossCell(state_->lossLedger[source*parser::kMarketCaptureChannelCount+channel]);
+                if(!value.gapEpoch) continue;
+                const bool unavailable=(value.flags&parser::MarketCaptureLossArrivalUnavailable)!=0;
+                if(!value.droppedRecords || value.gapEpoch!=value.droppedRecords ||
+                   !value.lastSourceGeneration || value.lastShardIndex>=state_->shards.size() ||
+                   !value.firstDroppedEventSequence || !value.lastDroppedEventSequence ||
+                   (value.flags&~parser::kMarketCaptureKnownLossFlags) ||
+                   value.maximumDroppedReceiveRealtimeNs>static_cast<std::uint64_t>(INT64_MAX) ||
+                   (!unavailable && (!value.minimumDroppedReceiveRealtimeNs ||
+                    value.maximumDroppedReceiveRealtimeNs<value.minimumDroppedReceiveRealtimeNs)) ||
+                   total>UINT64_MAX-value.gapEpoch) {progressAvailable=false;total=UINT64_MAX;break;}
+                total+=value.gapEpoch;
+                corpus::BinaryMarketGap gap{};gap.sourceId=static_cast<std::uint32_t>(source+1u);
+                gap.sourceGeneration=value.lastSourceGeneration;gap.gapEpoch=value.gapEpoch;gap.droppedRecords=value.droppedRecords;
+                gap.firstDroppedEventSequence=value.firstDroppedEventSequence;gap.lastDroppedEventSequence=value.lastDroppedEventSequence;
+                gap.minimumDroppedReceiveNs=unavailable?0:static_cast<std::int64_t>(value.minimumDroppedReceiveRealtimeNs);
+                gap.maximumDroppedReceiveNs=unavailable?0:static_cast<std::int64_t>(value.maximumDroppedReceiveRealtimeNs);
+                gap.observedReceiveNs=static_cast<std::int64_t>(observed);gap.shardIndex=static_cast<std::uint16_t>(value.lastShardIndex);
+                gap.channel=channel==parser::marketCaptureChannelIndex(parser::MarketCaptureChannel::Membership)
+                    ?corpus::BinaryMarketChannel::SourceLifecycle:static_cast<corpus::BinaryMarketChannel>(channel+1u);
+                gaps.push_back(gap);
+            }
+        if(!parser::validateMarketCaptureLossSnapshot(*state_->header,lossRevision) ||
+           state_->header->directoryGeneration.load(std::memory_order_acquire)!=directory ||
+           state_->header->directoryCount.load(std::memory_order_acquire)!=count ||
+           (!state_->stopped && state_->header->consumerEpoch.load(std::memory_order_acquire)!=state_->consumerEpoch)) return Status::Ok;
+        if(total!=lossRevision) {error="consistent parser capture loss ledger mismatch";return Status::CorruptData;}
+        // Loss persistence is useful even while an idle owner has not supplied
+        // progress. A complete global prefix additionally requires all owners.
+        if(!gaps.empty() && !gapSink) {error="capture sink has no live loss consumer";return Status::Unimplemented;}
+        for(const auto& gap:gaps) {const auto status=gapSink(context,gap);if(!isOk(status))return status;}
+        state_->gapsWritten=gaps.size();
+        if(progressAvailable && progressSink) return progressSink(context,progress);
+        return Status::Ok;
+    } catch(...) {error="parser progress snapshot allocation failed";return Status::IoError;}
+}
+Status ParserMarketCaptureClient::appendFrozenLosses(corpus::BinaryMarketCorpusWriter& writer,std::string& error) noexcept {
+    error.clear();
+    if(!state_ || !state_->stopped) {error="parser capture loss ledger is not frozen";return Status::InvalidArgument;}
+    if(state_->header->lossEpoch.load(std::memory_order_acquire)!=state_->finalLossEpoch) {
+        error="parser capture loss epoch changed after Stop";return Status::CorruptData;
     }
-    if (countedLossEpoch != globalLossEpoch) {
-        error = "parser capture global loss ledger mismatch";
-        return Status::CorruptData;
-    }
-    state_->lossesAppended = true;
-    return Status::Ok;
+    return publishProgressTo(&writer,[](void* context,const corpus::CorpusProducerProgress& progress) noexcept {
+        return static_cast<corpus::BinaryMarketCorpusWriter*>(context)->updateProgress(progress);
+    },[](void* context,const corpus::BinaryMarketGap& gap) noexcept {
+        return static_cast<corpus::BinaryMarketCorpusWriter*>(context)->appendGap(gap);
+    },error);
 }
 
 bool ParserMarketCaptureClient::producerDisconnected() const noexcept {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../../Common/Status.hpp"
-#include "../../../../Contracts/include/hftrec/CorpusContract/BinaryMarketCorpusFormat.hpp"
+#include "hftrec/CorpusContract/CorpusCut.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -17,6 +17,8 @@ namespace hftrec::capture {
 
 struct ParserMarketCaptureClientState;
 using ParserCaptureRecordSink=Status (*)(void*,const corpus::BinaryMarketRecord&) noexcept;
+using ParserCaptureProgressSink=Status (*)(void*,const corpus::CorpusProducerProgress&) noexcept;
+using ParserCaptureGapSink=Status (*)(void*,const corpus::BinaryMarketGap&) noexcept;
 using ParserCaptureSourceSink=Status (*)(void*,const corpus::BinaryMarketSource&) noexcept;
 
 struct ParserMarketCaptureSnapshot final {
@@ -60,7 +62,8 @@ class ParserMarketCaptureClient final {
         std::string& error) noexcept;
     [[nodiscard]] Status drainTo(ParserCaptureRecordSink sink,void* context,
         std::uint64_t maximumRecords,std::uint64_t& drained,std::string& error,
-        ParserCaptureSourceSink sourceSink=nullptr) noexcept;
+        ParserCaptureSourceSink sourceSink=nullptr,
+        ParserCaptureProgressSink progressSink=nullptr,ParserCaptureGapSink gapSink=nullptr) noexcept;
     // Cold capture-owner thread only: the socket has one reply reader.
     [[nodiscard]] Status beginSubscriptionChange(std::uint32_t sourceId,
         corpus::BinaryMarketChannel channel,bool add,std::string& error) noexcept;
@@ -77,6 +80,8 @@ class ParserMarketCaptureClient final {
     void disconnect() noexcept;
 
   private:
+    [[nodiscard]] Status publishProgressTo(void* context,ParserCaptureProgressSink progressSink,
+        ParserCaptureGapSink gapSink,std::string& error) noexcept;
     std::unique_ptr<ParserMarketCaptureClientState> state_{};
 };
 

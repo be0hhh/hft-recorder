@@ -27,6 +27,9 @@ struct RecorderCaptureSessionConfig final {
     std::uint64_t durationSec{3600u};
     std::uint64_t maximumBytes{1024u*1024u*1024u};
     std::uint64_t segmentBytes{64u*1024u*1024u};
+    std::uint64_t retainedCompressedBytes{16u*1024u*1024u};
+    std::uint64_t maximumReferenceBytes{64u*1024u*1024u};
+    std::uint32_t writerQueueRecords{8192u};
 };
 // Pure, secret-free launch preparation. Selected routes come exclusively from
 // existing Parser template sections; unsupported selections fail closed.
@@ -77,6 +80,8 @@ class RecorderCaptureSession final {
     [[nodiscard]] Status stop() noexcept;
     [[nodiscard]] RecorderCaptureSessionSnapshot snapshot() const noexcept;
     [[nodiscard]] std::vector<corpus::BinaryMarketSource> sourceDirectory() const noexcept;
+    [[nodiscard]] std::shared_ptr<const corpus::CorpusCut> latestCut() const noexcept;
+    [[nodiscard]] std::shared_ptr<corpus::CorpusPublication> publication() const noexcept;
  private:
     std::unique_ptr<RecorderCaptureSessionState> state_{};
 };

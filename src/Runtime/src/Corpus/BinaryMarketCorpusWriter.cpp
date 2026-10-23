@@ -3,6 +3,8 @@
 #include "Codec/Crc32c.hpp"
 #include "BinaryMarketBlockCodec.hpp"
 #include "BinaryMarketSourceState.hpp"
+#include "CorpusCutStorage.hpp"
+#include <chrono>
 
 #include <algorithm>
 #include <cstdio>
@@ -46,6 +48,7 @@ struct SegmentState final {
     std::uint64_t projectedBytes{0u};
     std::vector<BinaryMarketRecord> pending{};
     std::vector<std::uint8_t> encoded{};
+    std::unique_ptr<hft_compressor::ByteBlockWorkspace> workspace{};
     std::size_t pendingCount{0u};
     std::uint64_t previousShardSequence{0u};
     std::uint64_t previousMonotonicNs{0u};
@@ -117,9 +120,11 @@ template <typename Record>
     stream.flush();
     if (!stream.good()) return false;
     stream.close();
+    if(!syncCorpusFile(temporary)) return false;
     std::error_code error;
     std::filesystem::rename(temporary, target, error);
     if (error) return false;
+    if(!syncCorpusFile(target.parent_path(),true)) return false;
     *recordsCrc = header.recordsCrc32c;
     return true;
 }
@@ -137,9 +142,10 @@ template <typename Record>
     stream.flush();
     if (!stream.good()) return false;
     stream.close();
+    if(!syncCorpusFile(temporary)) return false;
     std::error_code error;
     std::filesystem::rename(temporary, target, error);
-    return !error;
+    return !error && syncCorpusFile(target.parent_path(),true);
 }
 
 }  // namespace
@@ -158,6 +164,13 @@ struct BinaryMarketCorpusWriterState final {
     std::uint32_t nextSegmentNumber{1u};
     bool active{false};
     bool quotaReached{false};
+    CorpusProducerProgress progress{};
+    std::vector<CorpusBlockRange> blocks{};
+    std::vector<std::uint8_t> referencePayload{};
+    std::shared_ptr<CorpusPublication> publication{};
+    std::uint64_t cutGeneration{};
+    std::uint64_t cutReservedBytes{};
+    bool replayAnchorFrozen{};
 };
 
 namespace {
@@ -187,6 +200,8 @@ namespace {
     segment.previousShardSequence = previousSequence;
     segment.previousMonotonicNs = previousMonotonic;
     segment.pending.resize(kBinaryMarketBlockRecords);
+    segment.workspace=std::make_unique<hft_compressor::ByteBlockWorkspace>();
+    if(segment.workspace->prepare()!=hft_compressor::Status::Ok) return false;
     segment.encoded.resize(hft_compressor::byteBlockEncodeBound(
         binaryMarketBlockLayout(BinaryMarketChannel::Depth), kBinaryMarketBlockRecords));
     segment.header.headerBytes = sizeof(BinaryMarketSegmentHeader);
@@ -217,7 +232,7 @@ namespace {
         reinterpret_cast<const std::uint8_t*>(segment.pending.data()),
         segment.pendingCount * sizeof(BinaryMarketRecord)};
     std::size_t encodedBytes = 0u;
-    if (hft_compressor::encodeByteBlock(binaryMarketBlockLayout(channel), raw,
+    if (hft_compressor::encodeByteBlock(*segment.workspace,binaryMarketBlockLayout(channel), raw,
             segment.encoded, encodedBytes) != hft_compressor::Status::Ok ||
         encodedBytes == 0u || encodedBytes > segment.encoded.size() ||
         segment.header.blockCount == std::numeric_limits<std::uint32_t>::max()) return false;
@@ -233,10 +248,19 @@ namespace {
     block.channel = channel;
     block.headerCrc32c = headerCrc(block, &BinaryMarketBlockHeader::headerCrc32c);
     const auto physicalBytes = sizeof(block) + encodedBytes;
+    CorpusBlockRange range{};
+    range.offset=sizeof(BinaryMarketSegmentHeader)+segment.header.storedBlockBytes;
+    range.firstMonotonicNs=segment.pending[0].header.receiveMonotonicNs;
+    range.lastMonotonicNs=segment.pending[segment.pendingCount-1u].header.receiveMonotonicNs;
+    range.segmentNumber=segment.header.segmentNumber;range.shardIndex=segment.header.shardIndex;range.header=block;
     const auto reservedBytes = segment.pendingCount * binaryMarketPendingRecordBytes();
     if (physicalBytes > reservedBytes ||
         !writeBytes(segment.stream, &block, sizeof(block)) ||
         !writeBytes(segment.stream, segment.encoded.data(), encodedBytes)) return false;
+    try {
+        state.blocks.push_back(range);
+        state.publication->retain(range,std::span<const std::uint8_t>(segment.encoded.data(),encodedBytes));
+    } catch(...) {return false;}
     const auto released = reservedBytes - physicalBytes;
     state.projectedBytes -= released;
     segment.projectedBytes -= released;
@@ -271,6 +295,7 @@ namespace {
     segment.stream.flush();
     if (!segment.stream.good()) return false;
     segment.stream.close();
+    if(!syncCorpusFile(segment.partialPath)) return false;
     std::error_code error;
     std::filesystem::rename(segment.partialPath, segment.finalPath, error);
     if (error) return false;
@@ -339,6 +364,8 @@ Status BinaryMarketCorpusWriter::start(
     try {
         auto state = std::make_unique<BinaryMarketCorpusWriterState>();
         state->config = config;
+        state->publication=std::make_shared<CorpusPublication>(std::min(config.retainedCompressedBytes,config.maximumBytes));
+        state->progress.producerEpoch=config.producerEpoch;state->progress.shardCount=config.shardCount;
         state->config.sources = {};
         state->sources.assign(config.sources.begin(), config.sources.end());
         for(const auto& source:state->sources) state->sourceStates.push_back(initialBinaryMarketSourceState(source));
@@ -356,7 +383,7 @@ Status BinaryMarketCorpusWriter::start(
             static_cast<std::uint32_t>(state->sources.size());
         state->manifest.shardCount = config.shardCount;
         const std::uint64_t fixedMetadata =
-            2u * sizeof(BinaryMarketManifest) +
+            2u * sizeof(BinaryMarketManifest) + 4096u +
             3u * sizeof(BinaryMarketTableHeader) +
             state->sources.size() * sizeof(BinaryMarketSource) +
             state->sources.size() * kBinaryMarketStoredChannelCount *
@@ -366,7 +393,7 @@ Status BinaryMarketCorpusWriter::start(
         if (config.pendingRecordCapacity > std::numeric_limits<std::uint64_t>::max()-ringRecords)
             return Status::OutOfRange;
         const std::uint64_t maximumPendingRecords = ringRecords + config.pendingRecordCapacity;
-        const std::uint64_t worstRecordBytes=binaryMarketPendingRecordBytes()+sizeof(BinaryMarketIndexEntry)+
+        const std::uint64_t worstRecordBytes=binaryMarketPendingRecordBytes()+2u*sizeof(CorpusBlockRange)+sizeof(BinaryMarketIndexEntry)+
             sizeof(BinaryMarketSegmentHeader)+sizeof(BinaryMarketSegmentFooter);
         if(maximumPendingRecords>std::numeric_limits<std::uint64_t>::max()/worstRecordBytes) return Status::OutOfRange;
         const auto pendingNewSources=std::min<std::uint64_t>(maximumPendingRecords,kBinaryMarketMaximumSources-state->sources.size());
@@ -395,6 +422,8 @@ Status BinaryMarketCorpusWriter::start(
                                                   error) || error) {
             return Status::IoError;
         }
+        const auto parent=config.root.parent_path().empty()?std::filesystem::path("."):config.root.parent_path();
+        if(!syncCorpusFile(parent,true) || !syncCorpusFile(config.root,true)) return Status::IoError;
         BinaryMarketManifest pending = state->manifest;
         pending.stopReason = BinaryMarketStopReason::Error;
         if (!writeManifestAtomic(config.root / "manifest.pending", pending))
@@ -439,6 +468,8 @@ Status BinaryMarketCorpusWriter::registerSources(std::span<const BinaryMarketSou
 Status BinaryMarketCorpusWriter::append(
     const BinaryMarketRecord& record) noexcept {
     if (!state_ || !state_->active) return Status::InvalidArgument;
+    if(state_->replayAnchorFrozen && record.header.receiveMonotonicNs<state_->manifest.replayAnchorMonotonicNs)
+        return Status::CorruptData;
     const bool lifecycle=record.header.channel==BinaryMarketChannel::SourceLifecycle;
     if (!validBinaryMarketRecord(record) || record.header.shardIndex>=state_->segments.size() ||
         record.header.sourceId>state_->sources.size()+(lifecycle?1u:0u) ||
@@ -481,7 +512,7 @@ Status BinaryMarketCorpusWriter::append(
         const bool indexNeeded = openNeeded ||
             segment->indexPositions.find(key) ==
                 segment->indexPositions.end();
-        std::uint64_t requiredBytes = binaryMarketPendingRecordBytes();
+        std::uint64_t requiredBytes = binaryMarketPendingRecordBytes()+2u*sizeof(CorpusBlockRange);
         if(newSource) requiredBytes+=sizeof(BinaryMarketSource)+kBinaryMarketStoredChannelCount*sizeof(BinaryMarketGap);
         if (openNeeded) {
             constexpr std::uint64_t fixedSegmentBytes =
@@ -606,6 +637,10 @@ Status BinaryMarketCorpusWriter::appendGap(
         return Status::InvalidArgument;
     }
     try {
+        for(auto& existing:state_->gaps) if(existing.sourceId==gap.sourceId && existing.channel==gap.channel) {
+            if(gap.gapEpoch<existing.gapEpoch) return Status::CorruptData;
+            existing=gap;return Status::Ok;
+        }
         if (state_->gaps.size() >= state_->maximumGapRecords)
             return Status::OutOfRange;
         state_->gaps.push_back(gap);
@@ -655,6 +690,9 @@ Status BinaryMarketCorpusWriter::finalize(
         state_->manifest.indexCrc32c = indexCrc;
         state_->manifest.gapsCrc32c = gapsCrc;
         state_->manifest.projectedBytes = state_->projectedBytes;
+        const auto commit=publishCut();
+        if(!isOk(commit)) return commit;
+        state_->manifest.projectedBytes=state_->projectedBytes;
         if (!writeManifestAtomic(state_->config.root / "manifest.bin",
                                  state_->manifest)) return Status::IoError;
         std::error_code error;
@@ -665,6 +703,74 @@ Status BinaryMarketCorpusWriter::finalize(
     } catch (...) {
         return Status::IoError;
     }
+}
+
+Status BinaryMarketCorpusWriter::updateProgress(const CorpusProducerProgress& progress) noexcept {
+    if(!state_ || !state_->active || progress.producerEpoch!=state_->config.producerEpoch ||
+       progress.shardCount!=state_->config.shardCount || progress.safeMonotonicNs<state_->progress.safeMonotonicNs ||
+       progress.lossEpoch<state_->progress.lossEpoch || progress.directoryRevision<state_->progress.directoryRevision)
+        return Status::InvalidArgument;
+    for(std::size_t n=0;n<progress.shardCount;++n)
+        if(progress.shardSequences[n]<state_->progress.shardSequences[n] ||
+           progress.shardSequences[n]>state_->segments[n].previousShardSequence) return Status::InvalidArgument;
+    state_->progress=progress;return Status::Ok;
+}
+Status BinaryMarketCorpusWriter::setReferencePayload(std::span<const std::uint8_t> payload) noexcept {
+    if(!state_ || !state_->active || payload.size()>state_->config.maximumReferenceBytes || payload.size()>kCorpusMaximumReferenceBytes) return Status::InvalidArgument;
+    try {state_->referencePayload.assign(payload.begin(),payload.end());return Status::Ok;}
+    catch(...) {return Status::IoError;}
+}
+Status BinaryMarketCorpusWriter::publishCut() noexcept {
+    if(!state_ || !state_->active || state_->cutGeneration==UINT64_MAX) return Status::InvalidArgument;
+    try {
+        for(auto& segment:state_->segments) if(segment.open) {
+            if(!flushBlock(*state_,segment)) return Status::IoError;
+            segment.stream.flush();
+            if(!segment.stream.good() || !syncCorpusFile(segment.partialPath)) return Status::IoError;
+        }
+        // Both atomic replacement files can coexist during commit. Reserve their
+        // full size in the hard corpus budget, including immutable block refs.
+        const auto cutBytes=4096u+state_->sources.size()*sizeof(BinaryMarketSource)+
+            state_->gaps.size()*sizeof(BinaryMarketGap)+state_->blocks.size()*sizeof(CorpusBlockRange)+state_->referencePayload.size();
+        const auto required=2u*cutBytes;
+        if(required>state_->cutReservedBytes) {
+            const auto increase=required-state_->cutReservedBytes;
+            if(!reserveBytes(*state_,increase)) return Status::OutOfRange;
+            state_->cutReservedBytes=required;
+        }
+        auto cut=std::make_shared<CorpusCut>();cut->generation=state_->cutGeneration+1u;
+        cut->committedMonotonicNs=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+        cut->manifest=state_->manifest;cut->manifest.projectedBytes=state_->projectedBytes;
+        cut->progress=state_->progress;cut->sources=state_->sources;cut->gaps=state_->gaps;
+        cut->blocks=state_->blocks;cut->referencePayload=state_->referencePayload;
+        cut->finalized=state_->manifest.finalizedReceiveNs>0;
+        if(state_->config.referenceVisibilityBinder) {
+            const auto previous=state_->publication->latest.load(std::memory_order_acquire);
+            const auto result=state_->config.referenceVisibilityBinder(cut->referencePayload,
+                previous?std::span<const std::uint8_t>(previous->referencePayload):std::span<const std::uint8_t>{},
+                cut->generation,cut->committedMonotonicNs);
+            if(!isOk(result)) return result;
+            if(cut->referencePayload.size()>state_->config.maximumReferenceBytes ||
+               cut->referencePayload.size()>kCorpusMaximumReferenceBytes) return Status::OutOfRange;
+            // Binder changes visibility fields in place; it must preserve the
+            // reserved payload byte count for bounded durable replacement.
+            if(cut->referencePayload.size()!=state_->referencePayload.size()) return Status::InvalidArgument;
+        }
+        if(!syncCorpusFile(state_->config.root/"segments",true)) return Status::IoError;
+        const auto result=writeCorpusCut(state_->config.root,*cut);
+        if(!isOk(result)) return result;
+        if(cut->manifest.recordCount && cut->progress.safeMonotonicNs>cut->manifest.replayAnchorMonotonicNs)
+            state_->replayAnchorFrozen=true;
+        ++state_->cutGeneration;state_->publication->latest.store(std::move(cut),std::memory_order_release);
+        return Status::Ok;
+    } catch(...) {return Status::IoError;}
+}
+std::shared_ptr<const CorpusCut> BinaryMarketCorpusWriter::latestCut() const noexcept {
+    return state_?state_->publication->latest.load(std::memory_order_acquire):nullptr;
+}
+std::shared_ptr<CorpusPublication> BinaryMarketCorpusWriter::publication() const noexcept {
+    return state_?state_->publication:nullptr;
 }
 
 BinaryMarketWriterSnapshot BinaryMarketCorpusWriter::snapshot() const noexcept {

@@ -1,27 +1,31 @@
 find_package(Threads REQUIRED)
+cxet_add_offline_suite(hftrec_offline_service OWNER hft-recorder EXPECTED 4
+  SOURCES Service/RecorderServiceCases.cpp
+  LIBRARIES hftrec::service_client hftrec::reference_contract
+  LABELS capture service)
 cxet_add_offline_suite(hftrec_offline_corpus OWNER hft-recorder EXPECTED 33
-  SOURCES CorpusCases.cpp LIBRARIES hftrec::corpus_contract
+  SOURCES Corpus/CorpusCases.cpp LIBRARIES hftrec::corpus_contract
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS corpus)
 cxet_add_offline_suite(hftrec_offline_json_terminal OWNER hft-recorder EXPECTED 8
-  SOURCES JsonTerminalCases.cpp LIBRARIES hftrec_json_capture
+  SOURCES Json/JsonTerminalCases.cpp LIBRARIES hftrec_json_capture
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS capture replay)
 cxet_add_offline_suite(hftrec_offline_capture_writer OWNER hft-recorder EXPECTED 2
-  SOURCES CaptureWriterCases.cpp LIBRARIES hftrec::corpus_contract
+  SOURCES Capture/CaptureWriterCases.cpp LIBRARIES hftrec::corpus_contract
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS capture)
 cxet_add_offline_suite(hftrec_offline_capture_selection OWNER hft-recorder EXPECTED 3
-  SOURCES RecorderCaptureSelectionCases.cpp LIBRARIES hftrec::capture_launch
+  SOURCES Capture/RecorderCaptureSelectionCases.cpp LIBRARIES hftrec::capture_launch
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Contracts/include" LABELS capture)
 cxet_add_offline_suite(hftrec_offline_capture_conversion OWNER hft-recorder EXPECTED 7
-  SOURCES ParserCaptureConversionCases.cpp LIBRARIES hftrec::capture_client
+  SOURCES ParserClient/ParserCaptureConversionCases.cpp LIBRARIES hftrec::capture_client
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS capture)
 cxet_add_offline_suite(hftrec_offline_capture_session OWNER hft-recorder EXPECTED 3
-  SOURCES RecorderCaptureSessionCases.cpp LIBRARIES hftrec::capture_launch
+  SOURCES Capture/RecorderCaptureSessionCases.cpp LIBRARIES hftrec::capture_launch
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Contracts/include" LABELS capture)
 cxet_add_offline_suite(hftrec_offline_capture_client_loss OWNER hft-recorder EXPECTED 3
-  SOURCES ParserCaptureClientLossCases.cpp LIBRARIES hftrec::capture_client Threads::Threads
+  SOURCES ParserClient/ParserCaptureClientLossCases.cpp LIBRARIES hftrec::capture_client Threads::Threads
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS capture)
 cxet_add_offline_suite(hftrec_offline_owned_parser OWNER hft-recorder EXPECTED 3
-  SOURCES RecorderOwnedParserCases.cpp LIBRARIES Threads::Threads
+  SOURCES ParserClient/RecorderOwnedParserCases.cpp LIBRARIES Threads::Threads
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS capture process)

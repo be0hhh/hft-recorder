@@ -48,6 +48,7 @@ set(HFTREC_CORE_SOURCES
     ../Lab/src/Arbitrage/CandleSpread.cpp
     src/Capture/Serialization/Candles2BulkState.cpp
     src/Capture/Coordinator/RecorderCaptureSession.cpp
+    src/Capture/Coordinator/RecorderReferenceCapture.cpp
     src/Corpus/Codec/VarInt.cpp
     src/Execution/ExecutionVenue.cpp
     src/History/BinanceVisionFormat.cpp
@@ -96,6 +97,7 @@ target_link_libraries(hftrec_core
         hftrec::capture_launch
         hftrec::capture_client
         hftp_client_headers
+        hft_parser::current_reference_client
         cxet::cxet_lib
         Threads::Threads
         absl::flat_hash_map

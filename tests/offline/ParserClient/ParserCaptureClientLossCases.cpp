@@ -122,6 +122,7 @@ public:
         cell.firstDroppedEventSequence.store(3);cell.lastDroppedEventSequence.store(3);
         cell.minimumDroppedReceiveRealtimeNs.store(203);cell.maximumDroppedReceiveRealtimeNs.store(203);
         cell.lastSourceGeneration.store(11);cell.lastShardIndex.store(0);
+        header->lossStarted.store(1,std::memory_order_release);
         header->lossEpoch.store(1,std::memory_order_release);
     }
 private:
@@ -211,18 +212,21 @@ void malformedAttachClosesEveryReceivedDescriptor() {
         CXET_CHECK(openDescriptorCount()==before);
     }
 }
-void knownLossRefusesActiveDrainBeforeSink() {
+void knownLossPersistsWithoutFreezingCapture() {
     CapturePeer peer;hftrec::capture::ParserMarketCaptureClient client;std::vector<corpus::BinaryMarketSource> directory;
     connect(client,peer,directory);peer.publish(1);peer.injectKnownLoss();
-    std::uint64_t sinkCalls=0,sourceCalls=0,drained=99;std::string error;
-    struct Counts {std::uint64_t* records;std::uint64_t* sources;} counts{&sinkCalls,&sourceCalls};
+    std::uint64_t sinkCalls=0,sourceCalls=0,gapCalls=0,drained=99;std::string error;
+    struct Counts {std::uint64_t* records;std::uint64_t* sources;std::uint64_t* gaps;} counts{&sinkCalls,&sourceCalls,&gapCalls};
     const auto status=client.drainTo([](void* p,const corpus::BinaryMarketRecord&) noexcept {
         ++*static_cast<Counts*>(p)->records;return Status::Ok;
     },&counts,16,drained,error,[](void* p,const corpus::BinaryMarketSource&) noexcept {
         ++*static_cast<Counts*>(p)->sources;return Status::Ok;
+    },nullptr,[](void* p,const corpus::BinaryMarketGap& gap) noexcept {
+        if(gap.droppedRecords!=1 || gap.firstDroppedEventSequence!=3) return Status::CorruptData;
+        ++*static_cast<Counts*>(p)->gaps;return Status::Ok;
     });
-    CXET_CHECK(status==Status::IoError && !error.empty());
-    CXET_CHECK(sinkCalls==0 && sourceCalls==0 && drained==0 && peer.ring->read.load()==0);
+    CXET_CHECK(status==Status::Ok && error.empty());
+    CXET_CHECK(sinkCalls==1 && sourceCalls==0 && gapCalls==1 && drained==1 && peer.ring->read.load()==1);
     CXET_CHECK(client.snapshot().lossEpoch==1 && !client.producerDisconnected());
     CXET_CHECK(client.stop(error)==Status::Ok);
 }
@@ -251,7 +255,7 @@ void frozenLossAllowsFinalDrainAndRetainsIncompleteLedger() {
 int main(int argc,char** argv) {
     const cxet::testing::Case cases[]{
         cxet::testing::Case{"capture.malformed_attach_closes_all_received_descriptors",malformedAttachClosesEveryReceivedDescriptor},
-        cxet::testing::Case{"capture.known_loss_aborts_active_drain_without_sink",knownLossRefusesActiveDrainBeforeSink},
+        cxet::testing::Case{"capture.known_loss_persists_without_freezing",knownLossPersistsWithoutFreezingCapture},
         cxet::testing::Case{"capture.frozen_loss_final_drain_retains_incomplete_ledger",frozenLossAllowsFinalDrainAndRetainsIncompleteLedger}};
     return cxet::testing::runCases(argc,argv,cases);
 }

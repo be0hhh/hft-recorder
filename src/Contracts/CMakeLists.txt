@@ -7,6 +7,7 @@ add_library(hftrec_corpus_contract STATIC
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Corpus/Codec/Crc32c.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Corpus/BinaryMarketCorpusReader.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Corpus/BinaryMarketCorpusWriter.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Corpus/CorpusCut.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Capture/Parser/BufferedCorpusWriter.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src/Replay/JsonLineParser.cpp
 )
@@ -21,6 +22,22 @@ target_include_directories(hftrec_corpus_contract
 )
 target_compile_features(hftrec_corpus_contract PUBLIC cxx_std_23)
 target_link_libraries(hftrec_corpus_contract PRIVATE hft_compressor::core Threads::Threads)
+
+# Producer-owned local client: no Qt, capture owner, credential or Parser
+# runtime dependency is allowed in a research frontend's link closure.
+add_library(hftrec_service_client STATIC
+    ${CMAKE_CURRENT_LIST_DIR}/../Service/src/RecorderServiceClient.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../Service/src/RecorderServiceConfig.cpp)
+add_library(hftrec::service_client ALIAS hftrec_service_client)
+target_include_directories(hftrec_service_client PUBLIC
+    ${CMAKE_CURRENT_LIST_DIR}/../Service/include)
+target_compile_features(hftrec_service_client PUBLIC cxx_std_23)
+target_link_libraries(hftrec_service_client PUBLIC hftrec::corpus_contract cxet::read_only_contracts)
+set_target_properties(hftrec_service_client PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_library(hftrec_reference_contract INTERFACE)
+add_library(hftrec::reference_contract ALIAS hftrec_reference_contract)
+target_link_libraries(hftrec_reference_contract INTERFACE hftrec::corpus_contract hftp_contract_headers)
 
 # Secret-free Recorder launch selection is shared by the GUI/CLI and its
 # offline acceptance tests, without pulling in live Parser process ownership.

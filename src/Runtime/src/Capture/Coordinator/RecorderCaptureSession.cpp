@@ -2,6 +2,8 @@
 #include "Private/ManagedParser.hpp"
 #include "../Parser/ParserMarketCaptureClient.hpp"
 #include "../Parser/BufferedCorpusWriter.hpp"
+#include "RecorderReferenceCapture.hpp"
+#include "hftrec/CorpusContract/RecorderReference.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -111,6 +113,8 @@ struct RecorderCaptureSessionState final {
     mutable std::mutex mutex{};
     RecorderCaptureSessionSnapshot snapshot{};
     std::vector<corpus::BinaryMarketSource> sources{};
+    std::shared_ptr<const corpus::CorpusCut> latestCut{};
+    std::shared_ptr<corpus::CorpusPublication> publication{};
 };
 
 namespace {
@@ -194,18 +198,26 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
         config.maximumBytes=state.config.maximumBytes;config.segmentTargetBytes=state.config.segmentBytes;
         config.targetDurationNs=state.config.durationSec*1'000'000'000u;
         config.startedReceiveNs=attached.captureStartedReceiveNs;config.startedMonotonicNs=attached.captureStartedMonotonicNs;
-        config.ringCapacity=attached.ringCapacity;config.shardCount=attached.shardCount;config.pendingRecordCapacity=8192u;
+        config.ringCapacity=attached.ringCapacity;config.shardCount=attached.shardCount;
+        config.pendingRecordCapacity=state.config.writerQueueRecords;
+        config.retainedCompressedBytes=state.config.retainedCompressedBytes;
+        config.maximumReferenceBytes=state.config.maximumReferenceBytes;
+        config.referenceVisibilityBinder=&corpus::bindRecorderReferenceVisibility;
         if(config.targetDurationNs>std::numeric_limits<std::uint64_t>::max()-config.startedMonotonicNs) {
             (void)client.stop(error);publishError(Status::OutOfRange,"capture duration exceeds monotonic clock range");throw Status::OutOfRange;
         }
         status=writer.start(config);
         if(!isOk(status)) {(void)client.stop(error);publishError(status,"compressed corpus cannot start: output or final drain quota is invalid");throw status;}
         BufferedCorpusWriter buffered(writer);
-        status=buffered.start(8192u);
+        status=buffered.start(state.config.writerQueueRecords);
         if(!isOk(status)) {(void)client.stop(error);(void)writer.finalize(corpus::BinaryMarketStopReason::Error,realtimeNs());publishError(status,"bounded capture writer queue failed");throw status;}
+        RecorderReferenceCapture references;
+        status=references.start(runtime,sources,buffered,state.config.maximumReferenceBytes);
+        if(!isOk(status)) {(void)client.stop(error);(void)buffered.finish();(void)writer.finalize(corpus::BinaryMarketStopReason::Error,realtimeNs());publishError(status,"bounded reference acquisition failed");throw status;}
         {
             std::lock_guard lock(state.mutex);state.sources=sources;state.snapshot.connected=true;
             state.snapshot.sourceCount=static_cast<std::uint32_t>(sources.size());state.snapshot.producerEpoch=attached.producerEpoch;
+            state.publication=writer.publication();state.latestCut=writer.latestCut();
         }
         std::array<std::uint64_t,corpus::kBinaryMarketChannelCount> counts{};
         struct Sink {BufferedCorpusWriter* writer;decltype(counts)* counters;RecorderCaptureSessionState* state;};
@@ -236,6 +248,12 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
                 } catch(...) {return Status::IoError;}
             }
             return result;
+        };
+        const auto progressCallback=[](void* context,const corpus::CorpusProducerProgress& progress) noexcept {
+            return static_cast<Sink*>(context)->writer->appendProgress(progress);
+        };
+        const auto gapCallback=[](void* context,const corpus::BinaryMarketGap& gap) noexcept {
+            return static_cast<Sink*>(context)->writer->appendGap(gap);
         };
         std::vector<RecorderSubscriptionChange> changes;
         std::size_t changePosition=0u;std::uint64_t handledRevision=0u,workingRevision=0u;
@@ -297,11 +315,13 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
                 }
             }
             std::uint64_t drained=0u;
-            status=client.drainTo(callback,&sink,8192u,drained,error,sourceCallback);
+            status=client.drainTo(callback,&sink,8192u,drained,error,sourceCallback,progressCallback,gapCallback);
             if(status==Status::OutOfRange) {reason=corpus::BinaryMarketStopReason::Quota;break;}
             if(!isOk(status)) {failed=true;reason=corpus::BinaryMarketStopReason::Error;break;}
+            if(!isOk(references.status())) {failed=true;reason=corpus::BinaryMarketStopReason::Error;error="reference acquisition failed; metadata remains missing";break;}
             if(Clock::now()>=nextSnapshot) {
                 std::lock_guard lock(state.mutex);state.snapshot.channelRecords=counts;state.snapshot.writer=buffered.snapshot();
+                state.latestCut=buffered.latestCut();
                 nextSnapshot=Clock::now()+std::chrono::milliseconds(250);
             }
             if(drained==0u) std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -318,7 +338,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
                 if(complete) {controlPending=false;if(!isOk(outcome)) selectionError(outcome,error);}
                 if(controlPending && ingestAllowed) {
                     std::uint64_t drained=0u;
-                    const auto ingestStatus=client.drainTo(callback,&sink,8192u,drained,error,sourceCallback);
+                    const auto ingestStatus=client.drainTo(callback,&sink,8192u,drained,error,sourceCallback,progressCallback,gapCallback);
                     if(ingestStatus==Status::OutOfRange) ingestAllowed=false;
                     else if(!isOk(ingestStatus)) {failed=true;break;}
                 }
@@ -332,6 +352,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
             else if(client.producerDisconnected()) {status=client.freezeDisconnected(error);frozen=isOk(status);}
             if(!frozen) failed=true;
         }
+        references.stop();
         status=buffered.finish();
         if(status!=Status::Ok && status!=Status::OutOfRange) failed=true;
         if(frozen && isOk(writer.beginFinalDrain())) {
@@ -366,6 +387,10 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
                         } catch(...) {return Status::IoError;}
                     }
                     return result;
+                },[](void* context,const corpus::CorpusProducerProgress& progress) noexcept {
+                    return static_cast<FinalSink*>(context)->writer->updateProgress(progress);
+                },[](void* context,const corpus::BinaryMarketGap& gap) noexcept {
+                    return static_cast<FinalSink*>(context)->writer->appendGap(gap);
                 });
                 if(!isOk(status) || drained==0u) failed=true;
             }
@@ -379,6 +404,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
         status=writer.finalize(reason,realtimeNs());
         {
             std::lock_guard lock(state.mutex);state.snapshot.channelRecords=counts;state.snapshot.writer=writer.snapshot();
+            state.latestCut=writer.latestCut();
             state.snapshot.complete=!failed && isOk(status);state.snapshot.status=state.snapshot.complete?Status::Ok:Status::IoError;
             if(!state.snapshot.complete) state.snapshot.error=error.empty()?"capture failed; corpus remains incomplete":error;
         }
@@ -454,7 +480,8 @@ Status RecorderCaptureSession::updateSelection(const RecorderCaptureSessionConfi
         if(config.maximumBytes!=state_->config.maximumBytes || config.durationSec!=state_->config.durationSec ||
            config.outputRoot!=state_->config.outputRoot || config.envPath!=state_->config.envPath ||
            config.parserTemplate!=state_->config.parserTemplate || config.segmentBytes!=state_->config.segmentBytes ||
-           config.workspaceRoot!=state_->config.workspaceRoot) {
+           config.workspaceRoot!=state_->config.workspaceRoot || config.retainedCompressedBytes!=state_->config.retainedCompressedBytes ||
+           config.maximumReferenceBytes!=state_->config.maximumReferenceBytes || config.writerQueueRecords!=state_->config.writerQueueRecords) {
             error="storage, duration, credentials and Parser template require a new capture session";return Status::InvalidArgument;
         }
         std::ifstream file(config.parserTemplate,std::ios::binary);
@@ -491,5 +518,11 @@ RecorderCaptureSessionSnapshot RecorderCaptureSession::snapshot() const noexcept
 std::vector<corpus::BinaryMarketSource> RecorderCaptureSession::sourceDirectory() const noexcept {
     if(!state_) return {};
     try {std::lock_guard lock(state_->mutex);return state_->sources;} catch(...) {return {};}
+}
+std::shared_ptr<const corpus::CorpusCut> RecorderCaptureSession::latestCut() const noexcept {
+    if(!state_)return {};std::lock_guard lock(state_->mutex);return state_->latestCut;
+}
+std::shared_ptr<corpus::CorpusPublication> RecorderCaptureSession::publication() const noexcept {
+    if(!state_)return {};std::lock_guard lock(state_->mutex);return state_->publication;
 }
 } // namespace hftrec::capture

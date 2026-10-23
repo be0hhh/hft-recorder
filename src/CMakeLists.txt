@@ -2,6 +2,7 @@
 # Layout per docs/SOURCE_LAYOUT_AND_VARIANTS.md.
 
 add_subdirectory(Runtime)
+add_subdirectory(Service)
 
 if(HFTREC_BUILD_APP_TARGETS OR HFTREC_BUILD_GUI)
     add_subdirectory(Lab/Codecs)

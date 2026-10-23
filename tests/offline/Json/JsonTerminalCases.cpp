@@ -7,7 +7,7 @@
 #include "Capture/Session/SessionId.hpp"
 #include "cxet/Api/Dispatch/BuildDispatch.hpp"
 #include "cxet/Os/ClockSource.hpp"
-#include "../../src/Process/src/Finam/FinamEnvSync.hpp"
+#include "../../../src/Process/src/Finam/FinamEnvSync.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>

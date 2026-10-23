@@ -3,6 +3,7 @@
 
 #include "hftrec/CorpusContract/BinaryMarketCorpusFormat.hpp"
 #include "hftrec/Status.hpp"
+#include "hftrec/CorpusContract/CorpusCut.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,11 @@ struct BinaryMarketWriterConfig final {
     std::uint64_t startedMonotonicNs{0u};
     std::uint32_t ringCapacity{0u};
     std::uint16_t shardCount{0u};
+    // Recorder cold compressed retention; overflow evicts oldest bytes to archive.
+    Status (*referenceVisibilityBinder)(std::vector<std::uint8_t>&,
+        std::span<const std::uint8_t>,std::uint64_t,std::uint64_t) noexcept{nullptr};
+    std::uint64_t maximumReferenceBytes{64u * 1024u * 1024u};
+    std::uint64_t retainedCompressedBytes{16u * 1024u * 1024u};
     // Additional records already accepted into the asynchronous writer queue.
     std::uint64_t pendingRecordCapacity{0u};
 };
@@ -53,6 +59,12 @@ class BinaryMarketCorpusWriter final {
     [[nodiscard]] Status registerSources(std::span<const BinaryMarketSource> sources) noexcept;
     [[nodiscard]] Status append(const BinaryMarketRecord& record) noexcept;
     [[nodiscard]] Status appendGap(const BinaryMarketGap& gap) noexcept;
+    [[nodiscard]] Status updateProgress(const CorpusProducerProgress& progress) noexcept;
+    [[nodiscard]] Status setReferencePayload(std::span<const std::uint8_t> payload) noexcept;
+    // Flush sparse blocks and atomically commit referenced durable bytes.
+    [[nodiscard]] Status publishCut() noexcept;
+    [[nodiscard]] std::shared_ptr<const CorpusCut> latestCut() const noexcept;
+    [[nodiscard]] std::shared_ptr<CorpusPublication> publication() const noexcept;
     // Switches from the normal capture budget to the hard byte ceiling after
     // parser publication has frozen. start() reserves enough bounded capacity
     // to persist every record that can still be committed in the shard rings.
