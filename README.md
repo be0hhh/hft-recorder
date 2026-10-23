@@ -5,6 +5,50 @@
 hft-recorder is the GUI-first capture, corpus, validation and compression-lab
 product in the CXET source family.
 
+## Headless recording service
+
+`hft-recorderd` reuses the capture coordinator without Qt/QML. The canonical
+`essential` family profile builds headless/CLI products; `full` additionally
+retains the existing desktop application and lab workflows. For example,
+`CXET_FAMILY_PROFILE=full ./compile.sh` selects that GUI product composition.
+Neither build preparation nor recording starts implicitly.
+
+The service accepts a bounded plain-text profile:
+
+```ini
+workspaceRoot=/absolute/CXETCPP
+parserTemplate=/absolute/parser-profile.ini
+envPath=/absolute/.env
+outputRoot=/absolute/recordings
+venue=exchange|market|*
+channelMask=7
+durationSec=86400
+maximumBytes=10737418240
+segmentBytes=67108864
+retainedCompressedBytes=16777216
+maximumReferenceBytes=67108864
+writerQueueRecords=8192
+```
+
+Select actual registered exchange/market names. Mask `7` requests the supported
+BBO/trades/depth set; required unavailable channels are refused. The existing
+Parser template and its adjacent `.env` remain producer-owned; credentials are
+not copied into research specifications or sent to interfaces.
+
+An explicit launch of an already-built product is:
+
+```bash
+build/bin/hft-recorderd --runtime-dir /absolute/private/recorder --config /absolute/recorder.conf --start
+```
+
+Without `--start`, the service only prepares its control endpoint. Recording
+and compression have independent owners; a slow research client cannot hold
+them back. Receive clocks and source identity survive compression byte for
+byte. Durable active cuts include source/reference visibility and loss facts,
+allowing bounded RAM streaming, archive catch-up and later offline analysis.
+The GUI, existing terminal tools, validation and compression experiments remain
+available. No service or live recording was launched as part of this change.
+
 ## Current product contract
 
 - Qt 6 + QML desktop workflow;
