@@ -236,7 +236,7 @@ ApplicationWindow {
             anchors.rightMargin: 16
             spacing: 16
             Label { text: "hft-recorder"; font.bold: true; font.pixelSize: 20; color: root.textColor }
-            Label { text: rootAppVm.renderDiagnosticsText; color: root.mutedTextColor; font.pixelSize: 12 }
+            Label { text: rootAppVm.renderDiagnosticText; color: root.mutedTextColor; font.pixelSize: 12 }
             Item { Layout.fillWidth: true }
             Button {
                 text: "Reset layout"

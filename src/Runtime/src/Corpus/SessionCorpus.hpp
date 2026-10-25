@@ -34,7 +34,7 @@ struct SessionCorpus {
     std::string instrumentMetadataDocument;
     std::string sessionAuditDocument;
     std::string integrityReportDocument;
-    std::string loaderDiagnosticsDocument;
+    std::string loaderDiagnosticDocument;
 };
 
 }  // namespace hftrec::corpus

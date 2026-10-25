@@ -1,7 +1,6 @@
 #include "SessionManifest.hpp"
 
 #include <cstddef>
-#include <limits>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -40,16 +39,6 @@ bool parseStringArray(JsonParser& parser, std::vector<std::string>& out) noexcep
         if (parser.peek(']')) break;
     } while (parser.parseComma());
     return parser.parseArrayEnd();
-}
-
-bool parseInt32Field(JsonParser& parser, std::int32_t& out) noexcept {
-    std::int64_t value = 0;
-    if (!parser.parseInt64(value)) return false;
-    if (value < std::numeric_limits<std::int32_t>::min() || value > std::numeric_limits<std::int32_t>::max()) {
-        return false;
-    }
-    out = static_cast<std::int32_t>(value);
-    return true;
 }
 
 bool parseUint64Field(JsonParser& parser, std::uint64_t& out) noexcept {
@@ -91,17 +80,22 @@ bool parseSeverityString(std::string_view value, IntegritySeverity& out) noexcep
 
 bool parseIdentityObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
+    if (parser.peek('}')) return false;
+    unsigned seen = 0u;
     std::string key;
     do {
         if (!parser.parseKey(key)) return false;
         if (key == "session_id") {
+            seen |= 1u << 0u;
             if (!parser.parseString(manifest.sessionId)) return false;
         } else if (key == "exchange") {
+            seen |= 1u << 1u;
             if (!parser.parseString(manifest.exchange)) return false;
         } else if (key == "market") {
+            seen |= 1u << 2u;
             if (!parser.parseString(manifest.market)) return false;
         } else if (key == "symbols") {
+            seen |= 1u << 3u;
             if (!parseStringArray(parser, manifest.symbols)) return false;
         } else if (key == "route_symbols") {
             if (!parser.skipValue()) return false;
@@ -112,34 +106,41 @@ bool parseIdentityObject(JsonParser& parser, SessionManifest& manifest) noexcept
         }
         if (parser.peek('}')) break;
     } while (parser.parseComma());
-    return parser.parseObjectEnd();
+    return seen == 15u && parser.parseObjectEnd();
 }
 
 
 bool parseCaptureObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
+    if (parser.peek('}')) return false;
+    unsigned seen = 0u;
     std::string key;
     do {
         if (!parser.parseKey(key)) return false;
         if (key == "selected_parent_dir") {
+            seen |= 1u << 0u;
             if (!parser.parseString(manifest.selectedParentDir)) return false;
         } else if (key == "started_at_ns") {
+            seen |= 1u << 1u;
             if (!parseInt64Field(parser, manifest.startedAtNs)) return false;
         } else if (key == "ended_at_ns") {
+            seen |= 1u << 2u;
             if (!parseInt64Field(parser, manifest.endedAtNs)) return false;
         } else if (key == "target_duration_sec") {
+            seen |= 1u << 3u;
             if (!parseInt64Field(parser, manifest.targetDurationSec)) return false;
         } else if (key == "actual_duration_sec") {
+            seen |= 1u << 4u;
             if (!parseInt64Field(parser, manifest.actualDurationSec)) return false;
         } else if (key == "snapshot_interval_sec") {
+            seen |= 1u << 5u;
             if (!parseInt64Field(parser, manifest.snapshotIntervalSec)) return false;
         } else {
             if (!parser.skipValue()) return false;
         }
         if (parser.peek('}')) break;
     } while (parser.parseComma());
-    return parser.parseObjectEnd();
+    return seen == 63u && parser.parseObjectEnd();
 }
 
 bool parseArrivalClockObject(JsonParser& parser,
@@ -225,53 +226,60 @@ bool parseChannelObject(JsonParser& parser,
                         bool& enabled,
                         bool& requiredWhenEnabled,
                         std::string& path,
-                        std::string& rowSchema,
                         std::uint64_t& count,
                         std::string* sidecarPath = nullptr) noexcept {
     if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
+    if (parser.peek('}')) return false;
+    std::uint16_t seen = 0u;
     std::string key;
     do {
         if (!parser.parseKey(key)) return false;
         if (key == "enabled") {
+            seen |= std::uint16_t{1u} << 0u;
             if (!parser.parseBool(enabled)) return false;
         } else if (key == "required_when_enabled") {
+            seen |= std::uint16_t{1u} << 1u;
             if (!parser.parseBool(requiredWhenEnabled)) return false;
         } else if (key == "path") {
+            seen |= std::uint16_t{1u} << 2u;
             if (!parser.parseString(path)) return false;
         } else if (key == "sidecar_path") {
+            seen |= std::uint16_t{1u} << 4u;
             if (sidecarPath == nullptr) {
                 if (!parser.skipValue()) return false;
             } else if (!parser.parseString(*sidecarPath)) {
                 return false;
             }
-        } else if (key == "row_schema") {
-            if (!parser.parseString(rowSchema)) return false;
         } else if (key == "declared_event_count") {
+            seen |= std::uint16_t{1u} << 3u;
             if (!parseUint64Field(parser, count)) return false;
         } else {
             if (!parser.skipValue()) return false;
         }
         if (parser.peek('}')) break;
     } while (parser.parseComma());
-    return parser.parseObjectEnd();
+    const std::uint16_t required = sidecarPath == nullptr ? 15u : 31u;
+    return (seen & required) == required && parser.parseObjectEnd();
 }
 
 bool parseTradesChannelObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
+    if (parser.peek('}')) return false;
+    std::uint16_t seen = 0u;
     std::string key;
     do {
         if (!parser.parseKey(key)) return false;
         if (key == "enabled") {
+            seen |= std::uint16_t{1u} << 0u;
             if (!parser.parseBool(manifest.tradesEnabled)) return false;
         } else if (key == "required_when_enabled") {
+            seen |= std::uint16_t{1u} << 1u;
             if (!parser.parseBool(manifest.tradesRequiredWhenEnabled)) return false;
         } else if (key == "path") {
+            seen |= std::uint16_t{1u} << 2u;
             if (!parser.parseString(manifest.tradesPath)) return false;
-        } else if (key == "row_schema") {
-            if (!parser.parseString(manifest.tradesRowSchema)) return false;
         } else if (key == "declared_event_count") {
+            seen |= std::uint16_t{1u} << 3u;
             if (!parseUint64Field(parser, manifest.tradesCount)) return false;
         } else if (key == "history_warmup_sec") {
             if (!parseInt64Field(parser, manifest.tradesHistoryWarmupSec)) return false;
@@ -292,99 +300,102 @@ bool parseTradesChannelObject(JsonParser& parser, SessionManifest& manifest) noe
         }
         if (parser.peek('}')) break;
     } while (parser.parseComma());
-    return parser.parseObjectEnd();
+    constexpr std::uint16_t required = (std::uint16_t{1u} << 4u) - 1u;
+    return seen == required && parser.parseObjectEnd();
 }
 
 
 bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
+    if (parser.peek('}')) return false;
+    std::uint16_t seen = 0u;
     std::string key;
     do {
         if (!parser.parseKey(key)) return false;
         if (key == "trades") {
+            seen |= std::uint16_t{1u} << 0u;
             if (!parseTradesChannelObject(parser, manifest)) {
                 return false;
             }
         } else if (key == "liquidations") {
+            seen |= std::uint16_t{1u} << 1u;
             if (!parseChannelObject(parser,
                                     manifest.liquidationsEnabled,
                                     manifest.liquidationsRequiredWhenEnabled,
                                     manifest.liquidationsPath,
-                                    manifest.liquidationsRowSchema,
                                     manifest.liquidationsCount)) {
                 return false;
             }
         } else if (key == "bookticker") {
+            seen |= std::uint16_t{1u} << 2u;
             if (!parseChannelObject(parser,
                                     manifest.bookTickerEnabled,
                                     manifest.bookTickerRequiredWhenEnabled,
                                     manifest.bookTickerPath,
-                                    manifest.bookTickerRowSchema,
                                     manifest.bookTickerCount)) {
                 return false;
             }
         } else if (key == "depth") {
+            seen |= std::uint16_t{1u} << 3u;
             if (!parseChannelObject(parser,
                                     manifest.orderbookEnabled,
                                     manifest.orderbookRequiredWhenEnabled,
                                     manifest.depthPath,
-                                    manifest.depthRowSchema,
                                     manifest.depthCount,
                                     &manifest.depthSidecarPath)) {
                 return false;
             }
         } else if (key == "candles") {
+            seen |= std::uint16_t{1u} << 4u;
             if (!parseChannelObject(parser,
                                     manifest.candlesEnabled,
                                     manifest.candlesRequiredWhenEnabled,
                                     manifest.candlesPath,
-                                    manifest.candlesRowSchema,
                                     manifest.candlesCount)) {
                 return false;
             }
         } else if (key == "candles2") {
+            seen |= std::uint16_t{1u} << 5u;
             if (!parseChannelObject(parser,
                                     manifest.candles2Enabled,
                                     manifest.candles2RequiredWhenEnabled,
                                     manifest.candles2Path,
-                                    manifest.candles2RowSchema,
                                     manifest.candles2Count)) {
                 return false;
             }
         } else if (key == "mark_price") {
+            seen |= std::uint16_t{1u} << 6u;
             if (!parseChannelObject(parser,
                                     manifest.markPriceEnabled,
                                     manifest.markPriceRequiredWhenEnabled,
                                     manifest.markPricePath,
-                                    manifest.markPriceRowSchema,
                                     manifest.markPriceCount)) {
                 return false;
             }
         } else if (key == "index_price") {
+            seen |= std::uint16_t{1u} << 7u;
             if (!parseChannelObject(parser,
                                     manifest.indexPriceEnabled,
                                     manifest.indexPriceRequiredWhenEnabled,
                                     manifest.indexPricePath,
-                                    manifest.indexPriceRowSchema,
                                     manifest.indexPriceCount)) {
                 return false;
             }
         } else if (key == "funding") {
+            seen |= std::uint16_t{1u} << 8u;
             if (!parseChannelObject(parser,
                                     manifest.fundingEnabled,
                                     manifest.fundingRequiredWhenEnabled,
                                     manifest.fundingPath,
-                                    manifest.fundingRowSchema,
                                     manifest.fundingCount)) {
                 return false;
             }
         } else if (key == "price_limit") {
+            seen |= std::uint16_t{1u} << 9u;
             if (!parseChannelObject(parser,
                                     manifest.priceLimitEnabled,
                                     manifest.priceLimitRequiredWhenEnabled,
                                     manifest.priceLimitPath,
-                                    manifest.priceLimitRowSchema,
                                     manifest.priceLimitCount)) {
                 return false;
             }
@@ -393,7 +404,8 @@ bool parseChannelsObject(JsonParser& parser, SessionManifest& manifest) noexcept
         }
         if (parser.peek('}')) break;
     } while (parser.parseComma());
-    return parser.parseObjectEnd();
+    constexpr std::uint16_t required = (std::uint16_t{1u} << 10u) - 1u;
+    return seen == required && parser.parseObjectEnd();
 }
 
 bool parseChannelRuntimeHealthObject(JsonParser& parser, ChannelRuntimeHealth& health) noexcept {
@@ -454,7 +466,8 @@ bool parseRuntimeHealthObject(JsonParser& parser, SessionManifest& manifest) noe
 
 bool parseArtifactsObject(JsonParser& parser, SessionManifest& manifest) noexcept {
     if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
+    if (parser.peek('}')) return false;
+    std::uint16_t seen = 0u;
     std::string key;
     do {
         if (!parser.parseKey(key)) return false;
@@ -463,19 +476,24 @@ bool parseArtifactsObject(JsonParser& parser, SessionManifest& manifest) noexcep
         } else if (key == "support") {
             if (!parseStringArray(parser, manifest.supportArtifacts)) return false;
         } else if (key == "instrument_metadata_path") {
+            seen |= std::uint16_t{1u} << 0u;
             if (!parser.parseString(manifest.instrumentMetadataPath)) return false;
         } else if (key == "session_audit_path") {
+            seen |= std::uint16_t{1u} << 1u;
             if (!parser.parseString(manifest.sessionAuditPath)) return false;
-        } else if (key == "loader_diagnostics_path") {
-            if (!parser.parseString(manifest.loaderDiagnosticsPath)) return false;
+        } else if (key == "loader_diagnostic_path") {
+            seen |= std::uint16_t{1u} << 2u;
+            if (!parser.parseString(manifest.loaderDiagnosticPath)) return false;
         } else if (key == "market_data_launch_path") {
+            seen |= std::uint16_t{1u} << 3u;
             if (!parser.parseString(manifest.marketDataLaunchPath)) return false;
         } else {
             if (!parser.skipValue()) return false;
         }
         if (parser.peek('}')) break;
     } while (parser.parseComma());
-    return parser.parseObjectEnd();
+    constexpr std::uint16_t required = (std::uint16_t{1u} << 4u) - 1u;
+    return seen == required && parser.parseObjectEnd();
 }
 
 
@@ -583,50 +601,6 @@ bool parseChannelIntegrityGroupObject(JsonParser& parser, SessionManifest& manif
 
 
 
-bool isSupportedCaptureContractVersion(std::string_view version) noexcept {
-    return version == kCaptureContractVersionCurrent;
-}
-
-bool isSupportedTradesRowSchema(std::string_view schema) noexcept {
-    return schema == kTradesRowSchemaCurrent;
-}
-
-bool isSupportedLiquidationsRowSchema(std::string_view schema) noexcept {
-    return schema == kLiquidationsRowSchemaCurrent;
-}
-
-bool isSupportedBookTickerRowSchema(std::string_view schema) noexcept {
-    return schema == kBookTickerRowSchemaCurrent;
-}
-
-bool isSupportedDepthRowSchema(std::string_view schema) noexcept {
-    return schema == kDepthRowSchemaCurrent;
-}
-
-bool isDepthTapeSidecarSchema(std::string_view schema) noexcept {
-    return schema == kDepthRowSchemaCurrent;
-}
-
-bool isSupportedCandlesRowSchema(std::string_view schema) noexcept {
-    return schema == kCandlesRowSchemaCurrent;
-}
-
-bool isSupportedMarkPriceRowSchema(std::string_view schema) noexcept {
-    return schema == kMarkPriceRowSchemaCurrent;
-}
-
-bool isSupportedIndexPriceRowSchema(std::string_view schema) noexcept {
-    return schema == kIndexPriceRowSchemaCurrent;
-}
-
-bool isSupportedFundingRowSchema(std::string_view schema) noexcept {
-    return schema == kFundingRowSchemaCurrent;
-}
-
-bool isSupportedPriceLimitRowSchema(std::string_view schema) noexcept {
-    return schema == kPriceLimitRowSchemaCurrent;
-}
-
 void populateCanonicalArtifacts(SessionManifest& manifest) {
     manifest.canonicalArtifacts.clear();
     manifest.canonicalArtifacts.push_back("manifest.json");
@@ -636,7 +610,7 @@ void populateCanonicalArtifacts(SessionManifest& manifest) {
     if (manifest.bookTickerEnabled && !manifest.bookTickerPath.empty()) manifest.canonicalArtifacts.push_back(manifest.bookTickerPath);
     if (manifest.orderbookEnabled && !manifest.depthPath.empty()) {
         manifest.canonicalArtifacts.push_back(manifest.depthPath);
-        if (isDepthTapeSidecarSchema(manifest.depthRowSchema) && !manifest.depthSidecarPath.empty()) {
+        if (!manifest.depthSidecarPath.empty()) {
             manifest.canonicalArtifacts.push_back(manifest.depthSidecarPath);
         }
     }
@@ -652,21 +626,12 @@ void populateSupportArtifacts(SessionManifest& manifest) {
     manifest.supportArtifacts.clear();
     if (!manifest.sessionAuditPath.empty()) manifest.supportArtifacts.push_back(manifest.sessionAuditPath);
     if (!manifest.integrityReportPath.empty()) manifest.supportArtifacts.push_back(manifest.integrityReportPath);
-    if (!manifest.loaderDiagnosticsPath.empty()) manifest.supportArtifacts.push_back(manifest.loaderDiagnosticsPath);
+    if (!manifest.loaderDiagnosticPath.empty()) manifest.supportArtifacts.push_back(manifest.loaderDiagnosticPath);
     if (!manifest.marketDataLaunchPath.empty()) manifest.supportArtifacts.push_back(manifest.marketDataLaunchPath);
 }
 
 bool validateStructurally(SessionManifest& manifest) {
     manifest.structuralBlockers.clear();
-    if (!isSupportedManifestSchemaVersion(manifest.manifestSchemaVersion)) {
-        manifest.structuralBlockers.push_back("unsupported manifest schema version");
-    }
-    if (!isSupportedCorpusSchemaVersion(manifest.corpusSchemaVersion)) {
-        manifest.structuralBlockers.push_back("unsupported corpus schema version");
-    }
-    if (!isSupportedCaptureContractVersion(manifest.captureContractVersion)) {
-        manifest.structuralBlockers.push_back("unsupported capture contract version");
-    }
     if (manifest.sessionId.empty()) manifest.structuralBlockers.push_back("missing session_id");
     if (manifest.exchange.empty()) manifest.structuralBlockers.push_back("missing exchange");
     if (manifest.market.empty()) manifest.structuralBlockers.push_back("missing market");
@@ -674,65 +639,35 @@ bool validateStructurally(SessionManifest& manifest) {
     if (manifest.tradesEnabled && manifest.tradesRequiredWhenEnabled && manifest.tradesPath.empty()) {
         manifest.structuralBlockers.push_back("missing trades path");
     }
-    if (manifest.tradesEnabled && !isSupportedTradesRowSchema(manifest.tradesRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported trades row schema");
-    }
     if (manifest.liquidationsEnabled && manifest.liquidationsRequiredWhenEnabled && manifest.liquidationsPath.empty()) {
         manifest.structuralBlockers.push_back("missing liquidations path");
-    }
-    if (manifest.liquidationsEnabled && !isSupportedLiquidationsRowSchema(manifest.liquidationsRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported liquidations row schema");
     }
     if (manifest.bookTickerEnabled && manifest.bookTickerRequiredWhenEnabled && manifest.bookTickerPath.empty()) {
         manifest.structuralBlockers.push_back("missing bookticker path");
     }
-    if (manifest.bookTickerEnabled && !isSupportedBookTickerRowSchema(manifest.bookTickerRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported bookticker row schema");
-    }
-    if (manifest.orderbookEnabled && manifest.orderbookRequiredWhenEnabled && manifest.depthPath.empty()) {
+    if (manifest.orderbookEnabled && manifest.depthPath.empty()) {
         manifest.structuralBlockers.push_back("missing depth path");
     }
-    if (manifest.orderbookEnabled && !isSupportedDepthRowSchema(manifest.depthRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported depth row schema");
-    }
-    if (manifest.orderbookEnabled && isDepthTapeSidecarSchema(manifest.depthRowSchema) && manifest.depthSidecarPath.empty()) {
+    if (manifest.orderbookEnabled && manifest.depthSidecarPath.empty()) {
         manifest.structuralBlockers.push_back("missing depth sidecar path");
     }
     if (manifest.candlesEnabled && manifest.candlesRequiredWhenEnabled && manifest.candlesPath.empty()) {
         manifest.structuralBlockers.push_back("missing candles path");
     }
-    if (manifest.candlesEnabled && !isSupportedCandlesRowSchema(manifest.candlesRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported candles row schema");
-    }
     if (manifest.candles2Enabled && manifest.candles2RequiredWhenEnabled && manifest.candles2Path.empty()) {
         manifest.structuralBlockers.push_back("missing candles2 path");
-    }
-    if (manifest.candles2Enabled && !isSupportedCandlesRowSchema(manifest.candles2RowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported candles2 row schema");
     }
     if (manifest.markPriceEnabled && manifest.markPriceRequiredWhenEnabled && manifest.markPricePath.empty()) {
         manifest.structuralBlockers.push_back("missing mark_price path");
     }
-    if (manifest.markPriceEnabled && !isSupportedMarkPriceRowSchema(manifest.markPriceRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported mark_price row schema");
-    }
     if (manifest.indexPriceEnabled && manifest.indexPriceRequiredWhenEnabled && manifest.indexPricePath.empty()) {
         manifest.structuralBlockers.push_back("missing index_price path");
-    }
-    if (manifest.indexPriceEnabled && !isSupportedIndexPriceRowSchema(manifest.indexPriceRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported index_price row schema");
     }
     if (manifest.fundingEnabled && manifest.fundingRequiredWhenEnabled && manifest.fundingPath.empty()) {
         manifest.structuralBlockers.push_back("missing funding path");
     }
-    if (manifest.fundingEnabled && !isSupportedFundingRowSchema(manifest.fundingRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported funding row schema");
-    }
     if (manifest.priceLimitEnabled && manifest.priceLimitRequiredWhenEnabled && manifest.priceLimitPath.empty()) {
         manifest.structuralBlockers.push_back("missing price_limit path");
-    }
-    if (manifest.priceLimitEnabled && !isSupportedPriceLimitRowSchema(manifest.priceLimitRowSchema)) {
-        manifest.structuralBlockers.push_back("unsupported price_limit row schema");
     }
     manifest.structurallyLoadable = manifest.structuralBlockers.empty();
     return manifest.structurallyLoadable;
@@ -775,9 +710,6 @@ void appendChannelRuntimeHealth(std::ostringstream& out,
 std::string renderManifestJson(const SessionManifest& manifest) {
     std::ostringstream out;
     out << "{\n";
-    out << "  \"manifest_schema_version\": " << manifest.manifestSchemaVersion << ",\n";
-    out << "  \"corpus_schema_version\": " << manifest.corpusSchemaVersion << ",\n";
-    out << "  \"capture_contract_version\": " << json::quote(manifest.captureContractVersion) << ",\n";
     out << "  \"session_status\": " << json::quote(manifest.sessionStatus) << ",\n";
     out << "  \"identity\": {\n";
     out << "    \"session_id\": " << json::quote(manifest.sessionId) << ",\n";
@@ -822,7 +754,6 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"enabled\": " << boolToString(manifest.tradesEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.tradesRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.tradesPath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.tradesRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.tradesCount << ",\n";
     out << "      \"history_warmup_sec\": " << manifest.tradesHistoryWarmupSec << ",\n";
     out << "      \"history_requested_start_ns\": " << manifest.tradesHistoryRequestedStartNs << ",\n";
@@ -836,14 +767,12 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"enabled\": " << boolToString(manifest.liquidationsEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.liquidationsRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.liquidationsPath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.liquidationsRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.liquidationsCount << "\n";
     out << "    },\n";
     out << "    \"bookticker\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.bookTickerEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.bookTickerRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.bookTickerPath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.bookTickerRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.bookTickerCount << "\n";
     out << "    },\n";
     out << "    \"depth\": {\n";
@@ -851,49 +780,42 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "      \"required_when_enabled\": " << boolToString(manifest.orderbookRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.depthPath) << ",\n";
     out << "      \"sidecar_path\": " << json::quote(manifest.depthSidecarPath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.depthRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.depthCount << "\n";
     out << "    },\n";
     out << "    \"candles\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.candlesEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.candlesRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.candlesPath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.candlesRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.candlesCount << "\n";
     out << "    },\n";
     out << "    \"candles2\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.candles2Enabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.candles2RequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.candles2Path) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.candles2RowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.candles2Count << "\n";
     out << "    },\n";
     out << "    \"mark_price\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.markPriceEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.markPriceRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.markPricePath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.markPriceRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.markPriceCount << "\n";
     out << "    },\n";
     out << "    \"index_price\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.indexPriceEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.indexPriceRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.indexPricePath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.indexPriceRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.indexPriceCount << "\n";
     out << "    },\n";
     out << "    \"funding\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.fundingEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.fundingRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.fundingPath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.fundingRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.fundingCount << "\n";
     out << "    },\n";
     out << "    \"price_limit\": {\n";
     out << "      \"enabled\": " << boolToString(manifest.priceLimitEnabled) << ",\n";
     out << "      \"required_when_enabled\": " << boolToString(manifest.priceLimitRequiredWhenEnabled) << ",\n";
     out << "      \"path\": " << json::quote(manifest.priceLimitPath) << ",\n";
-    out << "      \"row_schema\": " << json::quote(manifest.priceLimitRowSchema) << ",\n";
     out << "      \"declared_event_count\": " << manifest.priceLimitCount << "\n";
     out << "    }\n";
     out << "  },\n";
@@ -910,7 +832,7 @@ std::string renderManifestJson(const SessionManifest& manifest) {
     out << "  \"artifacts\": {\n";
     out << "    \"instrument_metadata_path\": " << json::quote(manifest.instrumentMetadataPath) << ",\n";
     out << "    \"session_audit_path\": " << json::quote(manifest.sessionAuditPath) << ",\n";
-    out << "    \"loader_diagnostics_path\": " << json::quote(manifest.loaderDiagnosticsPath) << ",\n";
+    out << "    \"loader_diagnostic_path\": " << json::quote(manifest.loaderDiagnosticPath) << ",\n";
     out << "    \"market_data_launch_path\": " << json::quote(manifest.marketDataLaunchPath) << ",\n";
     out << "    \"canonical\": ";
     appendStringArray(out, manifest.canonicalArtifacts);
@@ -943,9 +865,10 @@ std::string renderManifestJson(const SessionManifest& manifest) {
 
 Status parseManifestJson(std::string_view document, SessionManifest& manifest) noexcept {
     SessionManifest parsed{};
-    bool manifestSchemaSeen = false;
-    bool corpusSchemaSeen = false;
-    bool captureContractSeen = false;
+    bool identitySeen = false;
+    bool captureSeen = false;
+    bool channelsSeen = false;
+    bool artifactsSeen = false;
     bool sessionStatusSeen = false;
     bool arrivalClockSeen = false;
     JsonParser parser{document};
@@ -954,22 +877,15 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
         std::string key;
         do {
             if (!parser.parseKey(key)) return Status::CorruptData;
-            if (key == "manifest_schema_version") {
-                if (!parseInt32Field(parser, parsed.manifestSchemaVersion)) return Status::CorruptData;
-                manifestSchemaSeen = true;
-            } else if (key == "corpus_schema_version") {
-                if (!parseInt32Field(parser, parsed.corpusSchemaVersion)) return Status::CorruptData;
-                corpusSchemaSeen = true;
-            } else if (key == "capture_contract_version") {
-                if (!parser.parseString(parsed.captureContractVersion)) return Status::CorruptData;
-                captureContractSeen = true;
-            } else if (key == "session_status") {
+            if (key == "session_status") {
                 if (!parser.parseString(parsed.sessionStatus)) return Status::CorruptData;
                 sessionStatusSeen = true;
             } else if (key == "identity") {
                 if (!parseIdentityObject(parser, parsed)) return Status::CorruptData;
+                identitySeen = true;
             } else if (key == "capture") {
                 if (!parseCaptureObject(parser, parsed)) return Status::CorruptData;
+                captureSeen = true;
             } else if (key == "arrival_clock") {
                 if (!parseArrivalClockObject(parser, parsed.arrivalClock)) return Status::CorruptData;
                 arrivalClockSeen = true;
@@ -977,12 +893,14 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
                 if (!parseReplayObject(parser, parsed)) return Status::CorruptData;
             } else if (key == "channels") {
                 if (!parseChannelsObject(parser, parsed)) return Status::CorruptData;
+                channelsSeen = true;
             } else if (key == "runtime_health") {
                 if (!parseRuntimeHealthObject(parser, parsed)) return Status::CorruptData;
             } else if (key == "snapshots") {
                 if (!parser.skipValue()) return Status::CorruptData;
             } else if (key == "artifacts") {
                 if (!parseArtifactsObject(parser, parsed)) return Status::CorruptData;
+                artifactsSeen = true;
             } else if (key == "integrity") {
                 if (!parser.parseObjectStart()) return Status::CorruptData;
                 if (!parser.peek('}')) {
@@ -1012,20 +930,6 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
                 if (!parser.parseObjectEnd()) return Status::CorruptData;
             } else if (key == "summary") {
                 if (!parseSummaryObject(parser, parsed)) return Status::CorruptData;
-            } else if (key == "session_id"
-                    || key == "exchange"
-                    || key == "market"
-                    || key == "symbols"
-                    || key == "selected_parent_dir"
-                    || key == "started_at_ns"
-                    || key == "ended_at_ns"
-                    || key == "target_duration_sec"
-                    || key == "actual_duration_sec"
-                    || key == "snapshot_interval_sec"
-                    || key == "channel_status"
-                    || key == "event_counts"
-                    || key == "warning_summary") {
-                return Status::CorruptData;
             } else {
                 if (!parser.skipValue()) return Status::CorruptData;
             }
@@ -1033,7 +937,7 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
         } while (parser.parseComma());
     }
     if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
-    if (!manifestSchemaSeen || !corpusSchemaSeen || !captureContractSeen ||
+    if (!identitySeen || !captureSeen || !channelsSeen || !artifactsSeen ||
         !sessionStatusSeen || parsed.sessionStatus.empty() ||
         !arrivalClockSeen ||
         parsed.arrivalClock.boundary != "hft-parser.application-frame-ready" ||
@@ -1047,14 +951,6 @@ Status parseManifestJson(std::string_view document, SessionManifest& manifest) n
     validateStructurally(parsed);
     manifest = std::move(parsed);
     return Status::Ok;
-}
-
-bool isSupportedManifestSchemaVersion(std::int32_t version) noexcept {
-    return version == kManifestSchemaVersionCurrent;
-}
-
-bool isSupportedCorpusSchemaVersion(std::int32_t version) noexcept {
-    return version == kCorpusSchemaVersionCurrent;
 }
 
 }  // namespace hftrec::capture

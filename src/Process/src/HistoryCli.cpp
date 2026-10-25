@@ -37,7 +37,6 @@ extern char** environ;
 #include "Corpus/Recordings/RecordingDiscovery.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 #include "hftrec/Status.hpp"
-#include "hftrec/Version.hpp"
 
 #if HFTREC_WITH_CXET
 #include "cxet/Api/Resolve/LocalSymbolValidation.hpp"
@@ -56,7 +55,6 @@ struct Options {
     fs::path outRoot{recordings::defaultRecordingsRoot()};
     bool interactive{false};
     bool help{false};
-    bool version{false};
     std::string search;
 };
 
@@ -307,26 +305,6 @@ bool firstLineIsHeader(std::string_view line, std::string_view firstColumn) noex
            line[firstColumn.size()] == ',';
 }
 
-const std::vector<std::string>& tradeAliases() {
-    static const std::vector<std::string> aliases{
-        "price",
-        "amount",
-        "side",
-        "timestamp",
-        "id",
-        "firstTradeId",
-        "lastTradeId",
-        "quoteQty",
-        "isBuyerMaker",
-        "symbol",
-        "exchange",
-        "market",
-        "captureSeq",
-        "ingestSeq",
-    };
-    return aliases;
-}
-
 bool appendAggTradesCsv(const std::string& csv,
                         const history::ImportIdentity& identity,
                         std::ofstream& out,
@@ -352,7 +330,7 @@ bool appendAggTradesCsv(const std::string& csv,
             return false;
         }
         row.arrival.flags = replay::EventArrivalHistoricalBackfill;
-        out << capture::renderTradeJsonLine(row, tradeAliases()) << '\n';
+        out << capture::renderTradeJsonLine(row) << '\n';
         if (!out.good()) {
             error = "failed to write trades.jsonl";
             return false;
@@ -537,9 +515,6 @@ bool writeSessionArtifacts(const fs::path& sessionDir,
     manifest.tradesHistoryRequestedEndNs = stats.lastTsNs;
     manifest.tradesHistoryFeedKind = "agg_trade";
     manifest.tradesHistoryStatus = "imported_binance_vision_futures_um";
-    manifest.tradesRowSchema = std::string{capture::kTradesRowSchemaCurrent};
-    manifest.bookTickerRowSchema =
-        std::string{capture::kBookTickerRowSchemaCurrent};
     manifest.arrivalClock.historicalRows = stats.trades + stats.bookTickers;
     manifest.canonicalArtifacts = {
         "manifest.json",
@@ -549,7 +524,7 @@ bool writeSessionArtifacts(const fs::path& sessionDir,
     };
     manifest.supportArtifacts = {
         "reports/session_audit.json",
-        "reports/loader_diagnostics.json",
+        "reports/loader_diagnostic.json",
         "reports/market_data_launch.json",
         "reports/integrity_report.json",
     };
@@ -565,7 +540,7 @@ bool writeSessionArtifacts(const fs::path& sessionDir,
     if (!writeText(sessionDir / "manifest.json", capture::renderManifestJson(manifest)) ||
         !writeText(sessionDir / "instrument_metadata.json", corpus::renderInstrumentMetadataJson(metadata)) ||
         !writeText(sessionDir / "reports" / "session_audit.json", capture::renderSessionAuditJson(manifest, generatedAt)) ||
-        !writeText(sessionDir / "reports" / "loader_diagnostics.json", capture::renderLoaderDiagnosticsJson(manifest, generatedAt)) ||
+        !writeText(sessionDir / "reports" / "loader_diagnostic.json", capture::renderLoaderDiagnosticJson(manifest, generatedAt)) ||
         !writeText(sessionDir / "reports" / "market_data_launch.json", capture::renderMarketDataLaunchJson(manifest, generatedAt)) ||
         !writeText(sessionDir / "reports" / "integrity_report.json", renderIntegrityReport(manifest))) {
         error = "failed to write session metadata artifacts";
@@ -795,7 +770,6 @@ bool parseOptions(int argc, char** argv, Options& out, std::string& error) {
             return argv[++i];
         };
         if (arg == "--help" || arg == "-h") out.help = true;
-        else if (arg == "--version" || arg == "-v") out.version = true;
         else if (arg == "--symbol") {
             const char* value = requireValue(arg);
             if (value == nullptr) return false;
@@ -955,10 +929,6 @@ int main(int argc, char** argv) {
     }
     if (options.help) {
         hftrec::app::printHelp();
-        return 0;
-    }
-    if (options.version) {
-        std::printf("history %s\n", hftrec::kHftRecorderVersion);
         return 0;
     }
     if (!options.search.empty()) {

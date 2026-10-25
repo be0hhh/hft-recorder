@@ -496,7 +496,6 @@ class BacktestViewModel : public QObject {
     void applyLoadedSessions_(std::uint64_t generation, QVariantList sessions);
     void stopWorker_();
     static void configureWorkerThreadStack_() noexcept;
-    static bool backtestApiCompatible_() noexcept;
     QString runId_() const;
     QString runIdForSymbol_(const QString& symbol) const;
     QString displayName_() const;

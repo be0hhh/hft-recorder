@@ -566,10 +566,6 @@ void BacktestViewModel::startBasisChainBatchBacktest(const QString& groupPath) {
 
 void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& groupPath, const QVariantList& enabledFutureSessionPaths) {
     if (running_) return;
-    if (!backtestApiCompatible_()) {
-        setStatusText_(QStringLiteral("Backtest library API mismatch; rebuild hft-backtest and hft-recorder together"));
-        return;
-    }
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata == nullptr || !strategyMetadataSupportsSessionCount(*metadata, 2)) {
         setStatusText_(QStringLiteral("Selected strategy does not support spot+future basis batch"));
@@ -726,14 +722,13 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
             trimTable(plateauRows, 200);
 
             QJsonObject manifest;
-            manifest.insert(QStringLiteral("type"), QStringLiteral("basis_chain_batch.result.v1"));
-            manifest.insert(QStringLiteral("schema_version"), 1);
+            manifest.insert(QStringLiteral("type"), QStringLiteral("basis_chain_batch.result"));
             manifest.insert(QStringLiteral("batch_id"), batchId);
             manifest.insert(QStringLiteral("strategy"), strategy);
             manifest.insert(QStringLiteral("pairs_evaluated"), static_cast<int>(prepared.size()));
             QJsonObject rowsObject;
             rowsObject.insert(QStringLiteral("path"), QStringLiteral("batch_rows.jsonl"));
-            rowsObject.insert(QStringLiteral("row_schema"), QStringLiteral("object.v1"));
+            rowsObject.insert(QStringLiteral("row_schema"), QStringLiteral("object"));
             manifest.insert(QStringLiteral("rows"), rowsObject);
             QJsonArray errors;
             if (!errorText.isEmpty() && errorText != QStringLiteral("cancelled")) {
@@ -814,10 +809,6 @@ void BacktestViewModel::startBasisChainBatchBacktestForFutures(const QString& gr
 
 void BacktestViewModel::startBatchSweep() {
     if (running_) return;
-    if (!backtestApiCompatible_()) {
-        setStatusText_(QStringLiteral("Backtest library API mismatch; rebuild hft-backtest and hft-recorder together"));
-        return;
-    }
     const hft_backtest::StrategyMetadata* metadata = metadataForStrategy(selectedStrategy_);
     if (metadata == nullptr || !strategyMetadataSupportsSessionCount(*metadata, 2)) {
         setStatusText_(QStringLiteral("Selected strategy does not support 2-leg batch sweep"));
@@ -1043,8 +1034,7 @@ void BacktestViewModel::startBatchSweep() {
             trimTable(plateauRows, 200);
 
             QJsonObject manifest;
-            manifest.insert(QStringLiteral("type"), QStringLiteral("batch_sweep.result.v1"));
-            manifest.insert(QStringLiteral("schema_version"), 1);
+            manifest.insert(QStringLiteral("type"), QStringLiteral("batch_sweep.result"));
             manifest.insert(QStringLiteral("batch_id"), batchId);
             manifest.insert(QStringLiteral("strategy"), strategy);
             manifest.insert(QStringLiteral("pair_budget"), maxPairs);
@@ -1053,11 +1043,11 @@ void BacktestViewModel::startBatchSweep() {
             manifest.insert(QStringLiteral("points_evaluated"), static_cast<qint64>(pointsEvaluated));
             QJsonObject rowsObject;
             rowsObject.insert(QStringLiteral("path"), QStringLiteral("batch_rows.jsonl"));
-            rowsObject.insert(QStringLiteral("row_schema"), QStringLiteral("object.v1"));
+            rowsObject.insert(QStringLiteral("row_schema"), QStringLiteral("object"));
             manifest.insert(QStringLiteral("rows"), rowsObject);
             QJsonObject curvesObject;
             curvesObject.insert(QStringLiteral("path"), QStringLiteral("batch_curves.jsonl"));
-            curvesObject.insert(QStringLiteral("row_schema"), QStringLiteral("object.v1"));
+            curvesObject.insert(QStringLiteral("row_schema"), QStringLiteral("object"));
             manifest.insert(QStringLiteral("curves"), curvesObject);
             QJsonArray errors;
             if (!errorText.isEmpty() && errorText != QStringLiteral("cancelled")) {

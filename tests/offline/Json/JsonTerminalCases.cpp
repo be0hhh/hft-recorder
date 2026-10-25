@@ -4,6 +4,8 @@
 #include "Replay/SessionReplay.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 #include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/CorpusLoader.hpp"
+#include "Corpus/InstrumentMetadata.hpp"
 #include "Capture/Session/SessionId.hpp"
 #include "cxet/Api/Dispatch/BuildDispatch.hpp"
 #include "cxet/Os/ClockSource.hpp"
@@ -69,6 +71,61 @@ struct Fixture {
 };
 std::string read(const std::filesystem::path& path) {
   std::ifstream input(path);return {(std::istreambuf_iterator<char>(input)),{}};
+}
+void manifestCurrentShapeIsRequiredWithoutRewriting() {
+  Fixture fixture;
+  hftrec::capture::SessionManifest current{};
+  current.sessionId="shape-fixture";current.exchange="binance";
+  current.market="spot";current.symbols={"BTC_USDT"};
+  const auto json=hftrec::capture::renderManifestJson(current);
+  hftrec::capture::SessionManifest parsed{};
+  CXET_CHECK(hftrec::capture::parseManifestJson(json,parsed)==hftrec::Status::Ok);
+  CXET_CHECK(parsed.structurallyLoadable);
+  CXET_CHECK(parsed.loaderDiagnosticPath=="reports/loader_diagnostic.json");
+  CXET_CHECK(json.find("schema")==std::string::npos);
+  CXET_CHECK(json.find("contract_version")==std::string::npos);
+  std::filesystem::create_directories(fixture.root);
+  const auto path=fixture.root/"manifest.json";
+  // Required current data fields cannot be recovered from defaults or aliases.
+  for(const std::string field:{"loader_diagnostic_path","arrival_clock","declared_event_count","enabled"}) {
+    auto document=json;
+    const auto key=document.find(field);
+    CXET_CHECK(key!=std::string::npos);
+    document.replace(key,field.size(),"unrecognized_field");
+    {std::ofstream output(path);output<<document;}
+    parsed.sessionId="unchanged-on-refusal";
+    CXET_CHECK(hftrec::capture::parseManifestJson(document,parsed)==hftrec::Status::CorruptData);
+    CXET_CHECK(parsed.sessionId=="unchanged-on-refusal");
+    hftrec::corpus::CorpusLoader loader;hftrec::corpus::SessionCorpus corpus;
+    CXET_CHECK(loader.load(fixture.root,corpus)==hftrec::Status::CorruptData);
+    CXET_CHECK(!corpus.report.issues.empty());
+    CXET_CHECK(corpus.report.issues.front().code==hftrec::corpus::LoadIssueCode::InvalidManifest);
+    CXET_CHECK(read(path)==document);
+  }
+  {std::ofstream output(path);output<<json;}
+  const auto seekPath=fixture.root/"seek_index.json";
+  const std::string seek=R"({"sources":{},"buckets":[]})";
+  {std::ofstream output(seekPath);output<<seek;}
+  hftrec::corpus::CorpusLoader loader;hftrec::corpus::SessionCorpus corpus;
+  CXET_CHECK(loader.load(fixture.root,corpus)==hftrec::Status::Ok);
+  CXET_CHECK(corpus.report.seekIndexState==hftrec::corpus::ChannelLoadState::Clean);
+  for(const std::string malformed:{R"({"sources":{}})",R"({"sources":{},"buckets":[{"ts_ns":0}]})"}) {
+    {std::ofstream output(seekPath);output<<malformed;}
+    CXET_CHECK(loader.load(fixture.root,corpus)==hftrec::Status::CorruptData);
+    CXET_CHECK(corpus.report.seekIndexState==hftrec::corpus::ChannelLoadState::Corrupt);
+    CXET_CHECK(read(seekPath)==malformed);
+  }
+  hftrec::corpus::InstrumentMetadata metadata{},decodedMetadata{};
+  metadata.exchange="binance";metadata.market="spot";metadata.symbol="BTC_USDT";
+  const auto metadataJson=hftrec::corpus::renderInstrumentMetadataJson(metadata);
+  CXET_CHECK(metadataJson.find("schema")==std::string::npos);
+  CXET_CHECK(hftrec::corpus::parseInstrumentMetadataJson(metadataJson,decodedMetadata)==hftrec::Status::Ok);
+  decodedMetadata.symbol="preserved";
+  CXET_CHECK(hftrec::corpus::parseInstrumentMetadataJson("{}",decodedMetadata)==hftrec::Status::CorruptData);
+  CXET_CHECK(decodedMetadata.symbol=="preserved");
+  auto depth=current;depth.orderbookEnabled=true;depth.depthSidecarPath.clear();
+  CXET_CHECK(hftrec::capture::parseManifestJson(hftrec::capture::renderManifestJson(depth),parsed)==hftrec::Status::Ok);
+  CXET_CHECK(!parsed.structurallyLoadable);
 }
 void terminalFanoutDurableManifest() {
   Fixture fixture;hftrec::capture::VenueMultiplexCapture capture;
@@ -267,6 +324,7 @@ void finamEnvUsesRecorderWithoutSiblingMirroring() {
   CXET_CHECK(read(recorder/".env")=="FINAM_API_255_JWT=updated-synthetic-token\n");
 }
 const cxet::testing::Case cases[]{
+  cxet::testing::Case{"recorder.json_manifest_requires_current_shape_without_rewriting",manifestCurrentShapeIsRequiredWithoutRewriting},
   cxet::testing::Case{"recorder.finam_env_uses_recorder_without_sibling_mirroring",finamEnvUsesRecorderWithoutSiblingMirroring},
   cxet::testing::Case{"recorder.json_recording_paths_preserve_saved_and_explicit_policy",recordingPathsPreserveHistoricalPolicy},
   cxet::testing::Case{"recorder.json_recording_symbols_use_public_resolver_and_encoding",recordingSymbolsUseCanonicalOwnerAndSafeEncoding},

@@ -30,8 +30,7 @@ inline constexpr std::size_t kSpscCapacitySnapshot   = 16;
 
 // File format.
 inline constexpr std::uint32_t kFileMagic       = 0x43585243u;  // 'CXRC'
-inline constexpr std::uint16_t kFileVersion     = 1;
-inline constexpr std::size_t   kFileHeaderBytes = 64;
+inline constexpr std::size_t   kFileHeaderBytes = 62;
 inline constexpr std::uint32_t kBlockMagic      = 0x004B4C42u;  // 'BLK\0'
 inline constexpr std::size_t   kBlockHeaderBytes = 32;
 

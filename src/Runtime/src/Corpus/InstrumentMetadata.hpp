@@ -10,7 +10,6 @@
 namespace hftrec::corpus {
 
 struct InstrumentMetadata {
-    std::string schemaVersion{"hftrec.instrument_metadata.v1"};
     std::string exchange{};
     std::string exchangeSource{"unknown"};
     std::string market{};

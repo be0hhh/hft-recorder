@@ -54,7 +54,7 @@ Pane {
     property bool useGpuRenderer: true
 
     function chartSurface() { return chartLoader.item }
-    function syncRendererDiagnostics() { root.appVm.activeChartRenderer = root.useDedicatedGpuPath ? "gpu-orderbook" : "cpu-chart" }
+    function syncRendererDiagnostic() { root.appVm.activeChartRenderer = root.useDedicatedGpuPath ? "gpu-orderbook" : "cpu-chart" }
     function syncLiveUpdateMode() {
         chart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs)
         compareChart.setLiveUpdateIntervalMs(root.appVm.liveUpdateIntervalMs)
@@ -499,7 +499,7 @@ Pane {
     Component.onCompleted: {
         chart.active = root.tabActive
         root.rebuildCompareSourceRows()
-        Qt.callLater(root.syncRendererDiagnostics)
+        Qt.callLater(root.syncRendererDiagnostic)
         Qt.callLater(root.syncLiveUpdateMode)
         Qt.callLater(root.syncRenderWindow)
     }
@@ -508,7 +508,7 @@ Pane {
         if (root.tabActive)
             Qt.callLater(root.refreshBacktestChoices)
     }
-    onUseDedicatedGpuPathChanged: root.syncRendererDiagnostics()
+    onUseDedicatedGpuPathChanged: root.syncRendererDiagnostic()
 
     onSelectedCompareIndexAChanged: if (compareComboA) compareComboA.currentIndex = root.selectedCompareIndexA
     onSelectedCompareIndexBChanged: if (compareComboB) compareComboB.currentIndex = root.selectedCompareIndexB
@@ -966,7 +966,7 @@ Pane {
                         interactiveMode: interaction.interactiveMode
                     }
                 }
-                Loader { id: chartLoader; anchors.fill: parent; sourceComponent: root.useDedicatedGpuPath ? gpuChartComponent : cpuChartComponent; onLoaded: root.syncRendererDiagnostics() }
+                Loader { id: chartLoader; anchors.fill: parent; sourceComponent: root.useDedicatedGpuPath ? gpuChartComponent : cpuChartComponent; onLoaded: root.syncRendererDiagnostic() }
                 MouseArea {
                     id: hoverMouseArea
                     anchors.fill: parent

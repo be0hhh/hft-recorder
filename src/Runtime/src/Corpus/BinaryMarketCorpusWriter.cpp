@@ -3,6 +3,7 @@
 #include "Codec/Crc32c.hpp"
 #include "BinaryMarketBlockCodec.hpp"
 #include "BinaryMarketSourceState.hpp"
+#include "hftrec/CorpusContract/BinaryMarketDepthTransaction.hpp"
 #include "CorpusCutStorage.hpp"
 #include <chrono>
 
@@ -158,6 +159,7 @@ struct BinaryMarketCorpusWriterState final {
     std::vector<BinaryMarketIndexEntry> index{};
     std::vector<BinaryMarketGap> gaps{};
     std::vector<SegmentState> segments{};
+    std::array<BinaryMarketDepthTransactionState,kBinaryMarketMaximumShards> depthTransactions{};
     std::uint64_t projectedBytes{0u};
     std::uint64_t writeLimitBytes{0u};
     std::size_t maximumGapRecords{0u};
@@ -371,8 +373,6 @@ Status BinaryMarketCorpusWriter::start(
         for(const auto& source:state->sources) state->sourceStates.push_back(initialBinaryMarketSourceState(source));
         state->segments.resize(config.shardCount);
         state->manifest.headerBytes = sizeof(BinaryMarketManifest);
-        state->manifest.writerAbiFingerprint =
-            binaryMarketCorpusAbiFingerprint();
         state->manifest.producerEpoch = config.producerEpoch;
         state->manifest.startedReceiveNs = config.startedReceiveNs;
         state->manifest.replayAnchorReceiveNs = config.startedReceiveNs;
@@ -475,6 +475,8 @@ Status BinaryMarketCorpusWriter::append(
         record.header.sourceId>state_->sources.size()+(lifecycle?1u:0u) ||
         !std::all_of(record.payload.begin()+record.header.payloadBytes,record.payload.end(),
                      [](std::byte b) noexcept {return b==std::byte{};})) return Status::InvalidArgument;
+    auto depthTransaction=state_->depthTransactions[record.header.shardIndex];
+    if(!advanceBinaryMarketDepthTransaction(record,depthTransaction)) return Status::InvalidArgument;
     const bool newSource=record.header.sourceId==state_->sources.size()+1u;
     if(newSource && (!lifecycle || state_->sources.size()>=kBinaryMarketMaximumSources)) return Status::OutOfRange;
     BinaryMarketSourceState prospective{};
@@ -557,6 +559,7 @@ Status BinaryMarketCorpusWriter::append(
             ? Status::OutOfRange : Status::IoError;
         copyBinaryMarketRecord(segment->pending[segment->pendingCount++], record);
         state_->sourceStates[record.header.sourceId-1u]=prospective;
+        state_->depthTransactions[record.header.shardIndex]=depthTransaction;
         segment->previousShardSequence = record.header.shardSequence;
         segment->previousMonotonicNs = record.header.receiveMonotonicNs;
         segment->header.recordsCrc32c = codec::crc32cUpdate(
@@ -658,6 +661,8 @@ Status BinaryMarketCorpusWriter::finalize(
         reason < BinaryMarketStopReason::Requested ||
         reason > BinaryMarketStopReason::Error)
         return Status::InvalidArgument;
+    for(const auto& transaction:state_->depthTransactions)
+        if(transaction.active()) return Status::CorruptData;
     try {
         for (std::uint16_t shard = 0u; shard < state_->segments.size(); ++shard)
             if (!sealSegment(*state_, shard)) return Status::IoError;
@@ -710,9 +715,13 @@ Status BinaryMarketCorpusWriter::updateProgress(const CorpusProducerProgress& pr
        progress.shardCount!=state_->config.shardCount || progress.safeMonotonicNs<state_->progress.safeMonotonicNs ||
        progress.lossEpoch<state_->progress.lossEpoch || progress.directoryRevision<state_->progress.directoryRevision)
         return Status::InvalidArgument;
-    for(std::size_t n=0;n<progress.shardCount;++n)
+    for(std::size_t n=0;n<progress.shardCount;++n) {
         if(progress.shardSequences[n]<state_->progress.shardSequences[n] ||
            progress.shardSequences[n]>state_->segments[n].previousShardSequence) return Status::InvalidArgument;
+        const auto& transaction=state_->depthTransactions[n];
+        if(transaction.active() && (progress.shardSequences[n]>=transaction.firstShardSequence ||
+           progress.safeMonotonicNs>transaction.receiveMonotonicNs)) return Status::InvalidArgument;
+    }
     state_->progress=progress;return Status::Ok;
 }
 Status BinaryMarketCorpusWriter::setReferencePayload(std::span<const std::uint8_t> payload) noexcept {

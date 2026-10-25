@@ -4,6 +4,7 @@
 #include "hftrec/CorpusContract/BinaryMarketCorpusReader.hpp"
 #include "hftrec/CorpusContract/BinaryMarketCorpusWriter.hpp"
 #include "Corpus/BinaryMarketSourceState.hpp"
+#include "hftrec/CorpusContract/BinaryMarketDepthTransaction.hpp"
 #include <array>
 #include <chrono>
 #include <filesystem>

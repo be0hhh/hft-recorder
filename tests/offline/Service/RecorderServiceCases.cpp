@@ -18,15 +18,15 @@ void boundedTypedConfigRoundtrip() {
     CXET_CHECK(restored.venues[1].instruments==config.venues[1].instruments && restored.maximumReferenceBytes==config.maximumReferenceBytes);
     encoded={};config.venues[1].instruments[0]=std::string(129u,'x');detail::encodeConfig(encoded,config);CXET_CHECK(!encoded.valid);
 }
-void protocolRefusesAbiAndTruncation() {
+void protocolRefusesFramingAndTruncation() {
     const auto packet=detail::packet(detail::Operation::Status,{});detail::Header header{};std::span<const std::uint8_t> payload;
     CXET_CHECK(detail::parsePacket(packet,header,payload));
-    auto bad=packet;bad[offsetof(detail::Header,abi)]^=1u;CXET_CHECK(!detail::parsePacket(bad,header,payload));
+    auto bad=packet;bad[offsetof(detail::Header,magic)]^=1u;CXET_CHECK(!detail::parsePacket(bad,header,payload));
     bad=packet;bad.pop_back();CXET_CHECK(!detail::parsePacket(bad,header,payload));
     detail::Encoder envelope;envelope.pod(Status::Ok);envelope.string({});envelope.pod(std::uint32_t{7u});
     auto reply=detail::packet(detail::Operation::Block,envelope);std::string error;
     CXET_CHECK(detail::decodeReply(reply,detail::Operation::Block,payload,error)==Status::Ok && payload.size()==sizeof(std::uint32_t));
-    reply[offsetof(detail::Header,abi)]^=1u;
+    reply[offsetof(detail::Header,magic)]^=1u;
     CXET_CHECK(detail::decodeReply(reply,detail::Operation::Block,payload,error)==Status::CorruptData);
     reply=detail::packet(detail::Operation::Status,envelope);
     CXET_CHECK(detail::decodeReply(reply,detail::Operation::Block,payload,error)==Status::CorruptData);
@@ -66,7 +66,7 @@ void referenceHistoryCannotRewriteAcquisition() {
 int main(int argc,char** argv) {
     const cxet::testing::Case cases[]{
         {"recorder.service.typed_bounded_configuration_roundtrip",boundedTypedConfigRoundtrip},
-        {"recorder.service.protocol_rejects_abi_and_truncation",protocolRefusesAbiAndTruncation},
+        {"recorder.service.protocol_rejects_framing_and_truncation",protocolRefusesFramingAndTruncation},
         {"recorder.reference.visibility_begins_at_durable_commit",referenceVisibilityUsesActualDurableCommit},
         {"recorder.reference.committed_acquisition_is_immutable",referenceHistoryCannotRewriteAcquisition}};
     return cxet::testing::runCases(argc,argv,cases);

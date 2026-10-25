@@ -6,13 +6,17 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QSaveFile>
 #include <QStandardPaths>
 
 #include <algorithm>
+#include <initializer_list>
 #include <map>
+#include <limits>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -20,8 +24,6 @@
 
 namespace hftrec::gui {
 namespace {
-
-constexpr int kCacheSchemaVersion = 4;
 
 QString cleanPathText(const std::filesystem::path& path) {
     return QDir::cleanPath(QString::fromStdString(path.string()));
@@ -87,7 +89,7 @@ hftrec::recordings::RecordedSessionInfo sessionFromJson(const QJsonObject& objec
     out.localSymbol = object.value(QStringLiteral("local_symbol")).toString().toStdString();
     out.folderSymbol = object.value(QStringLiteral("folder_symbol")).toString().toStdString();
     out.normalizedSymbol = object.value(QStringLiteral("normalized_symbol")).toString().toStdString();
-    out.sessionHealth = object.value(QStringLiteral("session_health")).toString(QStringLiteral("clean")).toStdString();
+    out.sessionHealth = object.value(QStringLiteral("session_health")).toString().toStdString();
     out.warningSummary = object.value(QStringLiteral("warning_summary")).toString().toStdString();
     out.displayTime = object.value(QStringLiteral("display_time")).toString().toStdString();
     out.searchText = object.value(QStringLiteral("search_text")).toString().toStdString();
@@ -163,10 +165,65 @@ BacktestLegCounts countsFromJson(const QJsonObject& object) {
     return out;
 }
 
+bool nonnegativeInteger(const QJsonValue& value, qint64 maximum = std::numeric_limits<qint64>::max()) {
+    if (!value.isDouble()) return false;
+    const qint64 integer = value.toInteger(-1);
+    return integer >= 0 && integer <= maximum && value.toDouble() == static_cast<double>(integer);
+}
+
+bool stringFields(const QJsonObject& object, std::initializer_list<const char*> fields) {
+    for (const auto* field : fields) {
+        if (!object.value(QLatin1String(field)).isString()) return false;
+    }
+    return true;
+}
+
+bool sessionShape(const QJsonObject& object) {
+    if (!stringFields(object, {"path", "manifest_path", "group_path", "session_id", "group_id", "group_title",
+            "exchange", "market", "local_symbol", "folder_symbol", "normalized_symbol", "session_health",
+            "warning_summary", "display_time", "search_text"}) ||
+        object.value(QStringLiteral("path")).toString().isEmpty() ||
+        object.value(QStringLiteral("manifest_path")).toString().isEmpty() ||
+        object.value(QStringLiteral("session_id")).toString().isEmpty() ||
+        !object.value(QStringLiteral("grouped")).isBool() || !object.value(QStringLiteral("complete")).isBool() ||
+        !object.value(QStringLiteral("symbols")).isArray()) return false;
+    for (const auto& symbol : object.value(QStringLiteral("symbols")).toArray()) {
+        if (!symbol.isString()) return false;
+    }
+    for (const auto* field : {"started_at_ns", "ended_at_ns", "trade_count", "bookticker_count", "candle_count", "total_rows"}) {
+        if (!nonnegativeInteger(object.value(QLatin1String(field)))) return false;
+    }
+    return true;
+}
+
+bool groupShape(const QJsonObject& object,
+    const std::map<std::string, hftrec::recordings::RecordedSessionInfo>& sessionsById) {
+    if (!stringFields(object, {"path", "id", "title", "local_symbol", "folder_symbol", "normalized_symbol",
+            "display_time", "search_text"}) || object.value(QStringLiteral("id")).toString().isEmpty() ||
+        !object.value(QStringLiteral("physical")).isBool() || !object.value(QStringLiteral("session_ids")).isArray()) return false;
+    for (const auto* field : {"started_at_ns", "ended_at_ns", "total_rows"}) {
+        if (!nonnegativeInteger(object.value(QLatin1String(field)))) return false;
+    }
+    std::set<std::string> ids;
+    for (const auto& value : object.value(QStringLiteral("session_ids")).toArray()) {
+        if (!value.isString()) return false;
+        const auto id = value.toString().toStdString();
+        if (!sessionsById.contains(id) || !ids.insert(id).second) return false;
+    }
+    return true;
+}
+
+bool countsShape(const QJsonObject& object) {
+    for (const auto* field : {"first", "second", "total"}) {
+        if (!nonnegativeInteger(object.value(QLatin1String(field)), std::numeric_limits<int>::max())) return false;
+    }
+    const auto counts = countsFromJson(object);
+    return counts.firstLeg <= std::numeric_limits<int>::max() - counts.secondLeg;
+}
+
 QJsonDocument snapshotToJson(const RecordingCatalogSnapshot& snapshot) {
     QJsonObject root;
-    root.insert(QStringLiteral("schema"), QStringLiteral("hftrec.recording_catalog.v4"));
-    root.insert(QStringLiteral("schema_version"), kCacheSchemaVersion);
+    root.insert(QStringLiteral("schema"), QStringLiteral("hftrec.recording_catalog"));
     root.insert(QStringLiteral("recordings_root"), snapshot.recordingsRoot);
     root.insert(QStringLiteral("status_text"), snapshot.statusText);
 
@@ -187,41 +244,45 @@ QJsonDocument snapshotToJson(const RecordingCatalogSnapshot& snapshot) {
 }
 
 RecordingCatalogSnapshot snapshotFromJson(const QJsonDocument& doc, const QString& expectedRecordingsRoot, QString* errorText) {
-    RecordingCatalogSnapshot out;
-    if (!doc.isObject()) {
-        if (errorText != nullptr) *errorText = QStringLiteral("recording catalog cache is not a JSON object");
-        return out;
-    }
+    if (errorText != nullptr) errorText->clear();
+    const auto reject = [&](const QString& detail) {
+        if (errorText != nullptr) *errorText = QStringLiteral("recording catalog cache refused: ") + detail;
+        return RecordingCatalogSnapshot{};
+    };
+    if (!doc.isObject()) return reject(QStringLiteral("root is not a JSON object"));
     const QJsonObject root = doc.object();
-    if (root.value(QStringLiteral("schema_version")).toInt() != kCacheSchemaVersion) {
-        if (errorText != nullptr) *errorText = QStringLiteral("recording catalog cache schema mismatch");
-        return out;
-    }
+    if (!stringFields(root, {"schema", "recordings_root", "status_text"}) ||
+        root.value(QStringLiteral("schema")).toString() != QStringLiteral("hftrec.recording_catalog") ||
+        root.value(QStringLiteral("recordings_root")).toString().isEmpty() ||
+        !root.value(QStringLiteral("sessions")).isArray() || !root.value(QStringLiteral("groups")).isArray() ||
+        !root.value(QStringLiteral("backtest_counts")).isObject()) return reject(QStringLiteral("root fields have an invalid shape"));
+    RecordingCatalogSnapshot out;
     out.recordingsRoot = QDir::cleanPath(root.value(QStringLiteral("recordings_root")).toString());
-    if (out.recordingsRoot != QDir::cleanPath(expectedRecordingsRoot)) {
-        if (errorText != nullptr) *errorText = QStringLiteral("recording catalog cache root mismatch");
-        return {};
-    }
+    if (out.recordingsRoot != QDir::cleanPath(expectedRecordingsRoot)) return reject(QStringLiteral("recordings root mismatch"));
 
     std::map<std::string, hftrec::recordings::RecordedSessionInfo> sessionsById;
     const QJsonArray sessions = root.value(QStringLiteral("sessions")).toArray();
     out.discovery.sessions.reserve(static_cast<std::size_t>(sessions.size()));
     for (const auto& sessionValue : sessions) {
-        const auto session = sessionFromJson(sessionValue.toObject());
-        if (session.sessionId.empty()) continue;
-        out.discovery.sessions.push_back(session);
-        sessionsById.emplace(session.sessionId, session);
+        if (!sessionValue.isObject() || !sessionShape(sessionValue.toObject())) return reject(QStringLiteral("session fields have an invalid shape"));
+        auto session = sessionFromJson(sessionValue.toObject());
+        if (!sessionsById.emplace(session.sessionId, session).second) return reject(QStringLiteral("duplicate session identity"));
+        out.discovery.sessions.push_back(std::move(session));
     }
 
+    std::set<std::string> groupIds;
     const QJsonArray groups = root.value(QStringLiteral("groups")).toArray();
     out.discovery.groups.reserve(static_cast<std::size_t>(groups.size()));
     for (const auto& groupValue : groups) {
+        if (!groupValue.isObject() || !groupShape(groupValue.toObject(), sessionsById)) return reject(QStringLiteral("group fields or session references have an invalid shape"));
         auto group = groupFromJson(groupValue.toObject(), sessionsById);
-        if (!group.id.empty()) out.discovery.groups.push_back(std::move(group));
+        if (!groupIds.insert(group.id).second) return reject(QStringLiteral("duplicate group identity"));
+        out.discovery.groups.push_back(std::move(group));
     }
 
     const QJsonObject counts = root.value(QStringLiteral("backtest_counts")).toObject();
     for (auto it = counts.constBegin(); it != counts.constEnd(); ++it) {
+        if (it.key().isEmpty() || !it.value().isObject() || !countsShape(it.value().toObject())) return reject(QStringLiteral("backtest counts must be integers in [0, INT_MAX]"));
         out.backtestCountsBySession.insert(it.key(), countsFromJson(it.value().toObject()));
     }
     out.loaded = true;
@@ -239,9 +300,9 @@ RecordingCatalogSnapshot buildRecordingCatalogSnapshot(const QString& recordings
     out.backtestCountsBySession = backtestLegCountsBySession(out.discovery.sessions);
     out.loaded = true;
     out.fromDisk = false;
-    int backtestRefs = 0;
+    qint64 backtestRefs = 0;
     for (auto it = out.backtestCountsBySession.constBegin(); it != out.backtestCountsBySession.constEnd(); ++it) {
-        backtestRefs += it.value().total > 0 ? it.value().total : it.value().firstLeg + it.value().secondLeg;
+        backtestRefs += it.value().total > 0 ? it.value().total : static_cast<qint64>(it.value().firstLeg) + it.value().secondLeg;
     }
     out.statusText = QStringLiteral("Indexed %1 sessions / %2 groups / %3 backtest refs")
         .arg(out.discovery.sessions.size())
@@ -262,14 +323,24 @@ QString defaultRecordingCatalogCachePath() {
 }
 
 bool writeRecordingCatalogCache(const QString& path, const RecordingCatalogSnapshot& snapshot, QString* errorText) {
+    if (errorText != nullptr) errorText->clear();
     if (path.trimmed().isEmpty() || !snapshot.loaded) return false;
+    const QJsonDocument document = snapshotToJson(snapshot);
+    if (!snapshotFromJson(document, snapshot.recordingsRoot, errorText).loaded) return false;
+    if (QFileInfo::exists(path)) {
+        QString existingError;
+        if (!readRecordingCatalogCache(path, snapshot.recordingsRoot, &existingError).loaded) {
+            if (errorText != nullptr) *errorText = existingError;
+            return false;
+        }
+    }
     QDir().mkpath(QFileInfo(path).absolutePath());
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         if (errorText != nullptr) *errorText = file.errorString();
         return false;
     }
-    const QByteArray bytes = snapshotToJson(snapshot).toJson(QJsonDocument::Compact);
+    const QByteArray bytes = document.toJson(QJsonDocument::Compact);
     if (file.write(bytes) != bytes.size()) {
         if (errorText != nullptr) *errorText = file.errorString();
         return false;
@@ -282,12 +353,20 @@ bool writeRecordingCatalogCache(const QString& path, const RecordingCatalogSnaps
 }
 
 RecordingCatalogSnapshot readRecordingCatalogCache(const QString& path, const QString& expectedRecordingsRoot, QString* errorText) {
+    if (errorText != nullptr) errorText->clear();
+    if (!QFileInfo::exists(path)) return {};
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         if (errorText != nullptr) *errorText = file.errorString();
         return {};
     }
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (file.error() != QFileDevice::NoError || parseError.error != QJsonParseError::NoError) {
+        if (errorText != nullptr) *errorText = QStringLiteral("recording catalog cache refused: ") +
+            (file.error() != QFileDevice::NoError ? file.errorString() : parseError.errorString());
+        return {};
+    }
     return snapshotFromJson(doc, expectedRecordingsRoot, errorText);
 }
 
@@ -327,7 +406,9 @@ void RecordingCatalog::refreshAsync_(QString reason) {
     workers_.emplace_back([context, target, generation, root, cachePath]() {
         RecordingCatalogSnapshot loaded = buildRecordingCatalogSnapshot(root);
         QString cacheError;
-        (void)writeRecordingCatalogCache(cachePath, loaded, &cacheError);
+        if (!writeRecordingCatalogCache(cachePath, loaded, &cacheError) && !cacheError.isEmpty()) {
+            loaded.statusText += QStringLiteral("; ") + cacheError;
+        }
         if (!context || !context->alive.load(std::memory_order_acquire)) return;
         QMetaObject::invokeMethod(target, [context, target, generation, loaded = std::move(loaded)]() mutable {
             if (!context || !context->alive.load(std::memory_order_acquire)) return;

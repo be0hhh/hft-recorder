@@ -57,7 +57,7 @@ instrument_metadata.json
 seek_index.json
 reports/session_audit.json
 reports/integrity_report.json
-reports/loader_diagnostics.json
+reports/loader_diagnostic.json
 ```
 
 ## Manifest
@@ -65,9 +65,7 @@ reports/loader_diagnostics.json
 `manifest.json` is the structural entrypoint for the session corpus.
 
 Current canonical top-level groups:
-- `manifest_schema_version`
-- `corpus_schema_version`
-- `capture_contract_version`
+- `capture_contract`
 - `session_status`
 - `identity`
 - `capture`
@@ -89,26 +87,29 @@ For each entry under `channels`, metadata must make source quality explicit:
 - `sequence_policy` and `timestamp_policy`
 
 Important implemented rules:
-- current sessions declare schema versions explicitly
+- current sessions use the one current schema
 - loader validates manifest first, then loads channel files by manifest-declared
   paths
-- unknown top-level optional fields in a supported manifest version are ignored
-- unsupported schema versions fail deterministically
+- unknown top-level optional fields in the current manifest are ignored
+- invalid schema layouts fail deterministically
 - there is one current writer and one current reader; older recorder corpora are
   rejected rather than silently migrated or interpreted
 
-The offline backtest boundary is intentionally narrower than viewer/replay
-compatibility. New backtests accept only:
+The offline backtest boundary accepts only the current contract:
 
-- `manifest_schema_version = 3`
-- `corpus_schema_version = 3`
-- `capture_contract_version = hftrec.captured_arrival_rows_json.v4`
+- the current manifest and corpus layouts
+- `capture_contract = hftrec.captured_arrival_rows_json`
 - finalized `complete` sessions with clean integrity and
   `exact_replay_eligible = true`
 - manifest-declared current row schemas and paths
 - a complete `arrival_clock` summary whose accounted row count equals the
   canonical row count
 - at least one application-frame arrival and no row with unavailable arrival
+
+The current manifest names the loader support artifact with `loader_diagnostic_path`
+and defaults to `reports/loader_diagnostic.json`. Older layouts and the legacy
+`loader_diagnostics_path` key are refused. The reader never rewrites the original
+corpus or substitutes an empty artifact.
 
 The backtest loader does not search fallback filenames or accept an older
 layout. Required strategy channels must be non-empty and have clean runtime
@@ -165,7 +166,7 @@ say whether the source is `feed_kind=raw_trade`, `feed_kind=agg_trade`, or an
 exchange-specific trade kind. Binance FAPI `aggTrade` is
 `canonical_available_but_aggregated`, not raw executions.
 
-Current row schema is `cxet_trade_captured_arrival_v1`:
+Current row schema is `cxet_trade_captured_arrival`:
 
 `[price_e8, qty_e8, side, exchange_ts_ns, trade_id, first_trade_id,
 last_trade_id, quote_qty_e8, is_buyer_maker, symbol, exchange, market,
@@ -179,7 +180,7 @@ Level-1 BBO channels are observational overlays. If the source is throttled or
 bucketed BBO, it must be labelled `degraded` for exact fill/microstructure
 claims.
 
-Current row schema is `cxet_bookticker_captured_arrival_v1`:
+Current row schema is `cxet_bookticker_captured_arrival`:
 
 `[event_id, bid_price_e8, bid_qty_e8, ask_price_e8, ask_qty_e8,
 exchange_ts_ns, symbol, exchange, market, capture_seq, ingest_seq,
@@ -187,7 +188,7 @@ exchange_ts_ns, symbol, exchange, market, capture_seq, ingest_seq,
 
 ### `depth_tape.jsonl` and `depth_sidecar.jsonl`
 
-Current row schema is `cxet_orderbook_tape_rle_captured_arrival_v1`.
+Current row schema is `cxet_orderbook_tape_rle_captured_arrival`.
 
 Tape row:
 
@@ -259,7 +260,7 @@ Standardized support artifacts:
 - `seek_index.json`
 - `reports/session_audit.json`
 - `reports/integrity_report.json`
-- `reports/loader_diagnostics.json`
+- `reports/loader_diagnostic.json`
 
 Rules:
 - absence of a support artifact does not invalidate the session
@@ -272,7 +273,7 @@ Rules:
 
 A session is structurally loadable only if:
 - `manifest.json` exists and parses
-- manifest and corpus schema versions are supported
+- manifest and corpus use the current schema layouts
 - `session_id`, `exchange`, `market`, and `symbols` are present
 - every manifest-declared required artifact exists
 - disabled channels are not treated as missing required artifacts

@@ -20,7 +20,7 @@ does not build compressor as a child project.
 The first working pipeline is:
 
 ```text
-std.zstd_jsonl_blocks_v1
+std.zstd_jsonl_blocks
 ```
 
 It reads one canonical JSONL channel and writes:
@@ -124,7 +124,7 @@ Implemented now:
 
 - `Compress` tab can call the prebuilt `hft-compressor` library.
 - Pipeline registry is visible to the tab.
-- `std.zstd_jsonl_blocks_v1` can produce `.hfc` and metrics.
+- `std.zstd_jsonl_blocks` can produce `.hfc` and metrics.
 - `cxet_replay_core` exposes callback-based session streaming.
 - `cxet_replay_core` can prefer `.hfc` channel artifacts when it is linked
   with the prebuilt `hft-compressor` library.

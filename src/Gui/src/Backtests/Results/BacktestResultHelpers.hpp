@@ -13,9 +13,10 @@ namespace hftrec::gui {
 enum class BacktestRunSummaryStatus {
     Ready,
     MissingSummary,
-    UnsupportedSchema,
+    UnsupportedType,
     MissingTotalPnl,
     InvalidTotalPnl,
+    MissingDiagnostic,
 };
 
 struct BacktestRunSummary {

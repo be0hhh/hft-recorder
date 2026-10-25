@@ -22,6 +22,7 @@ target_include_directories(hftrec_corpus_contract
 )
 target_compile_features(hftrec_corpus_contract PUBLIC cxx_std_23)
 target_link_libraries(hftrec_corpus_contract PRIVATE hft_compressor::core Threads::Threads)
+target_link_libraries(hftrec_corpus_contract PUBLIC cxet::read_only_contracts)
 
 # Producer-owned local client: no Qt, capture owner, credential or Parser
 # runtime dependency is allowed in a research frontend's link closure.
@@ -48,6 +49,7 @@ target_include_directories(hftrec_capture_launch PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
     ${CMAKE_CURRENT_LIST_DIR}/../Runtime/src)
 target_compile_features(hftrec_capture_launch PUBLIC cxx_std_23)
+target_link_libraries(hftrec_capture_launch PRIVATE cxet::read_only_contracts)
 set_target_properties(hftrec_capture_launch PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(TARGET hftp_contract_headers)

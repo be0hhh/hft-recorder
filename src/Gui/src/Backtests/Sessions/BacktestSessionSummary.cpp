@@ -76,7 +76,7 @@ QStringList sweepRowLegSessionIds(const QString& manifestPath, const QJsonObject
 
 QStringList resultLegSessionIds(const QString& manifestPath, const QJsonObject& manifest) {
     QStringList ids = resultLegSessionIds(manifest);
-    if (!ids.empty() || manifest.value(QStringLiteral("type")).toString() != QStringLiteral("sweep.result.v1")) return ids;
+    if (!ids.empty() || manifest.value(QStringLiteral("type")).toString() != QStringLiteral("sweep.result")) return ids;
     return sweepRowLegSessionIds(manifestPath, manifest);
 }
 
@@ -89,10 +89,8 @@ QJsonObject readManifestObject(const QString& manifestPath) {
 
 bool isBacktestResultManifest(const QJsonObject& manifest) {
     const QString type = manifest.value(QStringLiteral("type")).toString();
-    return (type == QStringLiteral("run.result") &&
-            (manifest.value(QStringLiteral("schema_version")).toDouble(-1.0) == 5.0 ||
-             manifest.value(QStringLiteral("schema_version")).toDouble(-1.0) == 4.0)) ||
-           type == QStringLiteral("sweep.result.v1");
+    return type == QStringLiteral("run.result") ||
+           type == QStringLiteral("sweep.result");
 }
 
 void addLegCount(QHash<QString, BacktestLegCounts>& counts, const QString& sessionId, int legIndex) {

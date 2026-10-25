@@ -229,12 +229,6 @@ Status parseTradeLine(std::string_view line, TradeRow& out) noexcept {
     return Status::Ok;
 }
 
-Status parseTradeLine(std::string_view line,
-                      TradeRow& out,
-                      const std::vector<std::string>& aliases) noexcept {
-    (void)aliases;
-    return parseTradeLine(line, out);
-}
 
 Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept {
     out = LiquidationRow{};
@@ -276,12 +270,6 @@ Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept
     return Status::Ok;
 }
 
-Status parseLiquidationLine(std::string_view line,
-                            LiquidationRow& out,
-                            const std::vector<std::string>& aliases) noexcept {
-    (void)aliases;
-    return parseLiquidationLine(line, out);
-}
 
 Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
     out = BookTickerRow{};
@@ -303,12 +291,6 @@ Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept {
     return Status::Ok;
 }
 
-Status parseBookTickerLine(std::string_view line,
-                           BookTickerRow& out,
-                           const std::vector<std::string>& aliases) noexcept {
-    (void)aliases;
-    return parseBookTickerLine(line, out);
-}
 
 Status parseCandleLine(std::string_view line, CandleRow& out) noexcept {
     out = CandleRow{};

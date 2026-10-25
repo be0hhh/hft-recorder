@@ -232,11 +232,16 @@ BacktestRunSummary decodeBacktestRunSummary(const QJsonObject& root) {
     BacktestRunSummary out;
     out.canonicalRunResult = root.value(QStringLiteral("type")).toString() ==
         QStringLiteral("run.result");
-    const QJsonValue schemaVersion = root.value(QStringLiteral("schema_version"));
-    if (!out.canonicalRunResult || !schemaVersion.isDouble() ||
-        (schemaVersion.toDouble() != 5.0 && schemaVersion.toDouble() != 4.0)) {
-        out.status = BacktestRunSummaryStatus::UnsupportedSchema;
-        out.error = QStringLiteral("unsupported backtest result type or schema_version");
+    if (!out.canonicalRunResult) {
+        out.status = BacktestRunSummaryStatus::UnsupportedType;
+        out.error = QStringLiteral("unsupported backtest result type");
+        return out;
+    }
+
+    if (root.contains(QStringLiteral("diagnostics")) ||
+        !root.value(QStringLiteral("diagnostic")).isObject()) {
+        out.status = BacktestRunSummaryStatus::MissingDiagnostic;
+        out.error = QStringLiteral("backtest result requires the diagnostic object");
         return out;
     }
 
@@ -467,10 +472,10 @@ QVariantList resultMetrics(const QJsonObject& root, const QJsonObject& summary) 
                      QStringLiteral("Показывает, насколько часто выставленные заявки реально становятся сделками."),
                      QStringLiteral("Слишком низкий fill rate может значить, что стратегия стоит далеко от рынка или слишком быстро отменяет заявки."));
     }
-    const QJsonObject diagnostics = root.value(QStringLiteral("diagnostics")).toObject();
-    if (!diagnostics.isEmpty()) {
-        const QString reason = diagnostics.value(QStringLiteral("zero_activity_reason")).toString();
-        appendMetric(QStringLiteral("diagnostics.zero_activity_reason"),
+    const QJsonObject diagnostic = root.value(QStringLiteral("diagnostic")).toObject();
+    if (!diagnostic.isEmpty()) {
+        const QString reason = diagnostic.value(QStringLiteral("zero_activity_reason")).toString();
+        appendMetric(QStringLiteral("diagnostic.zero_activity_reason"),
                      QStringLiteral("Diagnosis"),
                      reason,
                      QStringLiteral("Diagnosis"),
@@ -479,11 +484,11 @@ QVariantList resultMetrics(const QJsonObject& root, const QJsonObject& summary) 
                      QStringLiteral("Короткая классификация причины нулевых orders/fills."),
                      QStringLiteral("Помогает отличить отсутствие сигнала от заявок без исполнения или rate-limit остановок."),
                      QStringLiteral("no_signal_below_threshold значит параметры не дали вход; orders_without_fills значит заявки были, но fill model их не исполнил."));
-        const QJsonObject signal = diagnostics.value(QStringLiteral("signal")).toObject();
+        const QJsonObject signal = diagnostic.value(QStringLiteral("signal")).toObject();
         auto appendDiagnosticBps = [&](const QString& key, const QString& label, bool primary, const QString& description) {
             const QJsonValue value = signal.value(key);
             if (!value.isDouble()) return;
-            appendMetric(QStringLiteral("diagnostics.") + key,
+            appendMetric(QStringLiteral("diagnostic.") + key,
                          label,
                          e8DisplayString(value.toInteger()) + QStringLiteral(" bps"),
                          QStringLiteral("Signal"),
@@ -501,10 +506,10 @@ QVariantList resultMetrics(const QJsonObject& root, const QJsonObject& summary) 
                             QStringLiteral("Entry edge"),
                             false,
                             QStringLiteral("Порог входа из config.ini, если его удалось прочитать."));
-        const QJsonObject rateLimits = diagnostics.value(QStringLiteral("rate_limits")).toObject();
+        const QJsonObject rateLimits = diagnostic.value(QStringLiteral("rate_limits")).toObject();
         const QJsonValue rejectedCommands = rateLimits.value(QStringLiteral("rate_limit_rejected_commands"));
         if (rejectedCommands.isDouble()) {
-            appendMetric(QStringLiteral("diagnostics.rate_limit_rejected_commands"),
+            appendMetric(QStringLiteral("diagnostic.rate_limit_rejected_commands"),
                          QStringLiteral("RL rejects"),
                          QString::number(rejectedCommands.toInteger()),
                          QStringLiteral("Execution"),

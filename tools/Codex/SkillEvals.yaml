@@ -1,4 +1,3 @@
-version: 1
 forward_tests:
   - id: corpus-read-only-routing
     skill: hft-recorder-corpus-pipeline

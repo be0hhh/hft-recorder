@@ -2,6 +2,7 @@
 #include "BinaryMarketBlockCodec.hpp"
 #include "Codec/Crc32c.hpp"
 #include "hftrec/CorpusContract/BinaryMarketCorpusReader.hpp"
+#include "hftrec/CorpusContract/BinaryMarketDepthTransaction.hpp"
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -16,19 +17,13 @@
 
 namespace hftrec::corpus {
 namespace {
-inline constexpr std::uint16_t kCorpusCutSchemaVersion=1u;
-inline constexpr std::uint64_t kCorpusCutAbi=binaryMarketCorpusAbiFingerprint() ^
-    (static_cast<std::uint64_t>(sizeof(CorpusProducerProgress))<<7u) ^
-    (static_cast<std::uint64_t>(sizeof(CorpusBlockRange))<<31u);
 struct CutHeader final {
-    std::uint64_t magic{0x4355544852433031ull};
-    std::uint64_t abi{kCorpusCutAbi};
+    std::uint64_t magic{0x4355544852434f52ull};
     std::uint64_t bytes{},generation{},committedMonotonicNs{};
     CorpusProducerProgress progress{};
     BinaryMarketManifest manifest{};
     std::uint64_t sources{},gaps{},blocks{},referenceBytes{};
     std::uint32_t crc{},headerCrc{},sourcesCrc{};
-    std::uint16_t schema{kCorpusCutSchemaVersion};
     std::uint8_t finalized{};
     std::uint8_t reserved{};
 };
@@ -54,15 +49,15 @@ std::uint32_t cutHeaderCrc(const CutHeader& header) noexcept {
 }
 bool validCutHeader(const CutHeader& header,std::uint64_t bytes) noexcept {
     const auto maximum=header.manifest.maximumBytes;
-    if(header.magic!=CutHeader{}.magic || header.abi!=kCorpusCutAbi || header.schema!=kCorpusCutSchemaVersion ||
+    if(header.magic!=CutHeader{}.magic ||
        header.headerCrc!=cutHeaderCrc(header) || header.bytes!=bytes || bytes<sizeof(header) || !maximum || bytes>maximum ||
        !header.generation || !header.committedMonotonicNs || !header.sources || header.sources>kBinaryMarketMaximumSources ||
        header.sources!=header.manifest.sourceCount || header.gaps>header.sources*kBinaryMarketStoredChannelCount ||
        header.blocks>maximum/sizeof(CorpusBlockRange) || header.referenceBytes>kCorpusMaximumReferenceBytes ||
        header.finalized>1 || (header.finalized!=0)!=(header.manifest.finalizedReceiveNs>0) ||
        header.reserved || header.manifest.magic!=kBinaryMarketManifestMagic ||
-       header.manifest.schemaVersion!=kBinaryMarketCorpusSchemaVersion || header.manifest.headerBytes!=sizeof(BinaryMarketManifest) ||
-       header.manifest.writerAbiFingerprint!=binaryMarketCorpusAbiFingerprint() || !header.manifest.producerEpoch ||
+       header.manifest.headerBytes!=sizeof(BinaryMarketManifest) ||
+       !header.manifest.producerEpoch ||
        header.manifest.startedReceiveNs<=0 || !header.manifest.replayAnchorMonotonicNs ||
        header.progress.producerEpoch!=header.manifest.producerEpoch || !header.progress.shardCount ||
        header.progress.shardCount!=header.manifest.shardCount || header.progress.shardCount>kBinaryMarketMaximumShards ||
@@ -117,7 +112,7 @@ bool before(const BinaryMarketRecord& a,const BinaryMarketRecord& b) {
 }
 }
 std::string corpusIdentity(const BinaryMarketManifest& manifest) {
-    return "cxm:"+std::to_string(manifest.producerEpoch)+":"+std::to_string(manifest.writerAbiFingerprint);
+    return "cxm:"+std::to_string(manifest.producerEpoch);
 }
 Status readCorpusSummary(const std::filesystem::path& root,CorpusSummary& summary,std::string& error) noexcept {
     summary={};error.clear();
@@ -145,8 +140,8 @@ Status readCorpusSummary(const std::filesystem::path& root,CorpusSummary& summar
         const auto calculated=crc({reinterpret_cast<const std::uint8_t*>(&manifest),sizeof(manifest)});
         manifest.manifestCrc32c=stored;
         if(!file || stored!=calculated || manifest.magic!=kBinaryMarketManifestMagic ||
-           manifest.schemaVersion!=kBinaryMarketCorpusSchemaVersion || manifest.headerBytes!=sizeof(manifest) ||
-           manifest.writerAbiFingerprint!=binaryMarketCorpusAbiFingerprint() || !manifest.producerEpoch || manifest.startedReceiveNs<=0 ||
+           manifest.headerBytes!=sizeof(manifest) ||
+           !manifest.producerEpoch || manifest.startedReceiveNs<=0 ||
            manifest.finalizedReceiveNs<manifest.startedReceiveNs || !manifest.maximumBytes || manifest.projectedBytes>manifest.maximumBytes ||
            !manifest.sourceCount || manifest.sourceCount>kBinaryMarketMaximumSources || !manifest.shardCount ||
            manifest.shardCount>kBinaryMarketMaximumShards || manifest.complete!=1u ||
@@ -222,14 +217,13 @@ Status readCorpusCut(const std::filesystem::path& root,std::shared_ptr<const Cor
         if(end<static_cast<std::streamoff>(sizeof(CutHeader))) {error="corpus cut is truncated";return Status::CorruptData;}
         CutHeader header{};file.seekg(0);file.read(reinterpret_cast<char*>(&header),sizeof(header));
         const auto maximum=header.manifest.maximumBytes;
-        if(!validCutHeader(header,static_cast<std::uint64_t>(end)) || !file || header.magic!=CutHeader{}.magic || header.abi!=kCorpusCutAbi ||
-           header.schema!=kCorpusCutSchemaVersion || header.bytes!=static_cast<std::uint64_t>(end) ||
+        if(!validCutHeader(header,static_cast<std::uint64_t>(end)) || !file || header.magic!=CutHeader{}.magic ||
+           header.bytes!=static_cast<std::uint64_t>(end) ||
            !header.generation || !maximum || header.bytes>maximum || header.sources==0 ||
            header.sources>kBinaryMarketMaximumSources || header.sources!=header.manifest.sourceCount ||
            header.gaps>header.sources*kBinaryMarketStoredChannelCount || header.blocks>maximum/sizeof(CorpusBlockRange) ||
            header.referenceBytes>kCorpusMaximumReferenceBytes || header.finalized>1 || header.reserved ||
-           header.manifest.magic!=kBinaryMarketManifestMagic || header.manifest.schemaVersion!=kBinaryMarketCorpusSchemaVersion ||
-           header.manifest.writerAbiFingerprint!=binaryMarketCorpusAbiFingerprint() ||
+           header.manifest.magic!=kBinaryMarketManifestMagic ||
            header.progress.producerEpoch!=header.manifest.producerEpoch || !header.progress.shardCount ||
            header.progress.shardCount!=header.manifest.shardCount || header.progress.shardCount>kBinaryMarketMaximumShards) {
             error="corpus cut header mismatch";return Status::CorruptData;
@@ -273,9 +267,9 @@ Status readCorpusCut(const std::filesystem::path& root,std::shared_ptr<const Cor
             if(!range.segmentNumber || range.shardIndex>=value->progress.shardCount || range.reserved ||
                range.offset<sizeof(BinaryMarketSegmentHeader) || range.offset>maximum ||
                !range.firstMonotonicNs || range.lastMonotonicNs<range.firstMonotonicNs ||
-               block.magic!=kBinaryMarketBlockMagic || block.schemaVersion!=kBinaryMarketCorpusSchemaVersion ||
+               block.magic!=kBinaryMarketBlockMagic ||
                block.headerBytes!=sizeof(block) || !block.blockNumber || !block.recordCount || block.recordCount>kBinaryMarketBlockRecords ||
-               !validBinaryMarketRecordChannel(block.channel) || block.rawBytes!=block.recordCount*sizeof(BinaryMarketRecord) ||
+               !validBinaryMarketRecordChannel(block.channel) || block.rawBytes!=block.recordCount*binaryMarketBlockLayout(block.channel).recordBytes ||
                !block.encodedBytes || block.encodedBytes>hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(block.channel),block.recordCount) ||
                block.reserved!=decltype(block.reserved){} || !block.firstShardSequence || block.lastShardSequence<block.firstShardSequence ||
                codec::crc32c(reinterpret_cast<const std::uint8_t*>(&check),sizeof(check))!=block.headerCrc32c ||
@@ -299,6 +293,7 @@ Status readCorpusCompressedBlock(const std::filesystem::path& root,const CorpusC
         const auto& range=cut.blocks[index];const auto& block=range.header;
         auto check=block;check.headerCrc32c=0;
         if(!validBinaryMarketRecordChannel(block.channel) || !block.recordCount || block.recordCount>kBinaryMarketBlockRecords ||
+           block.rawBytes!=block.recordCount*binaryMarketBlockLayout(block.channel).recordBytes ||
            block.encodedBytes>hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(block.channel),block.recordCount) ||
            !block.encodedBytes || codec::crc32c(reinterpret_cast<const std::uint8_t*>(&check),sizeof(check))!=block.headerCrc32c) {
             error="compressed corpus range contract mismatch";return Status::CorruptData;
@@ -327,6 +322,7 @@ Status readCorpusRetainedCompressedBlock(std::shared_ptr<CorpusPublication> publ
     try {
         const auto& range=cut.blocks[index];const auto& block=range.header;
         if(!validBinaryMarketRecordChannel(block.channel) || !block.recordCount || block.recordCount>kBinaryMarketBlockRecords ||
+           block.rawBytes!=block.recordCount*binaryMarketBlockLayout(block.channel).recordBytes ||
            !block.encodedBytes || block.encodedBytes>hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(block.channel),block.recordCount))
             return Status::CorruptData;
         bytes.resize(sizeof(block)+block.encodedBytes);cxet::bytescan::hftMemcpy(bytes.data(),&block,sizeof(block));
@@ -338,7 +334,8 @@ Status readCorpusRetainedCompressedBlock(std::shared_ptr<CorpusPublication> publ
 }
 struct CorpusActiveCursorState final {
     struct Shard final {std::size_t block{};std::uint32_t position{},count{};
-        std::vector<BinaryMarketRecord> decoded{};std::uint64_t previousSequence{},previousTime{};bool ready{};};
+        std::vector<BinaryMarketRecord> decoded{};std::uint64_t previousSequence{},previousTime{};bool ready{};
+        BinaryMarketDepthTransactionState depthTransaction{};};
     std::filesystem::path root{};std::shared_ptr<CorpusPublication> publication{};
     std::shared_ptr<const CorpusCut> cut{};std::vector<Shard> shards{};
     std::vector<std::uint8_t> encoded{};hft_compressor::ByteBlockWorkspace workspace{};
@@ -374,7 +371,8 @@ Status CorpusActiveCursor::refresh(std::string& error) noexcept {
             if(!isOk(result))return result;
             metadataBytes=summary.cutBytes;shardCount=summary.manifest.shardCount;
         }
-        const auto encodedBound=hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(BinaryMarketChannel::Depth),kBinaryMarketBlockRecords);
+        const auto encodedBound=hft_compressor::byteBlockEncodeBound(
+            binaryMarketBlockLayout(BinaryMarketChannel::Depth),kBinaryMarketBlockRecords);
         // Includes previous/candidate cut, serialized read staging, per-shard
         // decode buffers, both compressed buffers and prepared codec workspace.
         const std::uint64_t fixed=8u*1024u*1024u+shardCount*kBinaryMarketBlockRecords*sizeof(BinaryMarketRecord)+2u*encodedBound;
@@ -451,12 +449,13 @@ Status CorpusActiveCursor::next(BinaryMarketRecord& output,CorpusCursorResult& r
                 if(shard.block==cut.blocks.size())break;
                 const auto& range=cut.blocks[shard.block];const auto& block=range.header;
                 auto check=block;check.headerCrc32c=0;
-                const auto bound=hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(block.channel),block.recordCount);
+                const auto layout=binaryMarketBlockLayout(block.channel);
+                const auto bound=hft_compressor::byteBlockEncodeBound(layout,block.recordCount);
                 if(!range.segmentNumber || range.offset<sizeof(BinaryMarketSegmentHeader) ||
-                    block.magic!=kBinaryMarketBlockMagic || block.schemaVersion!=kBinaryMarketCorpusSchemaVersion ||
+                    block.magic!=kBinaryMarketBlockMagic ||
                     block.headerBytes!=sizeof(block) || block.reserved!=decltype(block.reserved){} ||
                     !validBinaryMarketRecordChannel(block.channel) || !block.recordCount || block.recordCount>kBinaryMarketBlockRecords ||
-                    block.rawBytes!=block.recordCount*sizeof(BinaryMarketRecord) || !block.encodedBytes ||
+                    block.rawBytes!=block.recordCount*layout.recordBytes || !block.encodedBytes ||
                     block.encodedBytes>bound || block.encodedBytes>state.encoded.size() ||
                     codec::crc32c(reinterpret_cast<const std::uint8_t*>(&check),sizeof(check))!=block.headerCrc32c) {
                     error="active corpus block range mismatch";state.failed=true;return Status::CorruptData;
@@ -489,10 +488,11 @@ Status CorpusActiveCursor::next(BinaryMarketRecord& output,CorpusCursorResult& r
                     }
                 }
                 std::size_t raw{};
+                auto* rawData=reinterpret_cast<std::uint8_t*>(shard.decoded.data());
                 if(crc(encoded)!=block.encodedCrc32c ||
-                   hft_compressor::decodeByteBlock(state.workspace,binaryMarketBlockLayout(block.channel),encoded,
-                    std::span<std::uint8_t>(reinterpret_cast<std::uint8_t*>(shard.decoded.data()),block.rawBytes),raw)!=hft_compressor::Status::Ok ||
-                   raw!=block.rawBytes || codec::crc32c(reinterpret_cast<const std::uint8_t*>(shard.decoded.data()),raw)!=block.rawCrc32c) {
+                   hft_compressor::decodeByteBlock(state.workspace,layout,encoded,
+                    std::span<std::uint8_t>(rawData,block.rawBytes),raw)!=hft_compressor::Status::Ok ||
+                   raw!=block.rawBytes || codec::crc32c(rawData,raw)!=block.rawCrc32c) {
                     error="active corpus block decode mismatch";state.failed=true;return Status::CorruptData;
                 }
                 std::uint64_t previousSequence=shard.previousSequence,previousTime=shard.previousTime;
@@ -519,10 +519,18 @@ Status CorpusActiveCursor::next(BinaryMarketRecord& output,CorpusCursorResult& r
         std::size_t best=state.shards.size();
         for(std::size_t n=0;n<state.shards.size();++n) if(state.shards[n].ready &&
             (best==state.shards.size() || before(state.shards[n].decoded[state.shards[n].position],state.shards[best].decoded[state.shards[best].position]))) best=n;
-        if(best==state.shards.size()) {state.caughtUp=true;result=cut.finalized?CorpusCursorResult::End:CorpusCursorResult::WouldBlock;return Status::Ok;}
+        if(best==state.shards.size()) {
+            if(cut.finalized) for(const auto& shard:state.shards) if(shard.depthTransaction.active()) {
+                error="finalized corpus ends inside depth transaction";state.failed=true;return Status::CorruptData;
+            }
+            state.caughtUp=true;result=cut.finalized?CorpusCursorResult::End:CorpusCursorResult::WouldBlock;return Status::Ok;
+        }
         auto& shard=state.shards[best];const auto& record=shard.decoded[shard.position];
         if(!cut.progress.safeMonotonicNs || record.header.receiveMonotonicNs>=cut.progress.safeMonotonicNs ||
            record.header.shardSequence>cut.progress.shardSequences[best]) {state.caughtUp=true;return Status::Ok;}
+        if(!advanceBinaryMarketDepthTransaction(record,shard.depthTransaction)) {
+            error="active corpus depth transaction mismatch";state.failed=true;return Status::CorruptData;
+        }
         copyBinaryMarketRecord(output,record);++shard.position;shard.ready=shard.position<shard.count;
         result=CorpusCursorResult::Record;return Status::Ok;
     } catch(...) {error="active corpus cursor failed";return Status::IoError;}

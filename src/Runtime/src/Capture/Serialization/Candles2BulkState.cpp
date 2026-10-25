@@ -36,26 +36,30 @@ bool parseUInt32(hftrec::json::MiniJsonParser& parser, std::uint32_t& out) noexc
 
 bool parseStateObject(hftrec::json::MiniJsonParser& parser, Candles2BulkState& out) noexcept {
     if (!parser.parseObjectStart()) return false;
-    if (parser.peek('}')) return parser.parseObjectEnd();
+    if (parser.peek('}')) return false;
+    unsigned seen = 0u;
 
     do {
         std::string key;
         if (!parser.parseKey(key)) return false;
 
-        if (key == "schema") {
-            std::string ignored;
-            if (!parser.parseString(ignored)) return false;
-        } else if (key == "status") {
+        if (key == "status") {
+            seen |= 1u << 0u;
             if (!parser.parseString(out.status)) return false;
         } else if (key == "exchange") {
+            seen |= 1u << 1u;
             if (!parser.parseString(out.exchange)) return false;
         } else if (key == "market") {
+            seen |= 1u << 2u;
             if (!parser.parseString(out.market)) return false;
         } else if (key == "symbol") {
+            seen |= 1u << 3u;
             if (!parser.parseString(out.symbol)) return false;
         } else if (key == "timeframe") {
+            seen |= 1u << 4u;
             if (!parser.parseString(out.timeframe)) return false;
         } else if (key == "candles2_path") {
+            seen |= 1u << 5u;
             if (!parser.parseString(out.candles2Path)) return false;
         } else if (key == "compatibility_candles_path") {
             if (!parser.parseString(out.compatibilityCandlesPath)) return false;
@@ -90,7 +94,7 @@ bool parseStateObject(hftrec::json::MiniJsonParser& parser, Candles2BulkState& o
         if (parser.peek('}')) break;
     } while (parser.parseComma());
 
-    return parser.parseObjectEnd();
+    return seen == 63u && parser.parseObjectEnd();
 }
 
 }  // namespace
@@ -98,7 +102,6 @@ bool parseStateObject(hftrec::json::MiniJsonParser& parser, Candles2BulkState& o
 std::string renderCandles2BulkStateJson(const Candles2BulkState& state) {
     std::ostringstream out;
     out << "{\n";
-    appendStringField(out, "schema", "hftrec.candles2_bulk_state.v1");
     appendStringField(out, "status", state.status);
     appendStringField(out, "exchange", state.exchange);
     appendStringField(out, "market", state.market);

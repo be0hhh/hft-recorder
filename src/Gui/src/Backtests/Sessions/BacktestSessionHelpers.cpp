@@ -186,15 +186,6 @@ bool sessionSupportsCurrentBacktestContract(const SessionManifestSnapshot& snaps
     };
     if (!snapshot.ready()) return reject(snapshot.error());
     const QJsonObject& manifest = snapshot.object();
-    if (manifest.value(QStringLiteral("manifest_schema_version")).toInt() !=
-            hftrec::capture::kManifestSchemaVersionCurrent ||
-        manifest.value(QStringLiteral("corpus_schema_version")).toInt() !=
-            hftrec::capture::kCorpusSchemaVersionCurrent ||
-        manifest.value(QStringLiteral("capture_contract_version")).toString() !=
-            QString::fromUtf8(hftrec::capture::kCaptureContractVersionCurrent.data(),
-                              static_cast<qsizetype>(hftrec::capture::kCaptureContractVersionCurrent.size()))) {
-        return reject(QStringLiteral("legacy recorder corpus is view-only; current v3 is required for backtest"));
-    }
     const QString status = manifest.value(QStringLiteral("session_status")).toString();
     if (status != QStringLiteral("complete")) {
         return reject(QStringLiteral("recorder session is not cleanly finalized"));

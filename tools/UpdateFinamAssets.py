@@ -329,7 +329,6 @@ def build_catalog(raw_assets: list[dict[str, Any]], *, complete: bool, next_curs
         if row.get("market") == "futures" and row.get("underlying") in spot_underlyings
     )
     return {
-        "schema": 1,
         "source": "/v1/assets/all",
         "generated_at": dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "complete": complete,

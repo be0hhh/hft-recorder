@@ -207,7 +207,6 @@ Every magic number gets a named `constexpr`:
 
 ```cpp
 inline constexpr uint32_t kFileMagic        = 0x43525843;     // "CXRC" LE
-inline constexpr uint16_t kFormatVersion    = 0x0001;
 inline constexpr uint32_t kBlockMagic       = 0x004B4C42;     // "BLK\0" LE
 inline constexpr uint32_t kMaxEventsPerBlock     = 512;
 inline constexpr std::chrono::seconds kMaxBlockWallTime{1};

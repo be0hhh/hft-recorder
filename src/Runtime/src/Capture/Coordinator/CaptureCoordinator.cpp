@@ -199,7 +199,6 @@ Status CaptureCoordinator::startExternalCapture(const CaptureConfig& config,
     if (!isOk(sessionStatus)) return sessionStatus;
 
     std::lock_guard<std::mutex> lock(stateMutex_);
-    manifest_.manifestSchemaVersion = kManifestSchemaVersionCurrent;
     for (const auto* required : {"bidQty", "askQty"}) {
         if (std::find(config_.bookTickerAliases.begin(), config_.bookTickerAliases.end(), required) ==
             config_.bookTickerAliases.end()) {
@@ -322,7 +321,7 @@ Status CaptureCoordinator::appendExternalBookTicker(const replay::BookTickerRow&
     if (!replay::hasCapturedApplicationArrival(row.arrival))
         return accountExternalAppend_(Status::InvalidArgument, manifest_.bookTickerRuntime,
                                       bookTickerCount_, row.tsNs, row.arrival, "bookticker");
-    const auto status = jsonSink_.appendBookTickerLine(row, renderBookTickerJsonLine(row, config_.bookTickerAliases));
+    const auto status = jsonSink_.appendBookTickerLine(row, renderBookTickerJsonLine(row));
     return accountExternalAppend_(status, manifest_.bookTickerRuntime, bookTickerCount_, row.tsNs, row.arrival, "bookticker");
 }
 
@@ -489,17 +488,6 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
     manifest_.fundingPath = std::string{channelJsonlRelativePath(ChannelKind::Funding)};
     manifest_.priceLimitPath = std::string{channelJsonlRelativePath(ChannelKind::PriceLimit)};
     manifest_.canonicalArtifacts = {"manifest.json", manifest_.instrumentMetadataPath};
-    manifest_.captureContractVersion = kCaptureContractVersionCurrent;
-    manifest_.tradesRowSchema = kTradesRowSchemaCurrent;
-    manifest_.liquidationsRowSchema = kLiquidationsRowSchemaCurrent;
-    manifest_.bookTickerRowSchema = kBookTickerRowSchemaCurrent;
-    manifest_.depthRowSchema = kDepthRowSchemaCurrent;
-    manifest_.candlesRowSchema = kCandlesRowSchemaCurrent;
-    manifest_.candles2RowSchema = kCandlesRowSchemaCurrent;
-    manifest_.markPriceRowSchema = kMarkPriceRowSchemaCurrent;
-    manifest_.indexPriceRowSchema = kIndexPriceRowSchemaCurrent;
-    manifest_.fundingRowSchema = kFundingRowSchemaCurrent;
-    manifest_.priceLimitRowSchema = kPriceLimitRowSchemaCurrent;
     manifest_.sessionStatus = "recording";
 
     sessionDir_ = normalizedConfig.outputDir / manifest_.sessionId;
@@ -538,7 +526,7 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
     manifest_.supportArtifacts = {
         manifest_.sessionAuditPath,
         manifest_.integrityReportPath,
-        manifest_.loaderDiagnosticsPath,
+        manifest_.loaderDiagnosticPath,
         manifest_.marketDataLaunchPath,
     };
 
@@ -882,7 +870,7 @@ Status CaptureCoordinator::writeSupportArtifacts() noexcept {
     };
     const ArtifactSpec artifacts[] = {
         {sessionDir_ / manifest_.sessionAuditPath, renderSessionAuditJson(manifest_, generatedAtNs)},
-        {sessionDir_ / manifest_.loaderDiagnosticsPath, renderLoaderDiagnosticsJson(manifest_, generatedAtNs)},
+        {sessionDir_ / manifest_.loaderDiagnosticPath, renderLoaderDiagnosticJson(manifest_, generatedAtNs)},
         {sessionDir_ / manifest_.marketDataLaunchPath, renderMarketDataLaunchJson(manifest_, generatedAtNs)},
     };
     for (const auto& artifact : artifacts) {

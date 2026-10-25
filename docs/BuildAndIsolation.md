@@ -23,7 +23,7 @@ Recorder must not replace these edges with:
 
 ## Standalone behavior
 
-Recorder may remain independently versioned and may be opened as its own source
+Recorder may be opened as its own source
 repository. A standalone CMake configure is allowed to fail clearly when the
 CXET family targets are absent. It must not silently assemble a second family
 graph.

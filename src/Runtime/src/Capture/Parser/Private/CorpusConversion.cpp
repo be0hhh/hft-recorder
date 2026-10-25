@@ -42,7 +42,8 @@ namespace parser = hft_parser::ipc;
         !fixedTextValid(source.marketCode.data(), source.marketCode.size(),
                         source.marketCodeBytes) ||
         source.market.listingReserved != decltype(source.market.listingReserved){} ||
-        source.market.identityReserved != decltype(source.market.identityReserved){} ||
+        !cxet::api::trading::validNativePolicy(source.market.nativeInstrumentIdentityScope) ||
+        !hft_parser::market::validCatalogGenerationRelation(source.market.catalogGenerationRelation) ||
         !parser::validMarketDirectoryListingIdentity(source.market) ||
         (source.instrument.flags &
          ~parser::kMarketCaptureInstrumentMetadataFlags) != 0u ||
@@ -233,6 +234,7 @@ namespace parser = hft_parser::ipc;
                 corpus::BinaryMarketBookTickerPayload>(&output);
             *target = {source.bidPriceRaw, source.bidQtyRaw,
                        source.askPriceRaw, source.askQtyRaw};
+            target->nativeEvidence = source.nativeEvidence;
             return true;
         }
         case ParserChannel::Trade: {
@@ -252,9 +254,27 @@ namespace parser = hft_parser::ipc;
                 corpus::BinaryMarketTradePayload>(&output);
             *target = {source.priceRaw, source.qtyRaw,
                        static_cast<std::uint8_t>(source.side), {}};
+            target->nativeEvidence = source.nativeEvidence;
             return true;
         }
         case ParserChannel::Depth: {
+            if ((input.header.flags&parser::MarketCaptureRecordDepthCoverage)!=0u) {
+                if (input.header.payloadBytes!=sizeof(parser::MarketCaptureDepthCoveragePayload)) return false;
+                const auto& source=*parser::marketCapturePayload<parser::MarketCaptureDepthCoveragePayload>(&input);
+                corpus::BinaryMarketDepthCoveragePayload target{};
+                target.totalCoverageCount=source.totalCoverageCount;
+                target.coverageOffset=source.coverageOffset;
+                target.coverageCount=source.coverageCount;
+                target.partIndex=source.partIndex;
+                target.partCount=source.partCount;
+                target.transactionPartCount=source.transactionPartCount;
+                if (target.coverageCount>target.coverage.size()) return false;
+                for (std::size_t i=0u;i<target.coverageCount;++i)
+                    target.coverage[i]=corpus::encodeBinaryMarketDepthCoverage(source.coverage[i]);
+                *corpus::binaryMarketPayload<corpus::BinaryMarketDepthCoveragePayload>(&output)=target;
+                output.header.payloadBytes=sizeof(target);
+                return corpus::validBinaryMarketDepthCoveragePayload(target);
+            }
             if (input.header.payloadBytes !=
                 sizeof(parser::MarketCaptureDepthChunkPayload)) return false;
             const auto& source = *parser::marketCapturePayload<
@@ -344,7 +364,14 @@ namespace parser = hft_parser::ipc;
             const bool rebaseFlag =
                 (input.header.flags &
                  parser::MarketCaptureRecordDepthRebase) != 0u;
-            if ((!partial && !healthy && !rebaseInFlight && !gap) ||
+            const bool composed = snapshot && !rebaseFlag &&
+                (input.header.flags & (parser::MarketCaptureRecordDepthSourcePosition |
+                                       parser::MarketCaptureRecordDepthHasCoverage)) ==
+                    (parser::MarketCaptureRecordDepthSourcePosition | parser::MarketCaptureRecordDepthHasCoverage) &&
+                source.transactionPartIndex == 0u && source.transactionPartCount == 1u &&
+                (partial || healthy || gap || (source.state==::cxet::market::DepthSourceState::Empty &&
+                                              source.totalLevelCount==0u && source.levelCount==0u));
+            if ((!partial && !healthy && !rebaseInFlight && !gap && !composed) ||
                 snapshotFlag != snapshot || deltaFlag != delta ||
                 stateFlag != stateRecord ||
                 (static_cast<unsigned>(snapshotFlag) +
@@ -352,29 +379,27 @@ namespace parser = hft_parser::ipc;
                  static_cast<unsigned>(stateFlag)) != 1u ||
                 partialFlag != partial ||
                 (replayCompatible !=
-                 (partial || healthy || rebaseInFlight)) ||
-                ((source.totalLevelCount == 0u) != stateRecord) ||
+                 (partial || healthy || rebaseInFlight || composed)) ||
+                (source.totalLevelCount == 0u && !stateRecord && !snapshot) ||
+                (stateRecord && source.totalLevelCount!=0u) ||
                 ((partial || healthy || rebaseInFlight) &&
                  source.failure != ::cxet::market::DepthFailure::None) ||
+                (source.state==::cxet::market::DepthSourceState::Empty && source.failure!=::cxet::market::DepthFailure::None) ||
                 (gap &&
-                 source.failure == ::cxet::market::DepthFailure::None) ||
-                ((partial || healthy) && !delta) ||
+                 source.failure == ::cxet::market::DepthFailure::None && !composed) ||
+                ((partial || healthy) && !delta && !snapshot) ||
                 (rebaseFlag != rebaseInFlight) ||
-                (rebaseInFlight && source.totalLevelCount == 0u) ||
                 (rebaseInFlight &&
                  (snapshot != (source.transactionPartIndex == 0u))) ||
-                (!rebaseInFlight &&
-                 (source.transactionPartIndex != 0u ||
-                  source.transactionPartCount != 1u)) ||
+                (!rebaseInFlight && source.transactionPartCount!=1u) ||
                 (stateRecord && (!gap || replayCompatible || partialFlag ||
                                  rebaseFlag ||
                                  source.sourceReceiveRealtimeNs != 0u)) ||
                 (!stateRecord &&
-                 (source.sourceReceiveRealtimeNs == 0u ||
+                 ((!composed && (source.sourceReceiveRealtimeNs == 0u || source.sourceFreshnessMonotonicNs == 0u)) ||
                   source.sourceReceiveRealtimeNs >
                       static_cast<std::uint64_t>(
-                          std::numeric_limits<std::int64_t>::max()) ||
-                  source.sourceFreshnessMonotonicNs == 0u))) {
+                          std::numeric_limits<std::int64_t>::max())))) {
                 return false;
             }
             corpus::BinaryMarketDepthChunkPayload target{};
@@ -397,6 +422,7 @@ namespace parser = hft_parser::ipc;
                 source.sourceReceiveRealtimeNs;
             target.sourceFreshnessMonotonicNs =
                 source.sourceFreshnessMonotonicNs;
+            target.nativeEvidence = source.nativeEvidence;
             for (std::uint16_t index = 0u; index < source.levelCount; ++index) {
                 const auto& level = source.levels[index];
                 const bool side =
@@ -451,6 +477,14 @@ namespace parser = hft_parser::ipc;
         output |= corpus::BinaryMarketRecordExchangeAheadOfReceive;
     if ((flags & parser::MarketCaptureRecordDepthState) != 0u)
         output |= corpus::BinaryMarketRecordDepthState;
+    if ((flags & parser::MarketCaptureRecordDepthCoverage) != 0u)
+        output |= corpus::BinaryMarketRecordDepthCoverage;
+    if ((flags & parser::MarketCaptureRecordDepthHasCoverage) != 0u)
+        output |= corpus::BinaryMarketRecordDepthHasCoverage;
+    if ((flags & parser::MarketCaptureRecordDepthTransactionEnd) != 0u)
+        output |= corpus::BinaryMarketRecordDepthTransactionEnd;
+    if ((flags & parser::MarketCaptureRecordDepthSourcePosition) != 0u)
+        output |= corpus::BinaryMarketRecordDepthSourcePosition;
     return output;
 }
 
@@ -487,7 +521,11 @@ namespace parser = hft_parser::ipc;
         parser::MarketCaptureRecordDepthDelta |
         parser::MarketCaptureRecordDepthPartial |
         parser::MarketCaptureRecordDepthRebase |
-        parser::MarketCaptureRecordDepthState;
+        parser::MarketCaptureRecordDepthState |
+        parser::MarketCaptureRecordDepthCoverage |
+        parser::MarketCaptureRecordDepthHasCoverage |
+        parser::MarketCaptureRecordDepthTransactionEnd |
+        parser::MarketCaptureRecordDepthSourcePosition;
     if ((bboOnly && input.header.channel !=
                         parser::MarketCaptureChannel::BookTicker) ||
         ((input.header.flags & depthFlags) != 0u &&
@@ -495,7 +533,8 @@ namespace parser = hft_parser::ipc;
         (input.header.channel == parser::MarketCaptureChannel::Depth &&
          (input.header.flags & (parser::MarketCaptureRecordDepthSnapshot |
                                 parser::MarketCaptureRecordDepthDelta |
-                                parser::MarketCaptureRecordDepthState)) ==
+                                parser::MarketCaptureRecordDepthState |
+                                parser::MarketCaptureRecordDepthCoverage)) ==
              0u)) {
         return false;
     }

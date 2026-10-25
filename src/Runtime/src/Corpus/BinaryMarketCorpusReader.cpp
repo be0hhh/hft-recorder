@@ -3,6 +3,7 @@
 #include "Codec/Crc32c.hpp"
 #include "BinaryMarketBlockCodec.hpp"
 #include "BinaryMarketSourceState.hpp"
+#include "hftrec/CorpusContract/BinaryMarketDepthTransaction.hpp"
 
 #include <algorithm>
 #include <array>
@@ -59,7 +60,6 @@ template <typename Record>
     const std::uint64_t recordsBytes =
         static_cast<std::uint64_t>(header.recordCount) * sizeof(Record);
     if (header.magic != magic ||
-        header.schemaVersion != kBinaryMarketCorpusSchemaVersion ||
         header.headerBytes != sizeof(header) ||
         header.recordBytes != sizeof(Record) || header.recordCount != expectedRecords ||
         header.reserved != decltype(header.reserved){} ||
@@ -109,13 +109,12 @@ template <typename Record>
     const std::uint32_t calculated = crcBytes(&manifest, sizeof(manifest));
     manifest.manifestCrc32c = storedCrc;
     const bool hasRecords = manifest.recordCount != 0u;
+    const auto recordBytes = sizeof(BinaryMarketRecord);
     const std::uint64_t maximumGapCount =
         static_cast<std::uint64_t>(manifest.sourceCount) *
         kBinaryMarketStoredChannelCount;
     if (manifest.magic != kBinaryMarketManifestMagic ||
-        manifest.schemaVersion != kBinaryMarketCorpusSchemaVersion ||
         manifest.headerBytes != sizeof(manifest) ||
-        manifest.writerAbiFingerprint != binaryMarketCorpusAbiFingerprint() ||
         manifest.producerEpoch == 0u || manifest.startedReceiveNs <= 0 ||
         manifest.replayAnchorReceiveNs <= 0 ||
         manifest.replayAnchorMonotonicNs == 0u ||
@@ -124,7 +123,7 @@ template <typename Record>
         manifest.replayAnchorReceiveNs > manifest.finalizedReceiveNs ||
         manifest.maximumBytes == 0u ||
         manifest.segmentTargetBytes < sizeof(BinaryMarketSegmentHeader) +
-            sizeof(BinaryMarketRecord) + sizeof(BinaryMarketSegmentFooter) ||
+            recordBytes + sizeof(BinaryMarketSegmentFooter) ||
         manifest.projectedBytes == 0u ||
         manifest.projectedBytes > manifest.maximumBytes ||
         manifest.sourceCount == 0u || manifest.sourceCount > kBinaryMarketMaximumSources ||
@@ -229,8 +228,7 @@ struct SegmentDecoder final {
         stream.open(segmentPath(root,key.shard,key.number), std::ios::binary);
         if (!stream.is_open() || !readBytes(stream,&header,sizeof(header)) ||
             header.magic != kBinaryMarketSegmentMagic ||
-            header.schemaVersion != kBinaryMarketCorpusSchemaVersion ||
-            header.headerBytes != sizeof(header) || header.recordBytes != sizeof(BinaryMarketRecord) ||
+            header.headerBytes != sizeof(header) || header.recordBytes != binaryMarketBlockLayout(BinaryMarketChannel::Depth).recordBytes ||
             header.recordCount == 0u || header.blockCount == 0u ||
             header.blockCount > header.recordCount || header.codecId != 1u ||
             header.firstReceiveNs <= 0 || header.lastReceiveNs < header.firstReceiveNs ||
@@ -258,7 +256,7 @@ struct SegmentDecoder final {
                 BinaryMarketSegmentFooter footer{};
                 if(!readBytes(stream,&footer,sizeof(footer)) ||
                     footer.magic!=kBinaryMarketSegmentFooterMagic ||
-                    footer.schemaVersion!=kBinaryMarketCorpusSchemaVersion || footer.footerBytes!=sizeof(footer) ||
+                    footer.footerBytes!=sizeof(footer) ||
                     footer.segmentNumber!=header.segmentNumber || footer.recordCount!=header.recordCount ||
                     footer.recordsCrc32c!=header.recordsCrc32c || footer.firstReceiveNs!=header.firstReceiveNs ||
                     footer.lastReceiveNs!=header.lastReceiveNs || footer.reserved!=decltype(footer.reserved){} ||
@@ -271,9 +269,9 @@ struct SegmentDecoder final {
             }
             BinaryMarketBlockHeader block{};
             if(!readBytes(stream,&block,sizeof(block)) || block.magic!=kBinaryMarketBlockMagic ||
-                block.schemaVersion!=kBinaryMarketCorpusSchemaVersion || block.headerBytes!=sizeof(block) ||
+                block.headerBytes!=sizeof(block) ||
                 block.blockNumber!=blocksSeen+1u || block.recordCount==0u || block.recordCount>kBinaryMarketBlockRecords ||
-                block.rawBytes!=block.recordCount*sizeof(BinaryMarketRecord) || !validBinaryMarketRecordChannel(block.channel) ||
+                block.rawBytes!=block.recordCount*header.recordBytes || !validBinaryMarketRecordChannel(block.channel) ||
                 block.encodedBytes==0u || block.encodedBytes>hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(block.channel),block.recordCount) ||
                 block.reserved!=decltype(block.reserved){} || block.firstShardSequence==0u ||
                 block.lastShardSequence<block.firstShardSequence ||
@@ -285,12 +283,15 @@ struct SegmentDecoder final {
                 error="binary corpus compressed block header or CRC mismatch"; return false;
             }
             std::size_t rawBytes=0u;
+            auto* rawData = reinterpret_cast<std::uint8_t*>(decoded.data());
             if(hft_compressor::decodeByteBlock(workspace,binaryMarketBlockLayout(block.channel),
                 std::span<const std::uint8_t>{encoded.data(),block.encodedBytes},
-                std::span<std::uint8_t>{reinterpret_cast<std::uint8_t*>(decoded.data()),block.rawBytes},rawBytes)
+                std::span<std::uint8_t>{rawData,block.rawBytes},rawBytes)
                 !=hft_compressor::Status::Ok || rawBytes!=block.rawBytes ||
-                crcBytes(decoded.data(),rawBytes)!=block.rawCrc32c ||
-                decoded[0].header.shardSequence!=block.firstShardSequence ||
+                crcBytes(rawData,rawBytes)!=block.rawCrc32c) {
+                error="binary corpus compressed block decode mismatch"; return false;
+            }
+            if(decoded[0].header.shardSequence!=block.firstShardSequence ||
                 decoded[block.recordCount-1u].header.shardSequence!=block.lastShardSequence) {
                 error="binary corpus compressed block decode mismatch"; return false;
             }
@@ -309,7 +310,7 @@ struct SegmentDecoder final {
                 if(firstReceive==0 || h.receiveRealtimeNs<firstReceive) firstReceive=h.receiveRealtimeNs;
                 lastReceive=std::max(lastReceive,h.receiveRealtimeNs);
             }
-            recordsCrc=codec::crc32cUpdate(recordsCrc,reinterpret_cast<const std::uint8_t*>(decoded.data()),rawBytes);
+            recordsCrc=codec::crc32cUpdate(recordsCrc,rawData,rawBytes);
             recordsSeen+=block.recordCount; bodyBytes+=sizeof(block)+block.encodedBytes; ++blocksSeen;
             position=0u; count=block.recordCount;
         }
@@ -338,6 +339,7 @@ struct BinaryMarketCorpusCursorState final {
         std::unique_ptr<SegmentDecoder> decoder{};
         BinaryMarketRecord head{};
         std::uint64_t previousSequence{0u}, previousMonotonic{0u};
+        BinaryMarketDepthTransactionState depthTransaction{};
         bool ready{false};
     };
     BinaryMarketSelectionRequest request{};
@@ -595,6 +597,8 @@ Status BinaryMarketCorpusCursor::open(
         output.sourceObservedChannelMasks.resize(sources.size(),0u);
         output.sourceLifecycleRevisionsAtBegin.resize(sources.size(),0u);
         output.sourceUnhealthyChannelMasksAtBegin.resize(sources.size(),0u);
+        output.sourceAdministrativeUnhealthyChannelMasksAtBegin.resize(sources.size(),0u);
+        output.sourceRecoveryPendingChannelMasksAtBegin.resize(sources.size(),0u);
         for(const auto& initial:state->sourceStates) output.sourcesAtBegin.push_back(effectiveBinaryMarketSource(initial));
         std::uint64_t generation=0u;
         std::uint64_t observedCorpusRecords=0u;
@@ -673,13 +677,19 @@ Status BinaryMarketCorpusCursor::open(
             if(!merged) break;
             BinaryMarketRecord record{};copyBinaryMarketRecord(record,merged->head);
             const auto& h=record.header;
-            if(!advanceBinaryMarketSourceState(record,state->sourceStates[h.sourceId-1u])) {
+            if(!advanceBinaryMarketDepthTransaction(record,merged->depthTransaction)) {
+                error="binary corpus incomplete depth transaction";return Status::CorruptData;
+            }
+            if(!advanceBinaryMarketSourceState(record,state->sourceStates[h.sourceId-1u],
+                binaryMarketDepthRecordIsNativeRebaseSnapshot(record))) {
                 error="binary corpus membership/generation boundary mismatch";return Status::CorruptData;
             }
             if(h.receiveRealtimeNs<request.beginReceiveNs) {
                 output.sourcesAtBegin[h.sourceId-1u]=effectiveBinaryMarketSource(state->sourceStates[h.sourceId-1u]);
                 output.sourceLifecycleRevisionsAtBegin[h.sourceId-1u]=state->sourceStates[h.sourceId-1u].directoryRevision;
                 output.sourceUnhealthyChannelMasksAtBegin[h.sourceId-1u]=state->sourceStates[h.sourceId-1u].unhealthyMask;
+                output.sourceAdministrativeUnhealthyChannelMasksAtBegin[h.sourceId-1u]=state->sourceStates[h.sourceId-1u].administrativeUnhealthyMask;
+                output.sourceRecoveryPendingChannelMasksAtBegin[h.sourceId-1u]=state->sourceStates[h.sourceId-1u].recoveryPendingMask;
             }
             if(!fillHead(*state,*merged,error)) return Status::CorruptData;
             if(!state->includedSources[h.sourceId] || (h.channel!=BinaryMarketChannel::SourceLifecycle && (request.channelMask&binaryMarketChannelBit(h.channel))==0u) ||
@@ -697,7 +707,19 @@ Status BinaryMarketCorpusCursor::open(
             }
             if(health || compatible)
                 output.sourceObservedChannelMasks[h.sourceId-1u]|=binaryMarketChannelBit(h.channel);
-            if(!health && compatible) {
+            bool readyDepth=true;
+            if(h.channel==BinaryMarketChannel::Depth) {
+                readyDepth=(h.flags&BinaryMarketRecordDepthCoverage)==0u &&
+                    (state->sourceStates[h.sourceId-1u].unhealthyMask&binaryMarketChannelBit(h.channel))==0u;
+                if(readyDepth) {
+                    const auto nativeState=binaryMarketPayload<BinaryMarketDepthChunkPayload>(&record)->state;
+                    readyDepth=nativeState==BinaryMarketDepthState::Healthy || nativeState==BinaryMarketDepthState::Partial;
+                    // Native rebase presence requires this exact grammar and
+                    // the complete merged transaction checked before open returns.
+                    if(!readyDepth) readyDepth=binaryMarketDepthRecordIsNativeRebaseSnapshot(record);
+                }
+            }
+            if(!health && compatible && readyDepth) {
                 output.presentChannelMask|=binaryMarketChannelBit(h.channel);
                 output.sourcePresentChannelMasks[h.sourceId-1u]|=binaryMarketChannelBit(h.channel);
             }
@@ -709,6 +731,10 @@ Status BinaryMarketCorpusCursor::open(
         for(auto& shard:state->shards) {
             shard.decoder.reset();shard.position=0u;shard.ready=false;
             shard.previousSequence=0u;shard.previousMonotonic=0u;
+        }
+        for(auto& shard:state->shards) {
+            if(shard.depthTransaction.active()) {error="sealed corpus ends inside depth transaction";return Status::CorruptData;}
+            shard.depthTransaction={};
         }
         for(std::size_t i=0u;i<sources.size();++i) state->sourceStates[i]=initialBinaryMarketSourceState(sources[i]);
         if ((request.requiredChannelMask & ~output.presentChannelMask) != 0u) {
@@ -737,7 +763,11 @@ Status BinaryMarketCorpusCursor::next(BinaryMarketRecord& output,bool& available
             if(!selected) return Status::Ok;
             BinaryMarketRecord record{};copyBinaryMarketRecord(record,selected->head);
             const auto& h=record.header;
-            if(!advanceBinaryMarketSourceState(record,state_->sourceStates[h.sourceId-1u])) {
+            if(!advanceBinaryMarketDepthTransaction(record,selected->depthTransaction)) {
+                state_->failed=true;error="binary corpus changed depth transaction";return Status::CorruptData;
+            }
+            if(!advanceBinaryMarketSourceState(record,state_->sourceStates[h.sourceId-1u],
+                binaryMarketDepthRecordIsNativeRebaseSnapshot(record))) {
                 state_->failed=true;error="binary corpus changed membership/generation boundary";return Status::CorruptData;
             }
             if(!fillHead(*state_,*selected,error)) {state_->failed=true;return Status::CorruptData;}

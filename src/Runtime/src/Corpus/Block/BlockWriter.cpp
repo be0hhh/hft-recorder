@@ -20,9 +20,9 @@
 //   5. Every constants::kFsyncEveryBlocks blocks, call fsync(fd).
 //
 // On open:
-//   1. Write FileHeader (64 B) to offset 0; include magic, version, stream,
-//      codec, created_ns, symbol, exchange, and CRC32C over bytes 0..59.
-//   2. offset = 64.
+//   1. Write FileHeader (62 B) to offset 0; include magic, stream,
+//      codec, created_ns, symbol, exchange, and CRC32C over bytes 0..57.
+//   2. offset = 62.
 //
 // On close:
 //   1. If the current block is non-empty, flush it with flags |= kFlagCoderReset

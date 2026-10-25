@@ -41,7 +41,7 @@ QString graphicsApiName(QSGRendererInterface::GraphicsApi api) {
     return QStringLiteral("unknown");
 }
 
-void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
+void wireRenderDiagnostic(QQmlApplicationEngine& engine) {
     if (engine.rootObjects().isEmpty()) return;
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
     if (window == nullptr) return;
@@ -50,7 +50,7 @@ void wireRenderDiagnostics(QQmlApplicationEngine& engine) {
 
     const QString requestedMode = qEnvironmentVariable("HFTREC_RENDER_MODE", "cpu").trimmed().toLower();
     QObject::connect(window, &QQuickWindow::sceneGraphInitialized, window, [window, appVm, requestedMode]() {
-        appVm->setRenderDiagnostics(requestedMode, graphicsApiName(window->rendererInterface()->graphicsApi()));
+        appVm->setRenderDiagnostic(requestedMode, graphicsApiName(window->rendererInterface()->graphicsApi()));
     }, Qt::QueuedConnection);
 }
 
@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
                      []() { QCoreApplication::exit(-1); },
                      Qt::QueuedConnection);
     engine.load(QUrl(QStringLiteral("qrc:/HftRecorder/qml/Main.qml")));
-    wireRenderDiagnostics(engine);
+    wireRenderDiagnostic(engine);
 
     hftrec::gui::api::ChartApiServer chartApiServer;
     chartApiServer.setChartController(engine.rootObjects().isEmpty()

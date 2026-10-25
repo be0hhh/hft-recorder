@@ -8,7 +8,6 @@
 #include <vector>
 
 namespace hftrec::service {
-inline constexpr std::uint16_t kRecorderServiceProtocol = 1u;
 inline constexpr std::uint32_t kRecorderServiceMaximumMessage = 256u * 1024u;
 inline constexpr std::uint32_t kRecorderServiceMaximumBlockChunk = 64u * 1024u;
 inline constexpr char kRecorderServiceSocket[] = "recorder-control.sock";

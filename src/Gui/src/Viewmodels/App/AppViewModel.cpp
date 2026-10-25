@@ -42,7 +42,7 @@ AppViewModel::AppViewModel(QObject* parent)
         QStringLiteral("HFTREC_RENDER_MODE"),
         QStringLiteral("cpu")).trimmed().toLower();
     if (requestedRenderMode_.isEmpty()) requestedRenderMode_ = QStringLiteral("cpu");
-    refreshRenderDiagnosticsText_();
+    refreshRenderDiagnosticText_();
     loadSettings_();
 
     saveTimer_.setInterval(1000);
@@ -64,7 +64,7 @@ QString AppViewModel::statusText() const {
     return statusText_;
 }
 
-void AppViewModel::setRenderDiagnostics(const QString& requestedMode, const QString& actualGraphicsApi) {
+void AppViewModel::setRenderDiagnostic(const QString& requestedMode, const QString& actualGraphicsApi) {
     const QString normalizedRequested = requestedMode.trimmed().toLower().isEmpty()
         ? QStringLiteral("cpu")
         : requestedMode.trimmed().toLower();
@@ -77,8 +77,8 @@ void AppViewModel::setRenderDiagnostics(const QString& requestedMode, const QStr
     }
     requestedRenderMode_ = normalizedRequested;
     actualGraphicsApi_ = normalizedApi;
-    refreshRenderDiagnosticsText_();
-    emit renderDiagnosticsChanged();
+    refreshRenderDiagnosticText_();
+    emit renderDiagnosticChanged();
 }
 
 void AppViewModel::setTradeAmountScale(qreal value) {
@@ -147,8 +147,8 @@ void AppViewModel::setActiveChartRenderer(const QString& rendererName) {
         : rendererName.trimmed().toLower();
     if (normalized == activeChartRenderer_) return;
     activeChartRenderer_ = normalized;
-    refreshRenderDiagnosticsText_();
-    emit renderDiagnosticsChanged();
+    refreshRenderDiagnosticText_();
+    emit renderDiagnosticChanged();
 }
 
 void AppViewModel::loadSettings_() {
@@ -184,8 +184,8 @@ void AppViewModel::flushSettings_() {
     settingsDirty_ = false;
 }
 
-void AppViewModel::refreshRenderDiagnosticsText_() {
-    renderDiagnosticsText_ = QStringLiteral("%1 requested | %2 backend | %3")
+void AppViewModel::refreshRenderDiagnosticText_() {
+    renderDiagnosticText_ = QStringLiteral("%1 requested | %2 backend | %3")
         .arg(requestedRenderMode_.toUpper(), actualGraphicsApi_, activeChartRenderer_);
 }
 

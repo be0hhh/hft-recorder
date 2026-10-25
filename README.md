@@ -101,7 +101,27 @@ trade/BBO/depth transforms and entropy coding; recording creates no raw spool or
 JSON intermediate. Replay decodes each checked block directly into bounded RAM.
 
 The arrival boundary is the accepted complete application message, rather than
-kernel/NIC receive time. Corpus schema 7 and record schema 6 also retain native
+kernel/NIC receive time. The current corpus and record layouts retain independent
+native event, transaction, matching-engine and send timestamps, update IDs and
+cross-sequences with explicit presence and counter guarantees for BBO, trades
+and depth. Records remain bounded at 1024 bytes with 32 depth levels per chunk.
+Composed depth coverage follows all native mutation parts in bounded records
+of five feed descriptors, including each feed's native evidence and population.
+Only the complete transaction's explicit final record closes its coverage.
+An explicit composed snapshot keeps its authoritative Healthy, Partial, Gap
+or zero-level Empty state. A composed Gap may carry no aggregate failure:
+the coverage retains the individual feed reasons. Unobserved original clocks
+remain absent; the application arrival is preserved separately. These rules
+require SourcePosition, a coverage tail and one native snapshot part, with
+no synthetic rebase or health promotion.
+Administrative Depth degradation is a separate resident overlay: recovery
+arms the next complete fresh cut. An ordinary native Gap can recover from a
+valid fresh cut without an administrative recovery marker. Native rebase
+snapshots retain their original state and count as Depth presence only after
+the reader validates their exact native grammar and complete transaction.
+Current depth blocks use generic lossless compression so coverage bytes are
+never interpreted as mutation levels. Readers accept only the current layout
+and reject unknown or unfinished cuts. Existing archives remain untouched. The records also retain native
 quantity rules separately from the canonical executable E8 grid proven by the
 selected connector. Per-channel quantity authority and original native factors
 let Backtest project Spot and linear Futures/Swap volumes exactly while keeping

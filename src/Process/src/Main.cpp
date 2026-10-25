@@ -2,8 +2,6 @@
 #include <cstring>
 #include <string_view>
 
-#include "hftrec/Version.hpp"
-
 namespace hftrec::app {
 
 int runCapture(int argc, char** argv);
@@ -32,12 +30,7 @@ void printUsage() {
     std::puts("  recordings organize recorded session folders");
     std::puts("  parser-capture record parserd's connected normalized market channels");
     std::puts("  analyze   inspect a captured session or derived artifact");
-    std::puts("  --version print version and exit");
     std::puts("  --help    print this message");
-}
-
-void printVersion() {
-    std::printf("hft-recorder %s\n", hftrec::kHftRecorderVersion);
 }
 
 }  // namespace
@@ -48,7 +41,6 @@ int main(int argc, char** argv) {
         return 0;
     }
     const std::string_view sub{argv[1]};
-    if (sub == "--version" || sub == "-v") { printVersion(); return 0; }
     if (sub == "--help"    || sub == "-h") { printUsage();   return 0; }
     if (sub == "capture")  return hftrec::app::runCapture(argc - 1, argv + 1);
     if (sub == "tui")      return hftrec::app::runTui(argc - 1, argv + 1);

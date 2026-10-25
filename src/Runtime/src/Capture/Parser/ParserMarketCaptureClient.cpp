@@ -327,7 +327,6 @@ namespace {
             attach.sourceCapacity, attach.shardCount, attach.ringCapacity,
             &layout) || layout.arenaBytes != state.mappingBytes ||
         header->magic != parser::kMarketCaptureArenaMagic ||
-        header->version != parser::kMarketCaptureArenaVersion ||
         header->headerBytes != sizeof(*header) ||
         header->arenaBytes != state.mappingBytes ||
         header->producerEpoch == 0u ||
@@ -352,7 +351,7 @@ namespace {
         !validRegion<parser::MarketCaptureShardDescriptor>(
             layout.shardDescriptorsOffset, attach.shardCount,
             state.mappingBytes)) {
-        error = "parser capture arena ABI/layout mismatch";
+        error = "parser capture arena layout mismatch";
         return false;
     }
     auto* const descriptors =

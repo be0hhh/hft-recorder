@@ -151,7 +151,6 @@ QVariantMap CompressionViewModel::previewArtifact(const QString& path) const {
         const auto hfc = hft_compressor::openHfcFile(previewPath.toStdString());
         metadata.push_back(metadataRow(QStringLiteral("HFC status"), viewString(hft_compressor::statusToString(hfc.status))));
         if (hft_compressor::isOk(hfc.status)) {
-            metadata.push_back(metadataRow(QStringLiteral("Version"), QString::number(hfc.version)));
             metadata.push_back(metadataRow(QStringLiteral("Codec"), QString::number(hfc.codec)));
             metadata.push_back(metadataRow(QStringLiteral("Block bytes"), bytesText(hfc.blockBytes)));
             metadata.push_back(metadataRow(QStringLiteral("Input"), bytesText(hfc.inputBytes)));

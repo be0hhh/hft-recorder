@@ -51,11 +51,8 @@ Status loadManifest(const std::filesystem::path& sessionPath,
         error = "failed to parse manifest.json";
         return status;
     }
-    if (!manifest.structurallyLoadable ||
-        manifest.manifestSchemaVersion != capture::kManifestSchemaVersionCurrent ||
-        manifest.corpusSchemaVersion != capture::kCorpusSchemaVersionCurrent ||
-        manifest.captureContractVersion != capture::kCaptureContractVersionCurrent) {
-        error = "manifest.json does not declare the current captured-arrival contract";
+    if (!manifest.structurallyLoadable) {
+        error = "manifest.json has an invalid current capture shape";
         return Status::CorruptData;
     }
     return Status::Ok;

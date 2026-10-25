@@ -10,10 +10,10 @@ namespace hftrec::gui {
 class AppViewModel : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
-    Q_PROPERTY(QString requestedRenderMode READ requestedRenderMode NOTIFY renderDiagnosticsChanged)
-    Q_PROPERTY(QString actualGraphicsApi READ actualGraphicsApi NOTIFY renderDiagnosticsChanged)
-    Q_PROPERTY(QString activeChartRenderer READ activeChartRenderer WRITE setActiveChartRenderer NOTIFY renderDiagnosticsChanged)
-    Q_PROPERTY(QString renderDiagnosticsText READ renderDiagnosticsText NOTIFY renderDiagnosticsChanged)
+    Q_PROPERTY(QString requestedRenderMode READ requestedRenderMode NOTIFY renderDiagnosticChanged)
+    Q_PROPERTY(QString actualGraphicsApi READ actualGraphicsApi NOTIFY renderDiagnosticChanged)
+    Q_PROPERTY(QString activeChartRenderer READ activeChartRenderer WRITE setActiveChartRenderer NOTIFY renderDiagnosticChanged)
+    Q_PROPERTY(QString renderDiagnosticText READ renderDiagnosticText NOTIFY renderDiagnosticChanged)
     Q_PROPERTY(qreal tradeAmountScale READ tradeAmountScale WRITE setTradeAmountScale NOTIFY tradeAmountScaleChanged)
     Q_PROPERTY(qreal candleWidthPx READ candleWidthPx WRITE setCandleWidthPx NOTIFY candleWidthPxChanged)
     Q_PROPERTY(qreal bookBrightnessUsdRef READ bookBrightnessUsdRef WRITE setBookBrightnessUsdRef NOTIFY bookBrightnessUsdRefChanged)
@@ -30,7 +30,7 @@ class AppViewModel : public QObject {
     QString requestedRenderMode() const { return requestedRenderMode_; }
     QString actualGraphicsApi() const { return actualGraphicsApi_; }
     QString activeChartRenderer() const { return activeChartRenderer_; }
-    QString renderDiagnosticsText() const { return renderDiagnosticsText_; }
+    QString renderDiagnosticText() const { return renderDiagnosticText_; }
     qreal tradeAmountScale() const noexcept { return tradeAmountScale_; }
     qreal candleWidthPx() const noexcept { return candleWidthPx_; }
     qreal bookBrightnessUsdRef() const noexcept { return bookBrightnessUsdRef_; }
@@ -48,11 +48,11 @@ class AppViewModel : public QObject {
     void setLiveUpdateMode(const QString& mode);
     void setRenderWindowSeconds(int seconds);
     void setActiveChartRenderer(const QString& rendererName);
-    Q_INVOKABLE void setRenderDiagnostics(const QString& requestedMode, const QString& actualGraphicsApi);
+    Q_INVOKABLE void setRenderDiagnostic(const QString& requestedMode, const QString& actualGraphicsApi);
 
   signals:
     void statusTextChanged();
-    void renderDiagnosticsChanged();
+    void renderDiagnosticChanged();
     void tradeAmountScaleChanged();
     void candleWidthPxChanged();
     void bookBrightnessUsdRefChanged();
@@ -64,14 +64,14 @@ class AppViewModel : public QObject {
   private:
     void loadSettings_();
     void flushSettings_();
-    void refreshRenderDiagnosticsText_();
+    void refreshRenderDiagnosticText_();
     void markDirty_() noexcept { settingsDirty_ = true; }
 
     QString statusText_{"Ready for GUI-first capture and compression lab work"};
     QString requestedRenderMode_{"cpu"};
     QString actualGraphicsApi_{"unknown"};
     QString activeChartRenderer_{"cpu-chart"};
-    QString renderDiagnosticsText_{"CPU requested | backend unknown | cpu-chart"};
+    QString renderDiagnosticText_{"CPU requested | backend unknown | cpu-chart"};
     qreal tradeAmountScale_{0.45};
     qreal candleWidthPx_{10.0};
     qreal bookBrightnessUsdRef_{15000.0};

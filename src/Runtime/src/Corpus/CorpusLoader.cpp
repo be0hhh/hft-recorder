@@ -43,8 +43,6 @@ Status parseFinamArchiveCandle(std::string_view line, hftrec::replay::CandleRow&
         ? Status::Ok : Status::CorruptData;
 }
 
-constexpr std::int64_t kSeekIndexVersionCurrent = 1;
-
 using JsonParser = hftrec::json::MiniJsonParser;
 
 struct SourceArtifactInfo {
@@ -92,21 +90,6 @@ std::filesystem::path declaredChannelPath(
     return manifestPath.empty()
         ? std::filesystem::path{}
         : sessionDir / std::filesystem::path{manifestPath};
-}
-
-bool currentChannelSchemas(const capture::SessionManifest& manifest) noexcept {
-    return manifest.tradesRowSchema == capture::kTradesRowSchemaCurrent &&
-        manifest.liquidationsRowSchema ==
-            capture::kLiquidationsRowSchemaCurrent &&
-        manifest.bookTickerRowSchema ==
-            capture::kBookTickerRowSchemaCurrent &&
-        manifest.depthRowSchema == capture::kDepthRowSchemaCurrent &&
-        manifest.candlesRowSchema == capture::kCandlesRowSchemaCurrent &&
-        manifest.candles2RowSchema == capture::kCandlesRowSchemaCurrent &&
-        manifest.markPriceRowSchema == capture::kMarkPriceRowSchemaCurrent &&
-        manifest.indexPriceRowSchema == capture::kIndexPriceRowSchemaCurrent &&
-        manifest.fundingRowSchema == capture::kFundingRowSchemaCurrent &&
-        manifest.priceLimitRowSchema == capture::kPriceLimitRowSchemaCurrent;
 }
 
 bool addRowCount(std::uint64_t value, std::uint64_t& total) noexcept {
@@ -170,19 +153,22 @@ void addIssue(LoadReport& report,
 bool parseSourceInfoObject(JsonParser& parser, SourceArtifactInfo& out) noexcept {
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return false;
+    unsigned seen = 0u;
     std::string key;
     do {
         if (!parser.parseKey(key)) return false;
         if (key == "size_bytes") {
+            seen |= 1u << 0u;
             if (!parser.parseUInt64(out.sizeBytes)) return false;
         } else if (key == "row_count") {
+            seen |= 1u << 1u;
             if (!parser.parseUInt64(out.rowCount)) return false;
         } else if (!parser.skipValue()) {
             return false;
         }
         if (parser.peek('}')) break;
     } while (parser.parseComma());
-    return parser.parseObjectEnd();
+    return seen == 3u && parser.parseObjectEnd();
 }
 
 bool parseSeekSources(JsonParser& parser,
@@ -208,22 +194,26 @@ bool parseSeekBuckets(JsonParser& parser, std::vector<SeekIndexBucket>& out) noe
     std::string key;
     do {
         SeekIndexBucket bucket{};
+        unsigned seen = 0u;
         if (!parser.parseObjectStart()) return false;
         if (parser.peek('}')) return false;
         do {
             if (!parser.parseKey(key)) return false;
             if (key == "ts_ns") {
+                seen |= 1u << 0u;
                 if (!parser.parseInt64(bucket.tsNs)) return false;
             } else if (key == "event_index_start") {
+                seen |= 1u << 1u;
                 if (!parser.parseUInt64(bucket.eventIndexStart)) return false;
             } else if (key == "depth_row_index") {
+                seen |= 1u << 2u;
                 if (!parser.parseUInt64(bucket.depthRowIndex)) return false;
             } else if (!parser.skipValue()) {
                 return false;
             }
             if (parser.peek('}')) break;
         } while (parser.parseComma());
-        if (!parser.parseObjectEnd()) return false;
+        if (seen != 7u || !parser.parseObjectEnd()) return false;
         out.push_back(bucket);
         if (parser.peek(']')) break;
     } while (parser.parseComma());
@@ -231,31 +221,30 @@ bool parseSeekBuckets(JsonParser& parser, std::vector<SeekIndexBucket>& out) noe
 }
 
 bool parseSeekIndexDocument(std::string_view document,
-                            std::int64_t& version,
                             std::unordered_map<std::string, SourceArtifactInfo>& sources,
                             std::vector<SeekIndexBucket>& buckets) noexcept {
-    version = 0;
     JsonParser parser{document};
     if (!parser.parseObjectStart()) return false;
     if (parser.peek('}')) return false;
+    unsigned seen = 0u;
     std::string key;
     do {
         if (!parser.parseKey(key)) return false;
-        if (key == "version") {
-            if (!parser.parseInt64(version)) return false;
-        } else if (key == "sources") {
+        if (key == "sources") {
+            seen |= 1u << 0u;
             if (!parseSeekSources(parser, sources)) return false;
         } else if (key == "buckets") {
+            seen |= 1u << 1u;
             if (!parseSeekBuckets(parser, buckets)) return false;
         } else if (!parser.skipValue()) {
             return false;
         }
         if (parser.peek('}')) break;
     } while (parser.parseComma());
-    return parser.parseObjectEnd() && parser.finish();
+    return seen == 3u && parser.parseObjectEnd() && parser.finish();
 }
 
-// Immutable manifest/schema and arrival summaries still cover old artifacts.
+// Manifest counts and arrival summaries cover omitted channel artifacts.
 // Admit only JSON array framing and row count; never revive a retired decoder,
 // retain its payload, or materialize it as a current product event.
 Status countOmittedArtifact(const std::filesystem::path& path,
@@ -487,10 +476,9 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
         return;
     }
 
-    std::int64_t version = 0;
     std::unordered_map<std::string, SourceArtifactInfo> sources;
     std::vector<SeekIndexBucket> buckets;
-    if (!parseSeekIndexDocument(document, version, sources, buckets)) {
+    if (!parseSeekIndexDocument(document, sources, buckets)) {
         report.seekIndexState = ChannelLoadState::Corrupt;
         addIssue(report,
                  LoadIssueCode::InvalidSeekIndex,
@@ -500,19 +488,6 @@ void bindSeekIndex(const std::filesystem::path& sessionDir,
                  "seek_index.json",
                  0,
                  "seek index JSON is malformed");
-        return;
-    }
-
-    if (version != kSeekIndexVersionCurrent) {
-        report.seekIndexState = ChannelLoadState::Corrupt;
-        addIssue(report,
-                 LoadIssueCode::UnsupportedSchemaVersion,
-                 LoadIssueSeverity::Fatal,
-                 Status::CorruptData,
-                 "seek_index",
-                 "seek_index.json",
-                 0,
-                 "seek index version does not match the current contract");
         return;
     }
 
@@ -608,7 +583,6 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         }
         const auto manifestStatus = capture::parseManifestJson(manifestDocument, out.manifest);
         report.manifestPresent = true;
-        report.corpusSchemaVersion = out.manifest.corpusSchemaVersion;
         if (!isOk(manifestStatus)) {
             report.manifestState = ChannelLoadState::Corrupt;
             addIssue(report,
@@ -619,37 +593,6 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
                      "manifest.json",
                      0,
                      "manifest.json is malformed or structurally invalid");
-            out.report = report;
-            return report.finalStatus;
-        }
-        if (!capture::isSupportedCorpusSchemaVersion(out.manifest.corpusSchemaVersion)) {
-            report.manifestState = ChannelLoadState::Corrupt;
-            addIssue(report,
-                     LoadIssueCode::UnsupportedSchemaVersion,
-                     LoadIssueSeverity::Fatal,
-                     Status::CorruptData,
-                     "manifest",
-                     "manifest.json",
-                     0,
-                     "manifest declares unsupported corpus schema version");
-            out.report = report;
-            return report.finalStatus;
-        }
-        if (out.manifest.captureContractVersion !=
-                capture::kCaptureContractVersionCurrent ||
-            !currentChannelSchemas(out.manifest) ||
-            (out.manifest.orderbookEnabled &&
-             (out.manifest.depthPath.empty() ||
-              out.manifest.depthSidecarPath.empty()))) {
-            report.manifestState = ChannelLoadState::Corrupt;
-            addIssue(report,
-                     LoadIssueCode::UnsupportedSchemaVersion,
-                     LoadIssueSeverity::Fatal,
-                     Status::CorruptData,
-                     "manifest",
-                     "manifest.json",
-                     0,
-                     "manifest does not declare the current captured-arrival row contract");
             out.report = report;
             return report.finalStatus;
         }
@@ -914,7 +857,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         if (finalizedSession(out.manifest.sessionStatus)) {
             if (!readWholeFileOptional(sessionDir / out.manifest.sessionAuditPath, out.sessionAuditDocument)
                 || !readWholeFileOptional(sessionDir / out.manifest.integrityReportPath, out.integrityReportDocument)
-                || !readWholeFileOptional(sessionDir / out.manifest.loaderDiagnosticsPath, out.loaderDiagnosticsDocument)) {
+                || !readWholeFileOptional(sessionDir / out.manifest.loaderDiagnosticPath, out.loaderDiagnosticDocument)) {
                 addIssue(report,
                          LoadIssueCode::UnreadableArtifact,
                          LoadIssueSeverity::Fatal,
@@ -929,7 +872,7 @@ Status CorpusLoader::loadDetailed(const std::filesystem::path& sessionDir,
         } else {
             (void)readWholeFileOptionalPath(sessionDir / out.manifest.sessionAuditPath, out.sessionAuditDocument);
             (void)readWholeFileOptionalPath(sessionDir / out.manifest.integrityReportPath, out.integrityReportDocument);
-            (void)readWholeFileOptionalPath(sessionDir / out.manifest.loaderDiagnosticsPath, out.loaderDiagnosticsDocument);
+            (void)readWholeFileOptionalPath(sessionDir / out.manifest.loaderDiagnosticPath, out.loaderDiagnosticDocument);
         }
     }
 

@@ -47,7 +47,7 @@ struct CorpusSummary final {
     std::uint64_t cutBytes{};
     bool finalized{};
 };
-// Stable provenance namespace: cxm:<producerEpoch decimal>:<writerAbiFingerprint decimal>.
+// Stable provenance namespace: cxm:<producerEpoch decimal>.
 [[nodiscard]] std::string corpusIdentity(const BinaryMarketManifest& manifest);
 // Fixed header only; never decodes rows or scans reference payloads.
 [[nodiscard]] Status readCorpusSummary(const std::filesystem::path& root,

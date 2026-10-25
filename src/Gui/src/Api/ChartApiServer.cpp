@@ -127,11 +127,11 @@ void ChartApiServer::handleReadyRead_(QTcpSocket* socket) {
     QByteArray statusText = reasonPhrase(200);
     QByteArray responseBody;
 
-    if (method == "GET" && path == "/api/v1/health") {
+    if (method == "GET" && path == "/api/health") {
         responseBody = healthBody_();
-    } else if (method == "POST" && path == "/api/v1/chart/markers/vertical") {
+    } else if (method == "POST" && path == "/api/chart/markers/vertical") {
         responseBody = markerPost_(body, statusCode, statusText);
-    } else if (method == "DELETE" && path == "/api/v1/chart/markers") {
+    } else if (method == "DELETE" && path == "/api/chart/markers") {
         auto* chart = controller();
         if (chart == nullptr) {
             statusCode = 409;

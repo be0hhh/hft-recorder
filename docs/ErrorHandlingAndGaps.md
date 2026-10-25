@@ -61,7 +61,7 @@ Reusing the Binance-native semantics documented in `DELTA_ENCODING.md` § "GAP_M
 - **snapshot stream**: snapshots are full state; a missed poll is encoded as a `CODER_RESET`
   block with `event_count = 0`.
 
-Decoder sees a `GAP_MARKER` event and increments a "missed events" counter in its diagnostics;
+Decoder sees a `GAP_MARKER` event and increments a "missed events" counter in its diagnostic;
 it does **not** reconstruct the missing events.
 
 ---

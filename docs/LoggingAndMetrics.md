@@ -51,7 +51,7 @@ Loggers are created in `initLogging()` and stored in a `flat_hash_map<string_vie
 
 | Level | Typical events |
 |---|---|
-| `trace` | per-event ring push / pop, per-byte codec diagnostics (disabled by default, enabled via env `LOG_LEVEL=trace` for forensic sessions only) |
+| `trace` | per-event ring push / pop, per-byte codec diagnostic (disabled by default, enabled via env `LOG_LEVEL=trace` for forensic sessions only) |
 | `debug` | per-block header fields on flush, per-second heartbeat, subscription payload sent |
 | `info` | startup banner, thread bind success, block flushed with reason, periodic summary (events + bytes per minute), graceful shutdown start/finish |
 | `warn` | SPSC drop, WS timeout/reconnect, CRC mismatch at read, CPU affinity failed, clock skew, snapshot fetch failed, slow fsync |

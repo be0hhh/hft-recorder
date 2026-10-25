@@ -30,7 +30,6 @@
 #include <vector>
 
 #if defined(__linux__)
-#include <dlfcn.h>
 #include <pthread.h>
 #endif
 
@@ -150,18 +149,6 @@ void BacktestViewModel::configureWorkerThreadStack_() noexcept {
         }
         (void)pthread_attr_destroy(&attr);
     });
-#endif
-}
-
-bool BacktestViewModel::backtestApiCompatible_() noexcept {
-#if defined(__linux__)
-    using VersionFn = std::uint32_t (*)() noexcept;
-    auto* symbol = dlsym(RTLD_DEFAULT, "hft_backtest_api_version");
-    if (symbol == nullptr) return false;
-    const auto versionFn = reinterpret_cast<VersionFn>(symbol);
-    return versionFn() == hft_backtest::kBacktestApiVersion;
-#else
-    return false;
 #endif
 }
 
@@ -1048,7 +1035,7 @@ QVariantList BacktestViewModel::runs() const {
 }
 
 bool BacktestViewModel::canRun() const {
-    return backtestApiCompatible_() && !running_ && !selectedSessionPaths_().empty() &&
+    return !running_ && !selectedSessionPaths_().empty() &&
            selectedSessionsBacktestCompatible_() && !selectedStrategy_.trimmed().isEmpty() &&
            strategySupportsSelectedSessionCount_();
 }
@@ -1067,10 +1054,6 @@ void BacktestViewModel::startBacktest() {
 }
 
 void BacktestViewModel::startBacktestWithOverrides_(const QHash<QString, QString>& overrides, const QString& suffix) {
-    if (!backtestApiCompatible_()) {
-        setStatusText_(QStringLiteral("Backtest library API mismatch; rebuild hft-backtest and hft-recorder together"));
-        return;
-    }
     QString compatibilityError;
     for (const QString& path : selectedSessionPaths_()) {
         if (!sessionSupportsCurrentBacktestContract(path, &compatibilityError)) {
@@ -1188,10 +1171,6 @@ void BacktestViewModel::startExecutionLatencySweep() {
 }
 
 void BacktestViewModel::startSweep_(bool includeExecutionLatency) {
-    if (!backtestApiCompatible_()) {
-        setStatusText_(QStringLiteral("Backtest library API mismatch; rebuild hft-backtest and hft-recorder together"));
-        return;
-    }
     QString compatibilityError;
     for (const QString& path : selectedSessionPaths_()) {
         if (!sessionSupportsCurrentBacktestContract(path, &compatibilityError)) {

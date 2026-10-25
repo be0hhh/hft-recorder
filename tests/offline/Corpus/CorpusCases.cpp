@@ -33,7 +33,7 @@ int main(int argc,char** argv) {
     cxet::testing::Case{"recorder.compressed_cursor_bounded_multiblock_arrival_merge",compressedCursor},
     cxet::testing::Case{"recorder.cursor_refuses_corruption_before_emission",cursorFailsBeforeEmission},
     cxet::testing::Case{"recorder.uuid_tail_roundtrip_retains_zero_and_max",uuidTailRoundtrip},
-    cxet::testing::Case{"recorder.uuid_tail_rejects_wrong_shape_channel_and_schema",uuidTailInvalidBoundary},
+    cxet::testing::Case{"recorder.uuid_tail_rejects_wrong_shape_and_channel",uuidTailInvalidBoundary},
     cxet::testing::Case{"recorder.binary_roundtrip_retains_identity_and_values",roundtrip},
     cxet::testing::Case{"recorder.selection_requires_exact_source_identity",identity},
     cxet::testing::Case{"recorder.writer_rejects_foreign_generation_without_append",generation},

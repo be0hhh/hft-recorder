@@ -172,7 +172,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
         if(!runChild(planner,plannerArguments,logFd,state.stopRequested,error)) {
             publishError(Status::IoError,error);throw Status::IoError;
         }
-        const auto topology=runtime/"resource-topology.v3";
+        const auto topology=runtime/"resource-topology";
         if(!std::filesystem::is_regular_file(topology)) {publishError(Status::IoError,"Parser planner did not produce resource topology");throw Status::IoError;}
         std::vector<std::string> parserArguments{parserBinary.string(),transientConfig.string(),"--runtime-dir",runtime.string(),"--state-dir",(runtime/"state").string(),"--resource-topology",topology.string()};
         parserArguments.insert(parserArguments.end(),demandArguments.begin(),demandArguments.end());

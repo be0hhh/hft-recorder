@@ -70,7 +70,7 @@ Their adverse-fill definition is directly testable on our replay model:
   favorable mark-to-market move.
 
 This suggests an eventual `core/sim/` or `core/lab/market_making/` module that
-uses `SessionReplay` and the canonical corpus to compute fill diagnostics.
+uses `SessionReplay` and the canonical corpus to compute fill diagnostic.
 
 ## Data requirements for hft-recorder
 

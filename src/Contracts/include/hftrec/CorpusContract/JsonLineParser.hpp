@@ -3,7 +3,6 @@
 
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include "hftrec/CorpusContract/EventRows.hpp"
 #include "hftrec/Status.hpp"
@@ -15,17 +14,8 @@ namespace hftrec::replay {
 // On missing/malformed fields, Status::CorruptData.
 
 Status parseTradeLine(std::string_view line, TradeRow& out) noexcept;
-Status parseTradeLine(std::string_view line,
-                      TradeRow& out,
-                      const std::vector<std::string>& aliases) noexcept;
 Status parseLiquidationLine(std::string_view line, LiquidationRow& out) noexcept;
-Status parseLiquidationLine(std::string_view line,
-                            LiquidationRow& out,
-                            const std::vector<std::string>& aliases) noexcept;
 Status parseBookTickerLine(std::string_view line, BookTickerRow& out) noexcept;
-Status parseBookTickerLine(std::string_view line,
-                           BookTickerRow& out,
-                           const std::vector<std::string>& aliases) noexcept;
 Status parseCandleLine(std::string_view line, CandleRow& out) noexcept;
 Status parseMarkPriceLine(std::string_view line, MarkPriceRow& out) noexcept;
 Status parseIndexPriceLine(std::string_view line, IndexPriceRow& out) noexcept;

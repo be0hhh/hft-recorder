@@ -10,7 +10,6 @@
 
 namespace hftrec::corpus {
 inline constexpr std::uint32_t kRecorderReferenceMagic=0x46524348u;
-inline constexpr std::uint16_t kRecorderReferenceSchema=1u;
 inline constexpr std::size_t kRecorderReferenceMaximumBytes=128u*1024u*1024u;
 inline constexpr std::size_t kRecorderReferenceMaximumSnapshots=65'536u;
 enum class RecorderReferencePresence : std::uint8_t {
@@ -69,9 +68,8 @@ inline bool valid(const RecorderReferenceSnapshot& value) noexcept {
         output.clear();error.clear();
         if(maximum>kRecorderReferenceMaximumBytes || snapshots.size()>kRecorderReferenceMaximumSnapshots)return Status::OutOfRange;
         const auto count=static_cast<std::uint32_t>(snapshots.size());
-        const auto abi=hft_parser::reference_contract::currentReferenceAbiFingerprint();
         auto add=[&](const auto& value){return reference_detail::append(output,value,maximum);};
-        if(!add(kRecorderReferenceMagic)||!add(kRecorderReferenceSchema)||!add(std::uint16_t{})||!add(abi)||!add(count))return Status::OutOfRange;
+        if(!add(kRecorderReferenceMagic)||!add(count))return Status::OutOfRange;
         for(const auto& snapshot:snapshots) {
             if(!reference_detail::valid(snapshot)) {error="invalid Recorder reference snapshot";return Status::CorruptData;}
             const auto bytes=static_cast<std::uint32_t>(snapshot.rowBytes.size());
@@ -89,11 +87,10 @@ inline bool valid(const RecorderReferenceSnapshot& value) noexcept {
     try {
         output.clear();error.clear();if(bytes.empty())return Status::Ok;
         if(bytes.size()>kRecorderReferenceMaximumBytes)return Status::OutOfRange;
-        std::size_t position{};std::uint32_t magic{},count{};std::uint16_t schema{},reserved{};std::uint64_t abi{};
+        std::size_t position{};std::uint32_t magic{},count{};std::uint16_t reserved{};
         auto take=[&](auto& value){return reference_detail::take(bytes,position,value);};
-        if(!take(magic)||!take(schema)||!take(reserved)||!take(abi)||!take(count)||magic!=kRecorderReferenceMagic ||
-           schema!=kRecorderReferenceSchema || reserved || abi!=hft_parser::reference_contract::currentReferenceAbiFingerprint() ||
-           count>kRecorderReferenceMaximumSnapshots) {error="Recorder reference schema or ABI rejected";return Status::CorruptData;}
+        if(!take(magic)||!take(count)||magic!=kRecorderReferenceMagic ||
+           count>kRecorderReferenceMaximumSnapshots) {error="Recorder reference header rejected";return Status::CorruptData;}
         output.reserve(count);
         for(std::uint32_t i=0u;i<count;++i) {
             RecorderReferenceSnapshot snapshot;std::uint32_t size{};

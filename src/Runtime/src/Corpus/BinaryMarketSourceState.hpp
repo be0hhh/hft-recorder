@@ -8,7 +8,13 @@ struct BinaryMarketSourceState final {
     std::uint16_t availableMask{0u};
     std::uint64_t directoryRevision{0u};
     std::uint16_t unhealthyMask{0u};
+    // Resident reader/writer overlay; never serialized as native book state.
+    std::uint16_t administrativeUnhealthyMask{0u};
+    std::uint16_t recoveryPendingMask{0u};
 };
+// The two resident masks consume the prior tail padding in the canonical
+// eight-byte-aligned layout rather than growing each source state.
+static_assert(sizeof(BinaryMarketSourceState)==sizeof(BinaryMarketSource)+32u);
 inline BinaryMarketSourceState initialBinaryMarketSourceState(const BinaryMarketSource& source) noexcept {
     return {source,source.initiallyPresent?source.initialSourceGeneration:0u,
         source.initiallyPresent?source.availableChannelMask:std::uint16_t{0u}};
@@ -42,7 +48,8 @@ inline bool sameBinaryMarketSourceRules(const BinaryMarketSource& left,const Bin
 // only after the global shard merge selects a record. A source may span shards.
 // This state never infers membership from stale data or missing BBO.
 inline bool advanceBinaryMarketSourceState(const BinaryMarketRecord& record,
-                                           BinaryMarketSourceState& state) noexcept {
+                                           BinaryMarketSourceState& state,
+                                           bool nativeRebaseSnapshot=false) noexcept {
     const auto& h=record.header;
     if(h.channel!=BinaryMarketChannel::SourceLifecycle) {
         const auto bit=binaryMarketChannelBit(h.channel);
@@ -56,8 +63,16 @@ inline bool advanceBinaryMarketSourceState(const BinaryMarketRecord& record,
             state.metadata.compatibility[binaryMarketChannelIndex(h.channel)]!=BinaryMarketCompatibility::Unavailable &&
             ((h.flags&BinaryMarketRecordTraderReplayCompatible)==0u ||
              state.metadata.compatibility[binaryMarketChannelIndex(h.channel)]==BinaryMarketCompatibility::ExactTraderReplay);
-        if(valid && (h.flags&BinaryMarketRecordTraderReplayCompatible)!=0u)
-            state.unhealthyMask&=static_cast<std::uint16_t>(~bit);
+        if(valid && (h.flags&BinaryMarketRecordTraderReplayCompatible)!=0u) {
+            if(h.channel!=BinaryMarketChannel::Depth) state.unhealthyMask&=static_cast<std::uint16_t>(~bit);
+            else if((h.flags&BinaryMarketRecordDepthCoverage)==0u && (state.administrativeUnhealthyMask&bit)==0u) {
+                const auto nativeState=binaryMarketPayload<BinaryMarketDepthChunkPayload>(&record)->state;
+                if(nativeState==BinaryMarketDepthState::Healthy || nativeState==BinaryMarketDepthState::Partial || nativeRebaseSnapshot) {
+                    state.unhealthyMask&=static_cast<std::uint16_t>(~bit);
+                    state.recoveryPendingMask&=static_cast<std::uint16_t>(~bit);
+                }
+            }
+        }
         return valid;
     }
     const auto& p=*binaryMarketPayload<BinaryMarketSourceLifecyclePayload>(&record);
@@ -73,8 +88,18 @@ inline bool advanceBinaryMarketSourceState(const BinaryMarketRecord& record,
             (h.sourceGeneration!=state.generation && p.cause!=BinaryMarketSourceTransitionCause::NativeRecovered) ||
             p.channelMaskBefore!=p.channelMaskAfter) return false;
         const auto bit=binaryMarketChannelBit(static_cast<BinaryMarketChannel>(p.affectedChannel));
-        if(binaryMarketTransitionIsUnhealthy(p.cause)) state.unhealthyMask|=bit;
-        else if(p.cause==BinaryMarketSourceTransitionCause::NativeRecovered) state.unhealthyMask&=static_cast<std::uint16_t>(~bit);
+        if(binaryMarketTransitionIsUnhealthy(p.cause)) {
+            state.unhealthyMask|=bit;
+            if(p.affectedChannel==static_cast<std::uint8_t>(BinaryMarketChannel::Depth)) {
+                state.administrativeUnhealthyMask|=bit;
+                state.recoveryPendingMask&=static_cast<std::uint16_t>(~bit);
+            }
+        } else if(p.cause==BinaryMarketSourceTransitionCause::NativeRecovered) {
+            if(p.affectedChannel==static_cast<std::uint8_t>(BinaryMarketChannel::Depth)) {
+                state.administrativeUnhealthyMask&=static_cast<std::uint16_t>(~bit);
+                state.recoveryPendingMask|=bit;state.unhealthyMask|=bit;
+            } else state.unhealthyMask&=static_cast<std::uint16_t>(~bit);
+        }
         state.generation=h.sourceGeneration;
         return true;
     }
@@ -98,8 +123,13 @@ inline bool advanceBinaryMarketSourceState(const BinaryMarketRecord& record,
             break;
     }
     const auto changedMask=static_cast<std::uint16_t>(p.channelMaskBefore^p.channelMaskAfter);
-    if(h.sourceGeneration!=state.generation) state.unhealthyMask=0u;
-    else state.unhealthyMask&=static_cast<std::uint16_t>(~changedMask);
+    if(h.sourceGeneration!=state.generation) {
+        state.unhealthyMask=0u;state.administrativeUnhealthyMask=0u;state.recoveryPendingMask=0u;
+    } else {
+        state.unhealthyMask&=static_cast<std::uint16_t>(~changedMask);
+        state.administrativeUnhealthyMask&=static_cast<std::uint16_t>(~changedMask);
+        state.recoveryPendingMask&=static_cast<std::uint16_t>(~changedMask);
+    }
     state.metadata=p.source;state.generation=h.sourceGeneration;state.availableMask=p.channelMaskAfter;state.directoryRevision=p.directoryRevision;
     return true;
 }

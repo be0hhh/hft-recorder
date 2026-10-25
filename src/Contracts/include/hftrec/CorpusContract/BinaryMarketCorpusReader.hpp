@@ -46,6 +46,9 @@ struct BinaryMarketSelection final {
     std::vector<std::uint64_t> sourceLifecycleRevisionsAtBegin{};
     // Captured native health fences strictly before beginReceiveNs, sourceId-1.
     std::vector<std::uint16_t> sourceUnhealthyChannelMasksAtBegin{};
+    // Cold interval hydration only; not part of the serialized corpus schema.
+    std::vector<std::uint16_t> sourceAdministrativeUnhealthyChannelMasksAtBegin{};
+    std::vector<std::uint16_t> sourceRecoveryPendingChannelMasksAtBegin{};
 };
 
 struct BinaryMarketCorpusCursorState;

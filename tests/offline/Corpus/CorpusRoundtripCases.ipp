@@ -102,6 +102,6 @@ void uuidTailInvalidBoundary() {
   CXET_CHECK(!validBinaryMarketRecord(record));
   record.header.nativeIdentitySecond = 0u; record.header.nativeIdentityShape = 3u;
   CXET_CHECK(!validBinaryMarketRecord(record));
-  record.header.nativeIdentityShape = 4u; record.header.schemaVersion = 2u;
+  record.header.nativeIdentityShape = 4u; record.header.payloadBytes = 0u;
   CXET_CHECK(!validBinaryMarketRecord(record));
 }

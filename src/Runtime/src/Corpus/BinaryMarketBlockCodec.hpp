@@ -18,11 +18,9 @@ inline hft_compressor::ByteBlockLayout binaryMarketBlockLayout(BinaryMarketChann
         case BinaryMarketChannel::Trade: layout.streamType = hft_compressor::StreamType::Trades; break;
         case BinaryMarketChannel::BookTicker: layout.streamType = hft_compressor::StreamType::BookTicker; break;
         case BinaryMarketChannel::Depth:
-            layout.streamType = hft_compressor::StreamType::Depth;
-            layout.depthLevelsOffset = layout.payloadOffset + offsetof(BinaryMarketDepthChunkPayload, levels);
-            layout.depthLevelStride = sizeof(BinaryMarketDepthLevel);
-            layout.depthLevelCountOffset = layout.payloadOffset + offsetof(BinaryMarketDepthChunkPayload, levelCount);
-            layout.depthLevelCapacity = kBinaryMarketDepthLevelsPerRecord;
+            // Mutation and coverage payloads share this channel. Generic
+            // lossless coding never interprets coverage bytes as price levels.
+            layout.streamType = hft_compressor::StreamType::Unknown;
             break;
         default: layout.streamType = hft_compressor::StreamType::Unknown; break;
     }

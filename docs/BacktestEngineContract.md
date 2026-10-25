@@ -46,12 +46,11 @@ loss-ledger gap с неизвестным receive range (`0/0`); такой gap 
 ### Parser binary corpus
 
 Live parser feed передаётся через bounded shared-memory rings, а recorder владеет
-disk I/O и sealed binary corpus. ABI/schema/version, CRC, source directory,
+disk I/O и sealed binary corpus. Текущий ABI/schema layout, CRC, source directory,
 segments, index и gap ledger проверяются fail-closed.
 
-Текущие binary guards: market-capture arena version `6`, record schema `8`,
-control version `2`, corpus schema `7` и binary record schema `6`.
-Несовпадение любого guard запрещает attach/load;
+Market-capture arena, record, control и corpus используют единственную
+текущую структуру. Некорректная структура запрещает attach/load;
 совместимый fallback отсутствует. UUID trade identity хранит только tail64
 (shape `4`, second `0`), включая нулевой tail; исходные 128 бит восстановить нельзя.
 
@@ -103,9 +102,8 @@ differential runtime gate и не выводится из одного ABI/schem
 
 Текущий JSON-контракт:
 
-- `manifest_schema_version = 3`;
-- `corpus_schema_version = 3`;
-- `capture_contract_version = hftrec.captured_arrival_rows_json.v4`;
+- единая текущая структура manifest и corpus;
+- `capture_contract = hftrec.captured_arrival_rows_json`;
 - manifest-declared current row schemas;
 - paired `jsonl/depth_tape.jsonl` + `jsonl/depth_sidecar.jsonl`.
 
@@ -247,9 +245,10 @@ terminal records; исчерпание явно запрещает продол�
 
 ## Result contract
 
-Текущий final artifact имеет `type = run.result` и обязательный
-`schema_version = 5`. Recorder может читать старые финансовые summaries schema
-`4` без исполнения; неизвестный или отсутствующий guard отклоняется.
+Текущий final artifact имеет `type = run.result` и объект `diagnostic`.
+Recorder принимает только текущую структуру; прежние результаты сохраняются
+без преобразования. Отсутствующая секция не подменяется пустой.
+Некорректная структура отклоняется.
 В нём replay-clock evidence
 должен явно указывать:
 

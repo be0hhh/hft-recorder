@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <string>
-#include <vector>
 
 namespace hftrec::replay {
 struct TradeRow;
@@ -20,14 +19,10 @@ struct EventSequenceIds {
 };
 
 std::string renderTradeJsonLine(const hftrec::replay::TradeRow& trade);
-std::string renderTradeJsonLine(const hftrec::replay::TradeRow& trade,
-                                const std::vector<std::string>& aliases);
 
 
 
 std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker);
-std::string renderBookTickerJsonLine(const hftrec::replay::BookTickerRow& bookTicker,
-                                     const std::vector<std::string>& aliases);
 
 std::string renderCandleJsonLine(const hftrec::replay::CandleRow& candle);
 

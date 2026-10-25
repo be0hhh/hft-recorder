@@ -163,7 +163,6 @@ InstrumentMetadata makeInstrumentMetadata(std::string_view exchange,
 std::string renderInstrumentMetadataJson(const InstrumentMetadata& metadata) {
     std::ostringstream out;
     out << "{\n";
-    out << "  \"schema_version\": " << json::quote(metadata.schemaVersion) << ",\n";
     out << "  \"exchange\": " << json::quote(metadata.exchange) << ",\n";
     out << "  \"exchange_source\": " << json::quote(metadata.exchangeSource) << ",\n";
     out << "  \"market\": " << json::quote(metadata.market) << ",\n";
@@ -210,22 +209,24 @@ std::string renderInstrumentMetadataJson(const InstrumentMetadata& metadata) {
 Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata& out) noexcept {
     json::MiniJsonParser parser{document};
     InstrumentMetadata parsed{};
+    unsigned seen = 0u;
     if (!parser.parseObjectStart()) return Status::CorruptData;
     if (!parser.peek('}')) {
         std::string key;
         do {
             if (!parser.parseKey(key)) return Status::CorruptData;
-            if (key == "schema_version") {
-                if (!parser.parseString(parsed.schemaVersion)) return Status::CorruptData;
-            } else if (key == "exchange") {
+            if (key == "exchange") {
+                seen |= 1u << 0u;
                 if (!parser.parseString(parsed.exchange)) return Status::CorruptData;
             } else if (key == "exchange_source") {
                 if (!parser.parseString(parsed.exchangeSource)) return Status::CorruptData;
             } else if (key == "market") {
+                seen |= 1u << 1u;
                 if (!parser.parseString(parsed.market)) return Status::CorruptData;
             } else if (key == "market_source") {
                 if (!parser.parseString(parsed.marketSource)) return Status::CorruptData;
             } else if (key == "symbol") {
+                seen |= 1u << 2u;
                 if (!parser.parseString(parsed.symbol)) return Status::CorruptData;
             } else if (key == "symbol_source") {
                 if (!parser.parseString(parsed.symbolSource)) return Status::CorruptData;
@@ -292,6 +293,7 @@ Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata
             } else if (key == "instrument_status_source") {
                 if (!parser.parseString(parsed.instrumentStatusSource)) return Status::CorruptData;
             } else if (key == "metadata_source") {
+                seen |= 1u << 3u;
                 if (!parser.parseString(parsed.metadataSource)) return Status::CorruptData;
             } else if (key == "metadata_warning") {
                 if (!parseOptionalString(parser, parsed.metadataWarning)) return Status::CorruptData;
@@ -301,7 +303,7 @@ Status parseInstrumentMetadataJson(std::string_view document, InstrumentMetadata
             if (parser.peek('}')) break;
         } while (parser.parseComma());
     }
-    if (!parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
+    if (seen != 15u || !parser.parseObjectEnd() || !parser.finish()) return Status::CorruptData;
     out = std::move(parsed);
     return Status::Ok;
 }

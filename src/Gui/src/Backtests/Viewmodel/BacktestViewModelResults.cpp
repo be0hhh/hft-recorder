@@ -559,7 +559,7 @@ BacktestViewModel::RunRecord BacktestViewModel::loadRecord_(const QString& fileP
 
     const QJsonObject object = doc.object();
     record.valid = true;
-    if (jsonValueString(object, QStringLiteral("type")) == QStringLiteral("sweep.result.v1")) {
+    if (jsonValueString(object, QStringLiteral("type")) == QStringLiteral("sweep.result")) {
         const QString sweepId = jsonValueString(object, QStringLiteral("sweep_id"));
         if (!sweepId.trimmed().isEmpty()) record.runId = sweepId.trimmed();
         record.sweep = true;

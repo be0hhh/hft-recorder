@@ -21,7 +21,6 @@ enum class LoadIssueCode : std::uint16_t {
     MissingManifest,
     UnreadableArtifact,
     InvalidManifest,
-    UnsupportedSchemaVersion,
     MissingRequiredArtifact,
     InvalidJsonLine,
     InvalidJsonDocument,
@@ -79,7 +78,6 @@ struct LoadReport {
     bool manifestPresent{false};
     bool usedSeekIndex{false};
     bool staleSeekIndex{false};
-    std::int64_t corpusSchemaVersion{1};
     std::vector<LoadIssue> issues{};
     std::vector<SeekIndexBucket> seekBuckets{};
 };
@@ -100,7 +98,6 @@ inline const char* toString(LoadIssueCode code) noexcept {
         case LoadIssueCode::MissingManifest: return "MissingManifest";
         case LoadIssueCode::UnreadableArtifact: return "UnreadableArtifact";
         case LoadIssueCode::InvalidManifest: return "InvalidManifest";
-        case LoadIssueCode::UnsupportedSchemaVersion: return "UnsupportedSchemaVersion";
         case LoadIssueCode::MissingRequiredArtifact: return "MissingRequiredArtifact";
         case LoadIssueCode::InvalidJsonLine: return "InvalidJsonLine";
         case LoadIssueCode::InvalidJsonDocument: return "InvalidJsonDocument";

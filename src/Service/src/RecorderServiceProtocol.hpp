@@ -16,17 +16,13 @@
 
 namespace hftrec::service::detail {
 inline constexpr std::uint32_t kMagic = 0x53524348u;
-inline constexpr std::uint64_t kAbi = (static_cast<std::uint64_t>(sizeof(corpus::BinaryMarketSource)) << 32u) ^
-    sizeof(corpus::CorpusBlockRange) ^ (static_cast<std::uint64_t>(corpus::kBinaryMarketCorpusSchemaVersion) << 16u);
 enum class Operation : std::uint16_t { Configure=1u, Start, Stop, Status, Catalog, Block, Sessions, SessionSources };
 struct Header final {
     std::uint32_t magic{kMagic}, size{};
-    std::uint64_t abi{kAbi};
-    std::uint16_t protocol{kRecorderServiceProtocol};
     Operation operation{};
     std::uint32_t reserved{};
 };
-static_assert(sizeof(Header)==24u);
+static_assert(sizeof(Header)==16u);
 class Encoder final {
  public:
     std::vector<std::uint8_t> bytes{};
@@ -129,7 +125,7 @@ inline std::vector<std::uint8_t> packet(Operation operation,const Encoder& paylo
 }
 inline bool parsePacket(std::span<const std::uint8_t> bytes,Header& header,std::span<const std::uint8_t>& payload) {
     if(bytes.size()<sizeof(header))return false;cxet::bytescan::hftMemcpy(&header,bytes.data(),sizeof(header));
-    if(header.magic!=kMagic || header.abi!=kAbi || header.protocol!=kRecorderServiceProtocol || header.reserved ||
+    if(header.magic!=kMagic || header.reserved ||
        header.size!=bytes.size()-sizeof(header) || header.operation<Operation::Configure || header.operation>Operation::SessionSources)return false;
     payload=bytes.subspan(sizeof(header));return true;
 }
@@ -137,7 +133,7 @@ inline Status decodeReply(std::span<const std::uint8_t> packet,Operation expecte
     std::span<const std::uint8_t>& body,std::string& error) {
     body={};Header header{};std::span<const std::uint8_t> payload;
     if(!parsePacket(packet,header,payload) || header.operation!=expected) {
-        error="Recorder reply framing, protocol, ABI or operation rejected";return Status::CorruptData;
+        error="Recorder reply framing or operation rejected";return Status::CorruptData;
     }
     Decoder decoder(payload);Status status{};decoder.pod(status);decoder.string(error);
     if(!decoder.valid || status<Status::Ok || status>Status::Unknown || (!isOk(status) && !decoder.done())) {

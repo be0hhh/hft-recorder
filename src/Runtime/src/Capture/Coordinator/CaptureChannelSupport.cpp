@@ -268,7 +268,7 @@ bool makeConfiguredCaptureSource(const CaptureConfig& config,CaptureChannel chan
         }
     }
     cxet::api::instrument::InstrumentDenominationTransform transform{};
-    const auto kind=out.market==canon::kMarketTypeSpot || out.market==canon::kMarketTypeMargin
+    const auto kind=out.market.raw==canon::kMarketTypeSpot.raw || out.market.raw==canon::kMarketTypeMargin.raw
         ?cxet::api::instrument::InstrumentQuantityKind::SpotBase:cxet::api::instrument::InstrumentQuantityKind::DerivativeContracts;
     if (!cxet::api::instrument::makeInstrumentDenominationTransform(1u,1u,kind,&transform) ||
         !cxet::api::instrument::runtimeInstrumentNumeric(transform,&out.numeric)) {

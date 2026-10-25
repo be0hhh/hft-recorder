@@ -92,11 +92,6 @@ std::string renderTradeJsonLine(const replay::TradeRow& trade) {
     return out;
 }
 
-std::string renderTradeJsonLine(const replay::TradeRow& trade,
-                                const std::vector<std::string>& aliases) {
-    (void)aliases;
-    return renderTradeJsonLine(trade);
-}
 
 std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker) {
     std::string out;
@@ -118,11 +113,6 @@ std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker) {
     return out;
 }
 
-std::string renderBookTickerJsonLine(const replay::BookTickerRow& bookTicker,
-                                     const std::vector<std::string>& aliases) {
-    (void)aliases;
-    return renderBookTickerJsonLine(bookTicker);
-}
 
 std::string renderCandleJsonLine(const replay::CandleRow& candle) {
     std::string out;

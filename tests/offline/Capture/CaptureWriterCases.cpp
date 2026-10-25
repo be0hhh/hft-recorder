@@ -85,7 +85,7 @@ void queuedCapturePreservesRecords() {
   CXET_CHECK(readCorpusSummary(root,summary,activeError)==Status::Ok);
   CXET_CHECK(summary.cutGeneration==diskCut->generation && summary.manifest.recordCount==200 && !summary.finalized);
   const auto identity=corpusIdentity(summary.manifest);
-  CXET_CHECK(identity=="cxm:1:"+std::to_string(binaryMarketCorpusAbiFingerprint()));
+  CXET_CHECK(identity=="cxm:1");
   auto adjustedAnchor=summary.manifest;adjustedAnchor.startedReceiveNs-=1;
   adjustedAnchor.replayAnchorReceiveNs-=1;adjustedAnchor.replayAnchorMonotonicNs-=1;
   CXET_CHECK(corpusIdentity(adjustedAnchor)==identity);
