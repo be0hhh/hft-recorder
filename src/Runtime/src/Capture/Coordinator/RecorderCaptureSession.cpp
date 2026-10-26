@@ -113,15 +113,70 @@ struct RecorderCaptureSessionState final {
     mutable std::mutex mutex{};
     RecorderCaptureSessionSnapshot snapshot{};
     std::vector<corpus::BinaryMarketSource> sources{};
+    // Cold, bounded by the Parser source directory; refreshed only after a
+    // directory/lifecycle change and published with sources under this mutex.
+    std::vector<PreparedInstrumentMetadata> preparedMetadata{};
+    std::uint64_t metadataDirectoryGeneration{0u};
+    bool metadataRefreshPending{true};
     std::shared_ptr<const corpus::CorpusCut> latestCut{};
     std::shared_ptr<corpus::CorpusPublication> publication{};
 };
 
 namespace {
+bool metadataMatchesSource(const PreparedInstrumentMetadata& metadata,
+                           const corpus::BinaryMarketSource& source) noexcept {
+    return metadata.qualified && metadata.sourceId!=0u &&
+        metadata.sourceId==source.sourceId && metadata.sourceGeneration!=0u &&
+        metadata.sourceGeneration==source.initialSourceGeneration &&
+        metadata.exchange==std::string_view{source.venue.data(),source.venueBytes} &&
+        metadata.market==std::string_view{source.market.data(),source.marketBytes} &&
+        metadata.canonicalSymbol==std::string_view{source.canonicalSymbol.data(),source.canonicalSymbolBytes} &&
+        metadata.nativeSymbol==std::string_view{source.nativeSymbol.data(),source.nativeSymbolBytes};
+}
+void invalidateSourceMetadata(RecorderCaptureSessionState& state,std::uint32_t sourceId) noexcept {
+    state.preparedMetadata.erase(std::remove_if(state.preparedMetadata.begin(),state.preparedMetadata.end(),
+        [sourceId](const auto& metadata) {return metadata.sourceId==sourceId;}),state.preparedMetadata.end());
+    state.metadataRefreshPending=true;
+}
+void refreshPreparedMetadata(RecorderCaptureSessionState& state,ParserMarketCaptureClient& client) {
+    const auto before=client.snapshot();
+    {
+        std::lock_guard lock(state.mutex);
+        if(!before.connected || before.stopped || before.producerDisconnected ||
+           before.producerEpoch==0u || before.producerEpoch!=state.snapshot.producerEpoch ||
+           before.directoryGeneration==0u || state.stopRequested.load(std::memory_order_acquire)) {
+            state.preparedMetadata.clear();state.metadataRefreshPending=true;return;
+        }
+        if(state.metadataDirectoryGeneration!=before.directoryGeneration) {
+            state.preparedMetadata.clear();state.metadataRefreshPending=true;
+        }
+        if(!state.metadataRefreshPending) return;
+    }
+    auto prepared=client.preparedInstrumentMetadata();
+    const auto after=client.snapshot();
+    std::lock_guard lock(state.mutex);
+    state.preparedMetadata.clear();
+    if(!after.connected || after.stopped || after.producerDisconnected ||
+       before.producerEpoch!=after.producerEpoch || before.directoryGeneration!=after.directoryGeneration ||
+       after.producerEpoch!=state.snapshot.producerEpoch || state.stopRequested.load(std::memory_order_acquire)) return;
+    // An empty getter can mean the producer published a newer directory while
+    // drain was completing. Retry after the next drain has loaded that cut.
+    bool pending=prepared.empty();
+    prepared.erase(std::remove_if(prepared.begin(),prepared.end(),[&](const auto& metadata) {
+        const bool matches=metadata.producerEpoch==after.producerEpoch &&
+            metadata.directoryGeneration==after.directoryGeneration && metadata.sourceId!=0u &&
+            metadata.sourceId<=state.sources.size() &&
+            metadataMatchesSource(metadata,state.sources[metadata.sourceId-1u]);
+        pending=pending || !matches;return !matches;
+    }),prepared.end());
+    state.preparedMetadata=std::move(prepared);state.metadataDirectoryGeneration=after.directoryGeneration;
+    state.metadataRefreshPending=pending;
+}
 void stopOwnedProducer(RecorderCaptureSessionState& state) noexcept {
     if(state.worker.joinable()) state.worker.join();
     state.producer.stop();
     std::lock_guard lock(state.mutex);
+    state.preparedMetadata.clear();
     state.snapshot.producerRetained=false;state.snapshot.producerPid=0;
 }
 void runSession(RecorderCaptureSessionState& state) noexcept {
@@ -230,6 +285,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
                 const auto& source=corpus::binaryMarketPayload<corpus::BinaryMarketSourceLifecyclePayload>(&record)->source;
                 std::lock_guard lock(target.state->mutex);
                 if(source.sourceId<=target.state->sources.size()) {
+                    invalidateSourceMetadata(*target.state,source.sourceId);
                     target.state->sources[source.sourceId-1u]=source;
                     ++target.state->snapshot.sourceMetadataRevision;
                 }
@@ -242,6 +298,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
                 try {
                     std::lock_guard lock(target.state->mutex);
                     if(source.sourceId==target.state->sources.size()+1u) {
+                        target.state->metadataRefreshPending=true;
                         target.state->sources.push_back(source);++target.state->snapshot.sourceMetadataRevision;
                     }
                     target.state->snapshot.sourceCount=static_cast<std::uint32_t>(target.state->sources.size());
@@ -255,6 +312,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
         const auto gapCallback=[](void* context,const corpus::BinaryMarketGap& gap) noexcept {
             return static_cast<Sink*>(context)->writer->appendGap(gap);
         };
+        refreshPreparedMetadata(state,client);
         std::vector<RecorderSubscriptionChange> changes;
         std::size_t changePosition=0u;std::uint64_t handledRevision=0u,workingRevision=0u;
         RecorderCaptureSessionConfig workingSelection;
@@ -275,7 +333,16 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
         auto nextSnapshot=Clock::now();
         while(!state.stopRequested.load(std::memory_order_acquire) &&
               static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count())<deadline) {
+            {
+                const auto current=client.snapshot();
+                std::lock_guard lock(state.mutex);
+                if(current.producerEpoch!=state.snapshot.producerEpoch ||
+                   current.directoryGeneration!=state.metadataDirectoryGeneration) {
+                    state.preparedMetadata.clear();state.metadataRefreshPending=true;
+                }
+            }
             if(client.producerDisconnected() || !parser.running()) {
+                {std::lock_guard lock(state.mutex);state.preparedMetadata.clear();state.snapshot.connected=false;}
                 reason=corpus::BinaryMarketStopReason::ParserDisconnected;
                 status=client.freezeDisconnected(error);frozen=isOk(status);failed=!frozen;break;
             }
@@ -318,6 +385,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
             status=client.drainTo(callback,&sink,8192u,drained,error,sourceCallback,progressCallback,gapCallback);
             if(status==Status::OutOfRange) {reason=corpus::BinaryMarketStopReason::Quota;break;}
             if(!isOk(status)) {failed=true;reason=corpus::BinaryMarketStopReason::Error;break;}
+            refreshPreparedMetadata(state,client);
             if(!isOk(references.status())) {failed=true;reason=corpus::BinaryMarketStopReason::Error;error="reference acquisition failed; metadata remains missing";break;}
             if(Clock::now()>=nextSnapshot) {
                 std::lock_guard lock(state.mutex);state.snapshot.channelRecords=counts;state.snapshot.writer=buffered.snapshot();
@@ -326,6 +394,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
             }
             if(drained==0u) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+        {std::lock_guard lock(state.mutex);state.preparedMetadata.clear();}
         if(state.stopRequested.load(std::memory_order_acquire) && reason!=corpus::BinaryMarketStopReason::ParserDisconnected)
             reason=corpus::BinaryMarketStopReason::Requested;
         if(controlPending) {
@@ -370,6 +439,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
                         const auto& source=corpus::binaryMarketPayload<corpus::BinaryMarketSourceLifecyclePayload>(&record)->source;
                         std::lock_guard lock(target.state->mutex);
                         if(source.sourceId<=target.state->sources.size()) {
+                            invalidateSourceMetadata(*target.state,source.sourceId);
                             target.state->sources[source.sourceId-1u]=source;++target.state->snapshot.sourceMetadataRevision;
                         }
                     }
@@ -416,6 +486,7 @@ void runSession(RecorderCaptureSessionState& state) noexcept {
     }
     {
         std::lock_guard lock(state.mutex);state.snapshot.active=false;state.snapshot.connected=false;
+        state.preparedMetadata.clear();
         // Serialize the final stop decision with requestStop's active snapshot:
         // a late explicit request either stops here or joins and stops afterwards.
         const bool explicitStop=state.stopRequested.load(std::memory_order_acquire);
@@ -505,6 +576,7 @@ Status RecorderCaptureSession::updateSelection(const RecorderCaptureSessionConfi
 void RecorderCaptureSession::requestStop() noexcept {
     if(!state_) return;
     state_->stopRequested.store(true,std::memory_order_release);
+    {std::lock_guard lock(state_->mutex);state_->preparedMetadata.clear();}
     if(!snapshot().active) stopOwnedProducer(*state_);
 }
 Status RecorderCaptureSession::stop() noexcept {
@@ -518,6 +590,26 @@ RecorderCaptureSessionSnapshot RecorderCaptureSession::snapshot() const noexcept
 std::vector<corpus::BinaryMarketSource> RecorderCaptureSession::sourceDirectory() const noexcept {
     if(!state_) return {};
     try {std::lock_guard lock(state_->mutex);return state_->sources;} catch(...) {return {};}
+}
+std::optional<PreparedInstrumentMetadata> RecorderCaptureSession::preparedInstrumentMetadata(
+    std::string_view exchange,std::string_view market,std::string_view canonicalSymbol) const noexcept {
+    if(!state_) return std::nullopt;
+    try {
+        std::lock_guard lock(state_->mutex);
+        if(!state_->snapshot.active || !state_->snapshot.connected ||
+           state_->stopRequested.load(std::memory_order_acquire)) return std::nullopt;
+        std::optional<PreparedInstrumentMetadata> result;
+        for(const auto& metadata:state_->preparedMetadata) {
+            if(metadata.exchange!=exchange || metadata.market!=market || metadata.canonicalSymbol!=canonicalSymbol ||
+               metadata.producerEpoch!=state_->snapshot.producerEpoch ||
+               metadata.directoryGeneration!=state_->metadataDirectoryGeneration || metadata.sourceId==0u ||
+               metadata.sourceId>state_->sources.size() ||
+               !metadataMatchesSource(metadata,state_->sources[metadata.sourceId-1u])) continue;
+            if(result) return std::nullopt;
+            result=metadata;
+        }
+        return result;
+    } catch(...) {return std::nullopt;}
 }
 std::shared_ptr<const corpus::CorpusCut> RecorderCaptureSession::latestCut() const noexcept {
     if(!state_)return {};std::lock_guard lock(state_->mutex);return state_->latestCut;

@@ -1,4 +1,5 @@
 #include "RecorderTuiInternal.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 
 namespace hftrec::app::tui_detail {
 
@@ -82,6 +83,7 @@ std::filesystem::path outputDirForRunJob(RunOutputGroups& groups, const tui::Rec
     auto [it, inserted] = groups.bySymbol.try_emplace(normalizedSymbol);
     if (inserted) {
         const std::string groupName = recordings::recordingGroupFolderName(groups.timestampNs, normalizedSymbol);
+        if(groupName.empty()) return {};
         it->second = uniquePath(groups.root, groupName);
     }
     return it->second;
@@ -369,7 +371,8 @@ void waitForStartJob(RunningJob& job) {
 void writeRunGroupManifests(const std::filesystem::path& recordingsRoot, const RunOutputGroups& outputGroups) {
     for (const auto& [_, groupPath] : outputGroups.bySymbol) {
         std::string error;
-        (void)recordings::writeGroupManifestForPath(recordingsRoot, groupPath, &error);
+        if(!recordings::writeGroupManifestForPath(recordingsRoot,groupPath,&error))
+            std::fprintf(stderr,"recording group metadata failed: %s: %s\n",groupPath.string().c_str(),error.c_str());
     }
 }
 

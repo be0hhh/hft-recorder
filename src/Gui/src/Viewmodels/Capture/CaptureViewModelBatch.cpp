@@ -21,6 +21,7 @@
 #include "Corpus/Recordings/BasisChainManifest.hpp"
 #include "Corpus/Recordings/BasisChainSeries.hpp"
 #include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 #include "../../../../Runtime/src/Replay/SessionReplay.hpp"
 #include "../../Viewer/Chart/Controller/LiveDataProvider.hpp"
@@ -85,6 +86,15 @@ bool textEqualsAscii(std::string_view lhs, std::string_view rhs) {
 
 bool useBulkDetailedCandles(const capture::CaptureConfig& config) {
     return textEqualsAscii(config.exchange, "finam");
+}
+
+void attachPreparedInstrumentMetadata(capture::CaptureConfig& config,
+                                     const capture::RecorderCaptureSession* session) {
+    config.preparedInstrumentMetadata.reset();
+    if(session && config.symbols.size()==1u) {
+        config.preparedInstrumentMetadata=session->preparedInstrumentMetadata(
+            config.exchange,config.market,config.symbols.front());
+    }
 }
 
 capture::CaptureConfig detailedCandlesProbeConfig(capture::CaptureConfig config) {
@@ -260,7 +270,11 @@ recordings::RecordedSessionInfo recordedSessionFromManifest(const std::filesyste
     out.exchange = manifest.exchange;
     out.market = manifest.market;
     out.symbols = manifest.symbols;
-    out.normalizedSymbol = recordings::normalizeRecordingSymbol(manifest.symbols.empty() ? std::string{} : manifest.symbols.front());
+    out.localSymbol = recordings::recordingLocalSymbol(manifest.exchange,manifest.market,
+        manifest.symbols.empty() ? std::string{} : manifest.symbols.front());
+    out.folderSymbol = recordings::recordingFolderSymbol(manifest.exchange,manifest.market,
+        manifest.symbols.empty() ? std::string{} : manifest.symbols.front());
+    out.normalizedSymbol = out.localSymbol;
     out.sessionHealth = std::string{toString(manifest.sessionHealth)};
     out.warningSummary = manifest.warningSummary;
     out.displayTime = recordings::recordingDisplayTimestamp(manifest.startedAtNs);
@@ -452,7 +466,8 @@ bool CaptureViewModel::startDetailedCandles() {
 
             bool candidateOk = true;
             QStringList candidateFailures;
-            for (const auto& config : candidateConfigs) {
+            for (auto& config : candidateConfigs) {
+                attachPreparedInstrumentMetadata(config,parserCapture_.get());
                 capture::CaptureCoordinator probe{};
                 const auto probeStatus = probe.probeDetailedCandlesOnce(detailedCandlesProbeConfig(config));
                 if (isOk(probeStatus)) continue;
@@ -497,7 +512,8 @@ bool CaptureViewModel::startDetailedCandles() {
     bool ok = true;
     QStringList failures;
     QStringList successes;
-    for (const auto& config : configs) {
+    for (auto& config : configs) {
+        attachPreparedInstrumentMetadata(config,parserCapture_.get());
         auto existing = std::find_if(coordinators_.begin(), coordinators_.end(), [&](const CoordinatorEntry& entry) {
             return configsMatch(entry.config, config);
         });
@@ -606,6 +622,7 @@ bool CaptureViewModel::startDetailedCandlesBasisChain() {
             }
 
             capture::CaptureCoordinator probe{};
+            attachPreparedInstrumentMetadata(probeConfigs.front(),parserCapture_.get());
             const auto probeStatus = probe.probeDetailedCandlesOnce(detailedCandlesProbeConfig(probeConfigs.front()));
             if (isOk(probeStatus)) {
                 selectedEndNs = endNs;
@@ -675,7 +692,8 @@ bool CaptureViewModel::startDetailedCandlesBasisChain() {
 
     for (std::size_t i = 0; i < configs.size(); ++i) {
         const bool spotLeg = i == 0;
-        const auto& config = configs[i];
+        auto& config = configs[i];
+        attachPreparedInstrumentMetadata(config,parserCapture_.get());
         const QString symbol = QString::fromStdString(config.symbols.empty() ? std::string{} : config.symbols.front());
         const QVariantMap candidate = spotLeg ? QVariantMap{} : candidateBySymbol(detailedCandlesBasisCandidateRows_, symbol);
 
@@ -761,7 +779,8 @@ bool CaptureViewModel::startDetailedCandlesBasisChain() {
     if (!recordedSessions.empty()) {
         recordings::RecordingGroupInfo group = makeBasisRecordingGroup(groupPath, underlying, recordedSessions);
         std::string groupError;
-        if (!recordings::writeGroupManifest(group, &groupError)) {
+        const auto recordingsRoot=recordings::normalizeExplicitRecordingsPath(outputDirectory_.toStdString());
+        if (!recordings::writeGroupManifest(recordingsRoot,group, &groupError)) {
             manifestFailures.push_back(QStringLiteral("group_manifest: %1").arg(QString::fromStdString(groupError)));
         }
     }

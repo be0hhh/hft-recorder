@@ -75,6 +75,33 @@ template <typename Header>
            current + amount <= limit;
 }
 
+constexpr std::uint64_t kCutHeaderReserveBytes = 4096u;
+constexpr std::uint64_t kSourceStorageBytes = sizeof(BinaryMarketSource) +
+    kBinaryMarketStoredChannelCount * sizeof(BinaryMarketGap);
+constexpr std::uint64_t kSourceReservationBytes = 3u * kSourceStorageBytes;
+constexpr std::uint64_t kRecordCutReservationBytes = 2u * sizeof(CorpusBlockRange);
+
+[[nodiscard]] bool addProduct(std::uint64_t& bytes, std::uint64_t count,
+                              std::uint64_t unitBytes) noexcept {
+    if (unitBytes && count >
+        (std::numeric_limits<std::uint64_t>::max() - bytes) / unitBytes) return false;
+    bytes += count * unitBytes;
+    return true;
+}
+
+[[nodiscard]] bool cutReservationBytes(std::uint64_t sources, std::uint64_t gaps,
+                                      std::uint64_t blocks, std::uint64_t referenceBytes,
+                                      std::uint64_t& bytes) noexcept {
+    bytes = kCutHeaderReserveBytes;
+    if (!addProduct(bytes, sources, sizeof(BinaryMarketSource)) ||
+        !addProduct(bytes, gaps, sizeof(BinaryMarketGap)) ||
+        !addProduct(bytes, blocks, sizeof(CorpusBlockRange)) ||
+        !addProduct(bytes, referenceBytes, 1u) ||
+        bytes > std::numeric_limits<std::uint64_t>::max() / 2u) return false;
+    bytes *= 2u;
+    return true;
+}
+
 [[nodiscard]] std::filesystem::path segmentPath(
     const std::filesystem::path& root,
     std::uint16_t shard,
@@ -172,6 +199,7 @@ struct BinaryMarketCorpusWriterState final {
     std::shared_ptr<CorpusPublication> publication{};
     std::uint64_t cutGeneration{};
     std::uint64_t cutReservedBytes{};
+    std::uint64_t referenceReservedBytes{};
     bool replayAnchorFrozen{};
 };
 
@@ -382,32 +410,37 @@ Status BinaryMarketCorpusWriter::start(
         state->manifest.sourceCount =
             static_cast<std::uint32_t>(state->sources.size());
         state->manifest.shardCount = config.shardCount;
-        const std::uint64_t fixedMetadata =
-            2u * sizeof(BinaryMarketManifest) + 4096u +
-            3u * sizeof(BinaryMarketTableHeader) +
-            state->sources.size() * sizeof(BinaryMarketSource) +
-            state->sources.size() * kBinaryMarketStoredChannelCount *
-                sizeof(BinaryMarketGap);
+        // Gap cells and both durable-cut replacements are paid before any
+        // producer row can be accepted. Each source has at most one gap cell
+        // for each stored channel; later updates replace that bounded cell.
+        std::uint64_t maximumGapRecords = 0u;
+        std::uint64_t fixedMetadata = kCutHeaderReserveBytes;
+        std::uint64_t initialCutReserve = 0u;
+        if (!addProduct(maximumGapRecords, state->sources.size(), kBinaryMarketStoredChannelCount) ||
+            !addProduct(fixedMetadata, 2u, sizeof(BinaryMarketManifest)) ||
+            !addProduct(fixedMetadata, 3u, sizeof(BinaryMarketTableHeader)) ||
+            !addProduct(fixedMetadata, state->sources.size(), kSourceStorageBytes) ||
+            !cutReservationBytes(state->sources.size(), maximumGapRecords, 0u, 0u, initialCutReserve) ||
+            !addProduct(fixedMetadata, 1u, initialCutReserve)) return Status::OutOfRange;
         const std::uint64_t ringRecords =
             static_cast<std::uint64_t>(config.shardCount) * config.ringCapacity;
         if (config.pendingRecordCapacity > std::numeric_limits<std::uint64_t>::max()-ringRecords)
             return Status::OutOfRange;
         const std::uint64_t maximumPendingRecords = ringRecords + config.pendingRecordCapacity;
-        const std::uint64_t worstRecordBytes=binaryMarketPendingRecordBytes()+2u*sizeof(CorpusBlockRange)+sizeof(BinaryMarketIndexEntry)+
+        const std::uint64_t worstRecordBytes=binaryMarketPendingRecordBytes()+kRecordCutReservationBytes+sizeof(BinaryMarketIndexEntry)+
             sizeof(BinaryMarketSegmentHeader)+sizeof(BinaryMarketSegmentFooter);
-        if(maximumPendingRecords>std::numeric_limits<std::uint64_t>::max()/worstRecordBytes) return Status::OutOfRange;
         const auto pendingNewSources=std::min<std::uint64_t>(maximumPendingRecords,kBinaryMarketMaximumSources-state->sources.size());
-        const auto newSourceReserve=pendingNewSources*(sizeof(BinaryMarketSource)+kBinaryMarketStoredChannelCount*sizeof(BinaryMarketGap));
-        const auto recordReserve=maximumPendingRecords*worstRecordBytes;
-        if(newSourceReserve>std::numeric_limits<std::uint64_t>::max()-recordReserve) return Status::OutOfRange;
-        const auto finalDrainReserve=recordReserve+newSourceReserve;
-        if (!addWithin(0u, fixedMetadata, config.maximumBytes) ||
-            finalDrainReserve > config.maximumBytes - fixedMetadata)
-            return Status::OutOfRange;
+        std::uint64_t finalDrainReserve = 0u;
+        std::uint64_t minimumBytes = fixedMetadata;
+        if (!addProduct(finalDrainReserve, maximumPendingRecords, worstRecordBytes) ||
+            !addProduct(finalDrainReserve, pendingNewSources, kSourceReservationBytes) ||
+            !addProduct(minimumBytes, 1u, finalDrainReserve) ||
+            !addProduct(minimumBytes, 1u, worstRecordBytes) ||
+            minimumBytes > config.maximumBytes) return Status::OutOfRange;
         state->projectedBytes = fixedMetadata;
         state->writeLimitBytes = config.maximumBytes - finalDrainReserve;
-        state->maximumGapRecords =
-            state->sources.size() * kBinaryMarketStoredChannelCount;
+        state->maximumGapRecords = maximumGapRecords;
+        state->cutReservedBytes = initialCutReserve;
 
         std::error_code error;
         if (std::filesystem::exists(config.root, error)) {
@@ -448,12 +481,16 @@ Status BinaryMarketCorpusWriter::registerSources(std::span<const BinaryMarketSou
             else return Status::InvalidArgument;
         }
         const auto addedCount=projectedCount-state_->sources.size();
-        const auto requiredBytes=addedCount*(sizeof(BinaryMarketSource)+kBinaryMarketStoredChannelCount*sizeof(BinaryMarketGap));
-        if(!addWithin(state_->projectedBytes,requiredBytes,state_->writeLimitBytes)) {
+        std::uint64_t requiredBytes=0u,cutGrowth=0u;
+        if(!addProduct(requiredBytes,addedCount,kSourceReservationBytes) ||
+           !addProduct(cutGrowth,addedCount,2u*kSourceStorageBytes) ||
+           !addWithin(state_->cutReservedBytes,cutGrowth,std::numeric_limits<std::uint64_t>::max()) ||
+           !addWithin(state_->projectedBytes,requiredBytes,state_->writeLimitBytes)) {
             state_->quotaReached=true;return Status::OutOfRange;
         }
         state_->sources.reserve(projectedCount);state_->sourceStates.reserve(projectedCount);
         if(!reserveBytes(*state_,requiredBytes)) return Status::OutOfRange;
+        state_->cutReservedBytes+=cutGrowth;
         for(const auto& incoming:sources) {
             if(incoming.sourceId<=state_->sources.size()) continue;
             auto source=incoming;source.initiallyPresent=0u;source.initialSourceGeneration=0u;
@@ -514,8 +551,14 @@ Status BinaryMarketCorpusWriter::append(
         const bool indexNeeded = openNeeded ||
             segment->indexPositions.find(key) ==
                 segment->indexPositions.end();
-        std::uint64_t requiredBytes = binaryMarketPendingRecordBytes()+2u*sizeof(CorpusBlockRange);
-        if(newSource) requiredBytes+=sizeof(BinaryMarketSource)+kBinaryMarketStoredChannelCount*sizeof(BinaryMarketGap);
+        // One row can force its own block. Its two immutable cut references
+        // are prepaid here, including while that row is still pending a flush.
+        std::uint64_t requiredBytes = binaryMarketPendingRecordBytes();
+        std::uint64_t cutGrowth = kRecordCutReservationBytes;
+        if (!addProduct(requiredBytes, 1u, kRecordCutReservationBytes) ||
+            (newSource && (!addProduct(requiredBytes, 1u, kSourceReservationBytes) ||
+                           !addProduct(cutGrowth, 2u, kSourceStorageBytes))) ||
+            !addWithin(state_->cutReservedBytes,cutGrowth,std::numeric_limits<std::uint64_t>::max())) return Status::OutOfRange;
         if (openNeeded) {
             constexpr std::uint64_t fixedSegmentBytes =
                 sizeof(BinaryMarketSegmentHeader) +
@@ -542,6 +585,7 @@ Status BinaryMarketCorpusWriter::append(
                 if(pendingSegment.open && !flushBlock(*state_,pendingSegment)) return Status::IoError;
         }
         if (!reserveBytes(*state_, requiredBytes)) return Status::OutOfRange;
+        state_->cutReservedBytes += cutGrowth;
         if (rotate && !sealSegment(*state_, shardIndex))
             return Status::IoError;
         if (openNeeded) {
@@ -726,7 +770,21 @@ Status BinaryMarketCorpusWriter::updateProgress(const CorpusProducerProgress& pr
 }
 Status BinaryMarketCorpusWriter::setReferencePayload(std::span<const std::uint8_t> payload) noexcept {
     if(!state_ || !state_->active || payload.size()>state_->config.maximumReferenceBytes || payload.size()>kCorpusMaximumReferenceBytes) return Status::InvalidArgument;
-    try {state_->referencePayload.assign(payload.begin(),payload.end());return Status::Ok;}
+    const auto growth=payload.size()>state_->referenceReservedBytes?payload.size()-state_->referenceReservedBytes:0u;
+    std::uint64_t requiredBytes=0u;
+    if(!addProduct(requiredBytes,growth,2u) ||
+       !addWithin(state_->cutReservedBytes,requiredBytes,std::numeric_limits<std::uint64_t>::max()) ||
+       !addWithin(state_->projectedBytes,requiredBytes,state_->writeLimitBytes)) {
+        state_->quotaReached=true;return Status::OutOfRange;
+    }
+    try {
+        std::vector<std::uint8_t> staged(payload.begin(),payload.end());
+        if(!reserveBytes(*state_,requiredBytes)) return Status::OutOfRange;
+        state_->cutReservedBytes+=requiredBytes;
+        state_->referenceReservedBytes=std::max<std::uint64_t>(state_->referenceReservedBytes,payload.size());
+        state_->referencePayload.swap(staged);
+        return Status::Ok;
+    }
     catch(...) {return Status::IoError;}
 }
 Status BinaryMarketCorpusWriter::publishCut() noexcept {
@@ -737,16 +795,13 @@ Status BinaryMarketCorpusWriter::publishCut() noexcept {
             segment.stream.flush();
             if(!segment.stream.good() || !syncCorpusFile(segment.partialPath)) return Status::IoError;
         }
-        // Both atomic replacement files can coexist during commit. Reserve their
-        // full size in the hard corpus budget, including immutable block refs.
-        const auto cutBytes=4096u+state_->sources.size()*sizeof(BinaryMarketSource)+
-            state_->gaps.size()*sizeof(BinaryMarketGap)+state_->blocks.size()*sizeof(CorpusBlockRange)+state_->referencePayload.size();
-        const auto required=2u*cutBytes;
-        if(required>state_->cutReservedBytes) {
-            const auto increase=required-state_->cutReservedBytes;
-            if(!reserveBytes(*state_,increase)) return Status::OutOfRange;
-            state_->cutReservedBytes=required;
-        }
+        // Admission has already paid both atomic replacement files. A flush
+        // produces at most one block per accepted row and cannot spend this
+        // reservation a second time at publication or finalization.
+        std::uint64_t required=0u;
+        if(!cutReservationBytes(state_->sources.size(),state_->gaps.size(),state_->blocks.size(),
+                                state_->referencePayload.size(),required) ||
+           required>state_->cutReservedBytes) return Status::CorruptData;
         auto cut=std::make_shared<CorpusCut>();cut->generation=state_->cutGeneration+1u;
         cut->committedMonotonicNs=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count());

@@ -1,4 +1,5 @@
 #include "VenueMultiplexCapture.hpp"
+#include "CaptureCoordinatorInternal.hpp"
 #include "CaptureChannelSupport.hpp"
 #include "../Session/MarketData/NativeMarketCapture.hpp"
 #include "cxet/Os/ClockSource.hpp"
@@ -118,7 +119,7 @@ Status VenueMultiplexCapture::finalize() noexcept {
     impl_->running=false;
     if (impl_->native) {impl_->native->shutdown();const auto detail=impl_->native->error();if (!detail.empty()) impl_->error=detail;}
     Status status=Status::Ok;impl_->finalRows=0u;
-    for (auto& sink:impl_->sinks) {impl_->finalRows+=rows(*sink.coordinator);status=aggregateStatus(status,sink.coordinator->finalizeSession());}
+    for (auto& sink:impl_->sinks) {impl_->finalRows+=rows(*sink.coordinator);status=internal::aggregateStatus(status,sink.coordinator->finalizeSession());}
     if(impl_->terminal && isOk(status)) status=Status::Unknown;
     impl_->finalStatus=status;impl_->finalized=true;return status;
 }

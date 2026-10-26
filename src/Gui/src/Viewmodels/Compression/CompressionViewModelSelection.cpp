@@ -60,18 +60,15 @@ QVariantList CompressionViewModel::sessions() const {
         const QString id = QString::fromStdString(session.sessionId);
         const QString path = QString::fromStdString(session.path.string());
         const BacktestLegCounts counts = snapshot.backtestCountsBySession.value(id);
-        QString summary = sessionBacktestSummaryText(static_cast<int>(session.bookTickerCount), counts, session.startedAtNs);
-        if (session.candleCount > 0) summary += QStringLiteral(" | C %1").arg(session.candleCount);
-        summary = appendSessionHealthSummary(summary,
-                                             QString::fromStdString(session.sessionHealth),
-                                             QString::fromStdString(session.warningSummary));
+        const QString summary=recordedSessionSummary(session,counts);
         QVariantMap row;
         row.insert(QStringLiteral("id"), id);
-        row.insert(QStringLiteral("label"), QStringLiteral("%1 | %2/%3 %4")
-                                            .arg(QString::fromStdString(session.groupTitle),
-                                                 QString::fromStdString(session.exchange),
-                                                 QString::fromStdString(session.market),
-                                                 QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front())));
+        row.insert(QStringLiteral("label"), session.groupTitle.empty()?recordedSessionLabel(session):
+            QString::fromStdString(session.groupTitle)+QStringLiteral(" | ")+recordedSessionLabel(session));
+        row.insert(QStringLiteral("binaryCorpus"),session.binaryCorpus);
+        row.insert(QStringLiteral("sourceCount"),session.sourceCount);
+        row.insert(QStringLiteral("channelCountsAvailable"),session.channelCountsAvailable);
+        row.insert(QStringLiteral("totalRecords"),static_cast<qulonglong>(session.totalRows));
         row.insert(QStringLiteral("path"), path);
         row.insert(QStringLiteral("rightText"), summary);
         row.insert(QStringLiteral("hasTrades"), !existingChannelPath_(path, QStringLiteral("trades")).isEmpty());

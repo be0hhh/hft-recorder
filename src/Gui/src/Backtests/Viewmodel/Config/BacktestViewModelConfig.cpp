@@ -119,7 +119,8 @@ void BacktestViewModel::setSessionPath(const QString& sessionPath) {
     if (selectedSessionPath() == normalized) return;
     pendingLegSelectionSessionId_.clear();
     manualSessionPath_ = normalized;
-    selectedSessionId_ = sessionIdFromPath_(normalized);
+    const auto catalogRow=sessionCatalogRowForPath_(normalized);
+    selectedSessionId_=catalogRow.value(QStringLiteral("id"),sessionIdFromPath_(normalized)).toString();
     deferredLegSelectionRefresh_ = false;
     loadLegSelectionForCurrentSession_();
     symbolOverride_.clear();

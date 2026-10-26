@@ -1,11 +1,8 @@
-#include <cstdlib>
 #include <cstdio>
-#include <algorithm>
-#include <cstdint>
 #include <filesystem>
 #include <string_view>
 
-#include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 
 namespace hftrec::app {
@@ -13,10 +10,10 @@ namespace {
 
 void printUsage() {
     std::puts("Usage:");
-    std::puts("  hft-recorder recordings organize [--root path] [--apply] [--delete-empty] [--window-sec n]");
+    std::puts("  hft-recorder recordings refresh [--root path] [--dry-run|--apply]");
     std::puts("");
-    std::puts("Default mode is dry-run. Add --apply to normalize completed session folders and manifests.");
-    std::puts("--delete-empty quarantines inactive zero-row sessions under .deleted_empty.");
+    std::puts("Default mode scans the catalog and plans group metadata updates.");
+    std::puts("--apply rebuilds current group metadata. Recording paths and session files stay in place.");
 }
 
 }  // namespace
@@ -27,7 +24,11 @@ int runRecordings(int argc, char** argv) {
         return 0;
     }
     const std::string_view command{argv[1]};
-    if (command != "organize") {
+    if(command=="organize") {
+        std::fputs("recordings organize is no longer supported; use recordings refresh for catalog and group metadata updates\n",stderr);
+        return 2;
+    }
+    if (command != "refresh") {
         std::fprintf(stderr, "recordings: unknown command '%.*s'\n", static_cast<int>(command.size()), command.data());
         printUsage();
         return 2;
@@ -35,13 +36,11 @@ int runRecordings(int argc, char** argv) {
 
     std::filesystem::path root{recordings::defaultRecordingsRoot()};
     bool apply = false;
-    bool deleteEmpty = false;
-    std::int64_t windowSec = 300;
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--root") {
             if (i + 1 >= argc) {
-                std::fputs("recordings organize: --root requires a path\n", stderr);
+                std::fputs("recordings refresh: --root requires a path\n", stderr);
                 return 2;
             }
             root = recordings::normalizeExplicitRecordingsPath(argv[++i]);
@@ -55,58 +54,31 @@ int runRecordings(int argc, char** argv) {
             apply = false;
             continue;
         }
-        if (arg == "--delete-empty") {
-            deleteEmpty = true;
-            continue;
+        if (arg == "--delete-empty" || arg == "--window-sec") {
+            std::fputs("recordings refresh: deletion, quarantine and time-based regrouping are not supported\n",stderr);
+            return 2;
         }
-        if (arg == "--window-sec") {
-            if (i + 1 >= argc) {
-                std::fputs("recordings organize: --window-sec requires a value\n", stderr);
-                return 2;
-            }
-            windowSec = std::max<std::int64_t>(1, std::atoll(argv[++i]));
-            continue;
-        }
-        std::fprintf(stderr, "recordings organize: unknown option '%.*s'\n", static_cast<int>(arg.size()), arg.data());
+        std::fprintf(stderr, "recordings refresh: unknown option '%.*s'\n", static_cast<int>(arg.size()), arg.data());
         return 2;
     }
 
-    const auto result = recordings::organizeRecordings(root, apply, windowSec, deleteEmpty);
-    std::printf("recordings organize / root=%s mode=%s window=%llds moves=%zu quarantined_empty=%zu skipped_active=%zu errors=%zu\n",
+    const auto result = recordings::rebuildRecordingGroups(root,apply);
+    std::printf("recordings refresh / root=%s mode=%s complete=%s sessions=%zu groups=%zu planned=%zu rebuilt=%zu errors=%zu\n",
                 root.string().c_str(),
                 apply ? "apply" : "dry-run",
-                static_cast<long long>(windowSec),
-                result.moves.size(),
-                result.quarantinedEmpty.size(),
-                result.skippedActive.size(),
+                result.complete?"yes":"no",
+                result.discovery.sessions.size(),
+                result.discovery.groups.size(),
+                result.planned.size(),
+                result.rebuilt.size(),
                 result.errors.size());
 
-    for (const auto& move : result.moves) {
-        const char* action = move.pathChanged
-            ? (move.moved ? "moved" : "plan ")
-            : (move.manifestUpdated ? (apply ? "updated" : "update") : "keep  ");
-        std::printf("%s %s -> %s%s\n",
-                    action,
-                    move.from.string().c_str(),
-                    move.to.string().c_str(),
-                    move.manifestUpdated ? " manifest" : "");
-        if (!move.error.empty()) std::printf("  error: %s\n", move.error.c_str());
-    }
-    for (const auto& move : result.quarantinedEmpty) {
-        const char* action = apply ? (move.moved ? "quarantined" : "quarantine_failed") : "quarantine";
-        std::printf("%s empty %s -> %s\n",
-                    action,
-                    move.from.string().c_str(),
-                    move.to.string().c_str());
-        if (!move.error.empty()) std::printf("  error: %s\n", move.error.c_str());
-    }
-    for (const auto& skipped : result.skippedActive) {
-        std::printf("skip active/incomplete: %s\n", skipped.c_str());
-    }
+    if(!apply) for(const auto& path:result.planned) std::printf("plan group metadata: %s\n",path.string().c_str());
+    for(const auto& path:result.rebuilt) std::printf("rebuilt group metadata: %s\n",path.string().c_str());
     for (const auto& error : result.errors) {
         std::printf("error: %s\n", error.c_str());
     }
-    return result.errors.empty() ? 0 : 1;
+    return result.complete && result.errors.empty() ? 0 : 1;
 }
 
 }  // namespace hftrec::app

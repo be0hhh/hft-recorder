@@ -1,7 +1,9 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -119,6 +121,9 @@ class SessionReplay {
         bool orderbookRequired{true};
         std::int64_t endedAtNs{0};
         bool capturedExactReplayEligible{true};
+        // One retained capture incident per supported live channel; replay
+        // rebuilds summaries from this immutable, bounded manifest evidence.
+        std::array<std::optional<IntegrityIncident>, 3u> capturedIncidents{};
     };
 
     void rewindToSnapshot_();

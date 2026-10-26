@@ -24,10 +24,6 @@ namespace {
 
 constexpr std::int64_t kRecordingManifestFlushIntervalNs = 5'000'000'000LL;
 
-Status aggregateStatus(Status current, Status next) noexcept {
-    return isOk(current) ? next : current;
-}
-
 bool hasCapturedRows(const SessionManifest& manifest) noexcept {
     return manifest.tradesCount != 0u
         || manifest.liquidationsCount != 0u
@@ -215,7 +211,7 @@ Status CaptureCoordinator::startExternalCapture(const CaptureConfig& config,
     };
 
     Status status = enable(channels.trades, manifest_.tradesEnabled, ChannelKind::Trades, manifest_.tradesPath);
-    status = aggregateStatus(status, enable(channels.bookTicker, manifest_.bookTickerEnabled, ChannelKind::BookTicker, manifest_.bookTickerPath));
+    status = internal::aggregateStatus(status, enable(channels.bookTicker, manifest_.bookTickerEnabled, ChannelKind::BookTicker, manifest_.bookTickerPath));
     if (channels.orderbook) {
         manifest_.orderbookEnabled = true;
         for (const std::string* path : {&manifest_.depthPath, &manifest_.depthSidecarPath}) {
@@ -223,8 +219,8 @@ Status CaptureCoordinator::startExternalCapture(const CaptureConfig& config,
                 manifest_.canonicalArtifacts.push_back(*path);
             }
         }
-        status = aggregateStatus(status, jsonSink_.ensureChannelFile(ChannelKind::DepthTape));
-        status = aggregateStatus(status, jsonSink_.ensureChannelFile(ChannelKind::DepthSidecar));
+        status = internal::aggregateStatus(status, jsonSink_.ensureChannelFile(ChannelKind::DepthTape));
+        status = internal::aggregateStatus(status, jsonSink_.ensureChannelFile(ChannelKind::DepthSidecar));
     }
     auto initializeHealth = [](ChannelRuntimeHealth& health, bool requested, bool enabled, bool required) {
         health.state = requested ? (enabled ? "waiting_first_row" : "unsupported") : "not_requested";
@@ -239,7 +235,7 @@ Status CaptureCoordinator::startExternalCapture(const CaptureConfig& config,
     const auto manifestStatus = writeManifestFile_();
     if (!isOk(manifestStatus)) {
         if (lastError_.empty()) lastError_ = "failed to persist external capture channel plan";
-        status = aggregateStatus(status, manifestStatus);
+        status = internal::aggregateStatus(status, manifestStatus);
     }
     return status;
 }
@@ -460,6 +456,10 @@ Status CaptureCoordinator::ensureSession_(const CaptureConfig& config, bool allo
             return Status::InvalidArgument;
         }
         config_.tradesHistoryWarmupSec = normalizedConfig.tradesHistoryWarmupSec;
+        config_.preparedInstrumentMetadata = normalizedConfig.preparedInstrumentMetadata;
+        // Every cold request supplies its current proof, including absence.
+        // Never retain readiness from an older producer/directory generation.
+        instrumentMetadataReady_ = false;
         manifest_.tradesHistoryWarmupSec = normalizedConfig.tradesHistoryWarmupSec;
         return Status::Ok;
     }
@@ -818,11 +818,9 @@ Status CaptureCoordinator::writeStartupFailureManifest_(std::string_view reason)
 Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
     if (config_.symbols.empty()) return Status::InvalidArgument;
     auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
-    // Do not block session creation on venue exchangeInfo REST. Newly added
-    // venues can stall here after the directory is created but before the
-    // initial manifest and JSON sinks are opened. Start with recorder-inferred
-    // metadata; cold enrichment can happen after the session is recording.
-    metadata.metadataWarning = "cxet_metadata_deferred_startup_nonblocking";
+    // Session creation needs no native metadata request. Candle operations
+    // qualify the current prepared producer input before using price basis.
+    metadata.metadataWarning = "parser_metadata_deferred_prepared_input";
     instrumentMetadataReady_ = false;
     std::ofstream out(sessionDir_ / manifest_.instrumentMetadataPath, std::ios::out | std::ios::trunc);
     if (!out.is_open()) return Status::IoError;
@@ -830,10 +828,10 @@ Status CaptureCoordinator::writeInstrumentMetadataFile() noexcept {
     return out.good() ? Status::Ok : Status::IoError;
 }
 
-Status CaptureCoordinator::refreshInstrumentMetadataFromExchangeInfo() noexcept {
+Status CaptureCoordinator::refreshInstrumentMetadataFromPreparedInput() noexcept {
     if (sessionDir_.empty() || config_.symbols.empty()) return Status::InvalidArgument;
     auto metadata = corpus::makeInstrumentMetadata(config_.exchange, config_.market, config_.symbols.front());
-    const bool enriched = internal::enrichInstrumentMetadataFromExchangeInfo(config_, metadata);
+    const bool enriched = internal::enrichInstrumentMetadataFromPreparedInput(config_, metadata);
     const bool hasPriceBasis = metadata.priceBasisQtyE8.has_value() && *metadata.priceBasisQtyE8 > 0;
 
     const auto metadataPath = sessionDir_ / manifest_.instrumentMetadataPath;

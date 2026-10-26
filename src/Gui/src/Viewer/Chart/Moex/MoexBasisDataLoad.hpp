@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "Corpus/Recordings/BasisChainSeries.hpp"
-#include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 #include "MoexBasisController.hpp"
 
 namespace hftrec::gui::viewer::moex {

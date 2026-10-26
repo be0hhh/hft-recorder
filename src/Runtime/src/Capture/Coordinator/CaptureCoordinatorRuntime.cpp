@@ -624,13 +624,13 @@ Status CaptureCoordinator::captureDetailedCandlesOnce(const CaptureConfig& confi
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
     if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
-        const auto metadataStatus = refreshInstrumentMetadataFromExchangeInfo();
+        const auto metadataStatus = refreshInstrumentMetadataFromPreparedInput();
         if (!isOk(metadataStatus)) return metadataStatus;
     }
     if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
         const std::string metadataDetail = lastError_;
-        lastError_ = "candles2: FINAM futures instrument metadata is required for price-basis logic; "
-                     "refresh Finam auth and retry so /v1/assets/<symbol> can provide price_basis_qty_e8";
+        lastError_ = "candles2: FINAM futures require current prepared Parser metadata "
+                     "with positive price_basis_qty_e8";
         if (!metadataDetail.empty()) {
             lastError_ += " metadata=";
             lastError_ += metadataDetail;

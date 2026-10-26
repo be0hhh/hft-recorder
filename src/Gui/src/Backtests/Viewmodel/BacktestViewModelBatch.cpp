@@ -23,7 +23,7 @@
 
 #include "hft_backtest/Backtest.hpp"
 #include "hft_backtest/BacktestSweep.hpp"
-#include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 #include "../Batch/BacktestBatchAnalysisHelpers.hpp"
 #include "../Batch/BacktestBatchSweepHelpers.hpp"
@@ -260,6 +260,16 @@ QVector<BatchSweepPair> buildBasisChainPairs(const QString& groupPath,
     QVector<BatchSweepSessionInfo> sessions;
     const QString requested = QDir::cleanPath(groupPath);
     const auto discovery = hftrec::recordings::discoverRecordings(hftrec::recordings::defaultRecordingsRoot());
+    if(!discovery.complete || !discovery.errors.empty()) {
+        if(skippedRows) {
+            QVariantMap row;
+            row.insert(QStringLiteral("reason"),discovery.errors.empty()?QStringLiteral("recording catalog scan incomplete"):
+                QString::fromStdString(discovery.errors.front()));
+            row.insert(QStringLiteral("groupPath"),requested);
+            skippedRows->push_back(row);
+        }
+        return {};
+    }
     for (const auto& group : discovery.groups) {
         if (QDir::cleanPath(QString::fromStdString(group.path.string())) != requested) continue;
         sessions.reserve(static_cast<int>(group.sessions.size()));

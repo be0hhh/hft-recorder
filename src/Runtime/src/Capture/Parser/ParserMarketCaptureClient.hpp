@@ -2,6 +2,7 @@
 
 #include "../../Common/Status.hpp"
 #include "hftrec/CorpusContract/CorpusCut.hpp"
+#include "../Coordinator/PreparedInstrumentMetadata.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -77,6 +78,8 @@ class ParserMarketCaptureClient final {
 
     [[nodiscard]] bool producerDisconnected() const noexcept;
     [[nodiscard]] ParserMarketCaptureSnapshot snapshot() const noexcept;
+    [[nodiscard]] std::vector<PreparedInstrumentMetadata>
+        preparedInstrumentMetadata() const noexcept;
     void disconnect() noexcept;
 
   private:

@@ -3,6 +3,7 @@
 
 #include "../../Corpus/BinaryMarketCorpusWriter.hpp"
 #include "hft_parser/Ipc/MarketCaptureProtocol.hpp"
+#include "cxet/Primitives/Buf/AsmPrimitives.hpp"
 
 #include <algorithm>
 #include <array>
@@ -286,6 +287,7 @@ struct ParserMarketCaptureClientState final {
     parser::MarketCaptureLossCell* lossLedger{nullptr};
     std::vector<CaptureShardView> shards{};
     std::vector<parser::MarketCaptureSourceDescriptor> sources{};
+    std::vector<PreparedInstrumentMetadata> preparedMetadata{};
     std::uint64_t consumerEpoch{0u};
     std::uint64_t directoryGeneration{0u};
     std::uint64_t nextControlSequence{3u};
@@ -610,6 +612,7 @@ Status ParserMarketCaptureClient::loadSourceDirectory(
     std::string& error) noexcept {
     sources.clear();
     error.clear();
+    if (state_) state_->preparedMetadata.clear();
     if (!state_ || !state_->header) {
         error = "parser capture client is not connected";
         return Status::InvalidArgument;
@@ -654,11 +657,15 @@ Status ParserMarketCaptureClient::loadSourceDirectory(
                 return Status::IoError;
             }
             sources.reserve(count);
+            std::vector<PreparedInstrumentMetadata> prepared;
+            prepared.reserve(count);
             for (std::size_t index = 0u; index < copied.size(); ++index) {
                 if (!detail::validSourceDescriptor(copied[index], index)) {
                     error = "parser capture source directory is invalid";
                     return Status::CorruptData;
                 }
+                prepared.push_back(detail::prepareInstrumentMetadata(copied[index], index,
+                    state_->header->producerEpoch, generation));
                 corpus::BinaryMarketSource source =
                     detail::convertSource(copied[index]);
                 if (!corpus::validBinaryMarketSource(source, index)) {
@@ -685,6 +692,7 @@ Status ParserMarketCaptureClient::loadSourceDirectory(
                 }
             }
             state_->directoryGeneration = generation;
+            state_->preparedMetadata = std::move(prepared);
             // Ready only attaches the arena. A capture interval starts after
             // the complete cross-lane directory is stable; records committed
             // between directory publication and this sample remain in the
@@ -772,11 +780,18 @@ Status ParserMarketCaptureClient::drainTo(ParserCaptureRecordSink sink,void* con
         const auto capacity=shard.header->ringCapacity;
             const parser::MarketCaptureRecord input =
                 shard.records[read & (capacity - 1u)];
+            parser::MarketCaptureMembershipPayload membership{};
+            if (input.header.channel==parser::MarketCaptureChannel::Membership) {
+                if (input.header.payloadBytes!=sizeof(membership)) {
+                    error="parser capture membership payload size mismatch";return Status::CorruptData;
+                }
+                cxet::bytescan::hftMemcpy(&membership, input.payload.data(), sizeof(membership));
+            }
             // The producer commits the membership marker before releasing its
             // directory revision. Defer this head until that publication is visible.
             if (input.header.sourceId>state_->sources.size() ||
                 (input.header.channel==parser::MarketCaptureChannel::Membership &&
-                 parser::marketCapturePayload<parser::MarketCaptureMembershipPayload>(&input)->directoryRevision>
+                 membership.directoryRevision>
                     state_->directoryGeneration)) {
                 if (input.header.sourceId>state_->header->directoryCapacity) {
                     error="capture source exceeds admitted directory capacity";return Status::CorruptData;
@@ -797,7 +812,7 @@ Status ParserMarketCaptureClient::drainTo(ParserCaptureRecordSink sink,void* con
             }
             if (input.header.channel==parser::MarketCaptureChannel::Membership) {
                 state_->sources[input.header.sourceId-1u]=
-                    parser::marketCapturePayload<parser::MarketCaptureMembershipPayload>(&input)->source;
+                    membership.source;
             }
             ++read;
             shard.ring->read.store(read, std::memory_order_release);
@@ -1103,6 +1118,20 @@ ParserMarketCaptureSnapshot ParserMarketCaptureClient::snapshot() const
         }
     }
     return result;
+}
+
+std::vector<PreparedInstrumentMetadata>
+ParserMarketCaptureClient::preparedInstrumentMetadata() const noexcept {
+    if (!state_ || !state_->header || state_->stopped || producerDisconnected()) return {};
+    const auto generation = state_->header->directoryGeneration.load(std::memory_order_acquire);
+    if (!generation || generation != state_->directoryGeneration ||
+        state_->header->directoryCount.load(std::memory_order_acquire) != state_->preparedMetadata.size()) return {};
+    try {
+        auto result = state_->preparedMetadata;
+        if (state_->header->directoryGeneration.load(std::memory_order_acquire) != generation ||
+            producerDisconnected()) return {};
+        return result;
+    } catch (...) { return {}; }
 }
 
 void ParserMarketCaptureClient::disconnect() noexcept {

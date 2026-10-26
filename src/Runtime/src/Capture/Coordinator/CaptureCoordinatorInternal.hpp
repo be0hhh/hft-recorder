@@ -16,6 +16,10 @@ struct InstrumentMetadata;
 
 namespace hftrec::capture::internal {
 
+inline Status aggregateStatus(Status current, Status next) noexcept {
+    return isOk(current) ? next : current;
+}
+
 void ensureCxetInitialized() noexcept;
 Status loadCaptureEnv(const CaptureConfig& config, std::string& lastError) noexcept;
 Status refreshFinamAuthForConfig(const CaptureConfig& config,
@@ -37,7 +41,7 @@ cxet::runtime::reference::ReferenceVenueConfig makeReferenceVenueConfig(const Ca
 
 #endif
 
-bool enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
+bool enrichInstrumentMetadataFromPreparedInput(const CaptureConfig& config,
                                               corpus::InstrumentMetadata& metadata) noexcept;
 Status validateCryptoIdentitySymbols(const CaptureConfig& config, std::string& lastError) noexcept;
 Status validateSupportedConfig(const CaptureConfig& config, std::string& lastError, bool allowMultiSymbol = false);

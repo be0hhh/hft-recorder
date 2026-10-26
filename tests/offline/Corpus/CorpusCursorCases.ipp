@@ -26,20 +26,54 @@ void allChannelsExactBytes() {
   for(std::size_t n=0;n<expected.size();++n) {
     auto& r=expected[n];r=f.record(n+1,200+n);
     r.header.channel=static_cast<BinaryMarketChannel>(n+1);
-    r.header.sourceFlags=0u;r.header.payloadBytes=kBinaryMarketPayloadBytes;
+    r.payload={};r.header.sourceFlags=0u;
     r.header.nativeIdentityShape=1u;
     r.header.nativeIdentityFirst=0x1122334455667788ull+n;
-    if(n==2) {
+    switch(r.header.channel) {
+    case BinaryMarketChannel::BookTicker:
+      r.header.payloadBytes=sizeof(BinaryMarketBookTickerPayload);
+      r.header.sourceFlags=BinaryMarketSourceBookTickerBidPresent|BinaryMarketSourceBookTickerAskPresent;
+      *binaryMarketPayload<BinaryMarketBookTickerPayload>(&r)={100,2,101,3};
+      break;
+    case BinaryMarketChannel::Trade:
+      r.header.payloadBytes=sizeof(BinaryMarketTradePayload);
+      *binaryMarketPayload<BinaryMarketTradePayload>(&r)={100,2,1u,{}};
+      break;
+    case BinaryMarketChannel::Depth: {
+      r.header.payloadBytes=sizeof(BinaryMarketDepthChunkPayload);
       auto* p=binaryMarketPayload<BinaryMarketDepthChunkPayload>(&r);
-      *p={};p->totalLevelCount=p->levelCount=kBinaryMarketDepthLevelsPerRecord;
+      p->totalLevelCount=p->levelCount=kBinaryMarketDepthLevelsPerRecord;
       p->partCount=1;p->frameKind=BinaryMarketDepthFrameKind::Snapshot;
+      p->transactionPartCount=1;
       p->state=BinaryMarketDepthState::Healthy;
-      p->sequence={100,132,99};p->sourceReceiveRealtimeNs=198;
+      p->sequence={100,132,99};p->sourceReceiveRealtimeNs=p->sourceFreshnessMonotonicNs=198;
       for(std::size_t i=0;i<p->levels.size();++i) {
         p->levels[i].priceRaw=100+i;p->levels[i].quantityRaw=10+i;
         p->levels[i].side=i%2;p->levels[i].action=1;
       }
-      r.header.flags|=BinaryMarketRecordDepthSnapshot;
+      r.header.flags|=BinaryMarketRecordDepthSnapshot|BinaryMarketRecordDepthTransactionEnd;
+      break;
+    }
+    case BinaryMarketChannel::Liquidation:
+      r.header.payloadBytes=sizeof(BinaryMarketLiquidationPayload);
+      *binaryMarketPayload<BinaryMarketLiquidationPayload>(&r)={100,2,99,1,1,2,3,4,1u,{}};
+      break;
+    case BinaryMarketChannel::MarkPrice:
+    case BinaryMarketChannel::IndexPrice:
+      r.header.payloadBytes=sizeof(BinaryMarketScalarPricePayload);
+      *binaryMarketPayload<BinaryMarketScalarPricePayload>(&r)={100+static_cast<std::int64_t>(n)};
+      break;
+    case BinaryMarketChannel::Funding:
+      r.header.payloadBytes=sizeof(BinaryMarketFundingPayload);
+      *binaryMarketPayload<BinaryMarketFundingPayload>(&r)={-5,190,290};
+      break;
+    case BinaryMarketChannel::PriceLimit:
+      r.header.payloadBytes=sizeof(BinaryMarketPriceLimitPayload);
+      *binaryMarketPayload<BinaryMarketPriceLimitPayload>(&r)={110,90,1u,{}};
+      break;
+    case BinaryMarketChannel::SourceLifecycle:
+      CXET_CHECK(false);
+      break;
     }
     CXET_CHECK(f.writer.append(r)==Status::Ok);
   }

@@ -17,24 +17,17 @@ QString resolveRecordingsRoot() {
 }
 
 QString sessionSummary(const hftrec::recordings::RecordedSessionInfo& session, const BacktestLegCounts& backtestCounts) {
-    QString summary = sessionBacktestSummaryText(static_cast<int>(session.bookTickerCount), backtestCounts, session.startedAtNs);
-    if (session.candleCount > 0) summary += QStringLiteral(" | C %1").arg(session.candleCount);
-    return appendSessionHealthSummary(summary,
-                                      QString::fromStdString(session.sessionHealth),
-                                      QString::fromStdString(session.warningSummary));
+    return recordedSessionSummary(session,backtestCounts);
 }
 
 QString groupSummary(const hftrec::recordings::RecordingGroupInfo& group) {
-    return QStringLiteral("%1 venues | rows %2")
+    return QStringLiteral("%1 sessions | stored records %2")
         .arg(group.sessions.size())
         .arg(QString::number(static_cast<qulonglong>(group.totalRows)));
 }
 
 QString sessionLabel(const hftrec::recordings::RecordedSessionInfo& session) {
-    return QStringLiteral("%1/%2 %3")
-        .arg(QString::fromStdString(session.exchange),
-             QString::fromStdString(session.market),
-             QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front()));
+    return recordedSessionLabel(session);
 }
 
 }  // namespace
@@ -75,6 +68,20 @@ void SessionListModel::rebuildFromCatalog_() {
 
     if (recordingCatalog_ != nullptr && recordingCatalog_->hasSnapshot()) {
         const auto& snapshot = recordingCatalog_->snapshot();
+        const auto appendSession=[&](const recordings::RecordedSessionInfo& session,int indent) {
+            Entry entry{};
+            entry.sessionId=QString::fromStdString(session.sessionId);
+            entry.label=sessionLabel(session);
+            entry.summary=sessionSummary(session,snapshot.backtestCountsBySession.value(entry.sessionId));
+            entry.path=QString::fromStdString(session.path.string());
+            entry.searchText=QString::fromStdString(session.searchText).toLower();
+            entry.indent=indent;
+            entry.binaryCorpus=session.binaryCorpus;
+            entry.sourceCount=session.sourceCount;
+            entry.channelCountsAvailable=session.channelCountsAvailable;
+            entry.totalRecords=session.totalRows;
+            allSessions_.push_back(std::move(entry));
+        };
         for (const auto& group : snapshot.discovery.groups) {
             Entry groupEntry{};
             groupEntry.sessionId = QStringLiteral("group:%1").arg(QString::fromStdString(group.id));
@@ -86,17 +93,10 @@ void SessionListModel::rebuildFromCatalog_() {
             allSessions_.push_back(groupEntry);
 
             for (const auto& session : group.sessions) {
-                Entry entry{};
-                entry.sessionId = QString::fromStdString(session.sessionId);
-                entry.label = sessionLabel(session);
-                entry.summary = sessionSummary(session, snapshot.backtestCountsBySession.value(entry.sessionId));
-                entry.path = QString::fromStdString(session.path.string());
-                entry.searchText = QString::fromStdString(session.searchText).toLower();
-                entry.isGroup = false;
-                entry.indent = 1;
-                allSessions_.push_back(std::move(entry));
+                appendSession(session,1);
             }
         }
+        for(const auto& session:snapshot.discovery.sessions) if(!session.grouped) appendSession(session,0);
     }
 
     sessions_ = allSessions_;
@@ -138,6 +138,11 @@ QVariant SessionListModel::data(const QModelIndex& index, int role) const {
     if (role == SearchTextRole) return entry.searchText;
     if (role == IsGroupRole) return entry.isGroup;
     if (role == IndentRole) return entry.indent;
+    if(entry.isGroup) return {};
+    if(role==BinaryCorpusRole) return entry.binaryCorpus;
+    if(role==SourceCountRole) return entry.sourceCount;
+    if(role==ChannelCountsAvailableRole) return entry.channelCountsAvailable;
+    if(role==TotalRecordsRole) return entry.totalRecords;
     return {};
 }
 
@@ -150,6 +155,10 @@ QHash<int, QByteArray> SessionListModel::roleNames() const {
         {SearchTextRole, "searchText"},
         {IsGroupRole, "isGroup"},
         {IndentRole, "indent"},
+        {BinaryCorpusRole,"binaryCorpus"},
+        {SourceCountRole,"sourceCount"},
+        {ChannelCountsAvailableRole,"channelCountsAvailable"},
+        {TotalRecordsRole,"totalRecords"},
     };
 }
 

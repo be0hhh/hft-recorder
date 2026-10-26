@@ -578,6 +578,9 @@ void SessionReplay::resetIntegrity_() noexcept {
     integritySummary_.bookTicker.state = ChannelHealthState::NotCaptured;
     integritySummary_.depth.state = ChannelHealthState::NotCaptured;
     integritySummary_.snapshot.state = ChannelHealthState::NotCaptured;
+    for (const auto& incident : manifestHints_.capturedIncidents) {
+        if (incident) noteIncident_(*incident);
+    }
 }
 
 ChannelIntegritySummary& SessionReplay::summaryFor_(IntegrityChannel channel) noexcept {
@@ -652,17 +655,20 @@ void SessionReplay::applyManifestHints_(const capture::SessionManifest& manifest
     manifestHints_.endedAtNs = manifest.endedAtNs;
     manifestHints_.capturedExactReplayEligible=manifest.sessionStatus=="recording" ||
         (manifest.sessionStatus=="complete" && manifest.exactReplayEligible);
-    const auto retainIncident=[&](IntegrityChannel channel,const capture::ChannelRuntimeHealth& runtime,
+    manifestHints_.capturedIncidents = {};
+    const auto retainIncident=[&](std::size_t index,IntegrityChannel channel,
+                                  const capture::ChannelRuntimeHealth& runtime,
                                   const ChannelIntegritySummary& captured) {
         if(runtime.reconnectCount==0u && runtime.droppedEventCount==0u && runtime.unroutableEventCount==0u &&
            runtime.lastError.empty() && runtime.state!="terminal" && captured.incidentCount==0u) return;
-        noteIncident_(IntegrityIncident{channel,IntegrityIncidentKind::CaptureAborted,IntegritySeverity::Warning,
+        manifestHints_.capturedIncidents[index] = IntegrityIncident{channel,IntegrityIncidentKind::CaptureAborted,IntegritySeverity::Warning,
             "captured_runtime_incident",runtime.lastError.empty()?"capture manifest retains a channel incident":runtime.lastError,
-            0,0,{},{},true});
+            0,0,{},{},true};
+        noteIncident_(*manifestHints_.capturedIncidents[index]);
     };
-    retainIncident(IntegrityChannel::Trades,manifest.tradesRuntime,manifest.tradesIntegrity);
-    retainIncident(IntegrityChannel::BookTicker,manifest.bookTickerRuntime,manifest.bookTickerIntegrity);
-    retainIncident(IntegrityChannel::Depth,manifest.depthRuntime,manifest.depthIntegrity);
+    retainIncident(0u,IntegrityChannel::Trades,manifest.tradesRuntime,manifest.tradesIntegrity);
+    retainIncident(1u,IntegrityChannel::BookTicker,manifest.bookTickerRuntime,manifest.bookTickerIntegrity);
+    retainIncident(2u,IntegrityChannel::Depth,manifest.depthRuntime,manifest.depthIntegrity);
 }
 
 void SessionReplay::markStaleLiveChannels_() noexcept {

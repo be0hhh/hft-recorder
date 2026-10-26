@@ -1,4 +1,7 @@
 find_package(Threads REQUIRED)
+cxet_add_offline_suite(hftrec_offline_recording_groups OWNER hft-recorder EXPECTED 8
+  SOURCES Recordings/RecordingGroupsCases.cpp LIBRARIES hftrec::recording_groups hftrec::corpus_contract
+  INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS recordings capture)
 cxet_add_offline_suite(hftrec_offline_service OWNER hft-recorder EXPECTED 4
   SOURCES Service/RecorderServiceCases.cpp
   LIBRARIES hftrec::service_client hftrec::reference_contract
@@ -6,7 +9,7 @@ cxet_add_offline_suite(hftrec_offline_service OWNER hft-recorder EXPECTED 4
 cxet_add_offline_suite(hftrec_offline_corpus OWNER hft-recorder EXPECTED 33
   SOURCES Corpus/CorpusCases.cpp LIBRARIES hftrec::corpus_contract
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS corpus)
-cxet_add_offline_suite(hftrec_offline_json_terminal OWNER hft-recorder EXPECTED 9
+cxet_add_offline_suite(hftrec_offline_json_terminal OWNER hft-recorder EXPECTED 12
   SOURCES Json/JsonTerminalCases.cpp LIBRARIES hftrec_json_capture
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS capture replay)
 cxet_add_offline_suite(hftrec_offline_capture_writer OWNER hft-recorder EXPECTED 2
@@ -16,7 +19,7 @@ cxet_add_offline_suite(hftrec_offline_capture_selection OWNER hft-recorder EXPEC
   SOURCES Capture/RecorderCaptureSelectionCases.cpp LIBRARIES hftrec::capture_launch cxet::read_only_contracts
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Contracts/include" LABELS capture)
-cxet_add_offline_suite(hftrec_offline_capture_conversion OWNER hft-recorder EXPECTED 8
+cxet_add_offline_suite(hftrec_offline_capture_conversion OWNER hft-recorder EXPECTED 13
   SOURCES ParserClient/ParserCaptureConversionCases.cpp LIBRARIES hftrec::capture_client
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Runtime/src" LABELS capture)
 cxet_add_offline_suite(hftrec_offline_capture_session OWNER hft-recorder EXPECTED 3

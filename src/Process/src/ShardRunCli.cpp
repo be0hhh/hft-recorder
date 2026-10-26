@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 #include "Tui/RecorderTuiLaunch.hpp"
 #include "Tui/RecorderTuiPreset.hpp"
 #include "Tui/RecorderTuiShard.hpp"
@@ -290,7 +291,8 @@ void writeSupervisorGroupManifests(const std::filesystem::path& recordingsRoot,
                                    const OutputGroupMap& groups) {
     for (const auto& [_, groupPath] : groups) {
         std::string ignoredError;
-        (void)recordings::writeGroupManifestForPath(recordingsRoot, groupPath, &ignoredError);
+        if(!recordings::writeGroupManifestForPath(recordingsRoot,groupPath,&ignoredError))
+            std::fprintf(stderr,"recording group metadata failed: %s: %s\n",groupPath.string().c_str(),ignoredError.c_str());
     }
 }
 
@@ -319,6 +321,7 @@ bool writeShardPresets(const tui::RecorderTuiPreset& preset,
         auto [it, inserted] = groupDirs.try_emplace(normalizedSymbol);
         if (inserted) {
             const std::string groupName = recordings::recordingGroupFolderName(groupTimestampNs, normalizedSymbol);
+            if(groupName.empty()) {error="recording group folder identity is invalid";return false;}
             it->second = uniquePath(preset.outputDir, groupName);
         }
     }

@@ -26,8 +26,8 @@ struct Fixture {
   std::array<BinaryMarketSource,2> sources{};
   BinaryMarketCorpusWriter writer;
   BinaryMarketCorpusReader reader;
-  explicit Fixture(std::uint64_t maximumBytes=16*1024, std::uint16_t shards=1, bool allChannels=false, bool twoSources=false,
-      const BinaryMarketQuantityConversion* quantityConversion=nullptr) {
+  explicit Fixture(std::uint64_t maximumBytes=32*1024, std::uint16_t shards=1, bool allChannels=false, bool twoSources=false,
+      const BinaryMarketQuantityConversion* quantityConversion=nullptr,Status startStatus=Status::Ok) {
     auto& s=sources[0]; s.sourceId=1; s.canonicalSymbolId=7; s.initialSourceGeneration=11;
     s.venueId=1; s.marketRaw=2; s.marketKindRaw=1; s.economicBaseAssetId=1; s.quoteAssetId=2;
     s.priceScale=s.quantityScale=8;
@@ -56,7 +56,7 @@ struct Fixture {
     BinaryMarketWriterConfig cfg{}; cfg.root=root; cfg.sources=std::span<const BinaryMarketSource>{sources}.first(twoSources?2u:1u); cfg.producerEpoch=13;
     cfg.maximumBytes=maximumBytes; cfg.segmentTargetBytes=4096; cfg.targetDurationNs=100000;
     cfg.startedReceiveNs=100; cfg.startedMonotonicNs=100; cfg.ringCapacity=2; cfg.shardCount=shards;
-    CXET_CHECK(writer.start(cfg)==Status::Ok);
+    CXET_CHECK(writer.start(cfg)==startStatus);
   }
   ~Fixture() { std::error_code ec; std::filesystem::remove_all(root,ec); }
   BinaryMarketRecord record(std::uint64_t sequence, std::int64_t receive=200) {

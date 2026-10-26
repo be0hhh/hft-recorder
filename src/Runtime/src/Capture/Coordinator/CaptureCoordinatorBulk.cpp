@@ -258,7 +258,7 @@ Status CaptureCoordinator::captureDetailedCandlesBulk(const CaptureConfig& confi
     const auto sessionStatus = ensureSession(config);
     if (!isOk(sessionStatus)) return sessionStatus;
     if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {
-        const auto metadataStatus = refreshInstrumentMetadataFromExchangeInfo();
+        const auto metadataStatus = refreshInstrumentMetadataFromPreparedInput();
         if (!isOk(metadataStatus)) return metadataStatus;
     }
     if (detailedCandlesNeedInstrumentMetadata(config) && !instrumentMetadataReady_) {

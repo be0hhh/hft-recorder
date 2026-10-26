@@ -60,7 +60,7 @@ Status JsonSessionSink::ensureChannelFile(capture::ChannelKind channel) noexcept
         case capture::ChannelKind::Candles2:
             break;
         default:
-            return Status::Unsupported;
+            return Status::Unimplemented;
     }
     std::lock_guard<std::mutex> lock(mutex_);
     if (sessionDir_.empty()) return Status::InvalidArgument;

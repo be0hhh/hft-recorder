@@ -51,6 +51,8 @@ struct NativeCaptureHooks final {
   }
     using TradeDemand = cxet::runtime::market::FullTradeDemand;
     using BboDemand = cxet::runtime::market::FullBboDemand;
+    using PriceLimitDemand = cxet::contract::FieldSet<>;
+    using FundingDemand = cxet::contract::FieldSet<>;
     NativeMarketCapture* owner{nullptr};
     bool observeTransport(std::uint64_t) noexcept;
     bool progressAccountOrders(std::uint64_t) noexcept {return true;}

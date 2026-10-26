@@ -1,7 +1,9 @@
 #include "CorpusConversion.hpp"
+#include "cxet/Primitives/Buf/AsmPrimitives.hpp"
 
 #include <algorithm>
 #include <limits>
+#include <string>
 
 namespace hftrec::capture::detail {
 namespace parser = hft_parser::ipc;
@@ -105,6 +107,96 @@ namespace parser = hft_parser::ipc;
     return corpus::BinaryMarketCompatibility::Unavailable;
 }
 
+[[nodiscard]] PreparedInstrumentMetadata prepareInstrumentMetadata(
+    const parser::MarketCaptureSourceDescriptor& input,
+    std::size_t index, std::uint64_t producerEpoch,
+    std::uint64_t directoryGeneration) noexcept {
+    PreparedInstrumentMetadata output{};
+    if (!producerEpoch || !directoryGeneration ||
+        !validSourceDescriptor(input, index)) return output;
+    const auto& row = input.market;
+    const auto& conversion = input.instrument.quantityConversion;
+    const auto power = [](std::uint32_t multiplier) noexcept {
+        int value = 0;
+        while (multiplier > 1u && multiplier % 10u == 0u) {
+            multiplier /= 10u;
+            ++value;
+        }
+        return multiplier == 1u ? value : -1;
+    };
+    const int canonicalPower = power(conversion.canonicalBaseMultiplier);
+    const int nativePower = power(conversion.nativeBaseMultiplier);
+    if (canonicalPower < 0 || nativePower < 0 ||
+        row.expiryRealtimeNs > static_cast<std::uint64_t>(
+            std::numeric_limits<std::int64_t>::max()) ||
+        row.priceBasisQtyRaw < 0 ||
+        ((row.flags & parser::MarketDirectoryTickSize) && row.tickSizeRaw <= 0)) return output;
+    // Directory prices and price basis have already been activated. The JSON
+    // sidecar's historical price-basis meaning is native, while its lot and
+    // contract quantities are canonical E8. Undo only the basis adjustment.
+    const auto scaleExact = [](std::int64_t value, int adjustment,
+                               std::int64_t& result) noexcept {
+        if (value < 0 || adjustment < -27 || adjustment > 27) return false;
+        while (adjustment > 0) {
+            if (value > std::numeric_limits<std::int64_t>::max() / 10) return false;
+            value *= 10;
+            --adjustment;
+        }
+        while (adjustment < 0) {
+            if (value % 10 != 0) return false;
+            value /= 10;
+            ++adjustment;
+        }
+        result = value;
+        return true;
+    };
+    std::int64_t nativeBasis = 0, canonicalTick = 0;
+    if (!scaleExact(row.priceBasisQtyRaw,
+                    8 - static_cast<int>(row.quantityScale) + nativePower - canonicalPower,
+                    nativeBasis) ||
+        ((row.flags & parser::MarketDirectoryTickSize) &&
+         !scaleExact(row.tickSizeRaw, 8 - static_cast<int>(row.priceScale), canonicalTick))) return output;
+    try {
+        output.exchange.assign(row.venueCode.data(), row.venueCodeBytes);
+        output.market.assign(input.marketCode.data(), input.marketCodeBytes);
+        output.canonicalSymbol.assign(row.canonicalSymbol.data(), row.canonicalSymbolBytes);
+        output.nativeSymbol.assign(row.nativeSymbol.data(), row.nativeSymbolBytes);
+        auto& metadata = output.metadata;
+        metadata.exchange = output.exchange; metadata.exchangeSource = "parser_directory";
+        metadata.market = output.market; metadata.marketSource = "parser_directory";
+        metadata.symbol = output.canonicalSymbol; metadata.symbolSource = "parser_directory";
+        metadata.metadataSource = "parser_directory";
+        metadata.priceScaleDigits = row.priceScale; metadata.priceScaleDigitsSource = "parser_directory";
+        metadata.qtyScaleDigits = row.quantityScale; metadata.qtyScaleDigitsSource = "parser_directory";
+        metadata.canonicalBaseMultiplier = conversion.canonicalBaseMultiplier;
+        metadata.nativeBaseMultiplier = conversion.nativeBaseMultiplier;
+        metadata.pricePowerOfTenAdjustment = canonicalPower - nativePower;
+        metadata.denominationSource = "parser_directory";
+        if (row.flags & parser::MarketDirectoryTickSize) {
+            metadata.tickSizeE8 = canonicalTick; metadata.tickSizeSource = "parser_directory";
+        }
+        if (input.instrument.flags & parser::MarketCaptureInstrumentCanonicalStepSize) {
+            metadata.lotSizeE8 = input.instrument.canonicalStepSizeRaw;
+            metadata.lotSizeSource = "parser_directory";
+        }
+        if (input.instrument.flags & parser::MarketCaptureInstrumentContractBaseQty) {
+            metadata.contractBaseQtyE8 = input.instrument.contractBaseQtyRaw;
+            metadata.contractBaseQtySource = "parser_directory";
+        }
+        if (nativeBasis > 0) {
+            metadata.priceBasisQtyE8 = nativeBasis; metadata.priceBasisQtySource = "parser_directory";
+        }
+        if (row.expiryRealtimeNs) {
+            metadata.expiryUtcNs = static_cast<std::int64_t>(row.expiryRealtimeNs);
+            metadata.expiryUtcNsSource = "parser_directory";
+        }
+        output.producerEpoch = producerEpoch; output.directoryGeneration = directoryGeneration;
+        output.sourceId = row.sourceId; output.sourceGeneration = row.sourceGeneration;
+        output.qualified = true;
+    } catch (...) { return {}; }
+    return output;
+}
+
 [[nodiscard]] corpus::BinaryMarketSource convertSource(
     const parser::MarketCaptureSourceDescriptor& input) noexcept {
     corpus::BinaryMarketSource output{};
@@ -168,7 +260,8 @@ namespace parser = hft_parser::ipc;
     switch (input.header.channel) {
         case ParserChannel::Membership: {
             if (input.header.payloadBytes != sizeof(parser::MarketCaptureMembershipPayload)) return false;
-            const auto& source = *parser::marketCapturePayload<parser::MarketCaptureMembershipPayload>(&input);
+            parser::MarketCaptureMembershipPayload source{};
+            cxet::bytescan::hftMemcpy(&source, input.payload.data(), sizeof(source));
             if (!validSourceDescriptor(source.source, input.header.sourceId - 1u) ||
                 source.source.market.sourceGeneration != input.header.sourceGeneration ||
                 source.sourceGeneration != input.header.sourceGeneration ||

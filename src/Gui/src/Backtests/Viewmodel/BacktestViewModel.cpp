@@ -36,7 +36,7 @@
 #include "hft_backtest/Backtest.hpp"
 #include "hft_backtest/BacktestSweep.hpp"
 #include "../../../../Runtime/src/Common/Status.hpp"
-#include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 #include "../Sessions/BacktestSessionSummary.hpp"
 #include "../Config/BacktestExecutionConfigHelpers.hpp"
 #include "../Results/BacktestResultHelpers.hpp"
@@ -112,11 +112,7 @@ std::vector<hft_backtest::BacktestSessionRequest> preparedSecondarySessions(
 }
 
 QString catalogSessionSummary(const hftrec::recordings::RecordedSessionInfo& session, const BacktestLegCounts& counts) {
-    QString summary = sessionBacktestSummaryText(static_cast<int>(session.bookTickerCount), counts, session.startedAtNs);
-    if (session.candleCount > 0) summary += QStringLiteral(" | C %1").arg(session.candleCount);
-    return appendSessionHealthSummary(summary,
-                                      QString::fromStdString(session.sessionHealth),
-                                      QString::fromStdString(session.warningSummary));
+    return recordedSessionSummary(session,counts);
 }
 
 QString sessionDataSummaryText(std::uint64_t bookTickerCount, std::uint64_t tradesCount) {
@@ -197,6 +193,45 @@ QVariantList BacktestViewModel::loadSessions_() const {
     QVariantList out;
     if (recordingCatalog_ == nullptr || !recordingCatalog_->hasSnapshot()) return out;
     const auto& snapshot = recordingCatalog_->snapshot();
+    const auto appendSessionRow=[&](const recordings::RecordedSessionInfo& session) {
+        const QString id = QString::fromStdString(session.sessionId);
+        const QString path = QString::fromStdString(session.path.string());
+        const QString exchange = QString::fromStdString(session.exchange).trimmed().toLower();
+        const QString rawMarket = QString::fromStdString(session.market).trimmed().toLower();
+        const QString market = normalizedFeeMarket(rawMarket);
+        const QString symbol = QString::fromStdString(session.binaryCorpus?session.normalizedSymbol:
+            (session.symbols.empty()?session.normalizedSymbol:session.symbols.front())).trimmed().toUpper();
+        const BacktestLegCounts backtestCounts = snapshot.backtestCountsBySession.value(id);
+        const int backtestCount = backtestCounts.total > 0 ? backtestCounts.total : backtestCounts.firstLeg + backtestCounts.secondLeg;
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), id);
+        row.insert(QStringLiteral("label"),recordedSessionLabel(session));
+        row.insert(QStringLiteral("path"), path);
+        row.insert(QStringLiteral("sessionPaths"), QVariantList{path});
+        row.insert(QStringLiteral("exchange"), exchange);
+        row.insert(QStringLiteral("market"), market);
+        row.insert(QStringLiteral("symbol"), symbol);
+        row.insert(QStringLiteral("venue"), venueSectionFor(exchange, market));
+        row.insert(QStringLiteral("binaryCorpus"),session.binaryCorpus);
+        row.insert(QStringLiteral("sourceCount"),session.sourceCount);
+        row.insert(QStringLiteral("channelCountsAvailable"),session.channelCountsAvailable);
+        row.insert(QStringLiteral("totalRecords"),static_cast<qulonglong>(session.totalRows));
+        if(session.channelCountsAvailable) {
+            row.insert(QStringLiteral("tradeCount"),static_cast<qulonglong>(session.tradesCount));
+            row.insert(QStringLiteral("bookTickerCount"),static_cast<qulonglong>(session.bookTickerCount));
+        }
+        row.insert(QStringLiteral("dataSummary"),recordedSessionDataSummary(session));
+        row.insert(QStringLiteral("hasManifest"), true);
+        row.insert(QStringLiteral("hasBacktests"), backtestCount > 0);
+        row.insert(QStringLiteral("backtestCount"), backtestCount);
+        row.insert(QStringLiteral("firstLegBacktestCount"), backtestCounts.firstLeg);
+        row.insert(QStringLiteral("secondLegBacktestCount"), backtestCounts.secondLeg);
+        row.insert(QStringLiteral("isGroup"), false);
+        row.insert(QStringLiteral("selectable"), true);
+        row.insert(QStringLiteral("parentGroupId"), QString::fromStdString(session.groupId));
+        row.insert(QStringLiteral("rightText"), catalogSessionSummary(session, backtestCounts));
+        out.push_back(row);
+    };
     for (const auto& group : snapshot.discovery.groups) {
         QVariantList groupPaths;
         int groupFirstLegBacktests = 0;
@@ -224,47 +259,16 @@ QVariantList BacktestViewModel::loadSessions_() const {
             groupRow.insert(QStringLiteral("isGroup"), true);
             groupRow.insert(QStringLiteral("selectable"), false);
             groupRow.insert(QStringLiteral("groupId"), QString::fromStdString(group.id));
-            groupRow.insert(QStringLiteral("rightText"), QStringLiteral("%1 legs | rows %2 | BT %3")
+            groupRow.insert(QStringLiteral("rightText"), QStringLiteral("%1 sessions | stored records %2 | BT %3")
                                                     .arg(group.sessions.size())
                                                     .arg(QString::number(static_cast<qulonglong>(group.totalRows)))
                                                     .arg(groupBacktests));
             out.push_back(groupRow);
         }
 
-        for (const auto& session : group.sessions) {
-            const QString id = QString::fromStdString(session.sessionId);
-            const QString path = QString::fromStdString(session.path.string());
-            const QString exchange = QString::fromStdString(session.exchange).trimmed().toLower();
-            const QString rawMarket = QString::fromStdString(session.market).trimmed().toLower();
-            const QString market = normalizedFeeMarket(rawMarket);
-            const QString symbol = QString::fromStdString(session.symbols.empty() ? session.normalizedSymbol : session.symbols.front()).trimmed().toUpper();
-            const BacktestLegCounts backtestCounts = snapshot.backtestCountsBySession.value(id);
-            const int backtestCount = backtestCounts.total > 0 ? backtestCounts.total : backtestCounts.firstLeg + backtestCounts.secondLeg;
-            QVariantMap row;
-            row.insert(QStringLiteral("id"), id);
-            row.insert(QStringLiteral("label"), QStringLiteral("%1/%2 %3")
-                                            .arg(exchange, rawMarket, symbol));
-            row.insert(QStringLiteral("path"), path);
-            row.insert(QStringLiteral("sessionPaths"), QVariantList{path});
-            row.insert(QStringLiteral("exchange"), exchange);
-            row.insert(QStringLiteral("market"), market);
-            row.insert(QStringLiteral("symbol"), symbol);
-            row.insert(QStringLiteral("venue"), venueSectionFor(exchange, market));
-            row.insert(QStringLiteral("tradeCount"), static_cast<qulonglong>(session.tradesCount));
-            row.insert(QStringLiteral("bookTickerCount"), static_cast<qulonglong>(session.bookTickerCount));
-            row.insert(QStringLiteral("dataSummary"), sessionDataSummaryText(session.bookTickerCount, session.tradesCount));
-            row.insert(QStringLiteral("hasManifest"), true);
-            row.insert(QStringLiteral("hasBacktests"), backtestCount > 0);
-            row.insert(QStringLiteral("backtestCount"), backtestCount);
-            row.insert(QStringLiteral("firstLegBacktestCount"), backtestCounts.firstLeg);
-            row.insert(QStringLiteral("secondLegBacktestCount"), backtestCounts.secondLeg);
-            row.insert(QStringLiteral("isGroup"), false);
-            row.insert(QStringLiteral("selectable"), true);
-            row.insert(QStringLiteral("parentGroupId"), QString::fromStdString(group.id));
-            row.insert(QStringLiteral("rightText"), catalogSessionSummary(session, backtestCounts));
-            out.push_back(row);
-        }
+        for (const auto& session : group.sessions) appendSessionRow(session);
     }
+    for(const auto& session:snapshot.discovery.sessions) if(!session.grouped) appendSessionRow(session);
     return out;
 }
 
@@ -462,24 +466,28 @@ QVariantMap BacktestViewModel::sessionCatalogRowForPath_(const QString& path) co
 QString BacktestViewModel::sessionExchangeForPath_(const QString& path) const {
     const QVariantMap row = sessionCatalogRowForPath_(path);
     const QString exchange = row.value(QStringLiteral("exchange")).toString().trimmed().toLower();
+    if(row.value(QStringLiteral("binaryCorpus")).toBool()) return exchange;
     return exchange.isEmpty() ? manifestValue(path, QStringLiteral("exchange")).trimmed().toLower() : exchange;
 }
 
 QString BacktestViewModel::sessionMarketForPath_(const QString& path) const {
     const QVariantMap row = sessionCatalogRowForPath_(path);
     const QString market = row.value(QStringLiteral("market")).toString().trimmed().toLower();
+    if(row.value(QStringLiteral("binaryCorpus")).toBool()) return market;
     return market.isEmpty() ? normalizedFeeMarket(manifestValue(path, QStringLiteral("market"))) : market;
 }
 
 QString BacktestViewModel::sessionSymbolForPath_(const QString& path) const {
     const QVariantMap row = sessionCatalogRowForPath_(path);
     const QString symbol = row.value(QStringLiteral("symbol")).toString().trimmed().toUpper();
+    if(row.value(QStringLiteral("binaryCorpus")).toBool()) return symbol;
     return symbol.isEmpty() ? symbolForSessionPath(path) : symbol;
 }
 
 QString BacktestViewModel::sessionVenueSectionForPath_(const QString& path) const {
     const QVariantMap row = sessionCatalogRowForPath_(path);
     const QString venue = row.value(QStringLiteral("venue")).toString().trimmed();
+    if(row.value(QStringLiteral("binaryCorpus")).toBool()) return venue;
     if (!venue.isEmpty()) return venue;
     QString exchange = row.value(QStringLiteral("exchange")).toString().trimmed().toLower();
     QString market = row.value(QStringLiteral("market")).toString().trimmed().toLower();
@@ -495,15 +503,17 @@ QString BacktestViewModel::sessionVenueSectionForPath_(const QString& path) cons
     return venueSectionFor(exchange, market);
 }
 
-std::uint64_t BacktestViewModel::sessionBookTickerCountForPath_(const QString& path) const {
+std::optional<std::uint64_t> BacktestViewModel::sessionBookTickerCountForPath_(const QString& path) const {
     const QVariantMap row = sessionCatalogRowForPath_(path);
+    if(!row.value(QStringLiteral("channelCountsAvailable"),true).toBool()) return std::nullopt;
     const QVariant value = row.value(QStringLiteral("bookTickerCount"));
     if (value.isValid()) return value.toULongLong();
     return manifestChannelDeclaredCount(path, QStringLiteral("bookticker"));
 }
 
-std::uint64_t BacktestViewModel::sessionTradeCountForPath_(const QString& path) const {
+std::optional<std::uint64_t> BacktestViewModel::sessionTradeCountForPath_(const QString& path) const {
     const QVariantMap row = sessionCatalogRowForPath_(path);
+    if(!row.value(QStringLiteral("channelCountsAvailable"),true).toBool()) return std::nullopt;
     const QVariant value = row.value(QStringLiteral("tradeCount"));
     if (value.isValid()) return value.toULongLong();
     return manifestChannelDeclaredCount(path, QStringLiteral("trades"));
@@ -513,7 +523,7 @@ QString BacktestViewModel::venueExecutionKeyForPath_(const QString& path) const 
     const QVariantMap row = sessionCatalogRowForPath_(path);
     QString exchange = row.value(QStringLiteral("exchange")).toString().trimmed().toLower();
     QString market = row.value(QStringLiteral("market")).toString().trimmed().toLower();
-    if (exchange.isEmpty() || market.isEmpty()) {
+    if (!row.value(QStringLiteral("binaryCorpus")).toBool() && (exchange.isEmpty() || market.isEmpty())) {
         const SessionManifestSnapshot manifest = loadSessionManifestSnapshot(path);
         if (exchange.isEmpty()) {
             exchange = manifestValue(manifest, QStringLiteral("exchange")).trimmed().toLower();
@@ -536,12 +546,14 @@ QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths
         const bool enabled = !disabledPaths.contains(path);
         const bool primary = i == primaryIndex;
         const QVariantMap catalogRow = sessionCatalogRowForPath_(path);
-        const bool needsManifest =
+        const bool binaryCorpus=catalogRow.value(QStringLiteral("binaryCorpus")).toBool();
+        const bool channelCountsAvailable=catalogRow.value(QStringLiteral("channelCountsAvailable"),true).toBool();
+        const bool needsManifest = !binaryCorpus && (
             catalogRow.value(QStringLiteral("exchange")).toString().trimmed().isEmpty() ||
             catalogRow.value(QStringLiteral("market")).toString().trimmed().isEmpty() ||
             catalogRow.value(QStringLiteral("symbol")).toString().trimmed().isEmpty() ||
             !catalogRow.value(QStringLiteral("bookTickerCount")).isValid() ||
-            !catalogRow.value(QStringLiteral("tradeCount")).isValid();
+            !catalogRow.value(QStringLiteral("tradeCount")).isValid());
         std::optional<SessionManifestSnapshot> manifest;
         if (needsManifest) manifest.emplace(loadSessionManifestSnapshot(path));
         const QString exchangeFromManifest = manifest.has_value()
@@ -588,15 +600,22 @@ QVariantList BacktestViewModel::sessionLegRowsForPaths_(const QStringList& paths
         row.insert(QStringLiteral("tradable"), enabled && (!primaryOnly || primary));
         row.insert(QStringLiteral("tradeMode"), selectedTradeMode_);
         row.insert(QStringLiteral("path"), path);
-        row.insert(QStringLiteral("id"), sessionIdFromPath_(path));
+        row.insert(QStringLiteral("id"),catalogRow.value(QStringLiteral("id"),sessionIdFromPath_(path)));
         row.insert(QStringLiteral("symbol"), symbol);
         row.insert(QStringLiteral("venue"), venue);
         row.insert(QStringLiteral("venueKey"), venueKey);
         row.insert(QStringLiteral("exchange"), exchange);
         row.insert(QStringLiteral("market"), market);
-        row.insert(QStringLiteral("bookTickerCount"), static_cast<qulonglong>(bookTickerCount));
-        row.insert(QStringLiteral("tradeCount"), static_cast<qulonglong>(tradesCount));
-        row.insert(QStringLiteral("dataSummary"), sessionDataSummaryText(bookTickerCount, tradesCount));
+        row.insert(QStringLiteral("binaryCorpus"),binaryCorpus);
+        row.insert(QStringLiteral("sourceCount"),catalogRow.value(QStringLiteral("sourceCount"),0));
+        row.insert(QStringLiteral("channelCountsAvailable"),channelCountsAvailable);
+        row.insert(QStringLiteral("totalRecords"),catalogRow.value(QStringLiteral("totalRecords"),0));
+        if(channelCountsAvailable) {
+            row.insert(QStringLiteral("bookTickerCount"),static_cast<qulonglong>(bookTickerCount));
+            row.insert(QStringLiteral("tradeCount"),static_cast<qulonglong>(tradesCount));
+        }
+        row.insert(QStringLiteral("dataSummary"),channelCountsAvailable?sessionDataSummaryText(bookTickerCount,tradesCount):
+            catalogRow.value(QStringLiteral("dataSummary"),QStringLiteral("Per-channel unknown")).toString());
         row.insert(QStringLiteral("initialBalanceUsdt"), venueExecutionValue_(venueKey, QStringLiteral("initial_balance_usdt"), initialBalanceUsdt_));
         if (!makerFeeOverride.isEmpty()) row.insert(QStringLiteral("makerFeeBps"), makerFeeOverride);
         if (!takerFeeOverride.isEmpty()) row.insert(QStringLiteral("takerFeeBps"), takerFeeOverride);

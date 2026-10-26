@@ -1,10 +1,12 @@
 #pragma once
+#include "PreparedInstrumentMetadata.hpp"
 #include "hftrec/CorpusContract/BinaryMarketCorpusFormat.hpp"
 #include "hftrec/CorpusContract/BinaryMarketCorpusWriter.hpp"
 #include "hftrec/Status.hpp"
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <span>
@@ -80,6 +82,10 @@ class RecorderCaptureSession final {
     [[nodiscard]] Status stop() noexcept;
     [[nodiscard]] RecorderCaptureSessionSnapshot snapshot() const noexcept;
     [[nodiscard]] std::vector<corpus::BinaryMarketSource> sourceDirectory() const noexcept;
+    // Latest qualified Parser directory cut observed by the capture owner.
+    // Missing, stale or ambiguous identity returns no metadata and starts no I/O.
+    [[nodiscard]] std::optional<PreparedInstrumentMetadata> preparedInstrumentMetadata(
+        std::string_view exchange,std::string_view market,std::string_view canonicalSymbol) const noexcept;
     [[nodiscard]] std::shared_ptr<const corpus::CorpusCut> latestCut() const noexcept;
     [[nodiscard]] std::shared_ptr<corpus::CorpusPublication> publication() const noexcept;
  private:

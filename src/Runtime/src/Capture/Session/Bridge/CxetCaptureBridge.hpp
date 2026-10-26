@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cxet/Api/Market/PublicMarketContract.hpp"
 #include "cxet/Runtime/Market/CommitContract.hpp"
 
 #include <cstdint>

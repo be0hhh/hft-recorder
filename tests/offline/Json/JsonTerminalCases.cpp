@@ -1,5 +1,6 @@
 #include "OfflineCase.hpp"
 #include "Capture/Coordinator/VenueMultiplexCapture.hpp"
+#include "Capture/Coordinator/CaptureCoordinatorInternal.hpp"
 #include "Capture/Session/MarketData/NativeMarketCapture.hpp"
 #include "Replay/SessionReplay.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
@@ -15,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <utility>
 #include <unistd.h>
 
 // Retained native boundary fixture, isolated to this test executable. The
@@ -34,6 +36,7 @@ bool NativeMarketCapture::iterate(std::uint64_t now) noexcept {
     row.tsNs=std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     row.bidPriceE8=100'000'000;row.askPriceE8=101'000'000;row.bidQtyE8=row.askQtyE8=100'000'000;
+    row.eventId=1u;
     row.captureSeq=row.ingestSeq=1;
     row.arrival.receiveRealtimeNs=row.tsNs;row.arrival.receiveMonotonicNs=now;
     row.arrival.producerEpoch=row.arrival.sourceGeneration=row.arrival.sessionEpoch=1u;
@@ -71,6 +74,78 @@ struct Fixture {
 };
 std::string read(const std::filesystem::path& path) {
   std::ifstream input(path);return {(std::istreambuf_iterator<char>(input)),{}};
+}
+hftrec::capture::CaptureConfig preparedMetadataConfig() {
+  hftrec::capture::CaptureConfig config;
+  config.exchange="binance";config.market="spot";config.symbols={"BTC_USDT"};
+  hftrec::capture::PreparedInstrumentMetadata prepared;
+  prepared.exchange=config.exchange;prepared.market=config.market;
+  prepared.canonicalSymbol=config.symbols.front();prepared.nativeSymbol="BTCUSDT";
+  prepared.producerEpoch=17u;prepared.directoryGeneration=23u;
+  prepared.sourceId=1u;prepared.sourceGeneration=11u;prepared.qualified=true;
+  prepared.metadata=hftrec::corpus::makeInstrumentMetadata(config.exchange,config.market,config.symbols.front());
+  prepared.metadata.tickSizeE8=5;prepared.metadata.tickSizeSource="parser_directory";
+  prepared.metadata.lotSizeE8=1'200'000;prepared.metadata.lotSizeSource="parser_directory";
+  prepared.metadata.contractBaseQtyE8=20'000'000;prepared.metadata.contractBaseQtySource="parser_directory";
+  prepared.metadata.priceBasisQtyE8=50'000'000;prepared.metadata.priceBasisQtySource="parser_directory";
+  prepared.metadata.metadataSource="parser_directory";
+  config.preparedInstrumentMetadata=std::move(prepared);
+  return config;
+}
+void preparedMetadataMissingFailsClosed() {
+  auto config=preparedMetadataConfig();config.preparedInstrumentMetadata.reset();
+  auto metadata=hftrec::corpus::makeInstrumentMetadata(config.exchange,config.market,config.symbols.front());
+  CXET_CHECK(!hftrec::capture::internal::enrichInstrumentMetadataFromPreparedInput(config,metadata));
+  CXET_CHECK(metadata.exchange==config.exchange && metadata.market==config.market && metadata.symbol==config.symbols.front());
+  CXET_CHECK(!metadata.tickSizeE8.has_value() && !metadata.lotSizeE8.has_value() && !metadata.priceBasisQtyE8.has_value());
+  CXET_CHECK(metadata.metadataWarning.has_value());
+}
+void preparedMetadataIdentityAndProvenanceMustMatch() {
+  for(unsigned scenario=0u;scenario<20u;++scenario) {
+    auto config=preparedMetadataConfig();auto& prepared=*config.preparedInstrumentMetadata;
+    switch(scenario) {
+      case 0u:prepared.qualified=false;break;
+      case 1u:prepared.producerEpoch=0u;break;
+      case 2u:prepared.directoryGeneration=0u;break;
+      case 3u:prepared.sourceId=0u;break;
+      case 4u:prepared.sourceGeneration=0u;break;
+      case 5u:prepared.exchange="bybit";break;
+      case 6u:prepared.market="futures";break;
+      case 7u:prepared.canonicalSymbol="ETH_USDT";break;
+      case 8u:prepared.nativeSymbol.clear();break;
+      case 9u:prepared.metadata.exchange="bybit";break;
+      case 10u:prepared.metadata.market="futures";break;
+      case 11u:prepared.metadata.symbol="ETH_USDT";break;
+      case 12u:config.symbols.clear();break;
+      case 13u:config.symbols.push_back("ETH_USDT");break;
+      case 14u:config.symbols.front()="ETH_USDT";break;
+      case 15u:prepared.metadata.tickSizeE8=0;break;
+      case 16u:prepared.metadata.lotSizeE8=-1;break;
+      case 17u:prepared.metadata.contractBaseQtyE8=0;break;
+      case 18u:prepared.metadata.priceBasisQtyE8=-1;break;
+      case 19u:prepared.metadata.expiryUtcNs=0;break;
+    }
+    const auto selectedSymbol=config.symbols.empty()?std::string{"BTC_USDT"}:config.symbols.front();
+    auto metadata=hftrec::corpus::makeInstrumentMetadata(config.exchange,config.market,selectedSymbol);
+    CXET_CHECK(!hftrec::capture::internal::enrichInstrumentMetadataFromPreparedInput(config,metadata));
+    CXET_CHECK(metadata.symbol==selectedSymbol && !metadata.priceBasisQtyE8.has_value());
+    CXET_CHECK(metadata.metadataWarning.has_value());
+  }
+}
+void preparedMetadataCopiesOnlySelectedOwningInput() {
+  auto config=preparedMetadataConfig();
+  auto metadata=hftrec::corpus::makeInstrumentMetadata(config.exchange,config.market,config.symbols.front());
+  CXET_CHECK(hftrec::capture::internal::enrichInstrumentMetadataFromPreparedInput(config,metadata));
+  CXET_CHECK(metadata.exchange=="binance" && metadata.market=="spot" && metadata.symbol=="BTC_USDT");
+  CXET_CHECK(metadata.tickSizeE8==5 && metadata.lotSizeE8==1'200'000);
+  CXET_CHECK(metadata.contractBaseQtyE8==20'000'000 && metadata.priceBasisQtyE8==50'000'000);
+  CXET_CHECK(metadata.metadataSource=="parser_directory" && !metadata.metadataWarning.has_value());
+  config.preparedInstrumentMetadata->metadata.symbol="changed_after_copy";
+  config.preparedInstrumentMetadata->metadata.priceBasisQtyE8=1;
+  CXET_CHECK(metadata.symbol=="BTC_USDT" && metadata.priceBasisQtyE8==50'000'000);
+  config=preparedMetadataConfig();config.preparedInstrumentMetadata->metadata.priceBasisQtyE8.reset();
+  CXET_CHECK(hftrec::capture::internal::enrichInstrumentMetadataFromPreparedInput(config,metadata));
+  CXET_CHECK(!metadata.priceBasisQtyE8.has_value());
 }
 void manifestCurrentShapeIsRequiredWithoutRewriting() {
   Fixture fixture;
@@ -213,6 +288,13 @@ void optionalEmptyIncidentIsNotClean() {
     hftrec::replay::SessionReplay replay;(void)replay.open(entry.path().parent_path());
     CXET_CHECK(replay.trades().empty() && !replay.exactReplayEligible());
     CXET_CHECK(!replay.integritySummary().trades.exactReplayEligible && replay.integritySummary().trades.incidentCount!=0u);
+    const auto capturedIncidents=replay.integritySummary().trades.incidentCount;
+    replay.finalize();replay.finalize();replay.refreshLiveTimeline();
+    CXET_CHECK(!replay.exactReplayEligible() && !replay.integritySummary().trades.exactReplayEligible);
+    CXET_CHECK(replay.integritySummary().trades.incidentCount==capturedIncidents);
+    (void)replay.open(entry.path().parent_path());
+    CXET_CHECK(!replay.exactReplayEligible() && !replay.integritySummary().trades.exactReplayEligible);
+    CXET_CHECK(replay.integritySummary().trades.incidentCount==capturedIncidents);
     CXET_CHECK(read(entry.path().parent_path()/"reports"/"integrity_report.json").find("\"exact_replay_eligible\": false")!=std::string::npos);
     ++count;
   }
@@ -324,6 +406,9 @@ void finamEnvUsesRecorderWithoutSiblingMirroring() {
   CXET_CHECK(read(recorder/".env")=="FINAM_API_255_JWT=updated-synthetic-token\n");
 }
 const cxet::testing::Case cases[]{
+  cxet::testing::Case{"recorder.prepared_metadata_missing_fails_closed",preparedMetadataMissingFailsClosed},
+  cxet::testing::Case{"recorder.prepared_metadata_requires_exact_identity_and_provenance",preparedMetadataIdentityAndProvenanceMustMatch},
+  cxet::testing::Case{"recorder.prepared_metadata_copies_selected_owning_input",preparedMetadataCopiesOnlySelectedOwningInput},
   cxet::testing::Case{"recorder.json_manifest_requires_current_shape_without_rewriting",manifestCurrentShapeIsRequiredWithoutRewriting},
   cxet::testing::Case{"recorder.finam_env_uses_recorder_without_sibling_mirroring",finamEnvUsesRecorderWithoutSiblingMirroring},
   cxet::testing::Case{"recorder.json_recording_paths_preserve_saved_and_explicit_policy",recordingPathsPreserveHistoricalPolicy},

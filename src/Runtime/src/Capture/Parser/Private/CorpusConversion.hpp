@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../../Corpus/BinaryMarketCorpusWriter.hpp"
+#include "../../Coordinator/PreparedInstrumentMetadata.hpp"
 #include "hft_parser/Ipc/MarketCaptureProtocol.hpp"
 
 #include <cstddef>
@@ -14,6 +15,10 @@ namespace hftrec::capture::detail {
     std::size_t index) noexcept;
 [[nodiscard]] corpus::BinaryMarketSource convertSource(
     const hft_parser::ipc::MarketCaptureSourceDescriptor& input) noexcept;
+[[nodiscard]] PreparedInstrumentMetadata prepareInstrumentMetadata(
+    const hft_parser::ipc::MarketCaptureSourceDescriptor& input,
+    std::size_t index, std::uint64_t producerEpoch,
+    std::uint64_t directoryGeneration) noexcept;
 [[nodiscard]] bool convertRecord(
     const hft_parser::ipc::MarketCaptureRecord& input,
     std::uint16_t expectedShard,

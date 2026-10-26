@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Session/MarketData/MarketDataIngress.hpp"
+#include "PreparedInstrumentMetadata.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <atomic>
 #include <mutex>
+#include <optional>
 
 #include "../Serialization/ChannelJsonWriter.hpp"
 #include "../Session/SessionManifest.hpp"
@@ -59,6 +61,7 @@ struct CaptureConfig {
     std::uint32_t detailedCandlesMaxEmptyWindows{96u};
     std::int64_t detailedCandlesEndNs{0};
     LiveCacheMode liveCacheMode{LiveCacheMode::Off};
+    std::optional<PreparedInstrumentMetadata> preparedInstrumentMetadata{};
 };
 
 struct ExternalCaptureChannels {
@@ -155,7 +158,7 @@ class CaptureCoordinator : public market_data::IMarketDataIngress {
     Status writeManifestFile_() noexcept;
     Status writeStartupFailureManifest_(std::string_view reason) noexcept;
     Status writeInstrumentMetadataFile() noexcept;
-    Status refreshInstrumentMetadataFromExchangeInfo() noexcept;
+    Status refreshInstrumentMetadataFromPreparedInput() noexcept;
     Status writeSupportArtifacts() noexcept;
     bool liveCacheEnabled() const noexcept { return liveCacheEnabled_.load(std::memory_order_acquire); }
     Status appendLiveTrade(const replay::TradeRow& row) noexcept;

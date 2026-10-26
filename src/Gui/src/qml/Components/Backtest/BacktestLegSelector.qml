@@ -407,7 +407,8 @@ Item {
                         }
 
                         Label {
-                            text: modelData.dataSummary || "BTK 0 | TRD 0"
+                            text: modelData.dataSummary || (modelData.channelCountsAvailable === false
+                                ? "Per-channel unknown" : "BTK 0 | TRD 0")
                             color: selector.mutedTextColor
                             font.pixelSize: 11
                             horizontalAlignment: Text.AlignRight

@@ -7,6 +7,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "../../Corpus/InstrumentMetadata.hpp"
 #include "../../../../Process/src/Finam/FinamEnvSync.hpp"
@@ -20,7 +21,6 @@
 #include "cxet/Canon/PositionAndExchange.hpp"
 #include "cxet/Canon/Subtypes.hpp"
 #include "cxet/Cxet.hpp"
-#include "cxet/Api/Instrument/SymbolMetadataResolve.hpp"
 #include "cxet/Runtime/Reference/ReferenceVenueConfig.hpp"
 #include "cxet/Primitives/Buf/Symbol.hpp"
 #endif
@@ -230,47 +230,34 @@ Status persistFinamAuthForConfig(const CaptureConfig& config, std::string& lastE
     return status;
 }
 
-bool enrichInstrumentMetadataFromExchangeInfo(const CaptureConfig& config,
+bool enrichInstrumentMetadataFromPreparedInput(const CaptureConfig& config,
                                               corpus::InstrumentMetadata& metadata) noexcept {
-#if HFTREC_WITH_CXET
-    if (config.symbols.empty()) {
-        metadata.metadataWarning = "cxet_metadata_skipped_empty_symbol";
+    const auto refuse = [&](const char* reason) noexcept {
+        metadata.metadataWarning = reason;
         return false;
-    }
-    cxet::api::instrument::SymbolMetadataResolveResult result{};
-    const ExchangeId exchange = exchangeIdFromConfig(config.exchange);
-    const bool ok = cxet::api::instrument::resolveSymbolMetadataOnce(
-        {exchange, marketTypeFromConfig(exchange, config.market), normalizedApiSlot(config), ApiProtocolProfile{}},
-        makeSymbol(primaryRouteSymbolText(config)), {}, result);
-    if (!ok) {
-        metadata.metadataWarning = std::string{"cxet_metadata_failed:"} + (result.error.empty() ? "unknown" : result.error);
-        return false;
-    }
-    metadata.tickSizeE8 = result.rules.tickSizeRaw;
-    metadata.tickSizeSource = "cxet_exchange_info";
-    metadata.lotSizeE8 = result.rules.stepSizeRaw;
-    metadata.lotSizeSource = "cxet_exchange_info";
-    if (result.rules.contractBaseQtyRaw > 0) {
-        metadata.contractBaseQtyE8 = result.rules.contractBaseQtyRaw;
-        metadata.contractBaseQtySource = "cxet_exchange_info";
-    }
-    if (result.rules.priceBasisQtyRaw > 0) {
-        metadata.priceBasisQtyE8 = result.rules.priceBasisQtyRaw;
-        metadata.priceBasisQtySource = "cxet_exchange_info";
-    }
-    if (result.rules.expiryUtcNs > 0u &&
-        result.rules.expiryUtcNs <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-        metadata.expiryUtcNs = static_cast<std::int64_t>(result.rules.expiryUtcNs);
-        metadata.expiryUtcNsSource = "cxet_exchange_info";
-    }
-    metadata.metadataSource = "cxet";
-    metadata.metadataWarning.reset();
-    return true;
-#else
-    (void)config;
-    metadata.metadataWarning = "cxet_metadata_unavailable_no_cxet";
-    return false;
-#endif
+    };
+    if (config.symbols.size() != 1u || !config.preparedInstrumentMetadata)
+        return refuse("parser_metadata_missing_prepared_input");
+    const auto& prepared = *config.preparedInstrumentMetadata;
+    const auto& source = prepared.metadata;
+    if (!prepared.qualified || !prepared.producerEpoch || !prepared.directoryGeneration ||
+        !prepared.sourceId || !prepared.sourceGeneration || prepared.nativeSymbol.empty() ||
+        prepared.exchange != config.exchange || prepared.market != config.market ||
+        prepared.canonicalSymbol != config.symbols.front() ||
+        source.exchange != prepared.exchange || source.market != prepared.market ||
+        source.symbol != prepared.canonicalSymbol)
+        return refuse("parser_metadata_identity_or_provenance_mismatch");
+    const auto positive = [](const auto& value) noexcept { return !value || *value > 0; };
+    if (!positive(source.tickSizeE8) || !positive(source.lotSizeE8) ||
+        !positive(source.contractBaseQtyE8) || !positive(source.priceBasisQtyE8) ||
+        !positive(source.expiryUtcNs))
+        return refuse("parser_metadata_invalid_numeric_fact");
+    try {
+        auto qualified = source;
+        qualified.metadataWarning.reset();
+        metadata = std::move(qualified);
+        return true;
+    } catch (...) { return refuse("parser_metadata_copy_failed"); }
 }
 
 std::int64_t nowNs() noexcept {

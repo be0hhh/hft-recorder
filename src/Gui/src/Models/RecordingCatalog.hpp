@@ -10,7 +10,7 @@
 #include <thread>
 #include <vector>
 
-#include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 #include "../Backtests/Sessions/BacktestSessionSummary.hpp"
 
 namespace hftrec::gui {

@@ -220,11 +220,11 @@ int ViewerSourceListModel::indexOfSource(const QString& sourceId) const {
     return -1;
 }
 
-int ViewerSourceListModel::bookTickerCount(const QString& sourceId) const {
+QVariant ViewerSourceListModel::bookTickerCount(const QString& sourceId) const {
     for (const auto& entry : entries_) {
-        if (entry.id == sourceId) return entry.bookTickerCount;
+        if (entry.id == sourceId) return entry.channelCountsAvailable?QVariant{entry.bookTickerCount}:QVariant{};
     }
-    return 0;
+    return {};
 }
 
 QString ViewerSourceListModel::sourceSummary(const QString& sourceId) const {
@@ -251,6 +251,7 @@ QVariantList ViewerSourceListModel::sourceRows() const {
         return entry.groupTitle.trimmed().isEmpty() ? groupIdFor(entry) : entry.groupTitle;
     };
     auto childLabelFor = [](const Entry& entry) {
+        if(entry.binaryCorpus) return QStringLiteral("Binary corpus | %1 sources").arg(entry.sourceCount);
         const QString exchange = entry.exchange.trimmed().isEmpty() ? QStringLiteral("unknown") : entry.exchange.trimmed();
         const QString market = entry.market.trimmed().isEmpty() ? QStringLiteral("unknown") : entry.market.trimmed();
         const QString symbol = entry.symbol.trimmed().isEmpty() ? QStringLiteral("UNKNOWN") : entry.symbol.trimmed();
@@ -301,6 +302,11 @@ QVariantList ViewerSourceListModel::sourceRows() const {
             row.insert(QStringLiteral("exchange"), entry->exchange);
             row.insert(QStringLiteral("market"), entry->market);
             row.insert(QStringLiteral("symbol"), entry->symbol);
+            row.insert(QStringLiteral("binaryCorpus"),entry->binaryCorpus);
+            row.insert(QStringLiteral("sourceCount"),entry->sourceCount);
+            row.insert(QStringLiteral("channelCountsAvailable"),entry->channelCountsAvailable);
+            row.insert(QStringLiteral("totalRecords"),entry->totalRecords);
+            if(entry->channelCountsAvailable) row.insert(QStringLiteral("bookTickerCount"),entry->bookTickerCount);
             row.insert(QStringLiteral("searchText"), QStringLiteral("%1 %2 %3 %4 %5 %6")
                                                     .arg(entry->id,
                                                          entry->label,
@@ -371,9 +377,13 @@ QVariant ViewerSourceListModel::data(const QModelIndex& index, int role) const {
         case ExchangeRole: return entry.exchange;
         case MarketRole: return entry.market;
         case LiveAvailableRole: return entry.liveAvailable;
-        case BookTickerCountRole: return entry.bookTickerCount;
+        case BookTickerCountRole: return entry.channelCountsAvailable?QVariant{entry.bookTickerCount}:QVariant{};
         case SourceSummaryRole: return entry.sourceSummary;
         case BacktestCountRole: return entry.backtestCount;
+        case BinaryCorpusRole: return entry.binaryCorpus;
+        case SourceCountRole: return entry.sourceCount;
+        case ChannelCountsAvailableRole: return entry.channelCountsAvailable;
+        case TotalRecordsRole: return entry.totalRecords;
         default: return {};
     }
 }
@@ -393,6 +403,10 @@ QHash<int, QByteArray> ViewerSourceListModel::roleNames() const {
         {BookTickerCountRole, "bookTickerCount"},
         {SourceSummaryRole, "sourceSummary"},
         {BacktestCountRole, "backtestCount"},
+        {BinaryCorpusRole,"binaryCorpus"},
+        {SourceCountRole,"sourceCount"},
+        {ChannelCountsAvailableRole,"channelCountsAvailable"},
+        {TotalRecordsRole,"totalRecords"},
     };
 }
 
@@ -431,7 +445,7 @@ void ViewerSourceListModel::rebuildEntries_() {
         entry.groupTitle = QStringLiteral("Live");
         entry.sessionPath = source.value(QStringLiteral("sessionPath")).toString();
         entry.liveAvailable = source.value(QStringLiteral("liveAvailable"), true).toBool();
-        entry.bookTickerCount = source.value(QStringLiteral("bookTickerCount"), 0).toInt();
+        entry.bookTickerCount = source.value(QStringLiteral("bookTickerCount"), 0).toULongLong();
         entry.sourceSummary = sessionBacktestSummaryText(entry.bookTickerCount, {}, source.value(QStringLiteral("startedAtNs"), 0).toLongLong());
         entry.label = source.value(QStringLiteral("label")).toString();
         if (entry.label.isEmpty()) entry.label = buildLiveLabel(entry.exchange, entry.market, entry.symbol);
@@ -445,11 +459,8 @@ void ViewerSourceListModel::rebuildEntries_() {
             const QString recordedId = QString::fromStdString(recorded.sessionId);
             Entry entry{};
             entry.id = QStringLiteral("recorded:%1").arg(recordedId);
-            entry.label = QStringLiteral("%1 | %2/%3 %4")
-                              .arg(QString::fromStdString(recorded.groupTitle),
-                                   displayExchange(QString::fromStdString(recorded.exchange)),
-                                   displayMarket(QString::fromStdString(recorded.market)),
-                                   QString::fromStdString(recorded.symbols.empty() ? recorded.normalizedSymbol : recorded.symbols.front()));
+            entry.label=recorded.groupTitle.empty()?recordedSessionLabel(recorded):
+                QString::fromStdString(recorded.groupTitle)+QStringLiteral(" | ")+recordedSessionLabel(recorded);
             entry.group = QString::fromStdString(recorded.groupId);
             entry.groupTitle = QString::fromStdString(recorded.groupTitle);
             entry.sourceKind = QStringLiteral("recorded");
@@ -458,15 +469,12 @@ void ViewerSourceListModel::rebuildEntries_() {
             entry.backtestCount = backtestCounts.firstLeg;
             entry.exchange = QString::fromStdString(recorded.exchange);
             entry.market = QString::fromStdString(recorded.market);
-            entry.symbol = QString::fromStdString(recorded.symbols.empty() ? recorded.normalizedSymbol : recorded.symbols.front());
-            entry.bookTickerCount = static_cast<int>(recorded.bookTickerCount);
-            entry.sourceSummary = sessionBacktestSummaryText(entry.bookTickerCount, backtestCounts, recorded.startedAtNs);
-            if (recorded.candleCount > 0) {
-                entry.sourceSummary += QStringLiteral(" | C %1").arg(recorded.candleCount);
-            }
-            entry.sourceSummary = appendSessionHealthSummary(entry.sourceSummary,
-                                                             QString::fromStdString(recorded.sessionHealth),
-                                                             QString::fromStdString(recorded.warningSummary));
+            entry.symbol = QString::fromStdString(recorded.binaryCorpus?recorded.normalizedSymbol:
+                (recorded.symbols.empty()?recorded.normalizedSymbol:recorded.symbols.front()));
+            entry.bookTickerCount=recorded.bookTickerCount;
+            entry.binaryCorpus=recorded.binaryCorpus;entry.sourceCount=recorded.sourceCount;
+            entry.channelCountsAvailable=recorded.channelCountsAvailable;entry.totalRecords=recorded.totalRows;
+            entry.sourceSummary=recordedSessionSummary(recorded,backtestCounts);
             nextEntries.push_back(std::move(entry));
         }
     }

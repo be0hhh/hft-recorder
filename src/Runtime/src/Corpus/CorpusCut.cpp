@@ -1,5 +1,6 @@
 #include "CorpusCutStorage.hpp"
 #include "BinaryMarketBlockCodec.hpp"
+#include "BinaryMarketMetadataValidation.hpp"
 #include "Codec/Crc32c.hpp"
 #include "hftrec/CorpusContract/BinaryMarketCorpusReader.hpp"
 #include "hftrec/CorpusContract/BinaryMarketDepthTransaction.hpp"
@@ -104,6 +105,121 @@ bool finalizedCutIsDurable(const std::filesystem::path& root,const CorpusCut& cu
     auto expected=cut.manifest;expected.manifestCrc32c=0;
     return cxet::bytescan::hftMemcmp(&manifest,&expected,sizeof(manifest))==0;
 }
+Status decodeCorpusCut(std::vector<std::uint8_t>& bytes,
+    std::shared_ptr<const CorpusCut>& cut,std::string& error) {
+    CutHeader header{};
+    if(bytes.size()<sizeof(header)) {error="corpus cut is truncated";return Status::CorruptData;}
+    cxet::bytescan::hftMemcpy(&header,bytes.data(),sizeof(header));
+    if(!validCutHeader(header,bytes.size())) {error="corpus cut header mismatch";return Status::CorruptData;}
+    const auto maximum=header.manifest.maximumBytes;
+    const auto stored=header.crc;header.crc=0;cxet::bytescan::hftMemcpy(bytes.data(),&header,sizeof(header));
+    if(crc(bytes)!=stored) {error="corpus cut CRC mismatch";return Status::CorruptData;}
+    auto value=std::make_shared<CorpusCut>();value->generation=header.generation;
+    value->committedMonotonicNs=header.committedMonotonicNs;value->progress=header.progress;
+    value->manifest=header.manifest;value->finalized=header.finalized!=0;
+    std::span<const std::uint8_t> payload(bytes.data()+sizeof(header),bytes.size()-sizeof(header));
+    if(!unpack(payload,header.sources,value->sources) || !unpack(payload,header.gaps,value->gaps) ||
+       !unpack(payload,header.blocks,value->blocks) || !unpack(payload,header.referenceBytes,value->referencePayload) || !payload.empty()) {
+        error="corpus cut table bounds mismatch";return Status::CorruptData;
+    }
+    if(crc({reinterpret_cast<const std::uint8_t*>(value->sources.data()),value->sources.size()*sizeof(BinaryMarketSource)})!=header.sourcesCrc) {
+        error="corpus cut source CRC mismatch";return Status::CorruptData;
+    }
+    for(std::size_t n=0;n<value->sources.size();++n) if(!validBinaryMarketSource(value->sources[n],n)) {
+        error="corpus cut source mismatch";return Status::CorruptData;
+    }
+    std::vector<bool> gapSeen(value->sources.size()*kBinaryMarketStoredChannelCount,false);
+    for(const auto& gap:value->gaps) {
+        if(!gap.sourceId || gap.sourceId>value->sources.size() || !gap.sourceGeneration || !gap.gapEpoch ||
+           gap.gapEpoch!=gap.droppedRecords || !gap.firstDroppedEventSequence || !gap.lastDroppedEventSequence ||
+           gap.observedReceiveNs<=0 || gap.shardIndex>=value->progress.shardCount ||
+           !validBinaryMarketRecordChannel(gap.channel) || gap.reserved32 || gap.reserved8 ||
+           !((gap.minimumDroppedReceiveNs>0 && gap.maximumDroppedReceiveNs>=gap.minimumDroppedReceiveNs) ||
+             (!gap.minimumDroppedReceiveNs && !gap.maximumDroppedReceiveNs))) {
+            error="corpus cut gap mismatch";return Status::CorruptData;
+        }
+        const auto index=(gap.sourceId-1u)*kBinaryMarketStoredChannelCount+binaryMarketChannelIndex(gap.channel);
+        if(gapSeen[index]) {error="duplicate corpus cut gap cell";return Status::CorruptData;}
+        gapSeen[index]=true;
+    }
+    std::uint64_t records{};
+    for(const auto& range:value->blocks) {
+        const auto& block=range.header;auto check=block;check.headerCrc32c=0;
+        if(!range.segmentNumber || range.shardIndex>=value->progress.shardCount || range.reserved ||
+           range.offset<sizeof(BinaryMarketSegmentHeader) || range.offset>maximum ||
+           !range.firstMonotonicNs || range.lastMonotonicNs<range.firstMonotonicNs ||
+           block.magic!=kBinaryMarketBlockMagic ||
+           block.headerBytes!=sizeof(block) || !block.blockNumber || !block.recordCount || block.recordCount>kBinaryMarketBlockRecords ||
+           !validBinaryMarketRecordChannel(block.channel) || block.rawBytes!=block.recordCount*binaryMarketBlockLayout(block.channel).recordBytes ||
+           !block.encodedBytes || block.encodedBytes>hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(block.channel),block.recordCount) ||
+           block.reserved!=decltype(block.reserved){} || !block.firstShardSequence || block.lastShardSequence<block.firstShardSequence ||
+           codec::crc32c(reinterpret_cast<const std::uint8_t*>(&check),sizeof(check))!=block.headerCrc32c ||
+           records>UINT64_MAX-block.recordCount) {
+            error="corpus cut block reference mismatch";return Status::CorruptData;
+        }
+        records+=block.recordCount;
+    }
+    if(records!=value->manifest.recordCount || value->gaps.size()!=value->manifest.gapCount) {
+        error="corpus cut committed counts mismatch";return Status::CorruptData;
+    }
+    cut=std::move(value);return Status::Ok;
+}
+bool sameMetadataFile(const struct stat& a,const struct stat& b) noexcept {
+    return a.st_dev==b.st_dev && a.st_ino==b.st_ino && a.st_mode==b.st_mode &&
+        a.st_uid==b.st_uid && a.st_size==b.st_size &&
+        a.st_mtim.tv_sec==b.st_mtim.tv_sec && a.st_mtim.tv_nsec==b.st_mtim.tv_nsec &&
+        a.st_ctim.tv_sec==b.st_ctim.tv_sec && a.st_ctim.tv_nsec==b.st_ctim.tv_nsec;
+}
+struct PinnedMetadataFile final {
+    const char* name{};
+    int fd{-1};
+    struct stat initial{};
+    ~PinnedMetadataFile() {if(fd>=0)::close(fd);}
+    PinnedMetadataFile()=default;
+    PinnedMetadataFile(const PinnedMetadataFile&)=delete;
+    PinnedMetadataFile& operator=(const PinnedMetadataFile&)=delete;
+};
+Status openMetadataFile(int directory,PinnedMetadataFile& file,const char* name,
+    bool optional,std::string& error) {
+    file.name=name;
+    file.fd=::openat(directory,name,O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
+    if(file.fd<0) {
+        if(errno==ENOENT && optional)return Status::Ok;
+        const bool invalid=errno==ELOOP || errno==ENOTDIR || errno==ENOENT;
+        error=std::string("binary corpus metadata unavailable: ")+name;
+        return invalid?Status::CorruptData:Status::IoError;
+    }
+    if(::fstat(file.fd,&file.initial)!=0) {
+        error="binary corpus metadata stat failed";return Status::IoError;
+    }
+    if(!S_ISREG(file.initial.st_mode) || file.initial.st_uid!=::geteuid() || file.initial.st_size<0) {
+        error="binary corpus metadata is not an owned regular file";return Status::CorruptData;
+    }
+    return Status::Ok;
+}
+Status readMetadataFile(const PinnedMetadataFile& file,std::vector<std::uint8_t>& bytes,
+    std::uint64_t& bytesRead,std::uint64_t maximumBytes,std::string& error) {
+    const auto size=static_cast<std::uint64_t>(file.initial.st_size);
+    if(bytesRead>maximumBytes || size>maximumBytes-bytesRead || size>std::numeric_limits<std::size_t>::max()) {
+        error="binary corpus metadata exceeds input budget";return Status::OutOfRange;
+    }
+    bytes.resize(static_cast<std::size_t>(size));
+    std::size_t done{};
+    while(done<bytes.size()) {
+        const auto count=::pread(file.fd,bytes.data()+done,
+            std::min<std::size_t>(bytes.size()-done,1024u*1024u),static_cast<off_t>(done));
+        if(count<0 && errno==EINTR)continue;
+        if(count<=0) {error="binary corpus metadata read failed or changed";return Status::IoError;}
+        done+=static_cast<std::size_t>(count);bytesRead+=static_cast<std::uint64_t>(count);
+    }
+    return Status::Ok;
+}
+bool metadataFileStillPinned(int directory,const PinnedMetadataFile& file) noexcept {
+    struct stat current{},entry{};
+    if(file.fd<0)return ::fstatat(directory,file.name,&entry,AT_SYMLINK_NOFOLLOW)!=0 && errno==ENOENT;
+    return ::fstat(file.fd,&current)==0 && sameMetadataFile(file.initial,current) &&
+        ::fstatat(directory,file.name,&entry,AT_SYMLINK_NOFOLLOW)==0 && sameMetadataFile(file.initial,entry);
+}
 bool before(const BinaryMarketRecord& a,const BinaryMarketRecord& b) {
     const auto& x=a.header;const auto& y=b.header;
     if(x.receiveMonotonicNs!=y.receiveMonotonicNs) return x.receiveMonotonicNs<y.receiveMonotonicNs;
@@ -113,6 +229,91 @@ bool before(const BinaryMarketRecord& a,const BinaryMarketRecord& b) {
 }
 std::string corpusIdentity(const BinaryMarketManifest& manifest) {
     return "cxm:"+std::to_string(manifest.producerEpoch);
+}
+Status readCorpusRecordingMetadataAt(int pinnedDirectoryFd,CorpusRecordingMetadata& output,
+    std::uint64_t& bytesRead,std::string& error,std::uint64_t maximumMetadataBytes) noexcept {
+    bytesRead=0;error.clear();
+    if(pinnedDirectoryFd<0 || maximumMetadataBytes==0) {
+        error="binary corpus metadata needs a directory and input budget";return Status::InvalidArgument;
+    }
+    try {
+        struct stat directoryBefore{};
+        if(::fstat(pinnedDirectoryFd,&directoryBefore)!=0) {
+            error="binary corpus metadata directory stat failed";return Status::IoError;
+        }
+        if(!S_ISDIR(directoryBefore.st_mode)) {
+            error="binary corpus metadata descriptor is not a directory";return Status::InvalidArgument;
+        }
+        PinnedMetadataFile manifestFile,sourcesFile,cutFile;
+        auto status=openMetadataFile(pinnedDirectoryFd,manifestFile,"manifest.bin",true,error);
+        if(!isOk(status))return status;
+        if(manifestFile.fd<0) {
+            error="sealed binary corpus metadata is not ready";return Status::Unknown;
+        }
+        if(manifestFile.initial.st_size!=static_cast<off_t>(sizeof(BinaryMarketManifest))) {
+            error="binary corpus manifest size mismatch";return Status::CorruptData;
+        }
+        CorpusRecordingMetadata staged{};
+        std::vector<std::uint8_t> bytes;
+        status=readMetadataFile(manifestFile,bytes,bytesRead,maximumMetadataBytes,error);
+        if(!isOk(status))return status;
+        cxet::bytescan::hftMemcpy(&staged.manifest,bytes.data(),sizeof(staged.manifest));
+        if(!metadata::validSealedManifest(staged.manifest)) {
+            error="binary corpus manifest contract mismatch";return Status::CorruptData;
+        }
+        status=openMetadataFile(pinnedDirectoryFd,sourcesFile,"sources.bin",false,error);
+        if(!isOk(status))return status;
+        const auto sourceBytes=static_cast<std::uint64_t>(staged.manifest.sourceCount)*sizeof(BinaryMarketSource);
+        if(static_cast<std::uint64_t>(sourcesFile.initial.st_size)!=sizeof(BinaryMarketTableHeader)+sourceBytes) {
+            error="binary corpus source table size mismatch";return Status::CorruptData;
+        }
+        status=readMetadataFile(sourcesFile,bytes,bytesRead,maximumMetadataBytes,error);
+        if(!isOk(status))return status;
+        BinaryMarketTableHeader table{};
+        cxet::bytescan::hftMemcpy(&table,bytes.data(),sizeof(table));
+        if(!metadata::validTableHeader<BinaryMarketSource>(table,kBinaryMarketSourcesMagic,
+            staged.manifest.sourcesCrc32c,staged.manifest.maximumBytes,staged.manifest.sourceCount) ||
+            crc(std::span<const std::uint8_t>(bytes).subspan(sizeof(table)))!=table.recordsCrc32c) {
+            error="binary corpus source table contract or CRC mismatch";return Status::CorruptData;
+        }
+        staged.sources.resize(staged.manifest.sourceCount);
+        cxet::bytescan::hftMemcpy(staged.sources.data(),bytes.data()+sizeof(table),static_cast<std::size_t>(sourceBytes));
+        for(std::size_t n=0;n<staged.sources.size();++n)if(!validBinaryMarketSource(staged.sources[n],n)) {
+            error="binary corpus source directory mismatch";return Status::CorruptData;
+        }
+        status=openMetadataFile(pinnedDirectoryFd,cutFile,"cut.bin",true,error);
+        if(!isOk(status))return status;
+        if(cutFile.fd>=0) {
+            status=readMetadataFile(cutFile,bytes,bytesRead,maximumMetadataBytes,error);
+            if(!isOk(status))return status;
+            std::shared_ptr<const CorpusCut> cut;
+            status=decodeCorpusCut(bytes,cut,error);
+            if(!isOk(status))return status;
+            if(!cut->finalized) {
+                error="binary corpus finalized cut is not ready";return Status::Unknown;
+            }
+            std::array<std::uint8_t,sizeof(BinaryMarketManifest)> sealed{},committed{};
+            cxet::bytescan::hftMemcpy(sealed.data(),&staged.manifest,sealed.size());
+            cxet::bytescan::hftMemcpy(committed.data(),bytes.data()+offsetof(CutHeader,manifest),committed.size());
+            constexpr auto crcOffset=offsetof(BinaryMarketManifest,manifestCrc32c);
+            std::fill_n(sealed.begin()+crcOffset,sizeof(staged.manifest.manifestCrc32c),0u);
+            std::fill_n(committed.begin()+crcOffset,sizeof(staged.manifest.manifestCrc32c),0u);
+            if(sealed!=committed ||
+                cut->sources.size()!=staged.sources.size() ||
+                cxet::bytescan::hftMemcmp(cut->sources.data(),staged.sources.data(),static_cast<std::size_t>(sourceBytes))!=0) {
+                error="binary corpus sealed metadata differs from finalized cut";return Status::CorruptData;
+            }
+            staged.cutGeneration=cut->generation;
+        }
+        struct stat directoryAfter{};
+        if(::fstat(pinnedDirectoryFd,&directoryAfter)!=0 || !sameMetadataFile(directoryBefore,directoryAfter) ||
+            !metadataFileStillPinned(pinnedDirectoryFd,manifestFile) ||
+            !metadataFileStillPinned(pinnedDirectoryFd,sourcesFile) ||
+            !metadataFileStillPinned(pinnedDirectoryFd,cutFile)) {
+            error="binary corpus metadata changed during inspection";return Status::IoError;
+        }
+        staged.finalized=true;output=std::move(staged);return Status::Ok;
+    } catch(...) {error="binary corpus recording metadata read failed";return Status::IoError;}
 }
 Status readCorpusSummary(const std::filesystem::path& root,CorpusSummary& summary,std::string& error) noexcept {
     summary={};error.clear();
@@ -231,57 +432,8 @@ Status readCorpusCut(const std::filesystem::path& root,std::shared_ptr<const Cor
         if(header.bytes>maximumMetadataBytes) {error="corpus metadata exceeds resident input budget";return Status::OutOfRange;}
         std::vector<std::uint8_t> bytes(static_cast<std::size_t>(header.bytes));
         file.seekg(0);file.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(bytes.size()));
-        const auto stored=header.crc;header.crc=0;cxet::bytescan::hftMemcpy(bytes.data(),&header,sizeof(header));
-        if(!file || crc(bytes)!=stored) {error="corpus cut CRC mismatch";return Status::CorruptData;}
-        auto value=std::make_shared<CorpusCut>();value->generation=header.generation;
-        value->committedMonotonicNs=header.committedMonotonicNs;value->progress=header.progress;
-        value->manifest=header.manifest;value->finalized=header.finalized!=0;
-        std::span<const std::uint8_t> payload(bytes.data()+sizeof(header),bytes.size()-sizeof(header));
-        if(!unpack(payload,header.sources,value->sources) || !unpack(payload,header.gaps,value->gaps) ||
-           !unpack(payload,header.blocks,value->blocks) || !unpack(payload,header.referenceBytes,value->referencePayload) || !payload.empty()) {
-            error="corpus cut table bounds mismatch";return Status::CorruptData;
-        }
-        if(crc({reinterpret_cast<const std::uint8_t*>(value->sources.data()),value->sources.size()*sizeof(BinaryMarketSource)})!=header.sourcesCrc) {
-            error="corpus cut source CRC mismatch";return Status::CorruptData;
-        }
-        for(std::size_t n=0;n<value->sources.size();++n) if(!validBinaryMarketSource(value->sources[n],n)) {
-            error="corpus cut source mismatch";return Status::CorruptData;
-        }
-        std::vector<bool> gapSeen(value->sources.size()*kBinaryMarketStoredChannelCount,false);
-        for(const auto& gap:value->gaps) {
-            if(!gap.sourceId || gap.sourceId>value->sources.size() || !gap.sourceGeneration || !gap.gapEpoch ||
-               gap.gapEpoch!=gap.droppedRecords || !gap.firstDroppedEventSequence || !gap.lastDroppedEventSequence ||
-               gap.observedReceiveNs<=0 || gap.shardIndex>=value->progress.shardCount ||
-               !validBinaryMarketRecordChannel(gap.channel) || gap.reserved32 || gap.reserved8 ||
-               !((gap.minimumDroppedReceiveNs>0 && gap.maximumDroppedReceiveNs>=gap.minimumDroppedReceiveNs) ||
-                 (!gap.minimumDroppedReceiveNs && !gap.maximumDroppedReceiveNs))) {
-                error="corpus cut gap mismatch";return Status::CorruptData;
-            }
-            const auto index=(gap.sourceId-1u)*kBinaryMarketStoredChannelCount+binaryMarketChannelIndex(gap.channel);
-            if(gapSeen[index]) {error="duplicate corpus cut gap cell";return Status::CorruptData;}
-            gapSeen[index]=true;
-        }
-        std::uint64_t records{};
-        for(const auto& range:value->blocks) {
-            const auto& block=range.header;auto check=block;check.headerCrc32c=0;
-            if(!range.segmentNumber || range.shardIndex>=value->progress.shardCount || range.reserved ||
-               range.offset<sizeof(BinaryMarketSegmentHeader) || range.offset>maximum ||
-               !range.firstMonotonicNs || range.lastMonotonicNs<range.firstMonotonicNs ||
-               block.magic!=kBinaryMarketBlockMagic ||
-               block.headerBytes!=sizeof(block) || !block.blockNumber || !block.recordCount || block.recordCount>kBinaryMarketBlockRecords ||
-               !validBinaryMarketRecordChannel(block.channel) || block.rawBytes!=block.recordCount*binaryMarketBlockLayout(block.channel).recordBytes ||
-               !block.encodedBytes || block.encodedBytes>hft_compressor::byteBlockEncodeBound(binaryMarketBlockLayout(block.channel),block.recordCount) ||
-               block.reserved!=decltype(block.reserved){} || !block.firstShardSequence || block.lastShardSequence<block.firstShardSequence ||
-               codec::crc32c(reinterpret_cast<const std::uint8_t*>(&check),sizeof(check))!=block.headerCrc32c ||
-               records>UINT64_MAX-block.recordCount) {
-                error="corpus cut block reference mismatch";return Status::CorruptData;
-            }
-            records+=block.recordCount;
-        }
-        if(records!=value->manifest.recordCount || value->gaps.size()!=value->manifest.gapCount) {
-            error="corpus cut committed counts mismatch";return Status::CorruptData;
-        }
-        cut=std::move(value);return Status::Ok;
+        if(!file) {error="corpus cut CRC mismatch";return Status::CorruptData;}
+        return decodeCorpusCut(bytes,cut,error);
     } catch(...) {error="corpus cut read failed";return Status::IoError;}
 }
 Status readCorpusCompressedBlock(const std::filesystem::path& root,const CorpusCut& cut,

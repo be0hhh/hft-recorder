@@ -3,6 +3,7 @@
 #include "Codec/Crc32c.hpp"
 #include "BinaryMarketBlockCodec.hpp"
 #include "BinaryMarketSourceState.hpp"
+#include "BinaryMarketMetadataValidation.hpp"
 #include "hftrec/CorpusContract/BinaryMarketDepthTransaction.hpp"
 
 #include <algorithm>
@@ -59,15 +60,8 @@ template <typename Record>
     }
     const std::uint64_t recordsBytes =
         static_cast<std::uint64_t>(header.recordCount) * sizeof(Record);
-    if (header.magic != magic ||
-        header.headerBytes != sizeof(header) ||
-        header.recordBytes != sizeof(Record) || header.recordCount != expectedRecords ||
-        header.reserved != decltype(header.reserved){} ||
-        header.headerCrc32c !=
-            headerCrc(header, &BinaryMarketTableHeader::headerCrc32c) ||
-        header.recordsCrc32c != expectedCrc ||
-        recordsBytes > std::numeric_limits<std::size_t>::max() ||
-        recordsBytes > maximumBytes ||
+    if (!metadata::validTableHeader<Record>(header, magic, expectedCrc,
+                                           maximumBytes, expectedRecords) ||
         !exactFileBytes(path, sizeof(header) + recordsBytes)) {
         error = "binary corpus table contract mismatch: " + path.string();
         return false;
@@ -104,45 +98,7 @@ template <typename Record>
         error = "binary corpus manifest is unreadable";
         return false;
     }
-    const std::uint32_t storedCrc = manifest.manifestCrc32c;
-    manifest.manifestCrc32c = 0u;
-    const std::uint32_t calculated = crcBytes(&manifest, sizeof(manifest));
-    manifest.manifestCrc32c = storedCrc;
-    const bool hasRecords = manifest.recordCount != 0u;
-    const auto recordBytes = sizeof(BinaryMarketRecord);
-    const std::uint64_t maximumGapCount =
-        static_cast<std::uint64_t>(manifest.sourceCount) *
-        kBinaryMarketStoredChannelCount;
-    if (manifest.magic != kBinaryMarketManifestMagic ||
-        manifest.headerBytes != sizeof(manifest) ||
-        manifest.producerEpoch == 0u || manifest.startedReceiveNs <= 0 ||
-        manifest.replayAnchorReceiveNs <= 0 ||
-        manifest.replayAnchorMonotonicNs == 0u ||
-        manifest.finalizedReceiveNs < manifest.startedReceiveNs ||
-        manifest.replayAnchorReceiveNs < manifest.startedReceiveNs ||
-        manifest.replayAnchorReceiveNs > manifest.finalizedReceiveNs ||
-        manifest.maximumBytes == 0u ||
-        manifest.segmentTargetBytes < sizeof(BinaryMarketSegmentHeader) +
-            recordBytes + sizeof(BinaryMarketSegmentFooter) ||
-        manifest.projectedBytes == 0u ||
-        manifest.projectedBytes > manifest.maximumBytes ||
-        manifest.sourceCount == 0u || manifest.sourceCount > kBinaryMarketMaximumSources ||
-        manifest.shardCount == 0u || manifest.shardCount > kBinaryMarketMaximumShards || manifest.complete != 1u ||
-        manifest.stopReason < BinaryMarketStopReason::Requested ||
-        manifest.stopReason > BinaryMarketStopReason::ParserDisconnected ||
-        manifest.gapCount > maximumGapCount ||
-        manifest.indexCount > manifest.maximumBytes / sizeof(BinaryMarketIndexEntry) ||
-        manifest.segmentCount > manifest.indexCount ||
-        (hasRecords != (manifest.segmentCount != 0u)) ||
-        (hasRecords != (manifest.indexCount != 0u)) ||
-        (hasRecords ? manifest.firstReceiveNs <= 0
-                    : manifest.firstReceiveNs != 0) ||
-        (hasRecords ? manifest.lastReceiveNs <= 0
-                    : manifest.lastReceiveNs != 0) ||
-        (hasRecords &&
-         manifest.lastReceiveNs < manifest.firstReceiveNs) ||
-        manifest.reserved != decltype(manifest.reserved){} ||
-        storedCrc != calculated) {
+    if (!metadata::validSealedManifest(manifest)) {
         error = "binary corpus manifest contract mismatch";
         return false;
     }

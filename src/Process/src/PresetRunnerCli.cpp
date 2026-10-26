@@ -24,6 +24,7 @@
 #include "../../Runtime/src/Capture/Coordinator/VenueMultiplexCapture.hpp"
 #endif
 #include "Corpus/Recordings/RecordingDiscovery.hpp"
+#include "Corpus/Recordings/RecordingGroups.hpp"
 #include "Corpus/Recordings/RecordingRoot.hpp"
 #include "Tui/RecorderTuiLaunch.hpp"
 #include "Tui/RecorderTuiPreset.hpp"
@@ -168,6 +169,7 @@ std::filesystem::path outputDirForRunJob(RunOutputGroups& groups, const tui::Rec
             it->second = groups.root;
         } else {
             const std::string groupName = recordings::recordingGroupFolderName(groups.timestampNs, normalizedSymbol);
+            if(groupName.empty()) return {};
             it->second = uniquePath(groups.root, groupName);
         }
     }
@@ -687,7 +689,8 @@ std::vector<RunningJob> makeJobs(const tui::RecorderTuiPreset& preset, RunOutput
 void writeRunGroupManifests(const std::filesystem::path& recordingsRoot, const RunOutputGroups& outputGroups) {
     for (const auto& [_, groupPath] : outputGroups.bySymbol) {
         std::string error;
-        (void)recordings::writeGroupManifestForPath(recordingsRoot, groupPath, &error);
+        if(!recordings::writeGroupManifestForPath(recordingsRoot,groupPath,&error))
+            std::fprintf(stderr,"recording group metadata failed: %s: %s\n",groupPath.string().c_str(),error.c_str());
     }
 }
 

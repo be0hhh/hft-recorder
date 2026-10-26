@@ -32,6 +32,10 @@ class ViewerSourceListModel : public QAbstractListModel {
         BookTickerCountRole,
         SourceSummaryRole,
         BacktestCountRole,
+        BinaryCorpusRole,
+        SourceCountRole,
+        ChannelCountsAvailableRole,
+        TotalRecordsRole,
     };
 
     explicit ViewerSourceListModel(QObject* parent = nullptr);
@@ -47,7 +51,7 @@ class ViewerSourceListModel : public QAbstractListModel {
     Q_INVOKABLE QString groupAt(int index) const;
     Q_INVOKABLE bool hasSource(const QString& sourceId) const;
     Q_INVOKABLE int indexOfSource(const QString& sourceId) const;
-    Q_INVOKABLE int bookTickerCount(const QString& sourceId) const;
+    Q_INVOKABLE QVariant bookTickerCount(const QString& sourceId) const;
     Q_INVOKABLE QString sourceSummary(const QString& sourceId) const;
     Q_INVOKABLE int backtestCount(const QString& sourceId) const;
     Q_INVOKABLE QVariantList sourceRows() const;
@@ -79,7 +83,9 @@ class ViewerSourceListModel : public QAbstractListModel {
         QString exchange{};
         QString market{};
         bool liveAvailable{false};
-        int bookTickerCount{0};
+        qulonglong bookTickerCount{0u},totalRecords{0u};
+        quint32 sourceCount{0u};
+        bool binaryCorpus{false},channelCountsAvailable{true};
         QString sourceSummary{};
         int backtestCount{0};
     };

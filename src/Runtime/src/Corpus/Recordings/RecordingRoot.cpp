@@ -58,7 +58,8 @@ std::filesystem::path normalizePath(const std::filesystem::path& input,bool save
     if(path.empty()) return {};
     if(const auto tail=legacyTail(path,saved)) {
         const auto root=defaultRecordingsRoot();
-        return root.empty()?std::filesystem::path{}:(root/ *tail).lexically_normal();
+        return root.empty()?std::filesystem::path{}:
+            (tail->empty()?root:root/ *tail).lexically_normal();
     }
     return path;
 }

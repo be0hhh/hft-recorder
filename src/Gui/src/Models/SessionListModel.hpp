@@ -24,6 +24,10 @@ class SessionListModel : public QAbstractListModel {
         SearchTextRole,
         IsGroupRole,
         IndentRole,
+        BinaryCorpusRole,
+        SourceCountRole,
+        ChannelCountsAvailableRole,
+        TotalRecordsRole,
     };
 
     explicit SessionListModel(QObject* parent = nullptr);
@@ -54,6 +58,9 @@ class SessionListModel : public QAbstractListModel {
         QString searchText{};
         bool isGroup{false};
         int indent{0};
+        bool binaryCorpus{false},channelCountsAvailable{true};
+        quint32 sourceCount{0u};
+        qulonglong totalRecords{0u};
     };
 
     void reconnectRecordingCatalog_();

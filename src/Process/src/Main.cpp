@@ -27,7 +27,7 @@ void printUsage() {
     std::puts("  tui       terminal recorder UI");
     std::puts("  run-preset noninteractive preset runner for shard workers");
     std::puts("  shard-run run one preset through multiple worker processes");
-    std::puts("  recordings organize recorded session folders");
+    std::puts("  recordings refresh inspect the catalog and rebuild group metadata");
     std::puts("  parser-capture record parserd's connected normalized market channels");
     std::puts("  analyze   inspect a captured session or derived artifact");
     std::puts("  --help    print this message");

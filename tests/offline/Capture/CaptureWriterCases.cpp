@@ -28,10 +28,16 @@ void queuedCapturePreservesRecords() {
   source.compatibility[0]=BinaryMarketCompatibility::ExactTraderReplay;
   BinaryMarketCorpusWriter writer;
   BinaryMarketWriterConfig config{};config.root=root;config.sources={&source,1};
-  config.producerEpoch=1;config.maximumBytes=1u<<20;config.segmentTargetBytes=1u<<16;
+  // P=one native slot+256 queued items needs 1,195,020 bytes for the
+  // complete prepaid cut/drain/minimum-row cycle; preserve the queue bound.
+  config.producerEpoch=1;config.maximumBytes=2u<<20;config.segmentTargetBytes=1u<<16;
   config.targetDurationNs=10000;config.startedReceiveNs=100;config.startedMonotonicNs=100;
   config.retainedCompressedBytes=1; // Force lag/archive path without blocking capture.
   config.ringCapacity=1;config.shardCount=1;config.pendingRecordCapacity=256;
+  auto insufficient=config;insufficient.maximumBytes=1u<<20;
+  CXET_CHECK(writer.start(insufficient)==Status::OutOfRange);
+  CXET_CHECK(!writer.snapshot().active && writer.snapshot().recordCount==0u);
+  CXET_CHECK(!std::filesystem::exists(root));
   CXET_CHECK(writer.start(config)==Status::Ok);
   capture::BufferedCorpusWriter queue(writer);
   CXET_CHECK(queue.start(256)==Status::Ok);
@@ -50,6 +56,7 @@ void queuedCapturePreservesRecords() {
   progress.safeMonotonicNs=300;progress.shardSequences[0]=200;progress.directoryRevision=1;
   CXET_CHECK(queue.appendProgress(progress)==Status::Ok);
   CXET_CHECK(queue.finish()==Status::Ok);
+  CXET_CHECK(writer.snapshot().projectedBytes<=config.maximumBytes);
   const auto activeCut=queue.latestCut();
   CXET_CHECK(activeCut && !activeCut->finalized && activeCut->progress.safeMonotonicNs==300);
   CXET_CHECK(!activeCut->blocks.empty());
@@ -129,6 +136,14 @@ void queuedCapturePreservesRecords() {
   CXET_CHECK(compressed.size()==sizeof(BinaryMarketBlockHeader)+diskCut->blocks[0].header.encodedBytes);
   CXET_CHECK(writer.snapshot().recordCount==200);
   CXET_CHECK(writer.finalize(BinaryMarketStopReason::Requested,10000)==Status::Ok);
+  CXET_CHECK(writer.snapshot().projectedBytes<=config.maximumBytes);
+  std::uintmax_t persistedBytes=0u;
+  for(const auto& entry:std::filesystem::recursive_directory_iterator(root)) {
+    if(!entry.is_regular_file())continue;
+    const auto bytes=entry.file_size();
+    CXET_CHECK(bytes<=config.maximumBytes-persistedBytes);
+    persistedBytes+=bytes;
+  }
   CXET_CHECK(active.refresh(activeError)==Status::Ok);
   CXET_CHECK(active.next(activeRecord,result,activeError)==Status::Ok);
   CXET_CHECK(result==CorpusCursorResult::End);

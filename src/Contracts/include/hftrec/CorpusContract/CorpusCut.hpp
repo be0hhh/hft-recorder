@@ -47,6 +47,21 @@ struct CorpusSummary final {
     std::uint64_t cutBytes{};
     bool finalized{};
 };
+struct CorpusRecordingMetadata final {
+    BinaryMarketManifest manifest{};
+    std::vector<BinaryMarketSource> sources{};
+    std::uint64_t cutGeneration{};
+    bool finalized{};
+};
+// Cold, bounded metadata only. Borrows a pinned directory descriptor and never
+// follows links. A sealed manifest is required; pending capture returns Unknown.
+// If present, the finalized cut must agree with the sealed manifest and sources.
+// The input budget covers all three files together, including the entire cut;
+// source storage grows only during this cold read, up to the format source bound.
+// bytesRead counts actual input even on failure; output commits only on success.
+[[nodiscard]] Status readCorpusRecordingMetadataAt(int pinnedDirectoryFd,
+    CorpusRecordingMetadata& metadata,std::uint64_t& bytesRead,std::string& error,
+    std::uint64_t maximumMetadataBytes=128u*1024u*1024u) noexcept;
 // Stable provenance namespace: cxm:<producerEpoch decimal>.
 [[nodiscard]] std::string corpusIdentity(const BinaryMarketManifest& manifest);
 // Fixed header only; never decodes rows or scans reference payloads.

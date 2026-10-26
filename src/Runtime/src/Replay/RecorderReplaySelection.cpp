@@ -77,7 +77,7 @@ Status openSelectedReplay(const std::filesystem::path& sessionPath,
                           std::string& error) noexcept {
     if ((channels & ~RecorderChannel_AllMarketData) != 0u) {
         error = "unsupported recorder product channel mask";
-        return Status::Unsupported;
+        return Status::Unimplemented;
     }
     replay.reset();
     if (sessionPath.empty()) {

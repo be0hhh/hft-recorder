@@ -1,6 +1,7 @@
 #include "RecordingCatalog.hpp"
 
 #include <QCoreApplication>
+#include <QByteArray>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -11,6 +12,7 @@
 #include <QMetaObject>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QStringList>
 
 #include <algorithm>
 #include <initializer_list>
@@ -72,6 +74,9 @@ QJsonObject sessionToJson(const hftrec::recordings::RecordedSessionInfo& session
     out.insert(QStringLiteral("total_rows"), static_cast<qint64>(session.totalRows));
     out.insert(QStringLiteral("grouped"), session.grouped);
     out.insert(QStringLiteral("complete"), session.complete);
+    out.insert(QStringLiteral("binary_corpus"),session.binaryCorpus);
+    out.insert(QStringLiteral("source_count"),static_cast<qint64>(session.sourceCount));
+    out.insert(QStringLiteral("channel_counts_available"),session.channelCountsAvailable);
     return out;
 }
 
@@ -101,6 +106,9 @@ hftrec::recordings::RecordedSessionInfo sessionFromJson(const QJsonObject& objec
     out.totalRows = static_cast<std::uint64_t>(object.value(QStringLiteral("total_rows")).toInteger());
     out.grouped = object.value(QStringLiteral("grouped")).toBool();
     out.complete = object.value(QStringLiteral("complete")).toBool();
+    out.binaryCorpus=object.value(QStringLiteral("binary_corpus")).toBool();
+    out.sourceCount=static_cast<std::uint32_t>(object.value(QStringLiteral("source_count")).toInteger());
+    out.channelCountsAvailable=object.value(QStringLiteral("channel_counts_available")).toBool();
     return out;
 }
 
@@ -178,7 +186,21 @@ bool stringFields(const QJsonObject& object, std::initializer_list<const char*> 
     return true;
 }
 
+bool onlyFields(const QJsonObject& object,std::initializer_list<const char*> fields) {
+    if(object.size()!=static_cast<qsizetype>(fields.size())) return false;
+    for(const auto* field:fields) if(!object.contains(QLatin1String(field))) return false;
+    return true;
+}
+
 bool sessionShape(const QJsonObject& object) {
+    if(!onlyFields(object,{"path","manifest_path","group_path","session_id","group_id","group_title",
+        "exchange","market","symbols","local_symbol","folder_symbol","normalized_symbol","session_health",
+        "warning_summary","display_time","search_text","started_at_ns","ended_at_ns","trade_count",
+        "bookticker_count","candle_count","total_rows","grouped","complete","binary_corpus","source_count",
+        "channel_counts_available"})) return false;
+    if(!object.value(QStringLiteral("binary_corpus")).isBool() ||
+       !object.value(QStringLiteral("channel_counts_available")).isBool() ||
+       !nonnegativeInteger(object.value(QStringLiteral("source_count")),std::numeric_limits<std::uint32_t>::max())) return false;
     if (!stringFields(object, {"path", "manifest_path", "group_path", "session_id", "group_id", "group_title",
             "exchange", "market", "local_symbol", "folder_symbol", "normalized_symbol", "session_health",
             "warning_summary", "display_time", "search_text"}) ||
@@ -186,7 +208,8 @@ bool sessionShape(const QJsonObject& object) {
         object.value(QStringLiteral("manifest_path")).toString().isEmpty() ||
         object.value(QStringLiteral("session_id")).toString().isEmpty() ||
         !object.value(QStringLiteral("grouped")).isBool() || !object.value(QStringLiteral("complete")).isBool() ||
-        !object.value(QStringLiteral("symbols")).isArray()) return false;
+        !object.value(QStringLiteral("symbols")).isArray() ||
+        object.value(QStringLiteral("symbols")).toArray().size()>static_cast<qsizetype>(recordings::kRecordingMaxSymbols)) return false;
     for (const auto& symbol : object.value(QStringLiteral("symbols")).toArray()) {
         if (!symbol.isString()) return false;
     }
@@ -198,9 +221,12 @@ bool sessionShape(const QJsonObject& object) {
 
 bool groupShape(const QJsonObject& object,
     const std::map<std::string, hftrec::recordings::RecordedSessionInfo>& sessionsById) {
+    if(!onlyFields(object,{"path","id","title","local_symbol","folder_symbol","normalized_symbol","display_time",
+        "search_text","started_at_ns","ended_at_ns","total_rows","physical","session_ids"})) return false;
     if (!stringFields(object, {"path", "id", "title", "local_symbol", "folder_symbol", "normalized_symbol",
             "display_time", "search_text"}) || object.value(QStringLiteral("id")).toString().isEmpty() ||
-        !object.value(QStringLiteral("physical")).isBool() || !object.value(QStringLiteral("session_ids")).isArray()) return false;
+        !object.value(QStringLiteral("physical")).isBool() || !object.value(QStringLiteral("session_ids")).isArray() ||
+        object.value(QStringLiteral("session_ids")).toArray().size()>static_cast<qsizetype>(recordings::kRecordingMaxSessions)) return false;
     for (const auto* field : {"started_at_ns", "ended_at_ns", "total_rows"}) {
         if (!nonnegativeInteger(object.value(QLatin1String(field)))) return false;
     }
@@ -214,6 +240,7 @@ bool groupShape(const QJsonObject& object,
 }
 
 bool countsShape(const QJsonObject& object) {
+    if(!onlyFields(object,{"first","second","total"})) return false;
     for (const auto* field : {"first", "second", "total"}) {
         if (!nonnegativeInteger(object.value(QLatin1String(field)), std::numeric_limits<int>::max())) return false;
     }
@@ -234,6 +261,9 @@ QJsonDocument snapshotToJson(const RecordingCatalogSnapshot& snapshot) {
     QJsonArray groups;
     for (const auto& group : snapshot.discovery.groups) groups.push_back(groupToJson(group));
     root.insert(QStringLiteral("groups"), groups);
+    QJsonArray refreshRequired;
+    for(const auto& path:snapshot.discovery.refreshRequired) refreshRequired.push_back(cleanPathText(path));
+    root.insert(QStringLiteral("refresh_required"),refreshRequired);
 
     QJsonObject counts;
     for (auto it = snapshot.backtestCountsBySession.constBegin(); it != snapshot.backtestCountsBySession.constEnd(); ++it) {
@@ -251,17 +281,22 @@ RecordingCatalogSnapshot snapshotFromJson(const QJsonDocument& doc, const QStrin
     };
     if (!doc.isObject()) return reject(QStringLiteral("root is not a JSON object"));
     const QJsonObject root = doc.object();
+    if(!onlyFields(root,{"schema","recordings_root","status_text","sessions","groups","backtest_counts","refresh_required"}))
+        return reject(QStringLiteral("root fields differ from the current catalog shape"));
     if (!stringFields(root, {"schema", "recordings_root", "status_text"}) ||
         root.value(QStringLiteral("schema")).toString() != QStringLiteral("hftrec.recording_catalog") ||
         root.value(QStringLiteral("recordings_root")).toString().isEmpty() ||
         !root.value(QStringLiteral("sessions")).isArray() || !root.value(QStringLiteral("groups")).isArray() ||
-        !root.value(QStringLiteral("backtest_counts")).isObject()) return reject(QStringLiteral("root fields have an invalid shape"));
+        !root.value(QStringLiteral("backtest_counts")).isObject() ||
+        !root.value(QStringLiteral("refresh_required")).isArray()) return reject(QStringLiteral("root fields have an invalid shape"));
     RecordingCatalogSnapshot out;
     out.recordingsRoot = QDir::cleanPath(root.value(QStringLiteral("recordings_root")).toString());
     if (out.recordingsRoot != QDir::cleanPath(expectedRecordingsRoot)) return reject(QStringLiteral("recordings root mismatch"));
 
     std::map<std::string, hftrec::recordings::RecordedSessionInfo> sessionsById;
     const QJsonArray sessions = root.value(QStringLiteral("sessions")).toArray();
+    if(sessions.size()>static_cast<qsizetype>(recordings::kRecordingMaxSessions))
+        return reject(QStringLiteral("session count exceeds the catalog bound"));
     out.discovery.sessions.reserve(static_cast<std::size_t>(sessions.size()));
     for (const auto& sessionValue : sessions) {
         if (!sessionValue.isObject() || !sessionShape(sessionValue.toObject())) return reject(QStringLiteral("session fields have an invalid shape"));
@@ -271,23 +306,45 @@ RecordingCatalogSnapshot snapshotFromJson(const QJsonDocument& doc, const QStrin
     }
 
     std::set<std::string> groupIds;
+    std::set<std::string> groupedSessionIds;
     const QJsonArray groups = root.value(QStringLiteral("groups")).toArray();
+    if(groups.size()>static_cast<qsizetype>(recordings::kRecordingMaxGroups))
+        return reject(QStringLiteral("group count exceeds the catalog bound"));
     out.discovery.groups.reserve(static_cast<std::size_t>(groups.size()));
     for (const auto& groupValue : groups) {
         if (!groupValue.isObject() || !groupShape(groupValue.toObject(), sessionsById)) return reject(QStringLiteral("group fields or session references have an invalid shape"));
+        for(const auto& id:groupValue.toObject().value(QStringLiteral("session_ids")).toArray()) {
+            if(!groupedSessionIds.insert(id.toString().toStdString()).second)
+                return reject(QStringLiteral("session belongs to multiple cached groups"));
+        }
         auto group = groupFromJson(groupValue.toObject(), sessionsById);
         if (!groupIds.insert(group.id).second) return reject(QStringLiteral("duplicate group identity"));
         out.discovery.groups.push_back(std::move(group));
     }
 
     const QJsonObject counts = root.value(QStringLiteral("backtest_counts")).toObject();
+    if(counts.size()>static_cast<qsizetype>(recordings::kRecordingMaxSessions))
+        return reject(QStringLiteral("backtest count map exceeds the catalog bound"));
     for (auto it = counts.constBegin(); it != counts.constEnd(); ++it) {
         if (it.key().isEmpty() || !it.value().isObject() || !countsShape(it.value().toObject())) return reject(QStringLiteral("backtest counts must be integers in [0, INT_MAX]"));
         out.backtestCountsBySession.insert(it.key(), countsFromJson(it.value().toObject()));
     }
+    const QJsonArray refreshRequired=root.value(QStringLiteral("refresh_required")).toArray();
+    if(refreshRequired.size()>static_cast<qsizetype>(recordings::kRecordingMaxGroups))
+        return reject(QStringLiteral("metadata refresh count exceeds the group bound"));
+    for(const auto& value:refreshRequired) {
+        if(!value.isString()) return reject(QStringLiteral("metadata refresh paths have an invalid shape"));
+        out.discovery.refreshRequired.emplace_back(value.toString().toStdString());
+    }
+    out.discovery.complete=true;
+    std::string validationError;
+    if(!recordings::validateRecordingDiscovery(out.recordingsRoot.toStdString(),out.discovery,&validationError))
+        return reject(QString::fromStdString(validationError));
     out.loaded = true;
     out.fromDisk = true;
     out.statusText = QStringLiteral("Loaded recording catalog cache: %1 sessions").arg(out.discovery.sessions.size());
+    if(!out.discovery.refreshRequired.empty()) out.statusText+=QStringLiteral("; %1 groups need metadata refresh")
+        .arg(out.discovery.refreshRequired.size());
     return out;
 }
 
@@ -297,7 +354,15 @@ RecordingCatalogSnapshot buildRecordingCatalogSnapshot(const QString& recordings
     RecordingCatalogSnapshot out;
     out.recordingsRoot = QDir::cleanPath(recordingsRoot);
     out.discovery = hftrec::recordings::discoverRecordings(out.recordingsRoot.toStdString());
-    out.backtestCountsBySession = backtestLegCountsBySession(out.discovery.sessions);
+    if(!out.discovery.complete || !out.discovery.errors.empty()) {
+        QStringList errors;
+        for(const auto& error:out.discovery.errors) errors.push_back(QString::fromStdString(error));
+        out.statusText=QStringLiteral("Recording catalog scan refused: %1")
+            .arg(errors.empty()?QStringLiteral("incomplete discovery"):errors.join(QStringLiteral(" | ")));
+        return out;
+    }
+    QString backtestError;
+    out.backtestCountsBySession = backtestLegCountsBySession(out.discovery.sessions,&backtestError,out.recordingsRoot);
     out.loaded = true;
     out.fromDisk = false;
     qint64 backtestRefs = 0;
@@ -308,6 +373,9 @@ RecordingCatalogSnapshot buildRecordingCatalogSnapshot(const QString& recordings
         .arg(out.discovery.sessions.size())
         .arg(out.discovery.groups.size())
         .arg(backtestRefs);
+    if(!backtestError.isEmpty()) out.statusText+=QStringLiteral("; backtest index refused: ")+backtestError;
+    if(!out.discovery.refreshRequired.empty()) out.statusText+=QStringLiteral("; %1 groups need metadata refresh")
+        .arg(out.discovery.refreshRequired.size());
     return out;
 }
 
@@ -324,7 +392,12 @@ QString defaultRecordingCatalogCachePath() {
 
 bool writeRecordingCatalogCache(const QString& path, const RecordingCatalogSnapshot& snapshot, QString* errorText) {
     if (errorText != nullptr) errorText->clear();
-    if (path.trimmed().isEmpty() || !snapshot.loaded) return false;
+    if (path.trimmed().isEmpty() || !snapshot.loaded || !snapshot.discovery.complete || !snapshot.discovery.errors.empty()) return false;
+    std::string validationError;
+    if(!recordings::validateRecordingDiscovery(snapshot.recordingsRoot.toStdString(),snapshot.discovery,&validationError)) {
+        if(errorText) *errorText=QString::fromStdString(validationError);
+        return false;
+    }
     const QJsonDocument document = snapshotToJson(snapshot);
     if (!snapshotFromJson(document, snapshot.recordingsRoot, errorText).loaded) return false;
     if (QFileInfo::exists(path)) {
@@ -341,6 +414,10 @@ bool writeRecordingCatalogCache(const QString& path, const RecordingCatalogSnaps
         return false;
     }
     const QByteArray bytes = document.toJson(QJsonDocument::Compact);
+    if(bytes.size()>static_cast<qsizetype>(recordings::kRecordingMaxCacheBytes)) {
+        if(errorText) *errorText=QStringLiteral("recording catalog cache exceeds the byte bound");
+        return false;
+    }
     if (file.write(bytes) != bytes.size()) {
         if (errorText != nullptr) *errorText = file.errorString();
         return false;
@@ -354,17 +431,20 @@ bool writeRecordingCatalogCache(const QString& path, const RecordingCatalogSnaps
 
 RecordingCatalogSnapshot readRecordingCatalogCache(const QString& path, const QString& expectedRecordingsRoot, QString* errorText) {
     if (errorText != nullptr) errorText->clear();
-    if (!QFileInfo::exists(path)) return {};
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        if (errorText != nullptr) *errorText = file.errorString();
+    const QFileInfo selected(path);
+    std::string text,error;
+    const auto result=recordings::readRecordingMetadata(selected.absolutePath().toStdString(),
+        selected.absoluteFilePath().toStdString(),recordings::kRecordingMaxCacheBytes,text,&error);
+    if(result==recordings::RecordingMetadataReadResult::Missing) return {};
+    if(result!=recordings::RecordingMetadataReadResult::Ready) {
+        if(errorText) *errorText=QStringLiteral("recording catalog cache refused: ")+QString::fromStdString(error);
         return {};
     }
     QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
-    if (file.error() != QFileDevice::NoError || parseError.error != QJsonParseError::NoError) {
+    const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(text), &parseError);
+    if (parseError.error != QJsonParseError::NoError) {
         if (errorText != nullptr) *errorText = QStringLiteral("recording catalog cache refused: ") +
-            (file.error() != QFileDevice::NoError ? file.errorString() : parseError.errorString());
+            parseError.errorString();
         return {};
     }
     return snapshotFromJson(doc, expectedRecordingsRoot, errorText);
@@ -406,7 +486,7 @@ void RecordingCatalog::refreshAsync_(QString reason) {
     workers_.emplace_back([context, target, generation, root, cachePath]() {
         RecordingCatalogSnapshot loaded = buildRecordingCatalogSnapshot(root);
         QString cacheError;
-        if (!writeRecordingCatalogCache(cachePath, loaded, &cacheError) && !cacheError.isEmpty()) {
+        if (loaded.loaded && !writeRecordingCatalogCache(cachePath, loaded, &cacheError) && !cacheError.isEmpty()) {
             loaded.statusText += QStringLiteral("; ") + cacheError;
         }
         if (!context || !context->alive.load(std::memory_order_acquire)) return;
@@ -419,6 +499,12 @@ void RecordingCatalog::refreshAsync_(QString reason) {
 
 void RecordingCatalog::applySnapshot_(std::uint64_t generation, RecordingCatalogSnapshot snapshot) {
     if (generation != loadGeneration_) return;
+    if(!snapshot.loaded) {
+        const QString status=snapshot.statusText+(snapshot_.loaded?QStringLiteral("; showing the previous catalog"):QString{});
+        setLoading_(false,status);
+        if(pendingRefresh_) {pendingRefresh_=false;refreshAsync_(QStringLiteral("pending"));}
+        return;
+    }
     snapshot.revision = ++revisionCounter_;
     snapshot_ = std::move(snapshot);
     setLoading_(false, snapshot_.statusText);

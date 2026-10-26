@@ -49,7 +49,7 @@ bool NativeMarketCapture::configure(std::span<const NativeCaptureSource> sources
     if (rowCapacity_) rows_.reset(new(std::nothrow) cxet::market::DepthMutation[rowCapacity_]);
     if (!queue_ || (rowCapacity_ && !rows_)) {error="capture bounded handoff allocation failed";shutdown();return false;}
     owner_.reset(new(std::nothrow) cxet::runtime::market::ConfiguredMarketOwner(core_.transport(),core_.consumerBinding()));
-    if (!owner_ || !owner_->configure(native,{.envPath=envPath,.maximumSources=60u,.maximumLanes=60u,.websocketRaceLanes=1u},error)) {
+    if (!owner_ || !owner_->configure(native,{.envPath=envPath,.maximumSources=60u,.maximumLanes=60u,.replicaCount=1u},error)) {
         shutdown();return false;
     }
     producerEpoch_=cxet::os::nowMonotonicNs().raw;shardSequence_=0u;

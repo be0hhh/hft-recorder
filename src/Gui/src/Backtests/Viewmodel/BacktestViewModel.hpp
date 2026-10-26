@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -527,8 +528,8 @@ class BacktestViewModel : public QObject {
     QString sessionMarketForPath_(const QString& path) const;
     QString sessionSymbolForPath_(const QString& path) const;
     QString sessionVenueSectionForPath_(const QString& path) const;
-    std::uint64_t sessionBookTickerCountForPath_(const QString& path) const;
-    std::uint64_t sessionTradeCountForPath_(const QString& path) const;
+    std::optional<std::uint64_t> sessionBookTickerCountForPath_(const QString& path) const;
+    std::optional<std::uint64_t> sessionTradeCountForPath_(const QString& path) const;
     QString venueExecutionKeyForPath_(const QString& path) const;
     int normalizedSelectedPrimaryLegIndexForPaths_(const QStringList& paths, const QStringList& disabledPaths) const;
     QStringList orderedSessionPathsForRun_() const;
