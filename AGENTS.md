@@ -74,7 +74,7 @@ The GUI is part of the deliverable, not a thin CLI wrapper:
 
 ## Subagents
 
-Follow the canonical GPT-6.1 Sol model/effort routing in
+Follow the canonical GPT-6.1 Terra and Astra model/effort routing in
 `../../docs/Agents/Subagents.md`; do not keep an app-local model matrix.
 Follow the same canonical owner for service-tier selection: standard/default
 by default; Fast mode may be selected manually by the user.
