@@ -35,11 +35,14 @@ BBO/trades/depth set; required unavailable channels are refused. The existing
 Parser template and its adjacent `.env` remain producer-owned; credentials are
 not copied into research specifications or sent to interfaces.
 
-An explicit launch of an already-built product is:
+From the CXET checkout root, launch the successfully selected product explicitly:
 
 ```bash
-build/bin/hft-recorderd --runtime-dir /absolute/private/recorder --config /absolute/recorder.conf --start
+python3 tools/Build/ActiveBuild.py --root . --owner hft-recorder --exec bin/hft-recorderd -- --runtime-dir /absolute/private/recorder --config /absolute/recorder.conf --start
 ```
+
+The entrypoint resolves the successful product marker while holding the shared
+build lock and retains that lock for the service lifetime.
 
 Without `--start`, the service only prepares its control endpoint. Recording
 and compression have independent owners; a slow research client cannot hold
@@ -189,29 +192,33 @@ From this directory in the canonical CXET checkout:
 ./compile.sh all portable p
 ```
 
-The default builds this owner's product incrementally with pinned Clang, GNU
-Make, Release `-O3`, native CPU targeting and LTO OFF. `portable` disables CPU
-targeting. Fresh foreign providers are reused silently; missing or stale foreign
-modules are listed in one combined prompt before rebuilding them. Decline or EOF
-cancels; a noninteractive invocation with stale providers exits with an explanatory
-error. `--force` builds the selected product and necessary closure incrementally
-with FULL LTO, without cleaning or prompting; ThinLTO is never selected.
+Builds use pinned Clang, GNU Make, Release `-O3`, native CPU targeting and
+LTO OFF. `portable` disables CPU targeting; `--force` selects FULL LTO without
+cleaning. Needed missing or stale dependencies rebuild automatically, including
+without a terminal. `--accept-dependency-updates` remains accepted but redundant.
+
+Ordinary products share `<CXET>/build/product` across owners. CPU, hot, exchange
+and LTO changes reconfigure that cache; omitted options select defaults.
+`CXET_BUILD_DIR` is the exact product-directory override. Fundamentally
+incompatible identities reset only a verified selected product leaf before a
+fresh build; unsafe or foreign paths refuse reset. Other build namespaces and
+ordinary compilation failures do not trigger cleanup.
 
 `all` builds and runs only this owner's registered tests and needed dependencies.
-`--force all` first builds the optimized product, then local tests. Unrelated
-products, benchmarks and other owners' tests are not selected. An empty test
-registry is reported explicitly and does not establish passing test proof.
+It uses `<CXET>/build/tests/<owner>` without configuring or activating a product.
+`--force all` builds the product first and publishes its selection only after
+all selected stages succeed. Other owners' tests are not selected; an empty
+registry does not establish passing test proof.
 
-Optimized trees use `build` (native) or `build/modes/portable`; development trees
-use `build/modes/dev-native` or `build/modes/dev-portable`. `CXET_BUILD_DIR` is the
-exact caller-supplied path; an incompatible existing profile is rejected. Only a
-successful product build updates `build/.compile-active/<owner>.json`; default
-launchers resolve that selected tree. Failed, UI-only and test-only runs do not
-switch it. Project-owned libraries remain static `.a`; `p` selects automatic
-memory-aware parallelism, using available processors as an upper bound and
-reserving 2 GiB per compilation job below `MemoryHigh`, with at least one job.
-An explicit positive `-j N` overrides this selection. See `--help` for supported
-options.
+Source-built launchers require a successful product marker and retain the
+checkout-wide shared build lock through their owned runtime descendants.
+A build or launch facing a busy lock refuses immediately; status/stop remain
+available. Reset or code-generation-profile changes invalidate markers pointing
+at the tree; a failed rebuild leaves those products unavailable. Old trees are preserved
+until separately managed. See the root [build entrypoints](../../README.md#build-entrypoints)
+and [launch exclusion](../../README.md#launch-and-build-exclusion) for the full
+reset, activation and failure rules. `p` selects memory-aware parallelism;
+positive `-j N` overrides it. See `--help` for supported options.
 
 ## Consumer demand configuration
 
