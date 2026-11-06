@@ -328,7 +328,7 @@ void recordingPathsPreserveHistoricalPolicy() {
 }
 void recordingSymbolsUseCanonicalOwnerAndSafeEncoding() {
   using namespace hftrec::recordings;
-  cxet::initBuildDispatch();
+  CXET_CHECK(cxet::initBuildDispatch());
   CXET_CHECK(recordingFolderSymbol("BTW_USDT")=="BTW_USDT");
   CXET_CHECK(recordingFolderSymbol("1000_PEPE_USDT")=="1000_PEPE_USDT");
   CXET_CHECK(recordingFolderSymbol("龙虾_USDT")=="%E9%BE%99%E8%99%BE_USDT");

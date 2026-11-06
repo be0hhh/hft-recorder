@@ -81,11 +81,12 @@ jobs:
           import json, os, re, subprocess, sys
           sys.path.insert(0, 'controller/tools/Ci')
           from FamilyCiController import DEFAULT_GRAPH, FamilyGraph, repository_snapshot_id, validate_snapshot
+          from Family.Common import current_dispatch
           payload = json.loads(os.environ['DISPATCH_PAYLOAD'])
           dispatched = os.environ['GITHUB_EVENT_NAME'] == 'repository_dispatch'
           if dispatched:
-              if not isinstance(payload, dict) or type(payload.get('schema_version')) is not int or payload.get('schema_version') != 5:
-                  raise SystemExit('family-build requires schema_version=5')
+              if not current_dispatch(payload, claimed=True):
+                  raise SystemExit('family-build requires the current payload structure')
               snapshot, mode = payload.get('snapshot'), payload.get('mode')
               for field in ('trigger_sha', 'controller_sha'):
                   if not isinstance(payload.get(field), str) or not re.fullmatch(r'[0-9a-f]{40}', payload[field]):

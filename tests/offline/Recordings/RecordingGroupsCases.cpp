@@ -51,7 +51,7 @@ struct Fixture {
       ("recording-groups-fixture-"+std::to_string(::getpid())+"-"+
        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   Path root=arena/"recordings";
-  Fixture(){cxet::initBuildDispatch();std::filesystem::create_directories(root);}
+  Fixture(){CXET_CHECK(cxet::initBuildDispatch());std::filesystem::create_directories(root);}
   ~Fixture(){std::error_code error;std::filesystem::remove_all(arena,error);}
   Path session(const Path& relative,const std::string& id,std::int64_t started=startNs,
                const std::string& exchange="binance",const std::string& status="complete_degraded") const {
@@ -231,7 +231,7 @@ void metadataReaderPinsBoundedRegularFiles(Fixture& fixture) {
 }
 
 void utcNamesUseNormalizedSafeSymbols() {
-  cxet::initBuildDispatch();
+  CXET_CHECK(cxet::initBuildDispatch());
   const auto local=recordings::recordingLocalSymbol("1000%3APEPE%3AUSDT");
   CXET_CHECK(local=="1000_PEPE_USDT");
   const auto folder=recordings::recordingFolderSymbol(local);
