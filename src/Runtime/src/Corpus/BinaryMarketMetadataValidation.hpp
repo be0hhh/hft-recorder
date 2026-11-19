@@ -21,7 +21,7 @@ template <typename Header>
     std::fill_n(bytes.begin()+offsetof(BinaryMarketManifest,manifestCrc32c),sizeof(storedCrc),0u);
     const std::uint32_t calculated = crcBytes(bytes.data(),bytes.size());
     const bool hasRecords = manifest.recordCount != 0u;
-    const auto recordBytes = sizeof(BinaryMarketRecord);
+    const auto minimumRecordBytes = binaryMarketCompactRecordBytes(BinaryMarketBlockStream::MarkPrice);
     const std::uint64_t maximumGapCount =
         static_cast<std::uint64_t>(manifest.sourceCount) *
         kBinaryMarketStoredChannelCount;
@@ -35,7 +35,7 @@ template <typename Header>
         manifest.replayAnchorReceiveNs > manifest.finalizedReceiveNs ||
         manifest.maximumBytes == 0u ||
         manifest.segmentTargetBytes < sizeof(BinaryMarketSegmentHeader) +
-            recordBytes + sizeof(BinaryMarketSegmentFooter) ||
+            minimumRecordBytes + sizeof(BinaryMarketSegmentFooter) ||
         manifest.projectedBytes == 0u ||
         manifest.projectedBytes > manifest.maximumBytes ||
         manifest.sourceCount == 0u || manifest.sourceCount > kBinaryMarketMaximumSources ||
@@ -43,7 +43,7 @@ template <typename Header>
         manifest.stopReason < BinaryMarketStopReason::Requested ||
         manifest.stopReason > BinaryMarketStopReason::ParserDisconnected ||
         manifest.gapCount > maximumGapCount ||
-        manifest.indexCount > manifest.maximumBytes / sizeof(BinaryMarketIndexEntry) ||
+        static_cast<unsigned __int128>(manifest.indexCount) * sizeof(BinaryMarketIndexEntry) > manifest.maximumBytes ||
         manifest.segmentCount > manifest.indexCount ||
         (hasRecords != (manifest.segmentCount != 0u)) ||
         (hasRecords != (manifest.indexCount != 0u)) ||

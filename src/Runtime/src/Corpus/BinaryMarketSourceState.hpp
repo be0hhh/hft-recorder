@@ -54,6 +54,11 @@ inline bool advanceBinaryMarketSourceState(const BinaryMarketRecord& record,
     if(h.channel!=BinaryMarketChannel::SourceLifecycle) {
         const auto bit=binaryMarketChannelBit(h.channel);
         if(state.generation!=h.sourceGeneration) return false;
+        if(h.channel==BinaryMarketChannel::Depth && (h.flags&BinaryMarketRecordDepthCoverage)!=0u) {
+            const auto& cov=*binaryMarketPayload<BinaryMarketDepthCoveragePayload>(&record);
+            if(cov.totalCoverageCount>state.metadata.maxDepthCoverageSources)
+                state.metadata.maxDepthCoverageSources=cov.totalCoverageCount;
+        }
         // A native health notification may describe a feed already unavailable
         // after a captured membership boundary. It never admits market data.
         if(binaryMarketRecordIsSourceHealth(record)) {

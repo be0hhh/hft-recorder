@@ -28,10 +28,11 @@ struct RecorderReferenceSnapshot final {
     hft_parser::reference_contract::CurrentReferenceHeader producer{};
     std::vector<std::uint8_t> rowBytes{};
     template<class Record> [[nodiscard]] bool record(std::size_t index,Record& out) const noexcept {
+        static_assert(sizeof(Record) <= (1ull << 20));
         if(presence!=RecorderReferencePresence::Present ||
            dataset!=hft_parser::ipc::referenceDatasetFor<Record>() ||
            producer.snapshot.rowBytes!=sizeof(Record) || index>=producer.snapshot.totalRows ||
-           index>=rowBytes.size()/sizeof(Record))return false;
+           (static_cast<std::uint64_t>(index)+1u)*sizeof(Record)>rowBytes.size())return false;
         cxet::bytescan::hftMemcpy(&out,rowBytes.data()+index*sizeof(Record),sizeof(Record));
         return hft_parser::ipc::validReferenceRecord(out) && out.product.exchangeRaw==product.exchangeRaw &&
             out.product.marketRaw==product.marketRaw;

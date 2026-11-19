@@ -13,6 +13,7 @@ namespace hftrec::corpus {
 
 inline constexpr std::size_t kBinaryMarketChannelCount = 8u;
 inline constexpr std::size_t kBinaryMarketStoredChannelCount = 9u;
+inline constexpr std::size_t kBinaryMarketBlockStreamCount = 10u;
 inline constexpr std::size_t kBinaryMarketVenueBytes = 16u;
 inline constexpr std::size_t kBinaryMarketMarketBytes = 16u;
 inline constexpr std::size_t kBinaryMarketSymbolBytes = 48u;
@@ -32,6 +33,91 @@ inline constexpr std::size_t kBinaryMarketBlockRecords = 256u;
 inline constexpr std::uint16_t kBinaryMarketMaximumShards = 64u;
 inline constexpr std::uint32_t kBinaryMarketMaximumSources = 65536u;
 inline constexpr std::uint32_t kBinaryMarketBlockMagic = 0x42435248u;
+inline constexpr std::uint32_t kBinaryMarketCompactSegmentCodecId = 2u;
+
+enum class ByteBlockCodecMode : std::uint8_t {
+    Opaque = 0u,
+    TransformOnly = 1u,
+    Lz4Fast = 2u,
+    ZstdFast = 3u,
+    ZstdMax = 4u,
+    Brotli = 5u,
+    XzLzma = 6u,
+    ArithmeticShift = 7u,
+    RansByteStatic = 8u,
+};
+
+[[nodiscard]] inline constexpr bool validByteBlockCodecMode(
+    ByteBlockCodecMode mode) noexcept {
+    return static_cast<std::uint8_t>(mode) <=
+           static_cast<std::uint8_t>(ByteBlockCodecMode::RansByteStatic);
+}
+
+[[nodiscard]] inline constexpr bool isOnlineByteBlockCodecMode(
+    ByteBlockCodecMode mode) noexcept {
+    return mode == ByteBlockCodecMode::Opaque ||
+           mode == ByteBlockCodecMode::TransformOnly ||
+           mode == ByteBlockCodecMode::Lz4Fast ||
+           mode == ByteBlockCodecMode::ZstdFast;
+}
+
+[[nodiscard]] inline constexpr std::string_view byteBlockCodecModeName(
+    ByteBlockCodecMode mode) noexcept {
+    switch (mode) {
+        case ByteBlockCodecMode::Opaque: return "opaque";
+        case ByteBlockCodecMode::TransformOnly: return "transform_only";
+        case ByteBlockCodecMode::Lz4Fast: return "lz4_fast";
+        case ByteBlockCodecMode::ZstdFast: return "zstd_fast";
+        case ByteBlockCodecMode::ZstdMax: return "zstd_max";
+        case ByteBlockCodecMode::Brotli: return "brotli";
+        case ByteBlockCodecMode::XzLzma: return "xz_lzma";
+        case ByteBlockCodecMode::ArithmeticShift: return "arithmetic_shift";
+        case ByteBlockCodecMode::RansByteStatic: return "rans_byte_static";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] inline constexpr bool parseByteBlockCodecMode(
+    std::string_view text,
+    ByteBlockCodecMode& out) noexcept {
+    if (text == "lz4_fast" || text == "lz4") {
+        out = ByteBlockCodecMode::Lz4Fast;
+        return true;
+    }
+    if (text == "zstd_fast" || text == "zstd") {
+        out = ByteBlockCodecMode::ZstdFast;
+        return true;
+    }
+    if (text == "transform_only" || text == "transform") {
+        out = ByteBlockCodecMode::TransformOnly;
+        return true;
+    }
+    if (text == "opaque" || text == "none" || text == "raw") {
+        out = ByteBlockCodecMode::Opaque;
+        return true;
+    }
+    if (text == "zstd_max") {
+        out = ByteBlockCodecMode::ZstdMax;
+        return true;
+    }
+    if (text == "brotli") {
+        out = ByteBlockCodecMode::Brotli;
+        return true;
+    }
+    if (text == "xz_lzma") {
+        out = ByteBlockCodecMode::XzLzma;
+        return true;
+    }
+    if (text == "arithmetic_shift") {
+        out = ByteBlockCodecMode::ArithmeticShift;
+        return true;
+    }
+    if (text == "rans_byte_static") {
+        out = ByteBlockCodecMode::RansByteStatic;
+        return true;
+    }
+    return false;
+}
 
 enum class BinaryMarketChannel : std::uint8_t {
     BookTicker = 1u,
@@ -45,19 +131,52 @@ enum class BinaryMarketChannel : std::uint8_t {
     SourceLifecycle = 9u,
 };
 
+enum class BinaryMarketBlockStream : std::uint8_t {
+    BookTicker = 1u,
+    Trade = 2u,
+    Depth = 3u,
+    Liquidation = 4u,
+    MarkPrice = 5u,
+    IndexPrice = 6u,
+    Funding = 7u,
+    PriceLimit = 8u,
+    SourceLifecycle = 9u,
+    DepthCoverage = 10u,
+};
+
 [[nodiscard]] inline constexpr bool validBinaryMarketChannel(
     BinaryMarketChannel channel) noexcept {
     return channel >= BinaryMarketChannel::BookTicker &&
            channel <= BinaryMarketChannel::PriceLimit;
 }
 
-[[nodiscard]] inline constexpr bool validBinaryMarketRecordChannel(BinaryMarketChannel channel) noexcept {
-    return validBinaryMarketChannel(channel) || channel==BinaryMarketChannel::SourceLifecycle;
+[[nodiscard]] inline constexpr bool validBinaryMarketRecordChannel(
+    BinaryMarketChannel channel) noexcept {
+    return validBinaryMarketChannel(channel) ||
+           channel == BinaryMarketChannel::SourceLifecycle;
+}
+
+[[nodiscard]] inline constexpr bool validBinaryMarketBlockStream(
+    BinaryMarketBlockStream stream) noexcept {
+    return stream >= BinaryMarketBlockStream::BookTicker &&
+           stream <= BinaryMarketBlockStream::DepthCoverage;
 }
 
 [[nodiscard]] inline constexpr std::size_t binaryMarketChannelIndex(
     BinaryMarketChannel channel) noexcept {
     return static_cast<std::size_t>(channel) - 1u;
+}
+
+[[nodiscard]] inline constexpr std::size_t binaryMarketBlockStreamIndex(
+    BinaryMarketBlockStream stream) noexcept {
+    return static_cast<std::size_t>(stream) - 1u;
+}
+
+[[nodiscard]] inline constexpr BinaryMarketChannel binaryMarketChannelForStream(
+    BinaryMarketBlockStream stream) noexcept {
+    return stream == BinaryMarketBlockStream::DepthCoverage
+        ? BinaryMarketChannel::Depth
+        : static_cast<BinaryMarketChannel>(static_cast<std::uint8_t>(stream));
 }
 
 [[nodiscard]] inline constexpr std::uint16_t binaryMarketChannelBit(
@@ -98,6 +217,9 @@ enum BinaryMarketDirectoryFlags : std::uint16_t {
     BinaryMarketDirectoryMarginEligibilityKnown = 1u << 8u,
     BinaryMarketDirectoryMarginEligible = 1u << 9u,
     BinaryMarketDirectorySpotPostOnly = 1u << 10u,
+    BinaryMarketDirectoryPriceLimit = 1u << 11u,
+    BinaryMarketDirectoryFunding = 1u << 12u,
+    BinaryMarketDirectoryReferenceOnly = 1u << 13u,
 };
 
 inline constexpr std::uint16_t kBinaryMarketKnownDirectoryFlags =
@@ -107,7 +229,15 @@ inline constexpr std::uint16_t kBinaryMarketKnownDirectoryFlags =
     BinaryMarketDirectoryFundingEligible | BinaryMarketDirectoryDelivery |
     BinaryMarketDirectoryMarginEligibilityKnown |
     BinaryMarketDirectoryMarginEligible |
-    BinaryMarketDirectorySpotPostOnly;
+    BinaryMarketDirectorySpotPostOnly |
+    BinaryMarketDirectoryPriceLimit |
+    BinaryMarketDirectoryFunding |
+    BinaryMarketDirectoryReferenceOnly;
+
+inline constexpr std::uint16_t kBinaryMarketDirectoryMarketFamilyFlags =
+    BinaryMarketDirectoryBookTicker | BinaryMarketDirectoryTrade |
+    BinaryMarketDirectoryDepth | BinaryMarketDirectoryPriceLimit |
+    BinaryMarketDirectoryFunding;
 
 enum BinaryMarketRecordFlags : std::uint32_t {
     BinaryMarketRecordNone = 0u,
@@ -170,8 +300,6 @@ enum class BinaryMarketQuantityKind : std::uint8_t {
     Unknown=0u, CanonicalBase=1u, NativeBase=2u, NativeContract=3u, NativeLot=4u,
 };
 
-// Channel-specific authority for the stored normalized payload, with exact
-// original native factors retained before denomination rescaling.
 struct BinaryMarketQuantityConversion final {
     std::array<BinaryMarketQuantityKind,3u> kinds{};
     std::array<std::byte,5u> reserved{};
@@ -220,6 +348,7 @@ struct BinaryMarketSource final {
     std::uint16_t availableChannelMask{0u};
     std::uint16_t traderReplayChannelMask{0u};
     std::uint32_t instrumentMetadataFlags{0u};
+    std::uint32_t maxDepthCoverageSources{0u};
     std::uint8_t marketRaw{0u};
     std::uint8_t marketKindRaw{0u};
     std::uint8_t assetDomainRaw{0u};
@@ -233,12 +362,13 @@ struct BinaryMarketSource final {
         compatibility{};
     // Initial capture membership; late-listed final catalog entries stay inactive until Added.
     std::uint8_t initiallyPresent{1u};
-    std::array<std::byte, 5u> reserved{};
+    std::array<std::byte, 2u> reserved{};
     std::array<char, kBinaryMarketVenueBytes> venue{};
     std::array<char, kBinaryMarketMarketBytes> market{};
     std::array<char, kBinaryMarketSymbolBytes> canonicalSymbol{};
     std::array<char, kBinaryMarketSymbolBytes> nativeSymbol{};
 };
+static_assert(sizeof(BinaryMarketSource) == 272u);
 
 [[nodiscard]] inline constexpr bool validBinaryMarketCompatibility(
     BinaryMarketCompatibility value) noexcept {
@@ -281,10 +411,12 @@ template <std::size_t Capacity>
     std::size_t index) noexcept {
     if (source.sourceId != index + 1u ||
         source.canonicalSymbolId == 0u ||
-        (source.initialSourceGeneration == 0u && source.initiallyPresent!=0u) || source.venueId == 0u ||
+        (source.initialSourceGeneration == 0u && source.initiallyPresent != 0u) ||
+        source.venueId == 0u ||
         (source.marketKindRaw != 1u && source.marketKindRaw != 2u) ||
         source.assetDomainRaw > 2u ||
         source.priceScale > 18u || source.quantityScale > 18u ||
+        source.maxDepthCoverageSources > cxet::market::kMaximumDepthSourceCapacity ||
         !validBinaryMarketText(source.venue, source.venueBytes) ||
         !validBinaryMarketCode(source.marketRaw, source.market,
                                source.marketBytes) ||
@@ -298,6 +430,9 @@ template <std::size_t Capacity>
         !validBinaryMarketQuantityConversion(source.quantityConversion) ||
         source.economicBaseAssetId == 0u || source.quoteAssetId == 0u ||
         (source.directoryFlags & ~kBinaryMarketKnownDirectoryFlags) != 0u ||
+        ((source.directoryFlags & BinaryMarketDirectoryReferenceOnly) != 0u &&
+         ((source.directoryFlags & kBinaryMarketDirectoryMarketFamilyFlags) != 0u ||
+          source.configuredChannelMask != 0u)) ||
         (((source.directoryFlags & BinaryMarketDirectoryTickSize) != 0u) !=
          (source.tickSizeRaw > 0)) ||
         ((source.directoryFlags & BinaryMarketDirectoryMarginEligible) != 0u &&
@@ -319,7 +454,8 @@ template <std::size_t Capacity>
         (source.availableChannelMask & ~source.configuredChannelMask) != 0u ||
         (source.traderReplayChannelMask &
          ~source.availableChannelMask) != 0u ||
-        source.initiallyPresent>1u || source.reserved != decltype(source.reserved){}) {
+        source.initiallyPresent > 1u ||
+        source.reserved != decltype(source.reserved){}) {
         return false;
     }
     const std::uint16_t directoryChannels =
@@ -406,6 +542,16 @@ struct BinaryMarketRecordHeader final {
     std::uint16_t eventOrdinal{0u};
     std::uint32_t reserved{0u};
 };
+
+[[nodiscard]] inline constexpr BinaryMarketBlockStream binaryMarketBlockStreamForRecord(
+    const BinaryMarketRecordHeader& header) noexcept {
+    if (header.channel == BinaryMarketChannel::Depth &&
+        (header.flags & BinaryMarketRecordDepthCoverage) != 0u) {
+        return BinaryMarketBlockStream::DepthCoverage;
+    }
+    return static_cast<BinaryMarketBlockStream>(
+        static_cast<std::uint8_t>(header.channel));
+}
 
 struct alignas(64) BinaryMarketRecord final {
     BinaryMarketRecordHeader header{};
@@ -528,9 +674,6 @@ struct BinaryMarketDepthChunkPayload final {
         levels{};
 };
 
-// This is the explicit composed Core cut, not a native snapshot/rebase.
-// Its aggregate state is retained verbatim; detailed failure evidence belongs
-// to the required per-feed coverage tail.
 [[nodiscard]] inline bool binaryMarketDepthRecordIsComposedCut(const BinaryMarketRecord& record) noexcept {
     const auto flags=record.header.flags;
     constexpr auto required=BinaryMarketRecordDepthSnapshot|BinaryMarketRecordDepthSourcePosition|BinaryMarketRecordDepthHasCoverage;
@@ -555,7 +698,7 @@ struct BinaryMarketDepthChunkPayload final {
     const bool delta=p.frameKind==BinaryMarketDepthFrameKind::Delta;
     const bool state=p.frameKind==BinaryMarketDepthFrameKind::State;
     const bool compatible=(flags&BinaryMarketRecordTraderReplayCompatible)!=0u;
-    if((!partial&&!healthy&&!rebase&&!gap&&!composed) || (!snapshot&&!delta&&!state) ||
+    if((!partial&&!healthy&&!rebase&&!gap&&!composed) || (!snapshot&&!delta&&state==false) ||
        p.failure>static_cast<std::uint8_t>(cxet::market::DepthFailure::ConsumerBookRejected) ||
        (((flags&BinaryMarketRecordDepthSnapshot)!=0u)!=snapshot) ||
        (((flags&BinaryMarketRecordDepthDelta)!=0u)!=delta) ||
@@ -575,8 +718,6 @@ struct BinaryMarketDepthChunkPayload final {
     return true;
 }
 
-// Native snapshot presence is qualified only by the sealed reader's complete
-// transaction preflight. This predicate never promotes the stored native state.
 [[nodiscard]] inline bool binaryMarketDepthRecordIsNativeRebaseSnapshot(const BinaryMarketRecord& record) noexcept {
     constexpr auto required=BinaryMarketRecordTraderReplayCompatible|BinaryMarketRecordDepthSnapshot|BinaryMarketRecordDepthRebase;
     constexpr auto forbidden=BinaryMarketRecordDepthDelta|BinaryMarketRecordDepthState|BinaryMarketRecordDepthCoverage|
@@ -589,7 +730,6 @@ struct BinaryMarketDepthChunkPayload final {
         cxet::market::validDepthSnapshotSequence({p.sequence.firstUpdateId,p.sequence.lastUpdateId,p.sequence.previousUpdateId});
 }
 
-// Stable corpus representation of one feed's composed depth coverage.
 struct BinaryMarketDepthCoverage final {
     std::uint32_t sourceId{}, sequenceDomain{}, maximumLevelsPerSide{}, sequenceFlags{};
     std::uint64_t sourceGeneration{}, sessionEpoch{}, lastUpdateId{}, freshnessMonotonicNs{};
@@ -607,6 +747,38 @@ struct BinaryMarketDepthCoveragePayload final {
     std::uint16_t coverageCount{}, partIndex{}, partCount{}, transactionPartCount{};
     std::array<BinaryMarketDepthCoverage, kBinaryMarketDepthCoveragePerRecord> coverage{};
 };
+
+[[nodiscard]] inline constexpr std::size_t binaryMarketStreamPayloadBytes(
+    BinaryMarketBlockStream stream) noexcept {
+    switch (stream) {
+        case BinaryMarketBlockStream::BookTicker:
+            return sizeof(BinaryMarketBookTickerPayload);
+        case BinaryMarketBlockStream::Trade:
+            return sizeof(BinaryMarketTradePayload);
+        case BinaryMarketBlockStream::Depth:
+            return sizeof(BinaryMarketDepthChunkPayload);
+        case BinaryMarketBlockStream::Liquidation:
+            return sizeof(BinaryMarketLiquidationPayload);
+        case BinaryMarketBlockStream::MarkPrice:
+        case BinaryMarketBlockStream::IndexPrice:
+            return sizeof(BinaryMarketScalarPricePayload);
+        case BinaryMarketBlockStream::Funding:
+            return sizeof(BinaryMarketFundingPayload);
+        case BinaryMarketBlockStream::PriceLimit:
+            return sizeof(BinaryMarketPriceLimitPayload);
+        case BinaryMarketBlockStream::SourceLifecycle:
+            return sizeof(BinaryMarketSourceLifecyclePayload);
+        case BinaryMarketBlockStream::DepthCoverage:
+            return sizeof(BinaryMarketDepthCoveragePayload);
+    }
+    return 0u;
+}
+
+[[nodiscard]] inline constexpr std::size_t binaryMarketCompactRecordBytes(
+    BinaryMarketBlockStream stream) noexcept {
+    const std::size_t payload = binaryMarketStreamPayloadBytes(stream);
+    return payload == 0u ? 0u : sizeof(BinaryMarketRecordHeader) + payload;
+}
 
 [[nodiscard]] inline BinaryMarketDepthCoverage encodeBinaryMarketDepthCoverage(const cxet::market::DepthCoverage& feed) noexcept {
     BinaryMarketDepthCoverage out{};
@@ -652,21 +824,28 @@ struct BinaryMarketDepthCoveragePayload final {
 }
 
 [[nodiscard]] inline bool validBinaryMarketDepthCoveragePayload(const BinaryMarketDepthCoveragePayload& value) noexcept {
-    if (value.totalCoverageCount==0u || value.totalCoverageCount>cxet::market::kMaximumDepthSourceCapacity ||
-        value.partCount!=(value.totalCoverageCount+4u)/5u || value.partIndex>=value.partCount ||
-        value.coverageOffset!=static_cast<std::uint32_t>(value.partIndex)*5u ||
-        value.coverageOffset>=value.totalCoverageCount || value.coverageCount==0u || value.coverageCount>5u ||
-        value.coverageCount!=(value.totalCoverageCount-value.coverageOffset<5u ? value.totalCoverageCount-value.coverageOffset : 5u) ||
-        value.transactionPartCount==0u || value.transactionPartCount>cxet::market::kMaximumDepthTransactionParts) return false;
+    if (value.totalCoverageCount == 0u ||
+        value.totalCoverageCount > cxet::market::kMaximumDepthSourceCapacity ||
+        value.partCount == 0u ||
+        static_cast<std::uint64_t>(value.partCount - 1u) * 5u >= value.totalCoverageCount ||
+        value.totalCoverageCount > static_cast<std::uint64_t>(value.partCount) * 5u ||
+        value.partIndex >= value.partCount ||
+        value.coverageOffset != static_cast<std::uint32_t>(value.partIndex) * 5u ||
+        value.coverageOffset >= value.totalCoverageCount ||
+        value.coverageCount == 0u || value.coverageCount > 5u ||
+        value.coverageCount != (value.totalCoverageCount - value.coverageOffset < 5u
+                                    ? value.totalCoverageCount - value.coverageOffset
+                                    : 5u) ||
+        value.transactionPartCount == 0u ||
+        value.transactionPartCount > cxet::market::kMaximumDepthTransactionParts) {
+        return false;
+    }
     for (std::size_t i=0u;i<value.coverage.size();++i)
         if (i<value.coverageCount ? !validBinaryMarketDepthCoverage(value.coverage[i]) :
             value.coverage[i]!=BinaryMarketDepthCoverage{}) return false;
     return true;
 }
 
-// Captured native availability evidence. These rows retain their exact payload
-// and arrival identity but must never be consumed as market prices or fills.
-// Capture loss (RecordGapBoundary / loss ledger) is a separate hard error.
 [[nodiscard]] inline bool binaryMarketRecordIsSourceHealth(
     const BinaryMarketRecord& record) noexcept {
     const auto& h=record.header;
@@ -742,11 +921,11 @@ struct alignas(64) BinaryMarketSegmentHeader final {
     std::int64_t lastReceiveNs{0};
     std::uint16_t shardIndex{0u};
     std::uint16_t reserved16{0u};
-    std::uint32_t recordsCrc32c{0u};
+    std::uint32_t blocksCrc32c{0u};
     std::uint32_t headerCrc32c{0u};
     std::uint64_t storedBlockBytes{0u};
     std::uint32_t blockCount{0u};
-    std::uint32_t codecId{1u};
+    std::uint32_t codecId{kBinaryMarketCompactSegmentCodecId};
     std::array<std::byte, 48u> reserved{};
 };
 
@@ -763,14 +942,39 @@ struct BinaryMarketBlockHeader final {
     std::uint64_t lastShardSequence{0u};
     std::uint32_t headerCrc32c{0u};
     BinaryMarketChannel channel{BinaryMarketChannel::BookTicker};
-    std::array<std::byte, 11u> reserved{};
+    BinaryMarketBlockStream stream{BinaryMarketBlockStream::BookTicker};
+    ByteBlockCodecMode codecMode{ByteBlockCodecMode::Lz4Fast};
+    std::array<std::byte, 9u> reserved{};
+};
+
+enum BinaryMarketBlockFlags : std::uint8_t {
+    BinaryMarketBlockNone = 0u,
+    BinaryMarketBlockHasHealthFence = 1u << 0u,
+    BinaryMarketBlockHasDepthRebase = 1u << 1u,
+};
+
+struct BinaryMarketBlockDirectoryEntry final {
+    std::uint64_t offset{0u};
+    std::uint64_t firstMonotonicNs{0u};
+    std::uint64_t lastMonotonicNs{0u};
+    std::uint64_t firstShardSequence{0u};
+    std::uint64_t lastShardSequence{0u};
+    std::int64_t firstReceiveNs{0};
+    std::int64_t lastReceiveNs{0};
+    std::uint32_t blockNumber{0u};
+    std::uint32_t encodedBytes{0u};
+    std::uint32_t recordCount{0u};
+    BinaryMarketChannel channel{BinaryMarketChannel::BookTicker};
+    BinaryMarketBlockStream stream{BinaryMarketBlockStream::BookTicker};
+    ByteBlockCodecMode codecMode{ByteBlockCodecMode::Lz4Fast};
+    std::uint8_t flags{BinaryMarketBlockNone};
 };
 
 struct alignas(64) BinaryMarketSegmentFooter final {
     std::uint32_t magic{kBinaryMarketSegmentFooterMagic};
     std::uint16_t footerBytes{0u};
     std::uint32_t segmentNumber{0u};
-    std::uint32_t recordsCrc32c{0u};
+    std::uint32_t blocksCrc32c{0u};
     std::uint64_t recordCount{0u};
     std::int64_t firstReceiveNs{0};
     std::int64_t lastReceiveNs{0};
@@ -782,7 +986,19 @@ enum BinaryMarketIndexFlags : std::uint32_t {
     BinaryMarketIndexNone = 0u,
     BinaryMarketIndexHasGap = 1u << 0u,
     BinaryMarketIndexHasRecordedOnly = 1u << 1u,
+    BinaryMarketIndexHasHealthyCompatible = 1u << 2u,
+    BinaryMarketIndexHasObserved = 1u << 3u,
+    BinaryMarketIndexHasIncompatibleMarket = 1u << 4u,
+    BinaryMarketIndexHasDepthRebase = 1u << 5u,
 };
+
+inline constexpr std::uint32_t kBinaryMarketKnownIndexFlags =
+    BinaryMarketIndexHasGap |
+    BinaryMarketIndexHasRecordedOnly |
+    BinaryMarketIndexHasHealthyCompatible |
+    BinaryMarketIndexHasObserved |
+    BinaryMarketIndexHasIncompatibleMarket |
+    BinaryMarketIndexHasDepthRebase;
 
 struct BinaryMarketIndexEntry final {
     std::uint32_t segmentNumber{0u};
@@ -794,11 +1010,27 @@ struct BinaryMarketIndexEntry final {
     std::uint64_t lastEventSequence{0u};
     std::int64_t firstReceiveNs{0};
     std::int64_t lastReceiveNs{0};
+    std::uint64_t initialGeneration{0u};
+    std::uint64_t finalGeneration{0u};
+    std::uint64_t initialDirectoryRevision{0u};
+    std::uint64_t finalDirectoryRevision{0u};
+    std::uint32_t priorDepthRebaseSegment{0u};
+    std::uint32_t priorDepthRebaseBlock{0u};
+    std::uint32_t lastDepthRebaseSegment{0u};
+    std::uint32_t lastDepthRebaseBlock{0u};
     std::uint32_t flags{BinaryMarketIndexNone};
     std::uint16_t shardIndex{0u};
     BinaryMarketChannel channel{BinaryMarketChannel::BookTicker};
     BinaryMarketCompatibility compatibility{
         BinaryMarketCompatibility::Unavailable};
+    std::uint16_t initialAvailableMask{0u};
+    std::uint16_t initialUnhealthyMask{0u};
+    std::uint16_t initialAdminUnhealthyMask{0u};
+    std::uint16_t initialRecoveryPendingMask{0u};
+    std::uint16_t finalAvailableMask{0u};
+    std::uint16_t finalUnhealthyMask{0u};
+    std::uint16_t finalAdminUnhealthyMask{0u};
+    std::uint16_t finalRecoveryPendingMask{0u};
 };
 
 struct BinaryMarketGap final {
@@ -822,59 +1054,67 @@ struct BinaryMarketGap final {
 [[nodiscard]] inline bool validBinaryMarketRecord(
     const BinaryMarketRecord& record) noexcept {
     const auto& header = record.header;
-    const bool lifecycle=header.channel==BinaryMarketChannel::SourceLifecycle;
+    if (!validBinaryMarketRecordChannel(header.channel)) return false;
+    const auto stream = binaryMarketBlockStreamForRecord(header);
+    if (header.payloadBytes != binaryMarketStreamPayloadBytes(stream)) return false;
+    const bool lifecycle = header.channel == BinaryMarketChannel::SourceLifecycle;
     if (header.channel == BinaryMarketChannel::BookTicker) {
-        if (header.payloadBytes != sizeof(BinaryMarketBookTickerPayload) ||
-            !cxet::api::market::validMarketNativeEvidence(
+        if (!cxet::api::market::validMarketNativeEvidence(
                 binaryMarketPayload<BinaryMarketBookTickerPayload>(&record)->nativeEvidence)) return false;
     } else if (header.channel == BinaryMarketChannel::Trade) {
-        if (header.payloadBytes != sizeof(BinaryMarketTradePayload) ||
-            !cxet::api::market::validMarketNativeEvidence(
-                binaryMarketPayload<BinaryMarketTradePayload>(&record)->nativeEvidence)) return false;
-    } else if (header.channel == BinaryMarketChannel::Depth &&
-               (header.flags&BinaryMarketRecordDepthCoverage)!=0u) {
-        const auto& payload=*binaryMarketPayload<BinaryMarketDepthCoveragePayload>(&record);
-        if (header.payloadBytes!=sizeof(payload) || !validBinaryMarketDepthCoveragePayload(payload) ||
-            header.eventOrdinal!=payload.partIndex ||
-            header.sourceFlags!=(header.exchangeTimestampNs==0 ? BinaryMarketSourceExchangeTimestampMissing : BinaryMarketSourceHealthy) ||
-            (header.flags&(BinaryMarketRecordDepthSnapshot|BinaryMarketRecordDepthDelta|BinaryMarketRecordDepthState))!=0u ||
-            (header.flags&(BinaryMarketRecordDepthHasCoverage|BinaryMarketRecordDepthSourcePosition|
-                          BinaryMarketRecordTraderReplayCompatible))!=(BinaryMarketRecordDepthHasCoverage|
-                          BinaryMarketRecordDepthSourcePosition|BinaryMarketRecordTraderReplayCompatible) ||
-            (((header.flags&BinaryMarketRecordDepthTransactionEnd)!=0u)!=(payload.partIndex+1u==payload.partCount))) return false;
+        const auto& payload = *binaryMarketPayload<BinaryMarketTradePayload>(&record);
+        if (payload.reserved != decltype(payload.reserved){} ||
+            !cxet::api::market::validMarketNativeEvidence(payload.nativeEvidence)) return false;
+    } else if (header.channel == BinaryMarketChannel::Liquidation) {
+        if (binaryMarketPayload<BinaryMarketLiquidationPayload>(&record)->reserved !=
+            decltype(BinaryMarketLiquidationPayload::reserved){}) return false;
+    } else if (header.channel == BinaryMarketChannel::PriceLimit) {
+        if (binaryMarketPayload<BinaryMarketPriceLimitPayload>(&record)->reserved !=
+            decltype(BinaryMarketPriceLimitPayload::reserved){}) return false;
+    } else if (stream == BinaryMarketBlockStream::DepthCoverage) {
+        const auto& payload = *binaryMarketPayload<BinaryMarketDepthCoveragePayload>(&record);
+        if (!validBinaryMarketDepthCoveragePayload(payload) ||
+            header.eventOrdinal != payload.partIndex ||
+            header.sourceFlags != (header.exchangeTimestampNs == 0 ? BinaryMarketSourceExchangeTimestampMissing : BinaryMarketSourceHealthy) ||
+            (header.flags & (BinaryMarketRecordDepthSnapshot | BinaryMarketRecordDepthDelta | BinaryMarketRecordDepthState)) != 0u ||
+            (header.flags & (BinaryMarketRecordDepthHasCoverage | BinaryMarketRecordDepthSourcePosition |
+                             BinaryMarketRecordTraderReplayCompatible)) !=
+                (BinaryMarketRecordDepthHasCoverage | BinaryMarketRecordDepthSourcePosition | BinaryMarketRecordTraderReplayCompatible) ||
+            (((header.flags & BinaryMarketRecordDepthTransactionEnd) != 0u) != (payload.partIndex + 1u == payload.partCount))) return false;
     } else if (header.channel == BinaryMarketChannel::Depth) {
-        if (header.payloadBytes != sizeof(BinaryMarketDepthChunkPayload) ||
+        const auto& payload = *binaryMarketPayload<BinaryMarketDepthChunkPayload>(&record);
+        if (payload.reserved8 != 0u || payload.reserved16 != 0u ||
             !validBinaryMarketDepthNativeState(record) ||
-            !cxet::api::market::validMarketNativeEvidence(
-                binaryMarketPayload<BinaryMarketDepthChunkPayload>(&record)->nativeEvidence)) return false;
+            !cxet::api::market::validMarketNativeEvidence(payload.nativeEvidence)) return false;
     }
-    if (header.channel!=BinaryMarketChannel::Depth &&
-        (header.flags&(BinaryMarketRecordDepthCoverage|BinaryMarketRecordDepthHasCoverage|
-                      BinaryMarketRecordDepthTransactionEnd|BinaryMarketRecordDepthSourcePosition))!=0u) return false;
-    if ((header.flags&BinaryMarketRecordDepthSourcePosition)!=0u &&
-        (header.nativeIdentityShape!=0u || header.nativeIdentityFirst!=0u || header.nativeIdentitySecond!=0u)) return false;
-    if(lifecycle) {
-        const auto* p=binaryMarketPayload<BinaryMarketSourceLifecyclePayload>(&record);
-        if(header.payloadBytes!=sizeof(*p) || p->directoryRevision==0u ||
-           p->cause>BinaryMarketSourceTransitionCause::NativeClosed ||
-           (p->cause!=BinaryMarketSourceTransitionCause::Subscription &&
-            (p->kind!=BinaryMarketSourceLifecycleKind::DirectoryChanged || p->channelMaskBefore!=p->channelMaskAfter ||
-             p->affectedChannel==0u || p->affectedChannel>3u || p->requestSequence!=0u)) ||
-           (p->cause!=BinaryMarketSourceTransitionCause::Subscription &&
-            (p->source.configuredChannelMask&binaryMarketChannelBit(static_cast<BinaryMarketChannel>(p->affectedChannel)))==0u) ||
-           p->kind<BinaryMarketSourceLifecycleKind::Added || p->kind>BinaryMarketSourceLifecycleKind::DirectoryChanged ||
-           p->source.sourceId!=header.sourceId || p->source.initialSourceGeneration!=header.sourceGeneration ||
-           p->source.sourceId==0u || !validBinaryMarketSource(p->source,p->source.sourceId-1u) ||
-           (p->channelMaskBefore&~std::uint16_t{0xffu})!=0u || p->channelMaskAfter!=p->source.availableChannelMask ||
-           (p->affectedChannel!=0u && !validBinaryMarketChannel(static_cast<BinaryMarketChannel>(p->affectedChannel))) ||
-           (p->previousSourceGeneration==0u && p->kind!=BinaryMarketSourceLifecycleKind::Added) ||
-           (header.flags&BinaryMarketRecordTraderReplayCompatible)==0u || header.sourceFlags!=0u || header.nativeIdentityShape!=0u)
+    if (header.channel != BinaryMarketChannel::Depth &&
+        (header.flags & (BinaryMarketRecordDepthCoverage | BinaryMarketRecordDepthHasCoverage |
+                         BinaryMarketRecordDepthTransactionEnd | BinaryMarketRecordDepthSourcePosition)) != 0u) return false;
+    if ((header.flags & BinaryMarketRecordDepthSourcePosition) != 0u &&
+        (header.nativeIdentityShape != 0u || header.nativeIdentityFirst != 0u || header.nativeIdentitySecond != 0u)) return false;
+    if (lifecycle) {
+        const auto* p = binaryMarketPayload<BinaryMarketSourceLifecyclePayload>(&record);
+        if (p->directoryRevision == 0u ||
+            p->cause > BinaryMarketSourceTransitionCause::NativeClosed ||
+            (p->cause != BinaryMarketSourceTransitionCause::Subscription &&
+             (p->kind != BinaryMarketSourceLifecycleKind::DirectoryChanged || p->channelMaskBefore != p->channelMaskAfter ||
+              p->affectedChannel == 0u || p->affectedChannel > 3u || p->requestSequence != 0u)) ||
+            (p->cause != BinaryMarketSourceTransitionCause::Subscription &&
+             (p->source.configuredChannelMask & binaryMarketChannelBit(static_cast<BinaryMarketChannel>(p->affectedChannel))) == 0u) ||
+            p->kind < BinaryMarketSourceLifecycleKind::Added || p->kind > BinaryMarketSourceLifecycleKind::DirectoryChanged ||
+            p->source.sourceId != header.sourceId || p->source.initialSourceGeneration != header.sourceGeneration ||
+            p->source.sourceId == 0u || !validBinaryMarketSource(p->source, p->source.sourceId - 1u) ||
+            (p->channelMaskBefore & ~std::uint16_t{0xffu}) != 0u || p->channelMaskAfter != p->source.availableChannelMask ||
+            (p->affectedChannel != 0u && !validBinaryMarketChannel(static_cast<BinaryMarketChannel>(p->affectedChannel))) ||
+            (p->previousSourceGeneration == 0u && p->kind != BinaryMarketSourceLifecycleKind::Added) ||
+            (header.flags & BinaryMarketRecordTraderReplayCompatible) == 0u || header.sourceFlags != 0u || header.nativeIdentityShape != 0u) {
             return false;
+        }
     }
     return header.sourceId != 0u && header.sourceGeneration != 0u &&
            (lifecycle || header.sessionEpoch != 0u) && header.eventSequence != 0u &&
            (lifecycle || header.frameSequence != 0u) &&
-           (((header.flags&BinaryMarketRecordSourceLifecycle)!=0u)==lifecycle) &&
+           (((header.flags & BinaryMarketRecordSourceLifecycle) != 0u) == lifecycle) &&
            header.exchangeTimestampNs >= 0 &&
            (((header.flags &
               BinaryMarketRecordExchangeTimestampMissing) != 0u) ==
@@ -883,7 +1123,6 @@ struct BinaryMarketGap final {
            header.shardSequence != 0u &&
            header.payloadBytes != 0u &&
            header.payloadBytes <= kBinaryMarketPayloadBytes &&
-           validBinaryMarketRecordChannel(header.channel) &&
            (header.nativeIdentityShape == 0u
                 ? header.nativeIdentityFirst == 0u && header.nativeIdentitySecond == 0u
                 : header.nativeIdentityShape == 1u
@@ -901,29 +1140,30 @@ struct BinaryMarketGap final {
            header.reserved == 0u;
 }
 
-
 static_assert(sizeof(BinaryMarketRecordHeader) == 104u);
-static_assert(offsetof(BinaryMarketRecordHeader,channel) == 94u);
-static_assert(offsetof(BinaryMarketRecordHeader,eventOrdinal) == 96u);
-static_assert(offsetof(BinaryMarketRecord,payload) == 104u);
+static_assert(offsetof(BinaryMarketRecordHeader, channel) == 94u);
+static_assert(offsetof(BinaryMarketRecordHeader, eventOrdinal) == 96u);
+static_assert(offsetof(BinaryMarketRecord, payload) == 104u);
 static_assert(sizeof(BinaryMarketDepthLevel) == 24u);
-static_assert(sizeof(BinaryMarketDepthChunkPayload) ==
-              kBinaryMarketPayloadBytes);
+static_assert(sizeof(BinaryMarketDepthChunkPayload) == kBinaryMarketPayloadBytes);
 static_assert(sizeof(BinaryMarketManifest) == 192u);
-static_assert(offsetof(BinaryMarketManifest,producerEpoch) == 8u);
-static_assert(offsetof(BinaryMarketManifest,manifestCrc32c) == 132u);
+static_assert(offsetof(BinaryMarketManifest, producerEpoch) == 8u);
+static_assert(offsetof(BinaryMarketManifest, manifestCrc32c) == 132u);
 static_assert(sizeof(BinaryMarketTradePayload) == 80u);
 static_assert(sizeof(BinaryMarketBookTickerPayload) == 88u);
-static_assert(sizeof(BinaryMarketDepthCoverage)==144u);
-static_assert(sizeof(BinaryMarketDepthCoveragePayload)==736u);
+static_assert(sizeof(BinaryMarketDepthCoverage) == 144u);
+static_assert(sizeof(BinaryMarketDepthCoveragePayload) == 736u);
 static_assert(sizeof(BinaryMarketRecord) == 1024u);
 static_assert(sizeof(BinaryMarketTableHeader) == 64u);
 static_assert(sizeof(BinaryMarketSegmentHeader) == 128u);
 static_assert(sizeof(BinaryMarketBlockHeader) == 64u);
+static_assert(sizeof(BinaryMarketBlockDirectoryEntry) == 72u);
 static_assert(sizeof(BinaryMarketSegmentFooter) == 64u);
+static_assert(sizeof(BinaryMarketIndexEntry) == 136u);
 static_assert(std::is_trivially_copyable_v<BinaryMarketManifest>);
 static_assert(std::is_trivially_copyable_v<BinaryMarketSource>);
 static_assert(std::is_trivially_copyable_v<BinaryMarketRecord>);
+static_assert(std::is_trivially_copyable_v<BinaryMarketBlockDirectoryEntry>);
 static_assert(std::is_trivially_copyable_v<BinaryMarketIndexEntry>);
 static_assert(std::is_trivially_copyable_v<BinaryMarketGap>);
 
