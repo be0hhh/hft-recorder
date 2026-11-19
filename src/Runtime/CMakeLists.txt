@@ -22,23 +22,8 @@ set_target_properties(hftrec_recording_groups PROPERTIES POSITION_INDEPENDENT_CO
 # Full keeps NativeMarketCapture in hftrec_core alongside these same objects.
 add_library(hftrec_json_capture OBJECT
     src/Capture/Session/SessionId.cpp
-    src/Capture/Serialization/ChannelJsonWriter.cpp
-    src/Capture/Serialization/JsonSerializers.cpp
     src/Capture/Session/SupportArtifacts.cpp
-    src/Capture/Coordinator/CaptureChannelSupport.cpp
-    src/Capture/Coordinator/CaptureCoordinatorInternal.cpp
-    src/Capture/Coordinator/CaptureCoordinator.cpp
-    src/Capture/Coordinator/CaptureCoordinatorRuntime.cpp
-    src/Capture/Coordinator/CaptureCoordinatorRuntimeLoops.cpp
-    src/Capture/Coordinator/VenueMultiplexCapture.cpp
-    src/Corpus/CorpusLoader.cpp
     src/Corpus/InstrumentMetadata.cpp
-    src/Corpus/Storage/EventStorage.cpp
-    src/Corpus/Storage/JsonSessionStorage.cpp
-    src/Replay/BookState.cpp
-    src/Replay/SessionReplay.cpp
-    src/Replay/SessionReplayTimeline.cpp
-    ../Process/src/Finam/FinamEnvSync.cpp
 )
 target_include_directories(hftrec_json_capture
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -56,26 +41,8 @@ if(CXET_LOCAL_TESTS)
 endif()
 
 set(HFTREC_CORE_SOURCES
-    ../Lab/src/Arbitrage/BookTickerSpread.cpp
-    ../Lab/src/Arbitrage/BookTickerSpreadMean.cpp
-    ../Lab/src/Arbitrage/CandleSpread.cpp
-    src/Capture/Serialization/Candles2BulkState.cpp
-    src/Capture/Coordinator/RecorderCaptureSession.cpp
-    src/Capture/Coordinator/RecorderReferenceCapture.cpp
-    src/Corpus/Codec/VarInt.cpp
-    src/Execution/ExecutionVenue.cpp
     src/History/BinanceVisionFormat.cpp
     src/History/ZipReader.cpp
-    src/Corpus/Block/FileHeader.cpp
-    src/Corpus/Block/BlockHeader.cpp
-    src/Corpus/Block/BlockWriter.cpp
-    src/Corpus/Block/BlockReader.cpp
-    ../Lab/src/BookFrameSampler.cpp
-    ../Lab/src/LabRunner.cpp
-    ../Lab/src/RankingEngine.cpp
-    src/Replay/RecorderApi.cpp
-    src/Replay/RecorderReplaySelection.cpp
-    src/Replay/RecorderReplayRows.cpp
     ../Process/src/Tui/RecorderTuiLaunch.cpp
     ../Process/src/Tui/RecorderTuiPreset.cpp
     ../Process/src/Tui/RecorderTuiShard.cpp
@@ -83,12 +50,6 @@ set(HFTREC_CORE_SOURCES
     ../Process/src/Tui/Status/RecorderTuiShardStatus.cpp
     ../Process/src/Tui/TerminalRender.cpp
     src/Validation/ValidationRunner.cpp
-)
-
-list(APPEND HFTREC_CORE_SOURCES
-    src/Capture/Coordinator/CaptureCoordinatorBulk.cpp
-    src/Capture/Session/MarketData/NativeMarketCapture.cpp
-    src/Capture/Session/Bridge/CxetCaptureBridge.cpp
 )
 
 add_library(hftrec_core STATIC ${HFTREC_CORE_SOURCES})
@@ -107,7 +68,6 @@ target_link_libraries(hftrec_core
     PUBLIC
         hftrec_json_capture
         hftrec::corpus_contract
-        hftrec::capture_launch
         hftrec::capture_client
         hftp_client_headers
         hft_parser::current_reference_client

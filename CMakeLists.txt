@@ -29,12 +29,6 @@ set(HFTREC_WITH_CXET ON)
 
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
-if(HFTREC_BUILD_GUI)
-    find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2 Network)
-    set(CMAKE_AUTOMOC ON)
-    set(CMAKE_AUTORCC ON)
-    set(CMAKE_AUTOUIC ON)
-endif()
 
 # Reuse prepared providers. Source/package acquisition is separate from build.
 
@@ -49,8 +43,5 @@ add_subdirectory(src)
 
 if(HFTREC_BUILD_APP_TARGETS)
     add_custom_target(hft-recorder-product DEPENDS hft-recorder hft-recorderd history)
-    if(HFTREC_BUILD_GUI)
-        add_dependencies(hft-recorder-product hft-recorder-gui)
-    endif()
     add_custom_target(hft-recorder-all DEPENDS hft-recorder-product)
 endif()

@@ -4,15 +4,6 @@
 add_subdirectory(Runtime)
 add_subdirectory(Service)
 
-if(HFTREC_BUILD_APP_TARGETS OR HFTREC_BUILD_GUI)
-    add_subdirectory(Lab/Codecs)
-    add_subdirectory(Lab/Variants)
-endif()
-
 if(HFTREC_BUILD_APP_TARGETS)
     add_subdirectory(Process)
-endif()
-
-if(HFTREC_BUILD_GUI)
-    add_subdirectory(Gui)
 endif()
